@@ -1,0 +1,30 @@
+// Flat color palette exposed as --tint-* CSS variables on :root. The palette
+// leans on Baden-Württemberg's black/gold identity. The dark surface used by
+// the admin overlay overrides these vars locally in its own scoped style.
+
+$colors: (
+  bg: #ffffff,
+  text: #1c1c1c,
+  text-secondary: #4e4e4e,
+  text-accent: #d4a10a,
+  text-link: #9a6f00,
+  action-primary: #1c1c1c,
+  action-primary-text: #ffd34d,
+  action-primary-hover: #333333,
+  action-primary-active: #000000,
+  action-secondary: #1c1c1c,
+  action-secondary-text: #1c1c1c,
+  action-secondary-hover: rgba(28, 28, 28, 0.08),
+  action-secondary-active: rgba(28, 28, 28, 0.16),
+  input-bg: #f2f0e9,
+  card-border: rgba(0, 0, 0, 0.1),
+  card-shadow: '0 5px 40px #0000001a, inset 0 2px 0 -1px #ffffff80',
+);
+
+@mixin emit-color-variables {
+  :root {
+    @each $key, $value in $colors {
+      --tint-#{$key}: #{$value};
+    }
+  }
+}

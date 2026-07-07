@@ -1,0 +1,70 @@
+# barnguard printer-daemon configuration.
+# Copy to `config.toml` and edit, or override any key via env
+# vars named PRINTER_DAEMON_<KEY> (e.g. PRINTER_DAEMON_BACKEND=tcp).
+
+# "mock"  → simulated printer; writes received JPEGs to `mock.out_dir`.
+# "tcp"   → real Brother VC-500W over the network (requires [printer].host).
+backend = "mock"
+
+# Address the HTTP + SSE server binds to. The web app reaches it here.
+bind = "127.0.0.1:9110"
+
+# Browser origins allowed by CORS. In dev the Vite proxy makes requests
+# same-origin so this isn't strictly needed; on the kiosk (app served from a
+# static server / file://) keep it permissive; there is no security boundary
+# on the locked-down booth network.
+allowed_origins = ["http://localhost:5173"]
+
+# Max entries kept in the in-memory message log shown in the attendant panel.
+log_buffer_size = 100
+
+# Directory for persisted state (state.json, games.json). Created on boot if
+# missing. Relative paths resolve against the working directory. For systemd
+# deploys, point this at something writable like /var/lib/barnguard.
+data_dir = "./data"
+
+[printer]
+# Reserved static IP / mDNS host of the VC-500W (tcp backend only).
+host = ""
+port = 9100
+connect_timeout_ms = 3000
+response_timeout_ms = 10000
+# Long timeout for the completion ack after the JPEG is sent.
+print_timeout_ms = 120000
+
+[print]
+mode = "vivid"      # "vivid" (317 lpi) | "normal" (264 lpi, faster)
+cut_mode = "full"   # "full" | "half" | "none"
+# 0 => let the printer autofit (recommended). The web app renders the JPEG at
+# the correct square pixel dimensions; the printer scales to the tape width.
+img_width = 0
+img_height = 0
+
+[timing]
+# Wait after closing the socket (which triggers the cut) before reconnecting.
+cut_wait_ms = 3000
+# Interval between status polls while waiting for the printer to return to idle.
+poll_interval_ms = 2500
+# Give up waiting for idle after this long (the label has almost certainly
+# printed; surfaced as a warning, not a failure).
+idle_timeout_ms = 30000
+# Idle status poll cadence. Adaptive: the daemon uses the SLOW
+# `keepalive_interval_ms` when the booth is quiet (just enough to prevent the
+# printer's auto-sleep), and ramps up to the FAST `active_interval_ms` while a
+# job is running or recently finished, so the panel stays fresh during use.
+# After `active_linger_ms` with no activity it relaxes back to the slow rate.
+keepalive_interval_ms = 30000
+active_interval_ms = 3000
+active_linger_ms = 30000
+# Whole-job retries on timeout/disconnect. Kept at 1 to avoid duplicate labels.
+max_retries = 1
+
+[mock]
+out_dir = "./mock-out"
+print_ms = 1500
+cut_ms = 800
+# Default tape width the mock reports (mm). 25mm ≈ the common CZ-1004 cassette.
+tape_width_mm = 25.0
+# Start-up fault injection (also toggleable live via POST /api/printer/debug/mock).
+force_no_media = false
+force_awaiting_removal = false

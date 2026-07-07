@@ -1,0 +1,7 @@
+// Single entry point that Vite/svelte-preprocess auto-prepend to every SASS
+// block (see vite.config.ts and svelte.config.js). Components reach the
+// spacing tokens, the `type-class` mixin, and the focus mixin via the `tint`
+// namespace (kept for historical continuity — the tint package itself is
+// gone).
+@forward "./tokens"
+@forward "./typography"

@@ -1,0 +1,42 @@
+// Spacing scale and shared visual constants. Mirrors the tint token names so
+// existing components can keep using `tint.$size-*` after tint itself is gone.
+
+$size-2: 2px
+$size-4: 4px
+$size-8: 8px
+$size-12: 12px
+$size-16: 16px
+$size-24: 24px
+$size-32: 32px
+$size-40: 40px
+$size-48: 48px
+$size-64: 64px
+$size-80: 80px
+
+$button-radius-large: $size-12
+$button-radius-small: $size-80
+$input-radius: $size-8
+$card-radius: $size-12
+
+$button-border-width: $size-2
+
+// Accessible focus ring — same shape tint used, but pointed at our own vars.
+@mixin effect-focus-base
+  outline: 2px solid var(--tint-action-primary)
+  outline-offset: 2px
+  @media (forced-colors: active)
+    outline-color: CanvasText
+
+@mixin effect-focus
+  &:focus-visible
+    @include effect-focus-base
+
+// Shared dark-card visual base. Used by both the game-over "data lost"
+// card and the pause overlay so tweaks to one flow to the other. Only
+// the colour + rounding + clipping — layout (padding, gap, flex) stays
+// with each consumer because they compose the card differently.
+@mixin dark-card
+  background: #010612
+  color: #ffffff
+  border-radius: $size-32
+  overflow: hidden

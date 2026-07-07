@@ -1,0 +1,41 @@
+[package]
+name = "printer-daemon"
+edition.workspace = true
+version.workspace = true
+description = "Local print-queue daemon for the barnguard booth: wraps printer-driver with a queue, HTTP + SSE API, and (optional) embedded web UI."
+publish = false
+
+[lib]
+name = "printer_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "barnguard-server"
+path = "src/main.rs"
+
+[dependencies]
+printer-driver = { path = "../printer-driver" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+toml = "0.8"
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures-util = "0.3"
+clap = { version = "4", features = ["derive", "env"] }
+rust-embed = { version = "8", features = ["mime-guess"], optional = true }
+
+[features]
+# Embed the built SPA (../../web/dist) into the binary and serve it. Enable for
+# release/deploy builds (after `npm --prefix web run build`). Off by default so
+# dev/test builds don't require `web/dist/` to exist.
+embed-web = ["dep:rust-embed"]
+
+[dev-dependencies]
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }

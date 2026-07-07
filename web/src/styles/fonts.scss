@@ -1,0 +1,43 @@
+// Local @font-face declarations for the Mozilla type family. Only the weights
+// referenced by the typography map are shipped to keep the bundle small.
+
+@font-face {
+  font-family: 'Mozilla Headline';
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaHeadline-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Mozilla Text';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaText-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Mozilla Text';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaText-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Mozilla Text';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaText-Bold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Mozilla Headline Extended';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaHeadlineExtended-Bold.woff2')
+    format('woff2');
+}

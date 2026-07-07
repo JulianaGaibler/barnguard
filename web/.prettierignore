@@ -1,0 +1,14 @@
+node_modules
+dist
+build
+.DS_Store
+*.svg
+*.sass
+*.scss
+*.woff
+*.woff2
+*.jpeg
+*.jpg
+*.png
+*.mp4
+*.ico

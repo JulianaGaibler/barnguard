@@ -1,0 +1,47 @@
+# Dependencies
+node_modules
+
+# Build output
+build
+/release
+/release-linux
+
+# Vite SPA output. Directory itself is tracked (via .gitkeep) so rust-embed
+# compiles on a fresh clone before `npm --prefix web run build`.
+/web/dist/*
+!/web/dist/.gitkeep
+
+# Rust
+/target
+/mock-out
+/data
+/config.toml
+
+# Editor / IDE / OS
+.DS_Store
+.idea
+.vscode
+
+# Local env / secrets
+*.local
+.env
+.env.*
+!.env.example
+
+# Vite
+.vite
+vite.config.ts.timestamp-*
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+yarn-debug.log*
+
+# Test coverage + TypeScript incremental builds
+coverage
+*.tsbuildinfo
+
+# SvelteKit (defensive — not currently used)
+.svelte-kit
