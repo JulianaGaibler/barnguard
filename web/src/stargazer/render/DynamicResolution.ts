@@ -1,26 +1,14 @@
 /**
- * Dynamic-resolution policy for a {@link Stage}. Decides, once per frame, the
- * render-scale the backing store should use so pixel-bound cost (clear, blit,
- * fresh vector re-raster, composite) can be traded off against sharpness.
+ * Dynamic-resolution policy for a Stage. Two policies share one state machine:
  *
- * Two policies share one state machine:
+ * - Transition: while the camera animates, drop to `motionScale`. On settle,
+ *   hold for `settleDwellMs` (so tap-spam doesn't thrash resizes), then ramp
+ *   up over `settleStepFrames` (staggered step-up hides the "pop").
+ * - Adaptive governor: EMA of raw frame time nudges a baseline scale via
+ *   hysteresis, evaluated every `evalIntervalFrames`. Gated off during
+ *   motion so zoom cost doesn't drive the steady baseline down.
  *
- * - **Transition (b)**, while the camera animates, drop to `motionScale`; motion
- *   masks the softness. On settle, hold the low scale for a short
- *   `settleDwellMs` (so tap-spamming a zoom target doesn't thrash the
- *   backing-store resize), then ramp back up over `settleStepFrames` frames (a
- *   staggered step-up hides the sharpness "pop" without a dual-bake).
- * - **Adaptive governor (a)**, a steady-state safety net for overload that isn't
- *   a camera move (busy packet field, full grid pulse). An EMA of the RAW frame
- *   time nudges a baseline scale down/up with a hysteresis deadband, evaluated
- *   every `evalIntervalFrames`. Gated OFF during any motion transition, zoom
- *   frames are expected-expensive and self-limiting, so they must not drive the
- *   steady baseline down.
- *
- * The class is PURE: `update(nowMs, camMoving)` is deterministic given its
- * inputs, so it unit-tests without a real clock or canvas. `nowMs` must be a
- * RAW wall-clock timestamp (`performance.now()`), NOT the engine's `dt`, which
- * is clamped to 1/30 s and would hide any miss above the clamp.
+ * PURE. `nowMs` must be raw `performance.now()`, NOT engine `dt` (clamped).
  */
 export interface DynamicResolutionOptions {
   /** Master switch, when false, `update` always returns 1. */

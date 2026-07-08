@@ -1,23 +1,16 @@
 /**
- * Typed client for the printer-daemon HTTP + SSE API, plus a Svelte store
- * (`printerLive`) that mirrors the live queue/printer status over SSE.
+ * Typed client for the printer-daemon HTTP + SSE API. `printerLive` mirrors
+ * queue/printer status over one EventSource per subscription cycle.
  *
- * The SSE stream carries every push the app cares about — printer status, queue
- * snapshots, per-job updates, operator log, and the game log (`games` /
- * `game.created` / `game.deleted`). One `EventSource` per subscription cycle
- * serves all of it.
- *
- * Connection lifecycle: a small state machine drives `printer­Live.connection`
- * through `connecting → online → offline` and back. It:
- *
- * - Retries on ANY `onerror` (never depends on `readyState === CLOSED`, since
- *   Vite's proxy 502s stall the EventSource in `CONNECTING`),
- * - Runs a 5 s heartbeat tick and forces a reopen if no message has arrived in 20
- *   s (the daemon pings every 15 s, so a single miss is fine),
- * - Backs off exponentially (1 → 15 s cap), and
- * - Resets to 1 s on `onopen` or on an operator-triggered `forceReopen` (the
- *   "Reconnect printer" button, or a successful `robustFetch` while the stream
- *   is down — a fresh 2xx proves the daemon is alive).
+ * Connection state machine (`connecting → online → offline`):
+ * - Retries on ANY `onerror`, never checks `readyState`. Vite's proxy 502
+ *   stalls the EventSource in `CONNECTING`, so a `CLOSED` check would never
+ *   fire.
+ * - 5 s heartbeat tick, reopen if no named event arrives in 25 s. The
+ *   daemon's `ping` event fires every 15 s. Its comment keep-alive is
+ *   byte-level only, browsers don't dispatch comment lines to EventSource
+ *   handlers, so we can't observe them.
+ * - Exponential backoff 1 → 15 s, resets on `onopen` or `forceReopen`.
  */
 
 import { readable, type Readable } from 'svelte/store'
@@ -33,8 +26,8 @@ import type { GameRecord } from '@src/lib/gameLogClient'
 import { setDaemonConfig, type DaemonConfig } from '@src/stores/daemonConfig'
 
 /**
- * Daemon base URL. Empty string → same-origin (dev uses the Vite proxy for
- * `/api/printer`; prod sets `VITE_PRINTER_DAEMON_URL` to the daemon origin).
+ * Daemon base URL. Empty = same-origin (dev via Vite proxy). Prod sets
+ * `VITE_PRINTER_DAEMON_URL` to the daemon origin.
  */
 const BASE: string = import.meta.env.VITE_PRINTER_DAEMON_URL ?? ''
 const API = `${BASE}/api/printer`
@@ -43,25 +36,18 @@ const API = `${BASE}/api/printer`
 export type ConnectionState = 'online' | 'connecting' | 'offline'
 
 /**
- * Hooks registered by `printerLive`'s start function so external code (the HTTP
- * fetch layer, the Reconnect button) can nudge the SSE state without
- * cross-imports. All null before the first subscriber and after the last
- * unsubscribes.
+ * Hooks the fetch layer and Reconnect button use to nudge SSE state without
+ * cross-imports. Null when no subscriber is attached.
  */
 let signalBackendUnreachable: (() => void) | null = null
 let signalBackendMaybeUp: (() => void) | null = null
 let sseForceReopen: (() => void) | null = null
 
 /**
- * Wraps `fetch` so the SSE state stays in sync with what the HTTP path knows
- * about backend liveness:
- *
- * - Network error or 5xx → treat as "daemon dead", nudge SSE offline + kick the
- *   retry loop early (don't wait for the browser to notice).
- * - 2xx → treat as "daemon alive"; if the SSE is stuck disconnected, force it to
- *   reopen immediately (bridges the "click Reconnect while SSE is dead" case).
- * - 4xx → business error; do not touch connection state. The response is returned
- *   unchanged; callers decide error handling.
+ * `fetch` wrapper that keeps SSE state in sync with HTTP liveness.
+ * - Network error or 5xx nudges SSE offline and kicks the retry loop early.
+ * - 2xx force-reopens the SSE if it's currently offline.
+ * - 4xx is a business error, connection state untouched.
  */
 export async function robustFetch(
   input: RequestInfo | URL,
@@ -134,12 +120,9 @@ export async function clearQueue(): Promise<{ cleared: number }> {
 }
 
 /**
- * Nudge the daemon to reconnect to the physical printer and poll status
- * immediately. Also forces the client SSE to reopen right away — one button,
- * one mental model ("try everything"). If the daemon is down the POST fails
- * (network error / 5xx via Vite), which `robustFetch` already reflects in the
- * connection state; we still force-reopen so recovery is instant when the
- * daemon returns.
+ * Nudge the daemon to reconnect to the printer, and force-reopen the SSE.
+ * Two-fer for the "try everything" Reconnect button. Force-reopen runs even
+ * if the POST fails so recovery is instant when the daemon returns.
  */
 export async function reconnect(): Promise<void> {
   try {
@@ -152,18 +135,17 @@ export async function reconnect(): Promise<void> {
 }
 
 /**
- * Force an immediate SSE reopen (bypasses the backoff timer, resets backoff to
- * the base 1 s). Safe to call while the stream is already online — it will
- * still tear down + reconnect. No-op before any subscriber is attached.
+ * Force an immediate SSE reopen, bypassing backoff and resetting it to 1 s.
+ * Safe on an already-online stream (tears down + reconnects). No-op before
+ * any subscriber is attached.
  */
 export function forceReopenSse(): void {
   sseForceReopen?.()
 }
 
 /**
- * Ask the daemon to re-read `config.toml` from disk. The daemon applies the
- * `[client]` values and broadcasts them over SSE, so the update lands in
- * `daemonConfig` on its own — no client-side refetch needed here.
+ * Ask the daemon to re-read `config.toml`. The daemon broadcasts the new
+ * effective config over SSE, `daemonConfig` updates on its own.
  */
 export async function reloadConfig(): Promise<void> {
   const res = await robustFetch(`${API}/config/reload`, { method: 'POST' })
@@ -171,10 +153,8 @@ export async function reloadConfig(): Promise<void> {
 }
 
 /**
- * Set an in-memory label-URL override on the daemon (supersedes `config.toml`
- * until reset). The daemon echoes the new effective config back over SSE, so
- * `daemonConfig` updates on its own — no refetch here. Escape hatch for
- * changing the printed URL last-minute without editing files.
+ * In-memory label-URL override, supersedes `config.toml` until reset. Daemon
+ * echoes new config over SSE. Escape hatch for last-minute changes.
  */
 export async function setLabelUrlOverride(labelUrl: string): Promise<void> {
   const res = await robustFetch(`${API}/config/override`, {
@@ -218,10 +198,8 @@ export interface PrinterLiveState {
   /** Recent daemon log messages, oldest → newest. */
   logs: LogEntry[]
   /**
-   * SSE state. `'connecting'` covers both the very first attempt and any
-   * mid-session retry between failed and successful `open()`s — read it as
-   * "trying, not sure yet". `'offline'` means we've given up on the current
-   * socket and are waiting on the backoff timer.
+   * SSE state. `'connecting'` = trying (first attempt or mid-session retry).
+   * `'offline'` = gave up on the current socket, waiting on backoff timer.
    */
   connection: ConnectionState
   /** Full game log, newest-first. Fed by the same SSE stream. */
@@ -245,8 +223,12 @@ const LOG_RETAIN = 25
 const BACKOFF_INITIAL_MS = 1_000
 const BACKOFF_MAX_MS = 15_000
 const HEARTBEAT_TICK_MS = 5_000
-/** No message in this long → treat as dead. Server pings every 15 s. */
-const HEARTBEAT_TIMEOUT_MS = 20_000
+/**
+ * No named event in this long = dead. Must exceed the daemon's 15 s `ping`
+ * cadence with headroom for jitter. Two back-to-back missed pings still
+ * trip it. SSE comment keep-alives don't dispatch, only named events count.
+ */
+const HEARTBEAT_TIMEOUT_MS = 25_000
 
 function applyJob(state: PrinterLiveState, job: PrintJob): PrinterLiveState {
   const replace = (list: PrintJob[]): PrintJob[] =>
@@ -359,10 +341,8 @@ export const printerLive: Readable<PrinterLiveState> =
       listen<LogEntry>('log', (entry) => {
         update({ logs: [...state.logs, entry].slice(-LOG_RETAIN) })
       })
-      // Client-facing daemon config. Sent once in the connect snapshot, then
-      // again whenever an operator hits "Reload config". Lives in its own store
-      // (not `printerLiveState`); `onopen`'s log-clear doesn't touch it, and the
-      // default persists until the first snapshot arrives.
+      // Daemon config lives in its own store, `onopen`'s log-clear doesn't
+      // touch it. Default persists until the first snapshot arrives.
       listen<DaemonConfig>('config', (c) => setDaemonConfig(c))
       // Game log: server sends `games` (full snapshot, oldest → newest) once
       // on connect, then `game.created` / `game.deleted` incrementally.
@@ -379,7 +359,9 @@ export const printerLive: Readable<PrinterLiveState> =
         if (!id) return
         update({ games: state.games.filter((g) => g.id !== id) })
       })
-      // Keep-alive `ping` and any un-typed message also count as liveness.
+      // Daemon keep-alive. Payload ignored, receipt alone is proof of life.
+      // Body isn't JSON so bypass `listen`.
+      newEs.addEventListener('ping', () => bumpHeartbeat())
       newEs.onmessage = () => bumpHeartbeat()
 
       newEs.onopen = () => {
@@ -389,9 +371,8 @@ export const printerLive: Readable<PrinterLiveState> =
         update({ connection: 'online', logs: [] })
       }
       newEs.onerror = () => {
-        // Unconditional retry — never gate on `readyState`. Vite's proxy 502
-        // for a dead upstream leaves EventSource in `CONNECTING` forever, so
-        // relying on `CLOSED` means we'd never retry in dev.
+        // Unconditional retry, never checks `readyState`. Vite's proxy 502
+        // leaves EventSource stuck in `CONNECTING` forever.
         scheduleReopen()
       }
     }
@@ -403,9 +384,8 @@ export const printerLive: Readable<PrinterLiveState> =
       if (state.connection !== 'offline') scheduleReopen()
     }
     signalBackendMaybeUp = (): void => {
-      // Fetch succeeded → daemon is definitely alive. Only kick a reopen if
-      // we've *given up* (offline). During 'connecting' we're already trying,
-      // and interrupting would churn the freshly-opened socket on first paint.
+      // 2xx = daemon alive. Only kick a reopen if we've given up; during
+      // 'connecting' interrupting would churn the fresh socket.
       if (state.connection === 'offline') forceReopen()
     }
     sseForceReopen = forceReopen

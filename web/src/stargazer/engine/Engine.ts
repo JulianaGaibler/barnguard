@@ -28,9 +28,8 @@ export interface EngineOptions {
   canvas: HTMLCanvasElement
   clearColor?: string
   /**
-   * If true the canvas is composited transparently, the frame clear uses
-   * `clearRect` so whatever CSS background lives behind the canvas shows
-   * through. `clearColor` is ignored in this mode.
+   * Composite the canvas transparently, frame clear uses `clearRect` so the
+   * CSS background shows through. `clearColor` is ignored in this mode.
    */
   transparent?: boolean
   fixedStepHz?: number
@@ -38,27 +37,19 @@ export interface EngineOptions {
   /** Initial camera viewport in world coords. Default 1920×1080. */
   initialViewport?: Rect
   /**
-   * Dynamic-resolution policy for the PRIMARY stage. Presence of this key
-   * enables it (with `DEFAULT_DYNAMIC_RESOLUTION` for anything unspecified);
-   * pass `{ enabled: false }` to keep it off explicitly. Secondary stages
-   * (attached via `attachStage`) never get it. See `DynamicResolution`.
+   * Dynamic-resolution policy for the primary stage. Presence enables it,
+   * pass `{ enabled: false }` to keep it off. Secondary stages don't get it.
    */
   dynamicResolution?: Partial<DynamicResolutionOptions>
   /**
-   * Renderer backend for the primary stage, and, by inheritance, the default
-   * for any secondary stages attached later. Default `'canvas2d'`. Set to
-   * `'gpu'` to route drawing through the WebGL2 backend (Phase 1 renders grid
-   *
-   * - Particles + static-as-quad; other primitives no-op until Phase 2).
-   *   Typically set via `EngineHost`'s `?renderer=gpu` URL flag rather than
-   *   passed explicitly.
+   * Renderer backend for the primary stage. Default `'canvas2d'`. Secondary
+   * stages inherit unless overridden. Typically set via `?renderer=gpu`.
    */
   renderer?: RendererMode
   /**
-   * MSAA sample count for the GPU render target. `0`/`1` disables MSAA; `> 1`
-   * allocates a multisample color renderbuffer resolved on present. Default 4
-   * under GPU. Threaded to the primary stage and inherited by secondary stages
-   * via `attachStage` unless overridden. No effect under Canvas mode.
+   * MSAA sample count under GPU. `0`/`1` disables, `>1` allocates a
+   * multisample renderbuffer resolved on present. Default 4. Secondary
+   * stages inherit. No effect under Canvas.
    */
   msaaSamples?: number
 }
@@ -68,23 +59,15 @@ export interface EngineOptions {
 const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1920, height: 1080 }
 
 /**
- * The core engine, composes ticker, primary stage, input, animation, and the
- * outgoing event bus. One `Ticker` and one `Animator` drive the primary stage
- * plus any secondary stages attached via `attachStage(canvas, opts)`.
- *
- * `debug` is `null` in production. When constructed by `EngineHost` with
- * `?debug` in the URL, it points at a `DebugController` and the primary stage's
- * render pass routes through the debug camera + overlay accordingly. Secondary
- * stages never receive the debug overlay.
+ * Core engine. Composes ticker, primary stage, input, animation, event bus.
+ * One `Ticker` and one `Animator` drive the primary stage and any secondary
+ * stages from `attachStage`. `debug` is null unless `?debug` is set.
  */
 export class Engine {
   readonly ticker: Ticker
   readonly events: Emitter<EngineEvents>
   readonly canvas: HTMLCanvasElement
-  /**
-   * The primary render surface. `engine.{renderer,scene,camera,layers}` are
-   * getters onto this.
-   */
+  /** Primary render surface. Legacy `engine.{renderer,scene,camera,layers}` getters delegate here. */
   readonly primaryStage: Stage
   readonly animation: Animator
   /** Renderer backend selected at construction, secondary stages inherit. */
@@ -92,25 +75,17 @@ export class Engine {
   /** MSAA sample count inherited by secondary stages under GPU. */
   readonly msaaSamples: number
   /**
-   * Wall-clock **CPU work** spent inside the most recent `frame()`, in SECONDS
-   * to match the ticker's `dt` units so `FrameStats` can consume both
-   * interchangeably. This is NOT the vsync-locked rAF interval: measured from
-   * `performance.now()` at frame entry to `.now()` at the end of the render
-   * walk, so idle waits between frames (which the browser inserts to align with
-   * the display refresh) don't inflate the reading. Under 60 Hz vsync, a
-   * well-behaved frame reads ~1-10 ms here even though the rAF interval is
-   * always ~16.67 ms.
+   * CPU work inside the last `frame()`, in seconds. NOT the vsync interval,
+   * measured entry-to-render-end so idle waits don't inflate it. Well-behaved
+   * 60 Hz reads 1-10 ms here despite the 16.67 ms rAF interval.
    */
   lastFrameWorkSec = 0
 
   debug: DebugController | null = null
   /**
-   * When true, per-node `onUpdate` and `draw` calls are wrapped in
-   * `performance.mark()` / `performance.measure()`. DevTools Performance → User
-   * Timing lane then shows a per-frame flame chart of every node's cost. Off by
-   * default; opt in via `?debug=perf` URL flag or by setting `engine.perfMarks
-   * = true` at runtime. When off, the per-node overhead is a single boolean
-   * check.
+   * When true, wraps per-node `onUpdate` and `draw` in `performance.mark` /
+   * `measure`. DevTools User Timing lane shows a per-node flame chart. Opt
+   * in via `?debug=perf`. Off overhead is one boolean check per node.
    */
   perfMarks = false
 
@@ -131,9 +106,7 @@ export class Engine {
     })
     this.rendererMode = opts.renderer ?? 'canvas2d'
     this.msaaSamples = opts.msaaSamples ?? 4
-    // Primary stage owns the renderer / scene / camera / layers / input.
-    // `interactive: true` attaches an InputSystem to its canvas, the primary
-    // is always interactive.
+    // Primary stage is always interactive.
     this.primaryStage = new Stage(opts.canvas, this, {
       initialViewport: opts.initialViewport ?? DEFAULT_VIEWPORT,
       clearColor: opts.clearColor,
@@ -232,11 +205,9 @@ export class Engine {
   }
 
   /**
-   * Attach a secondary `Stage` to `canvas`. Its scene, camera, and static-layer
-   * cache are independent from the primary stage's, but it shares the ticker
-   * and animator, tweens on its nodes stay in sync with the primary.
-   *
-   * Throws if `canvas` is already attached (including the primary canvas).
+   * Attach a secondary `Stage`. Scene/camera/layers are independent, ticker
+   * and animator are shared so tweens stay in sync. Throws if `canvas` is
+   * already attached.
    */
   attachStage(canvas: HTMLCanvasElement, opts: StageOptions = {}): Stage {
     if (this.disposed) {
@@ -247,22 +218,16 @@ export class Engine {
         'stargazer: attachStage called with a canvas that is already attached',
       )
     }
-    // Secondary stages default to transparent, the parent HTML card
-    // typically owns the background (rounded corners, gradient, etc.).
+    // Secondary stages default to transparent, the parent HTML card owns
+    // the background.
     const stage = new Stage(canvas, this, {
       initialViewport: opts.initialViewport,
       clearColor: opts.clearColor,
       transparent: opts.transparent ?? true,
-      // `interactive` and `name` are forwarded so callers that pass them.      // demo-stages, TutorialSession, actually get an InputSystem attached
-      // and a labelled entry in the debug HUD's stage selector.
       interactive: opts.interactive,
       name: opts.name,
-      // Secondary stages inherit the primary's renderer backend by default.      // callers can override per stage (e.g. tests that want to compare
-      // Canvas + GPU side by side).
       renderer: opts.renderer ?? this.rendererMode,
       msaaSamples: opts.msaaSamples ?? this.msaaSamples,
-      // `onResize` gives the caller (TutorialSession) a hook to reshape
-      // the world viewport when the canvas CSS size changes.
       onResize: opts.onResize,
     })
     this._stages.add(stage)
@@ -270,11 +235,7 @@ export class Engine {
     return stage
   }
 
-  /**
-   * Detach and dispose a secondary stage. Cascades AbortErrors through its
-   * scene tree, disconnects the ResizeObserver, releases the offscreen layer
-   * canvas, and frees the one-stage-per-canvas slot.
-   */
+  /** Detach and dispose a secondary stage. Cascades AbortErrors through its scene. */
   detachStage(stage: Stage): void {
     if (!this._stages.delete(stage)) return
     // `WeakSet.delete` isn't on all TS lib targets, cast to any. The GC will
@@ -292,10 +253,9 @@ export class Engine {
   }
 
   /**
-   * Register a callback that runs at the top of every frame, BEFORE
-   * `InputSystem.beforeFrame()` reprojects pointer world coords. Camera- moving
-   * subsystems (debug camera step, animation tweens on the camera) hook here so
-   * pointer state stays glued to the finger during motion.
+   * Callback at frame top BEFORE `InputSystem.beforeFrame()` reprojects
+   * pointer world coords. Camera-moving subsystems hook here so pointer
+   * state stays glued to the finger during motion.
    */
   onBeforeFrame(cb: (dt: number) => void): () => void {
     this.beforeFrameHandlers.add(cb)
@@ -341,11 +301,7 @@ export class Engine {
   }
 
   private frame(dt: number): void {
-    // Measure actual CPU work per frame (not the vsync-locked rAF
-    // interval). Stashed in `lastFrameWorkSec`; consumed by
-    // DebugController.frameStats so the HUD shows real work time
-    // rather than "always ~16.67 ms" under 60 Hz vsync. See the field
-    // doc for why this matters.
+    // CPU-work timer, see `lastFrameWorkSec`.
     const workT0 = performance.now()
     // 1. Before-frame hooks, subsystems that MUTATE the active camera
     //    (debug camera step, camera tweens) run here so step 2 sees the
@@ -380,15 +336,10 @@ export class Engine {
     this.primaryStage.updateTransforms()
     for (const stage of this._stages) stage.updateTransforms()
 
-    // 6. Render every stage. Each stage renders through either its own game
-    //    camera or, for whichever stage the debug HUD has selected AND
-    //    when the debug camera is toggled on, the debug camera. Debug
-    //    overlays (grid / outlines / game-camera pip / pointer markers)
-    //    are drawn INSIDE `stage.render()`. Phase 4 moved them there so
-    //    they composite via the same `Gfx2D` pipeline as game content
-    //    (particularly important under GPU where `endFrame()` blits the
-    //    FBO to the canvas, so an "after render()" pass would be too
-    //    late to be visible).
+    // 6. Render every stage through its game camera, or the debug camera
+    //    when the HUD has selected this stage and debug-camera is on.
+    //    Debug overlays draw INSIDE `stage.render()` so they composite
+    //    through the same `Gfx2D` pipeline as game content.
     const debug = this.debug
     this.primaryStage.render(
       dt,
@@ -415,10 +366,8 @@ export class Engine {
   private walkUpdate(stage: Stage, dt: number): void {
     const marks = this.perfMarks
     walkTree(stage.scene.root, (node) => {
-      // Skip the per-node body AND its perf marks when this node has no
-      // update work. The tree walk itself still visits, its cost is a
-      // function call; the body / performance.measure are what actually
-      // hurt. See SceneNode._hasUpdateWork.
+      // Skip the body when the node has no update work. See
+      // SceneNode._hasUpdateWork.
       if (!node._hasUpdateWork) return
       const id = marks ? node.id : ''
       const startMark = marks ? `update-${id}:start` : ''

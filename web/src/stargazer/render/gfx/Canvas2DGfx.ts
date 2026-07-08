@@ -14,22 +14,12 @@ export interface Canvas2DGfxOptions {
 }
 
 /**
- * `Gfx2D` backed by a `CanvasRenderingContext2D`. Every method is a faithful
- * 1:1 translation of the drawing the old node code did directly on `ctx`, so
- * swapping a node from `draw(ctx, …)` to `draw(gfx, …)` is pixel-for-pixel
- * identical. This is the reference implementation and the visual-parity oracle
- * the GPU backend is diffed against.
+ * `Gfx2D` backed by a `CanvasRenderingContext2D`. Reference implementation
+ * and visual-parity oracle for the GPU backend.
  *
- * Two construction forms:
- *
- * - `new Canvas2DGfx(ctx)`, wraps an existing context. Used by `Layers` for the
- *   offscreen static-bake ctx and by tests. `setContext` retargets between
- *   contexts without reallocating.
- * - `new Canvas2DGfx(canvas, opts)`, acquires `getContext('2d')` from the canvas.
- *   This form is what Stage uses under `?renderer=canvas2d`, so context
- *   ownership sits with the facade (matching the GPU backend, which owns its
- *   `WebGL2RenderingContext`). It also enables `reacquireContext` after a
- *   browser context-loss event.
+ * Two forms: `new Canvas2DGfx(ctx)` wraps an existing context (`Layers`,
+ * tests). `new Canvas2DGfx(canvas, opts)` acquires `getContext('2d')` and
+ * enables `reacquireContext` after a browser context-loss event.
  */
 export class Canvas2DGfx implements Gfx2D {
   ctx: CanvasRenderingContext2D

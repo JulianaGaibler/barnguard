@@ -1,28 +1,15 @@
 /**
  * Renders the game-over result to a JPEG for the label printer.
  *
- * The label is composed on a standalone {@link OffscreenCanvas} (2D); NOT a
- * snapshot of the live WebGL game canvas (which is created without
- * `preserveDrawingBuffer`, so reading it back yields a blank frame). A
- * dedicated offscreen surface also gives pixel-exact control over the print
- * dimensions independent of the display/DPR, and works headless in tests.
+ * Composed on a standalone OffscreenCanvas, NOT the live WebGL canvas
+ * (created without `preserveDrawingBuffer`, readback is blank). Also gives
+ * pixel-exact control independent of DPR and works headless in tests.
  *
- * The VC-500W tape is continuous: the image dimension _across_ the tape is
- * fixed by the loaded cassette width, the length is free. We render a SQUARE by
- * default (edge = tape width in px); the daemon sends `<print autofit=1>` so
- * the printer scales to the real tape while preserving the 1:1 aspect; a
- * slightly wrong size is corrected in hardware, never clipped.
+ * VC-500W tape is continuous, only the cross-tape dimension is fixed. We
+ * render square (edge = tape width px), daemon sends `<print autofit=1>` so
+ * hardware corrects any small size mismatch without clipping.
  *
- * Layout: Firefox-Enterprise-branded card. Warm sunrise gradient background,
- * state name top-left, the label URL (from the daemon's `[client] label_url`,
- * via the `daemonConfig` store) top-right, huge score in Mozilla Slab Headline
- * Expanded centred, "Punkte"/"Points" beneath, an optional white "NEUER HIGH
- * SCORE" pill when the round set a record, a bottom navy wave, the state's
- * landscape photo peeking through a second (mask-only) copy of the wave
- * positioned just above the blue one at 66% opacity, and the horizontal Firefox
- * Enterprise logo bottom-left. All sizes are ratios of the label edge so it
- * scales cleanly across tape widths — the Figma comp was authored at 330×330
- * base.
+ * All layout sizes are ratios of the label edge (Figma comp is 330×330).
  */
 
 import { get } from 'svelte/store'
@@ -88,12 +75,8 @@ export function squarePxFrom(
 
 type Ctx2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D
 
-// -----------------------------------------------------------------------------
-// Asset loading (fonts, images). Cached at module scope so subsequent renders
-// are synchronous once everything has loaded once. Everything is browser-only
-// and lazy: `drawLabel` itself never touches these caches, so unit tests that
-// import `drawLabel` directly stay hermetic.
-// -----------------------------------------------------------------------------
+// Asset loading. Module-scope cache so subsequent renders are sync. Lazy so
+// unit tests that import `drawLabel` directly stay hermetic.
 
 let fontsReadyPromise: Promise<void> | null = null
 
@@ -225,21 +208,15 @@ const R = {
   waveGap: 16 / 330,
   /** Padding from the label's edge for header text + logo. */
   edgePad: 16 / 330,
-  /**
-   * Extra breathing room above the top-row text (state name + URL). Larger than
-   * `edgePad` so the header doesn't feel crammed against the top edge, and —
-   * because the score block re-centres relative to the header — the whole
-   * composition shifts down with it.
-   */
+  /** Top padding above the header, larger than edgePad. Whole composition
+   *  re-centres relative to the header. */
   headerTopPad: 22 / 330,
   /** Firefox logo target height. */
   logoHeight: 26 / 330,
   /**
-   * Vertical nudge applied to the score/caption/pill block AFTER it's been
-   * centred on the label's midline. The block's own height includes the pill
-   * when a high score is set, so the whole composition re-balances around `h/2`
-   * automatically — this knob is a manual offset on top of that. Positive
-   * values push the block downward, negative pull it up.
+   * Manual offset on the score/caption/pill block after auto-centring. The
+   * block height already includes the pill, so this only adjusts the final
+   * position. Positive = down, negative = up.
    */
   scoreGapAfterHeader: -20 / 330,
   /** Gap between the bottom of the score glyphs and the top of the caption. */
@@ -266,12 +243,8 @@ const COL = {
 }
 
 /**
- * Draw the label. Pure and store-free: takes resolved `messages`, the resolved
- * `labelUrl`, and pre-loaded `assets` so it can be exercised with a stub 2D
- * context in tests. Callers from tests may omit `assets` — the image-drawing
- * steps are then skipped — and `labelUrl`, which defaults to
- * {@link DEFAULT_LABEL_URL}. `renderLabel` passes the live value from
- * `daemonConfig`.
+ * Pure, store-free draw. Tests can pass a stub 2D context, omit `assets`
+ * (image steps skip) and rely on the `labelUrl` default.
  */
 export function drawLabel(
   ctx: Ctx2D,
@@ -445,10 +418,9 @@ function drawCssGradient(
 }
 
 /**
- * Draw the state photo clipped to the silhouette of the wave graphic
- * (positioned at `waveY`, width `w`, height `waveH`) at 66 % opacity. Uses a
- * scratch offscreen canvas for `destination-in` masking so the composite
- * doesn't touch the main canvas' pixels outside the wave.
+ * Draw the state photo clipped to the wave silhouette at 66 % opacity. Uses
+ * a scratch offscreen for `destination-in` masking to avoid touching main
+ * canvas pixels outside the wave.
  */
 function drawMaskedPhoto(
   ctx: Ctx2D,

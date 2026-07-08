@@ -8,27 +8,12 @@ import type { PointerEvent2D } from '../input/PointerState'
 import type { DemoFn } from './types'
 
 /**
- * Secondary-stage demo, now with interactive secondaries. Renders two canvases
- * driven by one Engine:
+ * Two-canvas demo driven by one Engine. Primary is a fullscreen tweening
+ * hero, secondary "Loss Card" is a 30 % × 30 % overlay with its own scene,
+ * camera, and InputSystem.
  *
- * Primary, a fullscreen hero circle tweening left↔right across the wide
- * viewport. Proves the primary input + render path is unaffected. Secondary
- * ("Loss Card"), a small overlay card (top-right, 30% × 30%) with its own
- * scene, camera, AND `InputSystem`. Contains: - Background auto-tweening hero
- * (shared-clock demo, unchanged). - Draggable "packet" (violet circle),
- * hit-enabled, capture-on- down, follows the finger, decides win/reset on
- * release. - Target "zone" (dashed rect), decorative; win check is a
- * point-in-rect against the packet's world position at up.
- *
- * Keys: [SPACE] Detach + re-attach the secondary stage. Confirms lifecycle
- * cascade through the InputSystem too, pending capture cleans up. [R] Restart
- * the shared tween on both heroes (packet position resets independently via its
- * own drop-outside path).
- *
- * The demo also logs a running count for `engine.events.on('pointerDown', ...)`
- * vs `secondaryStage.events.on('pointerDown', ...)` so the console shows the
- * cross-talk fix in action: tapping the secondary increments only the stage
- * counter; tapping the primary increments both.
+ * Keys: [SPACE] detach + re-attach the secondary. [R] restart the shared
+ * tween. Console logs event counts so the cross-talk fix is visible.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({

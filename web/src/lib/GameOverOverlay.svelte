@@ -58,23 +58,12 @@
     return pattern.replace('{state}', id.toUpperCase())
   }
 
-  // ---------------------------------------------------------------------
-  // Phase machine; sequences the on-screen reveal:
-  //   'counting' → NumberCounter is ticking 0 → score. Pill is present in
-  //                the DOM already but sits fully clipped (reserves its
-  //                layout slot whether or not a high score was set).
-  //   'held'     → pill has been unclipped and is fully open; we hold on
-  //                that state for `POST_PILL_HOLD_MS` after the clip
-  //                transition finishes before firing the shadow burst.
-  //                Skipped when no high was set.
-  //   'burst'    → pill's white outward shadow blooms and fades out.
-  //   'stats'    → the wave + two lower-half scores fade in.
-  //   'ready'    → all animations settled; a tap dismisses the overlay.
-  //
-  // Phase transitions are driven from callbacks / setTimeout; no cyclic
-  // tween loops so a re-mount with a new score always starts fresh at
-  // 'counting'.
-  // ---------------------------------------------------------------------
+  // Reveal phase machine:
+  //   'counting' → NumberCounter ticks 0 → score, pill clipped.
+  //   'held'     → pill unclipped, hold POST_PILL_HOLD_MS. Skipped when no high.
+  //   'burst'    → pill outward-shadow bloom + fade.
+  //   'stats'    → wave + lower scores fade in.
+  //   'ready'    → tap dismisses.
   const PILL_EXPAND_MS = 400
   const POST_PILL_HOLD_MS = 500
   const BURST_MS = 600
@@ -163,18 +152,12 @@
   }
 
   // ---------------------------------------------------------------------
-  // Label printing; enqueues to the local printer-daemon. Non-blocking:
-  // `Continue` always works regardless of print state. The button flips to
-  // its "printed" state instantly on tap (checkmark icon, disabled) rather
-  // than tracking the async daemon phases — the visitor gets an immediate
-  // "heard you" signal, and the actual job's success/failure is inspectable
-  // from the attendant panel's printer log rather than through this UI.
-  // ---------------------------------------------------------------------
+  // Label printing. Non-blocking, `Continue` always works. Button flips to
+  // "printed" (check icon, disabled) on tap for immediate feedback, job
+  // status is inspectable from the attendant panel.
   let printSent = $state(false)
-  // Only allow printing when the daemon reports the printer is currently
-  // reachable. If it's not — daemon offline, printer unplugged, tape jam —
-  // the button greys out with the printer icon still shown so the operator
-  // can see what's meant to happen once things recover.
+  // Grey out when daemon or printer isn't reachable. Icon stays visible so
+  // the operator can see the intended action once recovery lands.
   const printerAvailable = $derived(
     $printerLive.connection === 'online' &&
       ($printerLive.printer?.reachable ?? false),
@@ -489,11 +472,9 @@
     // Reveal-from-centre: the pill's box (including its padding) is
     // present at final size the whole time, but the visible area is
     // clipped by `clip-path: inset(0 50% 0 50%)`; a zero-width
-    // vertical strip down the middle. When `--expanded` flips on we
-    // animate the right + left insets to `0`, so the visible pill
-    // wipes open symmetrically. Unlike `max-width: 0 → auto`, this
-    // truly reaches ZERO visible size at rest (padding included) and
-    // preserves the pill's final geometry throughout.
+    // clip-path wipe from a zero-width strip. Unlike max-width animation
+    // this truly reaches 0 visible size at rest (padding included) and
+    // preserves final geometry throughout.
     clip-path: inset(0 50% 0 50%)
     transition: clip-path 400ms cubic-bezier(0.22, 1, 0.36, 1)
     position: relative
@@ -503,12 +484,8 @@
     clip-path: inset(0 0 0 0)
 
   .game-over__pill--bursting
-    // The base pill uses `clip-path` to animate the wipe reveal, but any
-    // clip-path; including `inset(0 0 0 0)` at the fully-open state ;
-    // creates a clipping context that TRUNCATES the outset `box-shadow`
-    // used by the burst. Once we're in the burst phase the reveal is
-    // long complete, so drop the clip-path entirely and let the shadow
-    // radiate outward.
+    // Drop clip-path in burst phase, any clip-path (even fully-open)
+    // truncates the outset box-shadow.
     clip-path: none
     animation: pill-burst 600ms ease-out forwards
 

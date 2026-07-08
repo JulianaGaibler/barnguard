@@ -22,16 +22,10 @@ import { CITY_ID_TO_STATE_ID, STATES } from './data/states'
 import { TUNING } from './data/tuning'
 
 /**
- * Everything the game needs from disk. Four SVGs parse to `Path2D` primitives
- * via `parseSvgPaths`, and the outline additionally builds a `BitmapMask` for
- * O(1) inside-Germany checks with a border grace band.
- *
- * Capital coordinates are computed at load time from `de-cities.svg`. * each
- * capital ships as a circle path whose AABB centre is used as the capital's
- * world position and stamped onto `STATES.capitalWorld`.
- *
- * Memoised through the engine's `AssetLoader` so hot-reloads and scene-switches
- * don't re-parse the SVGs or re-bake the mask.
+ * All game assets. SVGs parse to `Path2D`, outline builds a `BitmapMask` for
+ * O(1) inside-Germany checks. Capital positions come from `de-cities.svg`
+ * (circle AABB centre) and stamp `STATES.capitalWorld`. Memoised via
+ * `AssetLoader`.
  */
 export interface GameAssets {
   states: SvgPathMap
@@ -59,12 +53,8 @@ const assetLoader = new AssetLoader()
 /** Load all game assets. Idempotent, repeat calls resolve to the same instance. */
 export async function loadGameAssets(): Promise<GameAssets> {
   return assetLoader.load('booth-game-assets', async () => {
-    // The map is small (~94 paths total across states + outline + cities)
-    // so tessellating at load is cheap (~20-50ms). Under GPU we render
-    // the map natively every frame, the bake-and-reproject path is a
-    // Canvas-era optimization that added blur + coverage bugs (zoom-out
-    // striping, off-center-state invisibility) and isn't needed on GPU
-    // where a few thousand triangles per frame is trivial.
+    // ~94 paths total, tessellating at load is cheap (~20-50 ms). GPU
+    // renders the map live each frame so no bake-and-reproject.
     const states = parseSvgPaths(statesSvgRaw, { tessellate: true })
     const outline = parseSvgPaths(outlineSvgRaw, { tessellate: true })
     const cities = parseSvgPaths(citiesSvgRaw, { tessellate: true })
@@ -126,10 +116,8 @@ export async function loadGameAssets(): Promise<GameAssets> {
 }
 
 /**
- * Fetch a bitmap for use with `gfx.drawImage`. Blob → `createImageBitmap` with
- * `imageOrientation: 'from-image'` so any EXIF-like orientation metadata is
- * applied AT DECODE, and the drawing pipeline sees a plain pixel grid, no
- * ambiguity about which way is up.
+ * Fetch a bitmap. `imageOrientation: 'from-image'` bakes EXIF orientation
+ * into the decoded pixels so downstream drawing sees a plain grid.
  */
 async function loadImage(url: string): Promise<HTMLImageElement | ImageBitmap> {
   if (
@@ -154,15 +142,9 @@ async function loadImage(url: string): Promise<HTMLImageElement | ImageBitmap> {
 }
 
 /**
- * Rebuild the impact-flash SVG path into a new `Path2D` that's:
- *
- * - Centered on (0, 0), subtracting the SVG-bounds midpoint.
- * - Scaled so `max(width, height)` equals
- *   `TUNING.lossAnim.impactFlash.worldSize`.
- *
- * Uses `Path2D.addPath(source, matrix)` so no path-string reparsing is needed;
- * the caller instantiates a `Path2DNode` with this Path2D and the node's
- * `transform` fully controls its world position + tween.
+ * Rebuild the impact-flash into a `Path2D` centred on `(0, 0)` and scaled so
+ * `max(w, h)` equals `TUNING.lossAnim.impactFlash.worldSize`. Uses
+ * `addPath(source, matrix)`, no re-parsing.
  */
 function buildImpactFlashPath(entry: SvgPathEntry): Path2D {
   const b = entry.bounds
@@ -206,11 +188,8 @@ function fillStateGeometry(states: SvgPathMap): void {
 }
 
 /**
- * Populate `STATES[i].capitalWorld` from the circle-path centres in
- * `de-cities.svg`. Each capital ships as a small filled disc; we take its AABB
- * midpoint as the capital's world position. `CITY_ID_TO_STATE_ID` maps the
- * SVG's path ids (ASCII-transliterated city names) to canonical `StateId`
- * values.
+ * Fill `STATES[i].capitalWorld` from circle-path AABB centres in
+ * `de-cities.svg`. `CITY_ID_TO_STATE_ID` maps city ids to `StateId`.
  */
 function fillCapitals(cities: SvgPathMap): void {
   for (const [cityId, stateId] of Object.entries(CITY_ID_TO_STATE_ID)) {

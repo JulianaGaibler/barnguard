@@ -178,22 +178,11 @@ export class SpawnController {
 }
 
 /**
- * Random heading, cone-restricted to point BROADLY toward Germany's interior
- * (the epicenter is a reasonable proxy) but never DIRECTLY at the epicenter ,
- * we rotate away by at least 45° so the player has to work.
- *
- * Then guards against "spawn heading launches the packet straight at a nearby
- * border" by SWEEPING the candidate ray forward in small steps
- * (`initialHeadingProbeStepWorld`) up to `initialHeadingProbeWorld`, measuring
- * the distance the ray survives inside the mask with a fixed
- * `initialHeadingClearInsetWorld` border buffer. The candidate with the longest
- * clear runway wins; a full sweep to the max distance is accepted immediately
- * without further tries. Never blocks a spawn. * always returns a heading.
- *
- * Superior to the old single-point probe: a ray that clips the coast BETWEEN
- * spawn and probe point (previously invisible) is now caught, and the "longest
- * runway" preference means the picker actively hunts for open water rather than
- * settling for "not immediately in a wall".
+ * Random heading pointing broadly at Germany's interior but at least 45°
+ * off the direct-to-epicenter line. Sweeps each candidate ray forward in
+ * `initialHeadingProbeStepWorld` steps up to `initialHeadingProbeWorld`,
+ * keeping `initialHeadingClearInsetWorld` off the border. Longest surviving
+ * runway wins, a full sweep is accepted immediately. Always returns.
  */
 function pickInitialHeading(
   spawn: Vec2,

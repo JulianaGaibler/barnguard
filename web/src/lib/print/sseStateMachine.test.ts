@@ -217,18 +217,19 @@ describe('printerLive SSE state machine', () => {
     expect(MockEventSource.instances.length).toBe(before + 2)
   })
 
-  it('heartbeat timeout forces a reopen when no message has arrived in 20 s', async () => {
+  it('heartbeat timeout forces a reopen when no message has arrived in 25 s', async () => {
     mod = await subscribeFresh()
     MockEventSource.latest().fireOpen()
     // Time = 0. Heartbeat ticks every 5s; a message resets `lastMessageAt`.
-    // Advance 15s → no timeout yet.
-    vi.advanceTimersByTime(15_000)
+    // Advance 20s → no timeout yet (threshold is 25s, checked with `>`).
+    vi.advanceTimersByTime(20_000)
     expect(get(mod.printerLive).connection).toBe('online')
     expect(MockEventSource.instances.length).toBe(1)
 
-    // Advance past 20s total silence → timeout fires on the next 5s tick.
-    vi.advanceTimersByTime(10_000) // total 25s
-    // The tick at t=20s ran the timeout check; scheduleReopen was called.
+    // Advance past 25s total silence → timeout fires on the next 5s tick.
+    vi.advanceTimersByTime(10_000) // total 30s
+    // The tick at t=30s (>25s elapsed) ran the timeout check; scheduleReopen
+    // was called.
     expect(get(mod.printerLive).connection).toBe('offline')
     // The next EventSource opens after the (now-reset since force is not
     // used here) backoff — the timeout path uses `scheduleReopen`, so it goes
@@ -242,7 +243,8 @@ describe('printerLive SSE state machine', () => {
     mod = await subscribeFresh()
     MockEventSource.latest().fireOpen()
 
-    // Send a `status` event every 10s for 60s. Heartbeat should never trip.
+    // Send a `status` event every 10s for 60s. Heartbeat should never trip
+    // (25s threshold vs 10s gaps).
     for (let t = 10_000; t <= 60_000; t += 10_000) {
       vi.advanceTimersByTime(10_000)
       MockEventSource.latest().fireEvent('status', {
@@ -251,6 +253,22 @@ describe('printerLive SSE state machine', () => {
         backend: 'mock',
         lastSeenMs: 0,
       })
+    }
+    expect(get(mod.printerLive).connection).toBe('online')
+    expect(MockEventSource.instances.length).toBe(1)
+  })
+
+  it('daemon `ping` events bump the heartbeat', async () => {
+    mod = await subscribeFresh()
+    MockEventSource.latest().fireOpen()
+
+    // Fire a `ping` every 15s for 90s — mirrors the real daemon cadence.
+    // The client's ping listener ignores the payload (payload isn't JSON in
+    // prod, either) so `fireEvent`'s JSON-stringified body is fine here — this
+    // test is about liveness signaling, not parsing.
+    for (let t = 15_000; t <= 90_000; t += 15_000) {
+      vi.advanceTimersByTime(15_000)
+      MockEventSource.latest().fireEvent('ping', 'ping')
     }
     expect(get(mod.printerLive).connection).toBe('online')
     expect(MockEventSource.instances.length).toBe(1)

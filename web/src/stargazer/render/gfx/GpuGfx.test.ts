@@ -245,6 +245,10 @@ describe('GpuGfx Phase 2, stroke dashStart continuity', () => {
       color: '#ffffff',
       width: 4,
       dash: [10, 5],
+      // Force `'round'` so we exercise the segment+disc path (the default
+      // `'miter'` skips join discs to avoid AA-edge halos at shared
+      // vertices).
+      join: 'round',
     })
     gfx.endFrame()
     // Segments (3) + join discs (2 interior) = 5 stroke instances.

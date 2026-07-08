@@ -34,21 +34,11 @@ interface EpicenterNodeOptions {
 }
 
 /**
- * The "safe zone" at a state's capital, drawn as a 60° cone that opens toward
- * the interior of Germany. Capture is gated by apex proximity AND the packet
- * entering the cone at a valid heading (`isEntryHeadingValid`); the drawn drag
- * no longer has to terminate exactly at the apex. See `PacketBehaviour` and
- * `PathDrawBehaviour` for the mechanic.
- *
- * Layered visuals from back to front:
- *
- * 1. Filled cone wedge with a radial gradient (transparent at apex → `#36FFB9` at
- *    the arc) + a thin `#81FFD3` outline. The whole wedge scales by
- *    `pulseScale` for the breathing grow-in.
- * 2. Small filled white apex dot, the exact capture centre.
- *
- * Not `hitEnabled`, the epicenter is passive; capture is done by packets
- * reading `epicenter.center` / `axisRad` / radii.
+ * Safe zone at a state's capital, a 60° cone opening toward the interior.
+ * Capture requires apex proximity AND a valid entry heading, not a drag
+ * terminating at the apex. Visuals: gradient wedge + outline (breathing
+ * via `pulseScale`) then a white apex dot. Passive, packets read
+ * `center` / `axisRad` / radii directly.
  */
 export class EpicenterNode extends SceneNode {
   readonly captureRadius: number
@@ -69,9 +59,8 @@ export class EpicenterNode extends SceneNode {
    */
   outerScale = 1
   /**
-   * `EpicenterBehaviour`-driven scale (0..1) for the cyan gradient wedge.
-   * Tweens 0 → 1 linearly over 2 s, resets to 0, then waits 3 s before the next
-   * cycle. Multiplied into the wedge radius so the whole cone breathes.
+   * `EpicenterBehaviour`-driven pulse scale (0..1). Tweens 0 → 1 over 2 s,
+   * resets, waits 3 s, repeats. Multiplied into the wedge radius.
    */
   pulseScale = 0
   /** Retained for compatibility with `EpicenterBehaviour`, unused visually. */
@@ -97,12 +86,8 @@ export class EpicenterNode extends SceneNode {
     const dy = opts.approachReference.y - opts.center.y
     this.axisRad = dx * dx + dy * dy < 1 ? -Math.PI / 2 : Math.atan2(dy, dx)
 
-    // Pre-tessellated wedge polygon, ALREADY ROTATED into the node's
-    // local frame (apex at (0, 0), arc sweeping symmetrically around
-    // `axisRad`). Baking the rotation here means the draw path issues
-    // NO runtime `gfx.rotate`, so the apex icon rendered after the
-    // wedge inherits only the node's base transform (no leftover
-    // rotation state to counteract).
+    // Pre-tessellated wedge, rotation baked in so the draw path issues no
+    // `gfx.rotate` and the apex icon inherits only the node's base transform.
     const half = this.coneSweep * 0.5
     const r = this.coneRadius
     const N = CONE_ARC_SEGMENTS
@@ -129,11 +114,8 @@ export class EpicenterNode extends SceneNode {
   }
 
   /**
-   * True when a directed vector `from → apex` lies within the cone's opening
-   * (allowing `approachForgivenessRad` of slack beyond `±coneSweep/2`).
-   * Currently exported for the future case where a caller wants to test
-   * approach angles without recomputing the math; `PathDrawBehaviour` computes
-   * it inline to avoid a scratch buffer.
+   * True when `from → apex` lies within the cone opening (with
+   * `approachForgivenessRad` slack beyond `±coneSweep/2`).
    */
   isApproachAngleValid(fromX: number, fromY: number): boolean {
     const approach = Math.atan2(this.center.y - fromY, this.center.x - fromX)
@@ -144,13 +126,9 @@ export class EpicenterNode extends SceneNode {
   }
 
   /**
-   * True when a velocity heading (radians) points INTO the cone, i.e. roughly
-   * along the inward axis (`axisRad + π`, the direction a packet travelling
-   * from the interior toward the apex moves). Allows `approachForgivenessRad`
-   * of slack beyond `±coneSweep/2`, the same band as `isApproachAngleValid`.
-   * Read by `PacketBehaviour` so a packet entering the safe zone at the correct
-   * angle auto-captures without the drawn trail having to terminate at the
-   * apex.
+   * True when a heading (radians) points INTO the cone, i.e. within
+   * `±(coneSweep/2 + approachForgivenessRad)` of the inward axis.
+   * `PacketBehaviour` reads this for auto-capture on cone entry.
    */
   isEntryHeadingValid(headingRad: number): boolean {
     const inward = this.axisRad + Math.PI

@@ -1,13 +1,9 @@
 /**
- * `GpuGfx` is the `Gfx2D` implementation that batches draws through a
- * `GfxDevice`. Records into five instanced/vertex streams (colored-tri,
- * textured-quad, stroke segments, SDF shapes, radial gradients), packs data
- * premultiplied on the CPU, and flushes only when batch state must change.
+ * `Gfx2D` implementation that batches draws through a `GfxDevice`.
  *
- * Flush conditions: program change, texture bind change, blend mode change,
- * ring-slot buffer overflow, explicit `flush()` at a layer boundary, or
- * `endFrame`. Alpha, color, and transform changes fold into per-vertex data and
- * never flush.
+ * Flush conditions: program change, texture bind, blend mode, ring-slot
+ * overflow, explicit `flush()` at a layer boundary, `endFrame`. Alpha, color,
+ * and transform changes fold into per-vertex data and never flush.
  */
 
 import type { Gfx2D, GfxBlend, GfxGradientStop, GfxStrokeStyle } from './Gfx2D'
@@ -314,37 +310,20 @@ class StateStack {
 // --- GpuGfx -----------------------------------------------------------------
 
 /**
- * Diagnostic render-time overlays. Toggled from the debug HUD. All non-normal
- * modes deliberately degrade the image so a developer can inspect the GPU
- * pipeline.
- *
- * **All modes affect only the `coloredTri` program.** Strokes, SDF shapes, and
- * gradient fills render normally regardless of mode. So motion-trail edges are
- * unaffected by `overdraw`, hex outlines are unaffected by `batch-color`, and
- * so on.
+ * Debug render overlays. Only `coloredTri` draws are affected, strokes, SDF,
+ * and gradients render normally in every mode.
  *
  * - `'normal'`. Shipping look.
- * - `'polygons'`. Outline every fill's outer polygon in cyan. Verify earcut,
- *   grid, or path tessellation quality. Spot degenerate contours or missing
- *   closes. **Caveat:** emits one extra stroke per fill call, so frame time
- *   spikes noticeably on the map.
- * - `'overdraw'`. Coloredtri outputs constant dim red and the batch blend is
- *   forced to `lighter`. Hot regions accumulate red so heavy overdraw is
- *   instantly visible. Useful for catching runaway particle emitters or stacked
- *   full-frame fills. **Caveat:** the whole scene reads as additive red, so
- *   normal blending can't be judged in this mode.
- * - `'batch-color'`. Each coloredTri flush picks a distinct hue. Audit batcher
- *   grouping: a distinct node in a different colour is its own draw call
- *   (usually good). One node fragmenting into many colours means something is
- *   forcing extra flushes (usually bad). **Caveat:** the hue is per-frame. The
- *   same batch may pick a different colour on consecutive frames. Read grouping
- *   patterns, not stable colours.
- * - `'clip-mask'`. End-of-frame overlay of the registered clip mask tinted red at
- *   low alpha. Confirms the `BitmapMask` covers the region you expect (useful
- *   after asset regeneration). **Caveat:** requires
- *   `DebugController.setInspectedMask(mask)` to have been called. Session-side
- *   wiring lives in `game/session.ts`. Without registration the overlay renders
- *   nothing.
+ * - `'polygons'`. Cyan outlines around every fill's outer polygon. Catches
+ *   degenerate contours and missing closes. Adds one stroke per fill.
+ * - `'overdraw'`. Constant dim red under `lighter` blend. Hot regions
+ *   accumulate. Normal blending is unreadable in this mode.
+ * - `'batch-color'`. Each coloredTri flush picks a distinct hue via
+ *   golden-ratio hue rotation. Hue is per-frame, read grouping patterns not
+ *   stable colours.
+ * - `'clip-mask'`. End-of-frame overlay of the currently-inspected
+ *   `BitmapMask` tinted red. Requires `DebugController.setInspectedMask`,
+ *   otherwise renders nothing.
  */
 export type DebugRenderMode =
   'normal' | 'polygons' | 'overdraw' | 'batch-color' | 'clip-mask'
@@ -369,10 +348,8 @@ export interface GpuGfxStats {
 }
 
 /**
- * Counters for `Gfx2D` methods that fall through to a no-op path (e.g.
- * `strokePath2D` on a Path2D without a registered tessellation). Ticked every
- * call. Surfaced in tests and the HUD as a discovery signal for missing
- * registrations.
+ * Counters for `Gfx2D` calls that hit a no-op path (e.g. `strokePath2D` on a
+ * Path2D without a registered tessellation). Surfaced in the HUD.
  */
 export interface UnimplementedCounts {
   fillCircle: number
@@ -487,9 +464,9 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * MSAA sample count for the FBO. `1` uses a plain color texture. `>1` uses a
-   * multisample renderbuffer resolved by `blitToDefault` on present. Persists
-   * across resize and context restore. Live-switchable via `setSamples`.
+   * MSAA sample count. `1` = plain color texture. `>1` = multisample
+   * renderbuffer resolved by `blitToDefault`. Persists across resize and
+   * context restore.
    */
   private samples: number
 
@@ -509,10 +486,8 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * (Re)create every GL resource: programs, ring buffers, VAOs, FBO,
-   * TextureManager. Called from the constructor and from `rebuildResources` on
-   * context restore. Transform and state stacks, batching cursors, and stats
-   * survive context loss (plain JS state).
+   * (Re)create every GL resource. Called from the constructor and from
+   * `rebuildResources` on context restore.
    */
   private initGpuResources(): void {
     const device = this.device
@@ -875,11 +850,9 @@ export class GpuGfx implements Gfx2D {
   // --- frame lifecycle ------------------------------------------------------
 
   /**
-   * Called by Stage in place of `renderer.clear()`. Rotates the ring slot,
-   * binds the FBO, and clears the frame. `pixelW`/`pixelH` are ignored here
-   * (FBO clear covers the whole target); the parameters exist so Canvas2DGfx
-   * and GpuGfx share the same `beginFrame` shape and Stage stays backend-
-   * agnostic.
+   * Rotate ring slot, bind FBO, clear. `pixelW`/`pixelH` are ignored (FBO
+   * clear covers the target), only present so Canvas2DGfx and GpuGfx share a
+   * `beginFrame` shape.
    */
   beginFrame(opts: {
     clearColor: string
@@ -950,20 +923,12 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * Resize the internal render target. Kept idempotent. **Does NOT invalidate
-   * the static-map bake metadata**, the reprojection matrix naturally accounts
-   * for `cur.w/h` (see `computeStaticReprojection`), so a stale bake at the OLD
-   * FBO size still samples correctly against the NEW FBO. Stage's own
-   * `scene.invalidateStatic()` + `bakedAtCameraFrameNum = -1` in
-   * `applyResize`/`setRenderScale` force a re-bake anyway on the next frame,
-   * this method only handles the FBO resize itself.
-   *
-   * Historical note: an earlier Phase 3 draft called
-   * `textureManager.invalidateStaticMapBake()` here, which made
-   * DynamicResolution's mid-motion scale ticks null the bake metadata before
-   * the reproject-blit could use it, the map went invisible during zoom
-   * animations. Do not re-add the invalidate without matching guards in Stage's
-   * motion branch.
+   * Resize the internal render target. Idempotent. Deliberately does NOT
+   * invalidate the static-map bake, the reprojection matrix in
+   * `computeStaticReprojection` handles a stale bake at the old size. Do NOT
+   * add `textureManager.invalidateStaticMapBake()` here, DynamicResolution's
+   * mid-motion scale ticks would null the bake metadata before the reproject
+   * blit could use it and the map goes invisible during zoom animations.
    */
   setInternalSize(pixelW: number, pixelH: number): void {
     if (pixelW === this.targetWidth && pixelH === this.targetHeight) return
@@ -972,22 +937,14 @@ export class GpuGfx implements Gfx2D {
     this.device.resizeRenderTarget(this.target, pixelW, pixelH)
   }
 
-  /**
-   * No-op on GPU. WebGL2Device's `webglcontextrestored` listener drives the
-   * actual re-acquisition. Stage duck-types to keep the reacquire path uniform
-   * across facades.
-   */
-  reacquireContext(): void {
-    /* intentional no-op, handled by WebGL2Device.onRestored + rebuildResources */
-  }
+  /** No-op. `WebGL2Device.onRestored` drives reacquisition. */
+  reacquireContext(): void {}
 
   /**
-   * Rebuild every GL resource after a `webglcontextrestored` event. Called from
-   * `Stage.reacquireContext`. Recreates programs, buffers, VAOs, and the FBO;
-   * tells the `TextureManager` to rebuild the atlas GL texture from its
-   * surviving CPU-side backing canvas. Batch state, transform + state stacks,
-   * and stats persist across the loss, only GL-owned handles die and need
-   * re-creation.
+   * Rebuild every GL resource after `webglcontextrestored`. Programs,
+   * buffers, VAOs, FBO, atlas texture. CPU-side state (batch flags,
+   * transform/state stacks, stats, texture manager's backing canvases)
+   * survives the loss.
    */
   rebuildResources(): void {
     if (this.device.isContextLost()) {
@@ -1077,17 +1034,9 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * Live-swap the MSAA sample count. Deletes the current offscreen render
-   * target and allocates a fresh one at the requested count. Programs, VAOs,
-   * ring buffers, and textures survive, only the FBO flips.
-   *
-   * The requested value is clamped to `[1, MAX_SAMPLES]` inside
-   * `WebGL2Device.createRenderTarget`; the effective post-clamp count is
-   * mirrored into `stats.msaaSamples` so the HUD shows what the driver actually
-   * gave us.
-   *
-   * Flushes the current batch before the swap so pending draws don't get blit'd
-   * onto a mid-swap target.
+   * Live-swap MSAA sample count. Flushes, deletes the FBO, allocates a fresh
+   * one. The device clamps to `[1, MAX_SAMPLES]`, `stats.msaaSamples` mirrors
+   * the effective post-clamp count for the HUD.
    */
   setSamples(samples: number): void {
     const requested = Math.max(0, Math.floor(samples))
@@ -1111,15 +1060,9 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * Emit a thin wireframe outline around a local-space polygon. * `'polygons'`
-   * debug mode helper. `pts` is `[x0,y0,x1,y1,…]` in the caller's local
-   * coordinate space; `count` is the number of POINTS. `closed=true` connects
-   * the last point back to the first.
-   *
-   * Width is normalised to ~1 device pixel by inverting the current transform's
-   * uniform scale, otherwise a highly-zoomed scene would paint dm-thick "wire"
-   * that obscures the fill. Uses the same stroke pipeline as normal draws, so
-   * shader-AA smooths it.
+   * `'polygons'` debug mode: thin wireframe around a local-space polygon.
+   * Width inverts the current transform's uniform scale so it stays ~1 device
+   * pixel regardless of zoom.
    */
   private emitDebugPolygonOutline(
     pts: ArrayLike<number>,
@@ -1344,13 +1287,10 @@ export class GpuGfx implements Gfx2D {
   fillPath2D(path: Path2D, color: string): void {
     const geo = getPathTessellation(path)
     if (!geo) {
-      // No registered / cached tessellation. This is the fallback for
-      // Path2Ds constructed directly (e.g. TutorialHintNode's arch). The
-      // triangulator needs the `d` string, which we don't have from a
-      // Path2D at runtime, so nodes that construct Path2Ds without going
-      // through SvgPathMap must call `registerTessellation` explicitly.
-      // Silent counter tick (as under Phase 1) so the missing registration
-      // is discoverable via the HUD.
+      // Direct-Path2D fallback. The triangulator needs the `d` string which
+      // isn't recoverable from a Path2D at runtime, so nodes that construct
+      // Path2Ds outside `SvgPathMap` must call `registerTessellation`
+      // explicitly. Silent counter tick surfaces it in the HUD.
       this.unimplemented.fillPath2D++
       return
     }
@@ -1483,13 +1423,9 @@ export class GpuGfx implements Gfx2D {
     colorEnd: string,
   ): void {
     if (count < 3) return
-    // Non-convex polygons (e.g. the motion-trail teardrop whose axis is
-    // curved) must be ear-clipped, not fan-triangulated, a fan across a
-    // concave outline emits inverted / overlapping triangles that read as
-    // a "straight line where it shouldn't be" artefact on screen. This
-    // path mirrors what Canvas2D's `ctx.fill(NON_ZERO)` handles natively.
-    // Cost: earcut on ~80 points (worst-case trail) is sub-100 µs, once
-    // per frame per trail, comfortably inside frame budget.
+    // Non-convex polygons (motion-trail teardrops) must ear-clip, a fan
+    // triangulation on a concave outline emits overlapping triangles that
+    // read as visible artefacts.
     const flat: number[] = new Array(count * 2)
     for (let i = 0; i < count * 2; i++) flat[i] = pts[i]
     const indices = earcut(flat)
@@ -1865,9 +1801,13 @@ export class GpuGfx implements Gfx2D {
     const dashInfo = resolveDash(style.dash, scale)
     const packedColor = this.packColor(style.color)
     const closed = style.closed === true
-    const emitJoins = (style.join ?? 'miter') !== 'miter' || true
-    // Skip join discs under lighter blend to avoid double-brightening at
-    // interior vertices. The plan agent's R6 mitigation.
+    // Join discs cover the gap outside a mitre for round/bevel joins. Each
+    // disc has an SDF-AA edge, so at shared vertices (state tripoints,
+    // coastline-over-state) they stack under source-over into visible halo
+    // dots. Miter (the default) skips them, segment quads cover the join at
+    // gentle-angle joints like state borders. Lighter blend also skips to
+    // avoid double-brightening.
+    const emitJoins = (style.join ?? 'miter') !== 'miter'
     const doJoins = this.stateStack.getBlend() !== 'lighter' && emitJoins
 
     let prevDx = t.a * pts[0] + t.c * pts[1] + t.e
@@ -2288,11 +2228,9 @@ function rgbaTuple(c: RGBA): readonly [number, number, number, number] {
 }
 
 /**
- * Turn a `[on, off, …]` Canvas-style dash pattern into `(dashStart, dashPeriod,
- * dashOnLen)` scaled to device px. Only the first `[on, off]` pair is honored,
- * the game's dash configs are all 2-element (matches
- * `Canvas2DGfx.applyStroke`'s single-pattern usage; more complex dashes would
- * need a shader upgrade). `dashPeriod === 0` disables dashing in the shader.
+ * Canvas `[on, off, ...]` dash → `(dashStart, dashPeriod, dashOnLen)` in
+ * device px. Only the first `[on, off]` pair is honored (matches the game's
+ * 2-element usage). `dashPeriod === 0` disables dashing in the shader.
  */
 function resolveDash(
   dash: readonly number[] | undefined,
@@ -2307,9 +2245,8 @@ function resolveDash(
 }
 
 /**
- * Write one colored-tri vertex at word `off` in the dual-view buffer. Pos + UV
- * go through the float view, packed color through the uint view, they share the
- * same underlying ArrayBuffer so writes are aliased correctly.
+ * Write one colored-tri vertex. Pos and UV via float view, packed color via
+ * uint view. Both views alias the same ArrayBuffer.
  */
 function writeColoredVert(
   fv: Float32Array,
@@ -2328,11 +2265,7 @@ function writeColoredVert(
   fv[off + 4] = v
 }
 
-/**
- * HSV → RGB (all in `[0, 1]`, hue argument in the `[0, 6)` sector space). Used
- * only by the `'batch-color'` debug mode, hue picked with the golden-ratio
- * conjugate so neighbouring batches read as visually separated colours.
- */
+/** HSV → RGB. Hue in `[0, 6)` sector space. `'batch-color'` debug helper. */
 function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
   const i = Math.floor(h)
   const f = h - i
@@ -2356,10 +2289,8 @@ function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
 }
 
 /**
- * A double-buffered CPU-staging + GPU-buffer pair. `buffers[slot]` is the
- * GPU-side VBO; `floatView`/`uintView` are dual views over ONE shared
- * ArrayBuffer that we memcpy-out per flush. Reservations advance a per-slot
- * cursor; overflow → warn + skip.
+ * Double-buffered CPU staging + GPU VBOs. Dual views (float, uint) alias one
+ * shared ArrayBuffer we memcpy per flush. Overflow warns and skips.
  */
 class RingStream {
   readonly buffers: VBuffer[] = new Array(RING_SIZE)

@@ -143,14 +143,10 @@ export class PathDrawBehaviour extends Behaviour {
   }
 
   /**
-   * Finger has entered the snap radius around the cone's apex. The player MUST
-   * enter the cone from within its opening (`±(coneSweep/2 +
-   * approachForgivenessRad)` around the inward axis). Good approaches push the
-   * apex directly; off-angle approaches insert two waypoints , an entry point
-   * sitting at 85 % of `coneRadius` along the axis, then the apex, so the
-   * packet's angular-velocity-limited steering naturally U-turns into the
-   * cone's mouth. Either way, `snapped` locks further pushes for the remainder
-   * of this drag.
+   * Finger inside snap radius. Good approaches push the apex directly.
+   * Off-angle approaches insert an entry waypoint outside the cone plus
+   * the apex, so packet steering U-turns into the mouth.
+   * `snapped` locks further pushes for this drag.
    */
   private snapIntoCone(ep: EpicenterNode): void {
     if (!this.trail) return
@@ -158,10 +154,8 @@ export class PathDrawBehaviour extends Behaviour {
     const half = ep.coneSweep * 0.5
     const tolerance = half + TUNING.epicenter.approachForgivenessRad
 
-    // Approach direction of the LAST-pushed trail point → apex. A drag
-    // that hits the snap radius without any prior points (first sample
-    // already inside) accepts any angle so we don't force a spurious
-    // U-turn when the player taps directly on the target.
+    // Approach angle from the last trail point. Empty trail = tap directly
+    // on the target, accept any angle so no spurious U-turn.
     let approachAngle: number
     if (this.trail.pointCount > 0) {
       this.trail.pointAt(this.trail.pointCount - 1, this.tailScratch)
@@ -178,8 +172,7 @@ export class PathDrawBehaviour extends Behaviour {
     if (Math.abs(delta) <= tolerance) {
       this.trail.push(apex.x, apex.y)
     } else {
-      // Off-angle approach: the forced entry point sits 10 % OUTSIDE
-      // the cone's outer radius (on the axis) so the packet clearly
+      // Entry sits 10 % outside the cone radius on the axis so the packet
       // enters from beyond the wedge and traces the full length in.
       const entryDist = ep.coneRadius * 1.1
       const entryX = apex.x + Math.cos(ep.axisRad) * entryDist
@@ -201,12 +194,9 @@ export class PathDrawBehaviour extends Behaviour {
   }
 
   /**
-   * Bind a trail node to this packet, ready to receive move-generated points.
-   * If the packet already has one bound (from a previous drag), reuse it, a
-   * fresh drag REPLACES the old queue (we `clear` in place so the same
-   * PolylineNode instance stays in the scene, no node churn). The packet keeps
-   * its current velocity until the first move pushes a point; then
-   * `PacketBehaviour.steerAlongTrail` aims at it.
+   * Bind or reuse a trail on this packet. Fresh drag `clear`s the existing
+   * node in place, no scene churn. Packet keeps its velocity until the
+   * first point arrives.
    */
   private beginTrail(): void {
     const packet = this.node as PacketNode

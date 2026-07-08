@@ -1,16 +1,8 @@
 <script lang="ts">
-  // Generic draggable window shell used by the stargazer debug HUD and by the
-  // booth-side kiosk panels (booth menu, printer panel, and future score
-  // panel). Handles pointer-drag on the header, viewport clamping, and
-  // per-window position persistence in localStorage. Contents are supplied
-  // as a Snippet so callers compose their own inner structure — typically a
-  // stack of `<DebugSection>` collapsibles.
-  //
-  // The `storageId` prop is BOTH the localStorage key and the identifier
-  // callers pass to `placeNextTo(parent, child)` when one window spawns
-  // another. Namespacing is caller-owned (e.g. `stargazer-debug-panel-*` for
-  // debug HUD windows, `barnguard-window-*` for booth-side panels), which
-  // preserves existing saved positions when refactoring.
+  // Generic draggable window shell. Header drag, viewport clamping,
+  // per-window localStorage position. `storageId` is both the storage key
+  // and the identifier used by `placeNextTo(parent, child)`. Namespacing
+  // is caller-owned.
 
   import type { Snippet } from 'svelte'
   import { onMount } from 'svelte'
@@ -26,22 +18,16 @@
     title: string
     storageId: string
     /**
-     * Default anchor when no saved position exists. Changing this at runtime
-     * (e.g. the booth menu re-opened from the opposite corner) resets any saved
-     * position so the new anchor takes effect — the operator's intent "I want
-     * this on the OTHER side" wins over their earlier drag.
+     * Default anchor when no saved position exists. Changing at runtime
+     * resets the saved position so "open on the other side" wins over an
+     * earlier drag.
      */
     side?: 'left' | 'right'
     /** Optional width override in CSS px. Default comes from debug-ui.sass. */
     width?: number
     /**
-     * StorageId of the parent window that spawned this one. When the window
-     * first becomes visible with no saved position, it's auto-placed adjacent
-     * to that parent (via `placeNextTo`) so operator flows like "open booth →
-     * open printer" don't stack windows in the same corner. Once dragged or
-     * resized, the saved position wins and this is ignored — the seed only
-     * applies to first-open. Leave undefined for windows that spawn standalone
-     * (e.g. the booth menu itself).
+     * StorageId of the spawning parent. First open with no saved position
+     * auto-places adjacent via `placeNextTo`. Ignored once dragged.
      */
     spawnedBy?: string
     onClose?: () => void
@@ -102,18 +88,10 @@
     prevSide = side
   })
 
-  // On every open, seed a position if we don't already have one. This
-  // covers three sources, in order:
-  //   1. `spawnedBy` — auto-place adjacent to the named parent window.
-  //      `placeNextTo` writes to localStorage; the read below picks it up.
-  //   2. `localStorage` — the operator's previously-dragged position, if
-  //      any. Wins over the spawnedBy seed by virtue of `placeNextTo`
-  //      no-op'ing when a saved position already exists.
-  //   3. Fallback — no position set; the side-based CSS anchor
-  //      (`left: 10px` / `right: 10px`) takes over.
-  // Merging (1) and (2) into a single effect matters: `placeNextTo` must
-  // land its write BEFORE the storage read runs, otherwise we'd see stale
-  // "empty" storage on the first open after a fresh spawn.
+  // Seed position on open. Order: spawnedBy (auto-place, writes storage)
+  // → localStorage (previous drag, wins because placeNextTo no-ops when
+  // storage already has a value) → CSS `side` fallback. `placeNextTo` and
+  // the storage read live in one effect so the write lands first.
   $effect(() => {
     if (!visible) return
     if (position !== null) return

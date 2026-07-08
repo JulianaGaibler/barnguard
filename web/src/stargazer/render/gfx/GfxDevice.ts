@@ -1,20 +1,9 @@
 /**
- * `GfxDevice`, the bottom, backend-specific layer of the stargazer graphics
- * stack. WebGL2 is the only implementation today; a WebGPU backend can drop in
- * beside it later without changes to `GpuGfx` above.
- *
- * The interface is intentionally thin and imperative, allocate handles, upload
- * data, set state, issue draws, mirroring the shape three.js and Godot
- * converged on for their own backend seams. Every handle type (`Program`,
- * `Buffer`, `Texture`, `Vao`, `RenderTarget`) is a **branded opaque marker**,
- * not a class, so a WebGPU backend can return equivalent `GPURenderPipeline` /
- * `GPUBuffer` / `GPUTexture` handles through the same seam without a class
- * hierarchy or `instanceof` checks.
- *
- * Uniform setters are typed (`setUniform1i`, `setUniformMat3`, etc.) rather
- * than a discriminated union, cleaner for callers and the WebGL2 backend's
- * uniform-location cache stays behind an internal Map keyed by `(program,
- * name)`. WebGPU will translate these into a bind-group build internally.
+ * `GfxDevice`, backend seam. Thin and imperative: allocate handles, upload
+ * data, set state, draw. Handle types are branded opaque markers (not
+ * classes) so a WebGPU backend can return `GPURenderPipeline` / `GPUBuffer`
+ * / etc. through the same seam without instanceof checks. Typed uniform
+ * setters keep the caller side clean.
  */
 
 // --- opaque handle types ----------------------------------------------------

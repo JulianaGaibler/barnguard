@@ -1,19 +1,13 @@
 /**
- * `TextureManager`, owns every GL texture `GpuGfx` uses:
+ * Owns every GL texture `GpuGfx` uses:
+ * - 1024×1024 particle sprite atlas, 66×66 tiles (64 core + 1 px pad). All
+ *   particles share it so cross-colour draws coalesce into one instance batch.
+ * - `textureBySource` cache for non-sprite images.
+ * - Gradient-radial LUT cache, one 256×1 texture per `stops` reference.
  *
- * - A shared **1024×1024 particle sprite atlas**, shelf-packed with 66×66 tiles
- *   (64-px sprite core + 1-px transparent padding). All particles share the
- *   atlas texture so `drawImage(spriteA)` and `drawImage(spriteB)` from
- *   different colors coalesce into ONE instanced draw call.
- * - A per-source **`textureBySource` cache** for one-off images that aren't
- *   particle sprites (the TutorialHint hand assets, etc.).
- * - The **gradient-radial LUT cache**, one 256×1 texture per unique `stops`
- *   array, cached by reference identity.
- *
- * Under `webglcontextlost`/`webglcontextrestored`, `rebuild(device)` recreates
- * the atlas GL texture from its CPU-side `OffscreenCanvas` backing (the backing
- * survives context loss because it's a plain JS object), and drops the
- * per-source + gradient-LUT caches (they repopulate lazily on the next draw).
+ * On context loss, `rebuild(device)` recreates the atlas texture from its
+ * CPU-side `OffscreenCanvas` backing (survives loss) and drops the other
+ * caches, they repopulate lazily.
  */
 
 import type { GfxDevice, Texture } from './GfxDevice'

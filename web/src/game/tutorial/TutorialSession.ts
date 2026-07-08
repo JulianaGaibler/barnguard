@@ -80,23 +80,14 @@ const NO_TURNAROUND_VIEWPORT: Rect = {
 }
 
 /**
- * Standalone mini-game inside the state-confirm card. Attaches a secondary
- * `Stage` to the primary engine, builds a small scene (one static packet on the
- * left, one epicenter on the right), and lets the player rehearse the
- * draw-a-path mechanic. Reuses the main game's `PacketNode`, `PacketBehaviour`,
- * `PathDrawBehaviour`, `PathTrailNode`, motion trail, and hex-particle wake via
- * `spawnPacketInSession`, any visual or dynamics change to the main game flows
- * through automatically.
+ * Mini-game inside the state-confirm card. Secondary `Stage`, one packet
+ * left, one epicenter right, reuses the main-game packet/path stack via
+ * `spawnPacketInSession` so visual and dynamics changes flow through.
  *
- * The packet uses `autonomousDrift: false`, so it stays at v=0 until the player
- * draws a path and settles back to v=0 whenever the path is fully consumed. On
- * capture at the epicenter OR exit through the viewport border, the packet is
- * retired and a fresh one spawns on the left after `RESPAWN_DELAY_SEC`.
- *
- * Lifecycle is owned by `mountTutorialStage`: the Svelte action calls `new
- * TutorialSession(...)` on canvas mount and `session.destroy()` on unmount. A
- * single `AbortController` cancels every in-flight `engine.wait` so unmounting
- * mid-respawn doesn't leak.
+ * Packet uses `autonomousDrift: false`, sits at v=0 until drawn. On capture
+ * or viewport exit it retires and respawns after `RESPAWN_DELAY_SEC`.
+ * `mountTutorialStage` owns lifecycle. A session `AbortController` cancels
+ * every in-flight `engine.wait` on unmount.
  */
 export class TutorialSession {
   private readonly host: EngineHost
@@ -114,34 +105,22 @@ export class TutorialSession {
   private packetIdSeq = 0
   private destroyed = false
   /**
-   * Suppresses `handleResize` until the constructor has finished wiring up the
-   * scene. Stage's `applyResize` fires synchronously from its constructor while
-   * `this.stage`, `this.rectMask`, and `this.epicenterNode` are still
-   * `undefined`, we skip that first fire and manually trigger a resize once
-   * everything is in place.
+   * Guards `handleResize` until scene wiring completes. Stage's constructor
+   * fires `applyResize` synchronously while our fields are still undefined.
    */
   private initialised = false
 
   constructor(host: EngineHost, canvas: HTMLCanvasElement) {
     this.host = host
-    // Placeholder viewport, the first `handleResize` reshapes it to
-    // match the canvas's actual aspect ratio (called manually at the
-    // end of this constructor).
+    // Placeholder viewport, first `handleResize` reshapes to canvas aspect.
     this.viewport = { ...TUTORIAL_INITIAL_VIEWPORT }
-    // Exit mask sits `EXIT_BUFFER_WORLD` outside the visible viewport
-    // on every side so the packet has to fly cleanly off-frame before
-    // `onExitedGermany` fires, snug-to-the-edge deletion looks like a
-    // teleport rather than an escape. `handleResize` rebuilds this each
-    // time the container reshapes.
+    // Exit mask sits `EXIT_BUFFER_WORLD` outside the viewport so a packet
+    // has to fly cleanly off-frame before `onExitedGermany` fires.
     this.rectMask = new RectMask(this.exitRect())
 
-    // Force Canvas 2D for the tutorial mini-stage even when the primary
-    // is on GPU. A fresh `getContext('webgl2', …)` on a new canvas
-    // requires a synchronous IPC round-trip to the GPU process (~20 ms
-    // block on the main thread), noticeable jank at the exact moment
-    // the user taps a state. The tutorial canvas is small and simple
-    // (~200×200 CSS px, a few packets, one hand SVG), so Canvas 2D is
-    // plenty fast and starts instantly.
+    // Force Canvas 2D. A fresh WebGL2 context on a new canvas blocks the
+    // main thread on GPU-process IPC (~20 ms) at the exact moment of tap.
+    // Tutorial is small and simple, Canvas 2D starts instantly.
     this.stage = host.engine.attachStage(canvas, {
       name: 'Tutorial',
       interactive: true,
@@ -220,10 +199,8 @@ export class TutorialSession {
     const height = width / aspect
     this.viewport.width = width
     this.viewport.height = height
-    // Camera viewport is decoupled from `this.viewport`: it looks at
-    // the same size slice but shifted up in world space, which drops
-    // the visible content DOWN on screen without touching packet or
-    // target positions.
+    // Camera viewport shifts up in world space vs `this.viewport`, which
+    // drops visible content down on screen without moving packet or target.
     this.stage.camera.setViewport({
       x: 0,
       y: height * CAMERA_Y_OFFSET_FRAC,
@@ -334,14 +311,9 @@ export class TutorialSession {
 }
 
 /**
- * Parse `hand.svg` and build a `TutorialHintNode`. The SVG ships two `<path>`
- * elements, the first is a black-fill hand shape, the second a white-fill
- * outline drawn over it. `TutorialHintNode` pre-translates both so the
- * fingertip sits at world origin.
- *
- * Parsing runs once per session. `parseSvgPaths` uses `DOMParser` so it assumes
- * a browser environment, which is always the case when a `TutorialSession` is
- * instantiated (canvas mount lifecycle).
+ * Parse `hand.svg` into a `TutorialHintNode`. SVG ships two paths, fill and
+ * outline, `TutorialHintNode` pre-translates them so the fingertip sits at
+ * world origin.
  */
 function buildHintNode(): TutorialHintNode {
   // Hand paths render on the dynamic layer, opt into GPU tessellation so

@@ -1,30 +1,17 @@
 /**
- * The static-layer offscreen buffer. Holds a bitmap of the current
- * `renderLayer: 'static'` subtree rendered at the current camera+DPR. Each
- * frame the main canvas either:
+ * Static-layer offscreen buffer. Holds a bitmap of the current
+ * `renderLayer: 'static'` subtree at the current camera + DPR. Each frame
+ * the main canvas either blits it (cache hit) or re-bakes (camera settled)
+ * / renders live (camera animating).
  *
- * - Blits this bitmap (cache hit), a single `drawImage`, cheap even at 4K.
- * - Or, when the camera moved or the cache is stale, either re-bakes now (camera
- *   settled) or renders the static layer fresh (camera animating).
+ * Bakes into an `OffscreenCanvas` and seals into an immutable, GPU-resident
+ * `ImageBitmap` via `transferToImageBitmap()`. Firefox keeps a live source
+ * canvas off-GPU, so per-frame blits force a ~33 MB readback at 4K, sealing
+ * to a bitmap avoids that. Steady state holds exactly one bitmap, previous
+ * is `close()`d on every rebake so VRAM stays bounded.
  *
- * ## Why an ImageBitmap and not a plain `<canvas>`
- *
- * In Firefox, drawing FROM a live `<canvas>` that you also draw INTO is a known
- * slow path: the source canvas is often not kept GPU-resident, so the per-frame
- * blit forces a full readback/upload (~33 MB at 4K) and dominates the idle
- * frame. To avoid that we bake into an `OffscreenCanvas` and seal it into an
- * **immutable, GPU-resident `ImageBitmap`** via `transferToImageBitmap()`; the
- * per-frame blit then draws that bitmap, which the browser can keep as a
- * texture. We hold exactly one bitmap in steady state and `close()` the
- * previous one on every rebake so VRAM stays bounded.
- *
- * Where `OffscreenCanvas` / `transferToImageBitmap` is unavailable (older
- * browsers, some test environments) we fall back to the plain-canvas bake +
- * blit, same feature-detect pattern as `Path2DNode`'s scratch context.
- *
- * Bake accounting is tracked here, the debug HUD reads `totalBakes` and derives
- * an "invalidations/s" rate via `DebugController`, and `activeBitmaps` so a
- * texture leak surfaces on the kiosk.
+ * Falls back to plain-canvas bake + blit where `OffscreenCanvas` /
+ * `transferToImageBitmap` is unavailable.
  */
 export class Layers {
   // --- ImageBitmap path ---
@@ -38,11 +25,9 @@ export class Layers {
   private fallbackCtx: CanvasRenderingContext2D | null = null
 
   /**
-   * True while the ImageBitmap bake path is in use. Seeded from a feature
-   * probe, but downgraded permanently to the plain-canvas path the first time
-   * an `OffscreenCanvas` 2D context can't actually be acquired, some
-   * environments (e.g. happy-dom) expose the API surface but return no
-   * context.
+   * True while the ImageBitmap bake path is active. Feature-probed, then
+   * downgraded permanently to plain-canvas on the first failed `getContext`
+   * (happy-dom exposes the surface but returns no context).
    */
   private useBitmap: boolean
 
@@ -63,9 +48,8 @@ export class Layers {
   }
 
   /**
-   * Live (unclosed) `ImageBitmap`s held by the bake. `0` before the first bake,
-   * `1` in steady state; the HUD shows it and tests assert it never exceeds
-   * `2`. Always `0` on the fallback path.
+   * Live (unclosed) `ImageBitmap`s. 0 before first bake, 1 in steady state.
+   * Tests assert it never exceeds 2. Always 0 on the fallback path.
    */
   get activeBitmaps(): number {
     return this._activeBitmaps
@@ -131,10 +115,8 @@ export class Layers {
   }
 
   /**
-   * Seal the freshly-drawn bake and count it. On the bitmap path this transfers
-   * the offscreen's contents into a new immutable `ImageBitmap`
-   * (detaching/clearing the offscreen, which is fine, we only ever draw into it
-   * immediately before sealing) and closes the previous bitmap.
+   * Seal the fresh bake and count it. On the bitmap path, transfers the
+   * offscreen into a new immutable `ImageBitmap` and closes the previous.
    */
   recordBake(): void {
     if (this.useBitmap && this.offscreen) {
@@ -166,12 +148,9 @@ export class Layers {
   }
 
   /**
-   * Return the freshly-sealed bake so a GPU backend can upload it to a texture.
-   * On the ImageBitmap path this is the immutable bitmap produced by the last
-   * `recordBake` (the OffscreenCanvas is empty after `transferToImageBitmap`
-   * and must NOT be returned here); on the fallback path it's the plain-canvas
-   * backing store the bake drew into. `null` before the first `recordBake`,
-   * callers must gracefully skip.
+   * Sealed bake, for GPU texture upload. Bitmap path returns the immutable
+   * bitmap (NOT the offscreen, which is emptied by `transferToImageBitmap`).
+   * Fallback returns the plain canvas. `null` before the first `recordBake`.
    */
   getBakeSource(): CanvasImageSource | null {
     if (this.useBitmap) {

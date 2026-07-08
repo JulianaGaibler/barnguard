@@ -32,9 +32,8 @@ export class SceneNode {
   readonly transform = new Transform2D()
 
   /**
-   * Interpolation hook. When render interpolation is enabled, the ticker
-   * snapshots `transform` here at the start of each fixed step. Left `null`
-   * when interpolation is off (default in v1), no work is done.
+   * Snapshot of `transform` at the start of each fixed step when render
+   * interpolation is on. `null` when off (default), no work done.
    */
   prevTransform: Transform2D | null = null
 
@@ -53,20 +52,16 @@ export class SceneNode {
   private _scene: Scene | null = null
   private _destroyed = false
   /**
-   * Count of PROPER DESCENDANTS (not including self) whose `_renderLayer` is
-   * `'static'`. Maintained incrementally on `add` / `remove` / renderLayer
-   * change so `subtreeHasStaticLayer` is O(1) instead of O(subtree). Verified
-   * against a fresh DFS via `_verifyStaticCount()` in dev / on teardown.
+   * Static descendants (excluding self), maintained incrementally so
+   * `subtreeHasStaticLayer` stays O(1). Cross-checked by `_verifyStaticCount`.
    */
   private _staticDescendantCount = 0
 
   /**
-   * Cached "does this node OR any of its behaviours implement `onUpdate`?"
-   * Consulted by `Engine.walkUpdate` so per-frame visits to nodes with no work
-   * skip the body (and the `perfMarks` bookkeeping). Kept in sync by the
-   * constructor + `addBehaviour` / `removeBehaviour`. NOT set by direct
-   * assignment to `this.onUpdate`; subclasses that mutate `onUpdate` at runtime
-   * must call `_recomputeHasWork()` afterwards.
+   * Cached "does this node or any behaviour implement `onUpdate`?".
+   * `Engine.walkUpdate` skips no-work nodes entirely. Kept in sync by the
+   * constructor and `addBehaviour` / `removeBehaviour`. Subclasses that
+   * mutate `this.onUpdate` at runtime must call `_recomputeHasWork()`.
    */
   _hasUpdateWork = false
   _hasFixedStepWork = false
@@ -74,10 +69,8 @@ export class SceneNode {
   constructor(id?: string) {
     this.id = id ?? generateId()
     this.transform.onDirty = () => this.markWorldDirty()
-    // Subclasses that override `onUpdate` / `onFixedStep` as class methods
-    // have them defined on the prototype at construction time. Detect
-    // once here; `addBehaviour` handles the "behaviour brings its own
-    // hooks" path.
+    // Class-method overrides live on the prototype at construction time.
+    // Behaviour-brought hooks go through `addBehaviour`.
     this._hasUpdateWork = typeof this.onUpdate === 'function'
     this._hasFixedStepWork = typeof this.onFixedStep === 'function'
   }
@@ -160,18 +153,10 @@ export class SceneNode {
   }
 
   /**
-   * Force this node's `transform.world` to be up-to-date NOW, even if the next
-   * `Stage.updateTransforms` pass hasn't run yet. Used by mid-frame game code
-   * that just mutated an ancestor and needs the descendant's absolute position
-   * for physics or collision decisions on the SAME tick.
-   *
-   * Walks up from this node to the nearest clean ancestor, then composes back
-   * down. Idempotent, if the world is already clean, returns immediately.
-   * O(depth) in the worst case; O(1) when the ancestor chain is clean.
-   *
-   * The dirty-aware transform pass (`Stage.updateTransforms`) picks this up
-   * seamlessly, cleared `_worldDirty` flags cause it to skip the subtree next
-   * pass.
+   * Force `transform.world` up-to-date NOW without waiting for
+   * `Stage.updateTransforms`. For mid-frame game code that mutates an
+   * ancestor and needs the descendant's absolute position on the same tick.
+   * O(depth) worst case, O(1) when the ancestor chain is already clean.
    */
   ensureWorldTransform(): void {
     if (!this._worldDirty) return
@@ -289,10 +274,8 @@ export class SceneNode {
   }
 
   /**
-   * Dev / teardown assertion: verify `_staticDescendantCount` on every node in
-   * this subtree matches a fresh DFS. Throws on drift. Returns the subtree's
-   * total static count (including self if static) so recursive callers can
-   * build their own totals. Callable at any time; O(subtree).
+   * Dev assertion: verify `_staticDescendantCount` matches a fresh DFS.
+   * Returns subtree total including self, throws on drift.
    */
   _verifyStaticCount(): number {
     let actualDescendants = 0
@@ -406,10 +389,9 @@ export class SceneNode {
   onFixedStep?(fixedDt: number): void
 
   /**
-   * Pointer callbacks. Fire ONLY on the node that captured the pointer on
-   * `down` (see `InputSystem`). Move/up/cancel keep firing on that captured
-   * node regardless of whether the pointer still overlaps it. DOM-level
-   * `setPointerCapture` guarantees browser routing.
+   * Pointer callbacks. Fire on the node that captured the pointer on `down`.
+   * Move/up/cancel keep firing on the captured node even after the pointer
+   * leaves it (DOM `setPointerCapture`).
    */
   onPointerDown?(p: PointerEvent2D): void
   onPointerMove?(p: PointerEvent2D): void
@@ -437,14 +419,9 @@ export class SceneNode {
   }
 
   /**
-   * Tween numeric properties on ANY object, not just this node's transform. Use
-   * for custom node fields (`outerAlpha`, `pulseScale`, etc.) that live on
-   * subclasses of `SceneNode` and aren't part of `Transform2D`.
-   *
-   * Auto-scoped to `this.abortSignal`; `opts.signal` (if provided) is combined
-   * in.
-   *
-   * Requires the node to be attached to an Engine-owned Scene.
+   * Tween numeric properties on any object. For custom fields (`outerAlpha`,
+   * `pulseScale`, etc.) that aren't part of `Transform2D`. Auto-scoped to
+   * `this.abortSignal`. Requires an Engine-owned Scene.
    */
   tweenTo<T extends object>(
     target: T,
@@ -464,14 +441,10 @@ export class SceneNode {
   }
 
   /**
-   * Promote this node to `'above-static'` for the duration of the tween, then
-   * demote back to the original `renderLayer` on completion (also on abort. *
-   * the demote's `renderLayer` write invalidates the static cache exactly once
-   * so the bake picks up the settled state). Use for alpha fades on nodes that
-   * live on the static layer, a plain `tween` would be invisible until the next
-   * bake.
-   *
-   * Idiomatic: `await node.tweenStatic({ alpha: 0.5 }, { duration: 0.4 })`.
+   * Promote to `'above-static'` for the tween, demote on completion or
+   * abort. Use for tweens (like alpha) on static-layer nodes, a plain
+   * `tween` would be invisible until the next bake. The demote invalidates
+   * the static cache exactly once so the bake picks up the settled state.
    */
   tweenStatic(to: Partial<Transform2D>, opts: TweenOptions): Promise<void> {
     const prevLayer = this._renderLayer
@@ -490,13 +463,9 @@ export class SceneNode {
   }
 
   /**
-   * Attach a `.finally` to `p` that destroys this node when `p` settles
-   * (resolves OR rejects). `AbortError` is swallowed silently, the destroy IS
-   * the cleanup. Other rejections are re-thrown AND logged in dev builds via
-   * `console.warn` so a typo in tween keys doesn't become a silent "the
-   * animation just doesn't happen" bug.
-   *
-   * Usage: node.autoDestroy(node.tween({ alpha: 0 }, { duration: 0.4 }))
+   * Destroy this node when `p` settles (resolve or reject). AbortError is
+   * silent, the destroy is the cleanup. Other rejections log via
+   * `console.warn` so tween-key typos don't become silent no-ops.
    */
   autoDestroy(p: Promise<void>): Promise<void> {
     return p
@@ -515,11 +484,7 @@ export class SceneNode {
       })
   }
 
-  /**
-   * Snapshot-safe cascade destroy of every current child. Iterates a copy of
-   * the children array so a child's own `destroy` cascade doesn't interfere
-   * with the walk.
-   */
+  /** Cascade destroy every child. Iterates a snapshot so re-entry is safe. */
   destroyChildren(): void {
     const snapshot = this._children.slice()
     for (const c of snapshot) {
@@ -528,16 +493,11 @@ export class SceneNode {
   }
 
   /**
-   * Bind pointer handlers as an atomic block. Returns an `unbind()` function
-   * that clears exactly the handlers you assigned. If the node currently holds
-   * a pointer capture and gets destroyed OR `unbind()` is called, the bound
-   * `cancel` handler (if any) is invoked once with a synthetic cancel event
-   * first, prevents the classic "user held down while a timer killed the target
-   * → drag state stuck open" bug.
-   *
-   * `hitEnabled` defaults to `true` when a `down` handler is provided. *
-   * otherwise the node wouldn't receive any events. Pass `hitEnabled: false` to
-   * opt out (e.g. hover-only nodes that listen at the stage level).
+   * Bind pointer handlers atomically. Returns an `unbind()` that clears
+   * exactly the handlers assigned. On destroy or `unbind` while a capture is
+   * live, the `cancel` handler fires with a synthetic event so drag state
+   * doesn't get stuck open. `hitEnabled` defaults to `true` when `down` is
+   * present, opt out with `hitEnabled: false` for stage-level listeners.
    */
   bindPointer(handlers: {
     down?: (e: PointerEvent2D) => void
@@ -558,12 +518,9 @@ export class SceneNode {
     return (): void => {
       if (unbound) return
       unbound = true
-      // Best-effort synthetic cancel, if the pointer state module tracked
-      // which nodes hold captures on which pointers, we'd walk that map
-      // here and dispatch to each. For v1, the safety net lives inside
-      // `InputSystem.handleDown`'s per-pointer `destroy` listener which
-      // already fires `dispatchCancel` on node destroy. Explicit unbind
-      // outside of destroy is rare in practice, leave that path clean.
+      // `InputSystem.handleDown` fires `dispatchCancel` on node destroy, so
+      // captures held at destroy time are already covered. Explicit unbind
+      // outside destroy is rare, no synthetic cancel dispatched here.
       if (handlers.down) this.onPointerDown = undefined
       if (handlers.move) this.onPointerMove = undefined
       if (handlers.up) this.onPointerUp = undefined
@@ -576,27 +533,15 @@ export class SceneNode {
   }
 
   /**
-   * Run an async `body` in a loop while this node is alive and the abort signal
-   * is not tripped. Wraps the entire loop in `try/catch { ignoreAbort }` and
-   * defers the initial invocation by a microtask by default (so callers inside
-   * `Behaviour.onAttach` don't need to worry about the node not yet being
-   * scene-attached, though `onSceneReady` is the cleaner hook for that case).
+   * Run `body` in a loop while the node is alive. Aborts are swallowed,
+   * other errors log and terminate the loop.
    *
-   * `body` receives:
+   * `body` receives `{node, signal, iteration, nextFrame()}`. `nextFrame()`
+   * resolves AFTER the current frame renders, writes in its `.then` land on
+   * the next frame. For same-frame writes use `node.tween` / `node.wait`.
    *
-   * - `node`: this node
-   * - `signal`: `node.abortSignal`, pass to any tween/wait that isn't already
-   *   scoped via `node.tween` / `node.wait`.
-   * - `iteration`: 0-indexed iteration counter.
-   * - `nextFrame()`: promise that resolves after the next `animator.tick`. Writes
-   *   made in the resolved `.then` continuation land after the current frame's
-   *   render, so they're visible on the FOLLOWING frame. Use `await
-   *   node.tween(...)` or `await node.wait(0)` when you want writes to appear
-   *   on the SAME frame (they land inside the tween's tick, before the
-   *   transform pass).
-   *
-   * Fire-and-forget, returns `void`, not a Promise. Any non-abort error thrown
-   * by `body` is logged and terminates the loop; the engine keeps running.
+   * Fire-and-forget, initial invocation deferred by a microtask so callers
+   * inside `Behaviour.onAttach` can rely on scene attachment.
    */
   loop(
     body: (ctx: {
@@ -671,10 +616,8 @@ export class SceneNode {
   }
 
   /**
-   * Number of currently-alive particles this node reports for the debug HUD.
-   * Zero on the base class; `ParticleEmitterNode` overrides. Cheap duck-typed
-   * hook, the DebugController walks the scene and sums this without knowing
-   * about particle types.
+   * Alive particle count reported to the debug HUD. Base returns 0,
+   * `ParticleEmitterNode` overrides. Duck-typed sum by `DebugController`.
    */
   get particleCount(): number {
     return 0

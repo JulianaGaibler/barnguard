@@ -1,23 +1,14 @@
 /**
  * SVG path → flattened polylines → triangulated geometry.
  *
- * Three responsibilities, all callable independently:
+ * - `flattenSvgPath(d, tol)` load-time, one contour per `M`.
+ * - `flattenQuadratic` / `flattenCubic` live, zero-alloc subdivision into a
+ *   caller-owned `Float32Array`. Safe on the render hot path.
+ * - `tessellateContours(contours)` runs `earcut`. Uint16 indexing, throws
+ *   above 65 535 verts per shape.
  *
- * 1. **Load-time flattening**, `flattenSvgPath(d, tol)` turns a `d` attribute
- *    string into an array of contours (interleaved `[x0,y0,x1,y1,…]`
- *    `Float32Array`s). One contour per `M`.
- * 2. **Live Bézier flattening**, `flattenQuadratic` / `flattenCubic` subdivide a
- *    single segment into a caller-owned `Float32Array` with a write cursor.
- *    Zero allocation, safe on the render hot path (called by
- *    `GpuGfx.strokeQuadratic` / `strokePath2D`).
- * 3. **Triangulation**, `tessellateContours(contours)` runs `earcut` and returns a
- *    `GeometryHandle` (`{vertices, indices}`). Bounded to 65 535 verts per
- *    shape (Uint16 addressing); throws on overflow.
- *
- * Curve flatness test = **midpoint deviation from chord** (standard subdivision
- * heuristic). Tolerance is in the same coordinate space as the input; callers
- * translate pixel tolerance ⇄ world units via the current transform's scale
- * before calling.
+ * Flatness = midpoint deviation from chord. Tolerance is in input coordinate
+ * space, callers convert pixel tolerance via the current transform's scale.
  */
 
 import earcut from 'earcut'
@@ -31,11 +22,9 @@ const MAX_SUBDIV_DEPTH = 16
 // --- Live Bézier flatteners -------------------------------------------------
 
 /**
- * Flatten a quadratic Bézier from `(x0,y0)` through control `(cx,cy)` to
- * `(x1,y1)`. **The starting point `(x0,y0)` is assumed to already be at
- * `out[cursor-2..cursor-1]`** (the previous segment's endpoint or the polyline
- * start); this function appends **only the emitted intermediate points and
- * `(x1,y1)`**. Returns the new cursor (in floats).
+ * Flatten a quadratic Bézier. `(x0,y0)` MUST already be at
+ * `out[cursor-2..cursor-1]`, this only appends intermediate points and the
+ * endpoint. Returns the new cursor (in floats).
  */
 export function flattenQuadratic(
   x0: number,
@@ -406,25 +395,13 @@ export function flattenSvgPath(d: string, tol: number): Float32Array[] {
 // --- Triangulation ----------------------------------------------------------
 
 /**
- * Triangulate a list of contours via earcut. Each contour is treated as an
- * **independent outer polygon**, never as a hole in a previous one.
+ * Triangulate contours via earcut. Each contour is an independent outer
+ * polygon, NEVER a hole in a previous one. The game's map SVGs are
+ * multi-region (mainland + islands), not single-region-with-holes.
+ * Enclaves live in separate top-level `Path2D`s at the `SvgPathMap` level.
  *
- * This differs from earcut's "first outer, rest holes" convention on purpose:
- * the game's map SVGs are multi-REGION (mainland + islands per state), never
- * multi-contour-single-region-with-holes. Real enclaves (Berlin inside
- * Brandenburg, Bremen inside Niedersachsen) live in separate top-level
- * `Path2D`s at the `SvgPathMap` level, not as sub-paths of the enclosing state.
- * Treating sibling contours as holes previously punched Schleswig-Holstein's 12
- * islands (Sylt, Fehmarn, Amrum, Föhr…) out of the mainland fill, producing
- * island-shaped voids.
- *
- * If a Path2D genuinely needs a hole (a lake carved from a filled shape) the
- * caller would need a different tessellator that winding-order-detects hole
- * contours, none of the current game geometry does.
- *
- * Returns a `GeometryHandle` with `vertices` (interleaved f32 pairs) and
- * `indices` (uint16 triangle list) referencing the merged vertex list. Throws
- * if total vertex count exceeds 65 535 (Uint16 index limit).
+ * Returns interleaved f32 vertices + uint16 triangle indices. Throws above
+ * 65 535 total verts.
  */
 export function tessellateContours(contours: Float32Array[]): GeometryHandle {
   if (contours.length === 0) {

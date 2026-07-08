@@ -12,21 +12,13 @@ export interface EndpointResumeHooks {
 }
 
 /**
- * Attaches to an `EndpointHandleNode` and lets the player continue the parent
- * packet's already-drawn path from the tip:
- *
- * - **pointerdown**: capture, latch onto the packet's currently-bound
- *   `PathTrailNode` (no clear, we're extending, not replacing).
- * - **pointermove**: move the handle to the finger's world position and push into
- *   the trail (snap-to-epicenter check runs first).
- * - **pointerup / cancel**: on snap-to-epicenter, destroy the handle (path is now
- *   complete). Otherwise, park the handle at the trail's new tip so the player
- *   can pick it up again for another extension.
- *
- * A parallel of `PathDrawBehaviour` scoped to "continue" instead of "start
- * fresh". Both push into the same `PathTrailNode`, the packet's
- * `PacketBehaviour.steerAlongTrail` doesn't care which drag pushed the
- * samples.
+ * Attached to an `EndpointHandleNode`. Lets the player continue the packet's
+ * existing path from the tip.
+ * - down: capture, latch onto the packet's bound trail (extend, not clear).
+ * - move: move handle to finger, push into trail (snap check first).
+ * - up/cancel: on snap-to-epicenter, destroy handle. Otherwise park at the
+ *   new tip for another extension.
+ * Parallel to `PathDrawBehaviour` but "continue" instead of "start fresh".
  */
 export class EndpointResumeBehaviour extends Behaviour {
   private readonly hooks: EndpointResumeHooks

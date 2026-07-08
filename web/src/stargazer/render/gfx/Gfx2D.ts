@@ -1,27 +1,16 @@
 /**
- * `Gfx2D`, the renderer-agnostic drawing facade scene nodes draw through.
+ * `Gfx2D`, the renderer-agnostic drawing facade. Implemented by `GpuGfx`
+ * (WebGL2, default) and `Canvas2DGfx` (parity oracle, tutorial mini-stage,
+ * `?renderer=canvas2d`).
  *
- * Two backends implement it:
- *
- * - `GpuGfx`. WebGL2, default. Batches calls into a small set of programs and
- *   flushes through a `GfxDevice`.
- * - `Canvas2DGfx`, wraps a `CanvasRenderingContext2D`. Kept as the visual parity
- *   oracle, the tutorial mini-stage fallback (avoids the WebGL2
- *   context-acquisition jank on state-tap), and the `?renderer=canvas2d`
- *   opt-out.
- *
- * Surface conventions:
- *
- * - **Style is passed per call**, not held as sticky state, cleaner batching
- *   contract for the GPU backend, faithful to Canvas's per-call
- *   `fillStyle`/`lineWidth` assignments.
- * - **`setAlpha` is absolute** (Canvas `globalAlpha` semantics). Stage sets the
- *   per-node baseline before `draw`; nodes may overwrite.
- * - **Stroke `width` / `dash` are pre-resolved** to the current transform space
- *   by the caller (e.g. `lineWidth * camera.strokeSpaceScale()`).
- * - **`fillPath2D` / `strokePath2D`** are escape hatches for SVG-derived geometry
- *   (map, hand, eye). Canvas draws them natively; GPU consumes a pre-registered
- *   tessellation from `PathTessellationRegistry`.
+ * Conventions:
+ * - Style passes per call, no sticky state. Cleaner batching, matches Canvas.
+ * - `setAlpha` is absolute (`globalAlpha` semantics). Stage sets a per-node
+ *   baseline before `draw`, nodes may overwrite.
+ * - Stroke width and dash are pre-resolved to the current transform space by
+ *   the caller (e.g. `lineWidth * camera.strokeSpaceScale()`).
+ * - `fillPath2D` / `strokePath2D` are escape hatches for SVG geometry. GPU
+ *   requires a pre-registered tessellation from `PathTessellationRegistry`.
  */
 
 import type { BitmapMask } from '../../assets/BitmapMask'
@@ -100,23 +89,13 @@ export interface Gfx2D {
   /** Set the compositing mode for subsequent draws. */
   setBlend(mode: GfxBlend): void
   /**
-   * Set (or clear) a bitmap clip mask. When set, subsequent `fill*` draws are
-   * masked to pixels where the mask's alpha channel is non-zero, the mask's
-   * `worldRect` maps mask UV space to world coordinates. Pass `null` to clear.
+   * Set or clear a bitmap clip mask. `fill*` draws are masked to pixels
+   * where the mask's alpha is non-zero. `worldRect` maps mask UV to world.
+   * Snapshotted by `save`/`restore`.
    *
-   * State is snapshotted by `save`/`restore` (same semantics as `setAlpha` /
-   * `setBlend`), so nodes can push a mask inside a save-scope without an
-   * explicit unset.
-   *
-   * Backend notes:
-   *
-   * - GPU: uploads the mask as a texture (cached per mask instance) and modulates
-   *   fragment output by the sampled mask alpha. MSAA-friendly. Currently
-   *   plumbed through the `coloredTri` program only, masking the
-   *   stroke/SDF/gradient programs would need their own uniform.
-   * - Canvas2D: no-op today. The only in-tree user (`GridOverlayNode`) runs on
-   *   the GPU stage; if a Canvas2D consumer needs real clipping later, swap in
-   *   `ctx.save(); ctx.clip(mask.path); ...; ctx.restore()`.
+   * GPU: uploads mask as texture (cached per instance), modulates fragment
+   * alpha. Currently only wired through the `coloredTri` program.
+   * Canvas2D: no-op. GridOverlayNode is the only user and runs on GPU.
    */
   setClipMask(mask: BitmapMask | null): void
 

@@ -7,21 +7,11 @@ import {
 import { TUNING } from '../data/tuning'
 
 /**
- * The line a player draws to route a packet. Extends `PolylineNode` to decouple
- * the packet's guidance queue from the visible stroke:
- *
- * - The packet advances a `consumedCount` (via `markConsumed`), it does NOT
- *   `dropHead` per point. The polyline's stored points survive past the packet
- *   so we can fade them out gracefully.
- * - `onUpdate` polls the engine clock and lazily `dropHead`s once a head point
- *   has been fully faded (`age > fadeSec`).
- * - Custom `draw` walks segment-by-segment. Segments ahead of the packet render
- *   at full opacity; segments behind the packet fade in proportion to how long
- *   ago their endpoint was consumed. Stroke is a thin dashed line so the whole
- *   trail reads as "the path the finger is drawing".
- *
- * Result: no jarring per-point vanishing, the trail smoothly recedes behind the
- * packet like a shooting star.
+ * Player-drawn routing line. Decouples the packet's guidance queue from the
+ * visible stroke. `markConsumed` advances an index instead of `dropHead`
+ * so faded points survive briefly. `onUpdate` drops them lazily once
+ * `age > fadeSec`. `draw` walks segments, ahead-of-packet full alpha,
+ * behind-packet fades by consume age.
  */
 export class PathTrailNode extends PolylineNode {
   /**
@@ -82,14 +72,9 @@ export class PathTrailNode extends PolylineNode {
     }
     this.pointConsumedAt[this.pointCount - 1] = -1
 
-    // Live corner smoothing, apply a 1-2-1 kernel to the tail-unconsumed
-    // interior points on each push. This is a linear low-pass filter:
-    //     P_i' = (P_{i-1} + 2·P_i + P_{i+1}) / 4
-    // A sharp turn at P_i shifts P_i toward `midpoint(P_{i-1}, P_{i+1})`,
-    // rounding the corner into a curve. Each push runs the pass over a
-    // bounded window of the newest points, so old settled corners in the
-    // middle of the polyline don't keep drifting. Consumed points are
-    // skipped so the packet never sees waypoints move under it.
+    // Corner smoothing on unconsumed tail points. Bounded window so
+    // settled interior corners don't keep drifting. Consumed points are
+    // skipped so the packet never sees a waypoint move under it.
     this.smoothTail()
   }
 
@@ -97,14 +82,9 @@ export class PathTrailNode extends PolylineNode {
     const n = this.pointCount
     if (n < 3) return
     const consumedCount = this.consumedCount
-    // One pass over the last ~8 unconsumed interior points. Per push we
-    // pull each interior point a small fraction toward the midpoint of
-    // its neighbours:
-    //     P_i' = (1 - α) · P_i + α · midpoint(P_{i-1}, P_{i+1})
-    // A pure 1-2-1 kernel is α = 0.5 (aggressive rounding); we run at
-    // 0.09375, a further 25 % drop from an earlier 0.125 pass, so
-    // hand-drawn corners keep almost all of their character while the
-    // compounding across pushes still eases them subtly.
+    // Pull each interior point a small fraction (α = 0.09375) toward the
+    // midpoint of its neighbours. Compounds across pushes to a subtle
+    // ease without erasing hand-drawn character.
     const windowStart = Math.max(consumedCount + 1, n - 8)
     const windowEnd = n - 1 // exclusive, last point stays anchored to the raw finger
     if (windowStart >= windowEnd) return
@@ -165,10 +145,8 @@ export class PathTrailNode extends PolylineNode {
     if (n < 2) return
     const fade = TUNING.path.fadeSec
     const now = this.nowSec
-    // Stroke width + dash values are declared in CSS pixels; multiply by
-    // `strokeSpaceScale` so they stay visually constant across camera zoom.
-    // Opting into `strokeSpace: 'world'` (inherited from PolylineNode) keeps
-    // the previous "scales with zoom" behaviour.
+    // Stroke width + dash in CSS px, scaled by `strokeSpaceScale` to stay
+    // visually constant across zoom. World-space stroking bypasses this.
     const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
     // Dashed pattern shared across every sub-segment; only alpha varies.
     const style = {

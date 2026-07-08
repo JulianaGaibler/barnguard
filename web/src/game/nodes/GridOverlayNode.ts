@@ -10,30 +10,20 @@ import type { PacketMask } from '../behaviours/PacketBehaviour'
 import { TUNING } from '../data/tuning'
 
 /**
- * Session-facing surface the overlay reads from once per render frame to
- * compute the warning tint. The overlay stays session-agnostic, session passes
- * accessors, not references, so a `null`-until-ready packet list and a
- * swappable mask still just work.
+ * Session-facing accessors the overlay pulls each render frame. Accessors
+ * (not values) so a swappable mask and a `null`-until-ready packet list work.
  */
 export interface GridWarnSource {
-  /** Current active packet list. Empty array = no warning. */
+  /** Active packets. Empty = no warning. */
   activePackets(): readonly PacketNode[]
-  /** Country mask for border-inset checks (border-danger sampling). */
+  /** Country mask for border-inset checks. */
   mask(): PacketMask
-  /**
-   * Gate warn sampling, session sets this false while non-playing so a
-   * lingering yellow tint doesn't hang around after `endRound`.
-   */
+  /** False while non-playing so warn tints clear cleanly on `endRound`. */
   isPlaying(): boolean
 }
 
 export interface GridOverlayOptions {
-  /**
-   * Country outline mask. Used at construction to point-filter which grid cells
-   * land inside the country (kept) vs outside (dropped). The cell-fits-inside
-   * test uses `mask.contains(cx, cy, cellHalf)` so coastal cells that would
-   * overhang are dropped at load time, no per-frame clip needed.
-   */
+  /** Country outline. Used at construction to filter cells outside Germany. */
   mask: BitmapMask
   /** Cell edge length in world units. */
   cellSizeWorld: number
@@ -50,64 +40,42 @@ interface PulseSlot {
 const MIN_DRAW_ALPHA = 0.02
 
 /**
- * Per-cell brightness variance amplitude. Each cell's final alpha is multiplied
- * by `(1 + variance[i])` where `variance[i] ∈ [-VARIANCE_AMP, +VARIANCE_AMP]`.
- *
- * - 10 % up or down. Values are deterministic (index-hashed) so the pattern is
- *   stable across reloads within the same grid dimensions. Multiplicative so a
- *   `0` target stays `0`.
+ * Per-cell brightness variance. Final alpha *= `(1 + variance[i])` with
+ * `variance ∈ [-VARIANCE_AMP, +VARIANCE_AMP]`. Deterministic index hash so
+ * the pattern is stable across reloads. Multiplicative so `0` stays `0`.
  */
 const VARIANCE_AMP = 0.1
 
 /**
- * Alpha bucket count for the draw-pass batcher. Each cell's final alpha is
- * quantised into `[0, NUM_ALPHA_BUCKETS)` and cells sharing a bucket are drawn
- * in one tight `fillRect` loop with a single `globalAlpha` write. 12 buckets
- * keep the quantisation step (~8 %) imperceptible next to the ±10 % per-cell
- * variance, while collapsing ~500 state-changes to ≤ 12 per pass. Buffers are
- * pre-allocated in the constructor to avoid per-frame GC.
+ * Alpha buckets for draw batching. Each cell's alpha quantises into a bucket,
+ * every non-empty bucket is one `globalAlpha` write + `fillRect` loop. 12
+ * keeps the quantisation step (~8 %) below the ±10 % variance so it's
+ * imperceptible, while collapsing ~500 state changes to ≤ 12 per pass.
  */
 const NUM_ALPHA_BUCKETS = 12
 
 /**
- * A single `SceneNode` that renders a uniform grid of squares across the
- * country's world bounds. Every cell is the same size, the pulse + warn effects
- * light up with visually consistent weight regardless of geography.
+ * Uniform grid of squares clipped to the country outline. Sits on
+ * `'above-static'` so alpha changes don't invalidate the map's static bake.
  *
- * Per-frame state lives in two parallel `Float32Array` buffers:
+ * Per-frame state:
+ * - `pulseAlpha[]`, event-driven ripples. `pulseFrom(worldPos)` fires a wave
+ *   spreading at `propagationSpeedWorld`, each cell lights when the wavefront
+ *   reaches its centroid. Concurrent pulses combine via `max`.
+ * - `warnAlpha[]`, smoothed toward `warnTarget[]` resampled from packet
+ *   positions each `onUpdate`. Yellow tint with linear falloff around packets
+ *   in danger.
  *
- * - `pulseAlpha[]`, recomputed each frame from a small pool of active ripple
- *   pulses. `pulseFrom(worldPos)` fires a wave that spreads outward at
- *   `propagationSpeedWorld`, each cell lights up when the wavefront reaches its
- *   centroid, then falls off. Multiple concurrent pulses combine via `max`.
- * - `warnAlpha[]`, smoothed each frame toward `warnTarget[]`, which the overlay
- *   itself resamples from packet positions inside `onUpdate`. A packet in
- *   danger (close to border or another packet) tints the surrounding grid cells
- *   yellow with linear falloff.
- *
- * Cell geometry is precomputed at construction: iterate the mask's world
- * bounding box on `cellSizeWorld` steps, keep only cells whose four cardinal
- * edge-midpoints pass `mask.contains(cx, cy, cellHalf)`. Coastal cells that
- * would overhang the outline are dropped, no per-frame `ctx.clip` needed,
- * coastline reads as a stair-step of cell edges. Sits on `'above-static'` so
- * alpha changes never invalidate the map's static bake.
- *
- * Draw quantises per-cell alpha into `NUM_ALPHA_BUCKETS` buckets and scatters
- * cell indices into pre-allocated `Uint16Array`s (one per bucket) each frame.
- * Each bucket then renders as a single `globalAlpha` write + tight `fillRect`
- * loop. Canvas 2D's internal batcher stays intact, GPU submissions drop from
- * hundreds per pass to ≤ 12. Buffers are allocated once at construction (no
- * per-frame GC).
+ * Cells precomputed at construction by iterating the mask's bounding box on
+ * `cellSizeWorld` steps and keeping centre-or-corner hits.
  */
 export class GridOverlayNode extends SceneNode {
   private readonly cellSize: number
   private readonly cellHalf: number
   /**
-   * Country outline mask. Held for the GPU clip path, `draw` wraps its bucketed
-   * passes in `gfx.setClipMask(this.mask)` so coastal cells get clipped to the
-   * outline instead of overhanging into the water. On Canvas2D the setClipMask
-   * is a no-op and the historical overhang remains (fallback, not shipped on
-   * the kiosk).
+   * Country outline. `draw` wraps its passes in `gfx.setClipMask(this.mask)`
+   * so coastal cells clip to the outline on GPU. Canvas2D `setClipMask` is a
+   * no-op, coastal cells overhang there (fallback path, not the kiosk).
    */
   private readonly mask: BitmapMask
   /** Interleaved (x, y) cell centres, length `2 × count`. */
@@ -118,10 +86,8 @@ export class GridOverlayNode extends SceneNode {
   private readonly warnTarget: Float32Array
   private readonly warnAlpha: Float32Array
   /**
-   * Deterministic per-cell brightness multiplier in `[1 - VARIANCE_AMP, 1 +
-   * VARIANCE_AMP]`. Applied to the final draw alpha so each cell's glow reads
-   * slightly dimmer / brighter than its neighbours, breaks up the uniformity of
-   * the grid without hiding the wavefront shape.
+   * Per-cell brightness multiplier in `[1 - VARIANCE_AMP, 1 + VARIANCE_AMP]`.
+   * Breaks up grid uniformity without hiding the wavefront.
    */
   private readonly varianceFactor: Float32Array
   private readonly pulses: PulseSlot[]
@@ -145,16 +111,10 @@ export class GridOverlayNode extends SceneNode {
     this.cellSize = step
     this.cellHalf = step * 0.5
 
-    // Point-filter every cell in the mask's world bounding box. We keep
-    // a cell if EITHER its centre or any of its four corners sits inside
-    // the outline, the union of samples adds back the coastal ring
-    // that a stricter interior-only test drops as visible gaps at the
-    // shoreline. Cells that only touch the country by a corner render
-    // with some overhang past the coast (up to `cellHalf` world units),
-    // but only when lit, the effect reads as glow spilling into the
-    // water, not a missing edge. `Float32Array` is fixed-size at
-    // construction, build a temporary JS array first, then copy over.
-    // This runs once at startup.
+    // Keep any cell whose centre OR any corner sits inside the outline.
+    // Interior-only would drop the coastal ring as visible gaps, corner
+    // hits render as glow spilling into the water when lit, no missing
+    // edge. Build in a growable array then copy into the fixed Float32Array.
     const rect = opts.mask.worldRect
     const cols = Math.ceil(rect.width / step)
     const rows = Math.ceil(rect.height / step)
@@ -183,19 +143,16 @@ export class GridOverlayNode extends SceneNode {
     this.warnTarget = new Float32Array(this.count)
     this.warnAlpha = new Float32Array(this.count)
     this.varianceFactor = new Float32Array(this.count)
-    // Deterministic per-index hash. Knuth's multiplicative constant
-    // mapped through `>>> 0` for unsigned wrap. Same variance pattern
-    // every reload, no `Math.random` reproducibility footgun.
+    // Deterministic per-index hash (Knuth's multiplicative constant). Same
+    // variance pattern every reload, no `Math.random` footgun.
     for (let i = 0; i < this.count; i++) {
       const h = ((i * 2654435761) >>> 0) / 4294967296
       // h ∈ [0, 1) → variance factor ∈ [1 - VARIANCE_AMP, 1 + VARIANCE_AMP].
       this.varianceFactor[i] = 1 + (h * 2 - 1) * VARIANCE_AMP
     }
 
-    // Pre-allocated bucket scratch, one Uint16Array per bucket, each
-    // sized to `count` (worst case all cells land in the same bucket).
-    // Memory footprint: `NUM_ALPHA_BUCKETS × count × 2` bytes, under
-    // ~60 KB for ~2500 cells. Zero per-frame allocation.
+    // One Uint16Array per bucket, worst-case sized to `count`. ~60 KB for
+    // ~2500 cells. Zero per-frame allocation.
     this.buckets = new Array(NUM_ALPHA_BUCKETS)
     for (let b = 0; b < NUM_ALPHA_BUCKETS; b++) {
       this.buckets[b] = new Uint16Array(this.count)
@@ -215,18 +172,14 @@ export class GridOverlayNode extends SceneNode {
     }
   }
 
-  /**
-   * Number of live cells after outline filtering, exposed for debug logs /
-   * tests.
-   */
+  /** Live cell count after outline filtering. */
   get cellCount(): number {
     return this.count
   }
 
   /**
-   * Session calls this once at construction so `onUpdate` can pull the live
-   * packet list + mask without a session import. Passing accessors (not values)
-   * means the overlay always sees the freshest data.
+   * Session wires accessors so `onUpdate` sees freshest packet list / mask
+   * without a session import.
    */
   attachWarnSource(source: GridWarnSource): void {
     this.warnSource = source
@@ -234,8 +187,7 @@ export class GridOverlayNode extends SceneNode {
 
   /**
    * Fire a ripple from `worldPos`. Overwrites the oldest slot if all
-   * `maxConcurrent` are active, game-over animations rarely stack, and dropping
-   * the oldest is preferable to allocating more.
+   * `maxConcurrent` are active.
    */
   pulseFrom(worldPos: Vec2, amplitudeOverride?: number): void {
     const slot = this.pickPulseSlot()
@@ -256,11 +208,7 @@ export class GridOverlayNode extends SceneNode {
     slot.maxWavefrontDelay = maxDelay
   }
 
-  /**
-   * Zero every alpha buffer and clear every pulse slot. Called from
-   * `session.reset()` so an interrupted round doesn't carry stale yellow tints
-   * or half-decayed pulses into the next one.
-   */
+  /** Clear all alpha buffers and pulse slots. Called from `session.reset()`. */
   reset(): void {
     this.elapsed = 0
     this.pulseAlpha.fill(0)
@@ -284,13 +232,9 @@ export class GridOverlayNode extends SceneNode {
   override draw(gfx: Gfx2D, _camera: Camera): void {
     if (this.count === 0) return
     gfx.save()
-    // Clip both passes to the country outline so coastal cells don't
-    // spill into the sea. Setter is stack-scoped, `restore` (below)
-    // implicitly clears the mask, but we still null it explicitly to
-    // match the setter/getter symmetry and to keep the seam legible.
+    // Clip both passes so coastal cells don't spill into the sea.
     gfx.setClipMask(this.mask)
-    // Warn pass under the pulse, game-over ripple visually wins over
-    // any lingering yellow warning.
+    // Warn under pulse, game-over ripple wins visually over lingering warn.
     this.drawPassBucketed(gfx, this.warnAlpha, TUNING.wahlkreise.warn.color)
     this.drawPassBucketed(gfx, this.pulseAlpha, TUNING.wahlkreise.pulse.color)
     gfx.setClipMask(null)
@@ -298,14 +242,9 @@ export class GridOverlayNode extends SceneNode {
   }
 
   /**
-   * Draw one alpha buffer as filled cells. The whole pass is TWO tight inner
-   * loops, a scatter that bins each lit cell into an alpha bucket, followed by
-   * a per-bucket draw that issues ONE `globalAlpha` write plus
-   * `bucketCounts[b]` `fillRect` calls. Both loops touch pre-allocated typed
-   * arrays only, zero allocation per frame.
-   *
-   * `variance[i]` is applied inside the scatter so the same cell's warn and
-   * pulse contributions share a jitter, visually coherent.
+   * Draw one alpha buffer as filled cells. Scatter bins lit cells into alpha
+   * buckets, per-bucket loop issues one `globalAlpha` + tight `fillRect`s.
+   * `variance[i]` applied in the scatter so warn and pulse share jitter.
    */
   private drawPassBucketed(gfx: Gfx2D, src: Float32Array, color: string): void {
     const n = this.count
@@ -328,9 +267,7 @@ export class GridOverlayNode extends SceneNode {
       buckets[b][bucketCounts[b]++] = i
     }
 
-    // Draw, one `globalAlpha` write per non-empty bucket, then a tight
-    // `fillRect` loop. Canvas 2D's internal batcher stays intact for
-    // the run of same-alpha rects.
+    // One `globalAlpha` per non-empty bucket, tight `fillRect` loop.
     const centroids = this.centroids
     const size = this.cellSize
     const half = this.cellHalf
@@ -365,19 +302,9 @@ export class GridOverlayNode extends SceneNode {
   }
 
   /**
-   * Cast rays outward from `(px, py)` in 16 directions and return the closest
-   * world position where the country mask flips false, i.e. the nearest wall
-   * segment. Writes the result into `out` and returns the hit distance
-   * (`Infinity` if no wall found within `maxDistWorld`).
-   *
-   * Cost per call: 16 directions × ~`maxDistWorld / STEP` raymarch probes. At
-   * `maxDistWorld ≈ 54` and `STEP = 3` → ~288 `mask.contains` lookups per
-   * packet, or ~1700 for a six-packet round. Each `contains` is O(4) internally
-   * , trivial at this rate.
-   *
-   * The precision within a step is `STEP` world units; we return the midpoint
-   * of the last inside-to-outside transition, which is off by at most `STEP /
-   * 2`. Fine for a visual glow anchored to the wall.
+   * Nearest wall point from `(px, py)`, cast in 16 directions. Writes `out`
+   * and returns hit distance (`Infinity` if no wall within `maxDistWorld`).
+   * Precision is `STEP / 2` world units, fine for a visual glow anchor.
    */
   private findNearestWallPoint(
     px: number,

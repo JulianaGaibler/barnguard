@@ -269,19 +269,10 @@ export class PacketBehaviour extends Behaviour {
   }
 
   /**
-   * Steer along the current trail. `PathTrailNode` decouples the guidance queue
-   * from the visible polyline, consumed points STAY in the buffer so they can
-   * fade out gracefully. We advance `trail.nextTargetIndex` via `markConsumed`
-   * when the packet reaches each target; the polyline lazily drops fully-faded
-   * head points from its `onUpdate`.
-   *
-   * The reference stays bound across finger pauses AND across pointerup:
-   *
-   * - Pause during drag → no new points get pushed; queue drains; packet keeps
-   *   its last vector. Resuming motion pushes fresh points that land past
-   *   `nextTargetIndex`, and the packet re-aims on next tick.
-   * - Re-tap on the same packet → `PathDrawBehaviour.beginTrail` clears this same
-   *   node in place (no allocation), then the next move pushes into it.
+   * Steer along the trail. `markConsumed` advances the queue, faded points
+   * stay in the polyline for `PathTrailNode` to drop lazily. Reference
+   * survives finger pauses and pointerup, packet keeps its last vector when
+   * the queue drains and re-aims when fresh points arrive.
    */
   private steerAlongTrail(packet: PacketNode, fdt: number): void {
     if (!this.trail) return
@@ -312,15 +303,10 @@ export class PacketBehaviour extends Behaviour {
       return
     }
 
-    // 2) Pure-pursuit carrot along the polyline. Walk `lookaheadDist`
-    //    starting at the packet's position and stepping through the
-    //    upcoming waypoints. The aim target is where that walk lands.
-    //    Preserves curvature through the whole drag; aiming at raw
-    //    waypoints one at a time flattens the tail into straight legs
-    //    which reads as a snap-back when the polyline was curved. Past
-    //    the very last waypoint we extrapolate along that final segment's
-    //    tangent so aim continues smoothly rather than collapsing to a
-    //    single fixed point.
+    // 2) Pure-pursuit carrot. Walk `lookaheadDist` through the upcoming
+    //    waypoints. Preserves curvature, aiming at raw waypoints one at a
+    //    time flattens the tail into straight legs. Past the last waypoint
+    //    we extrapolate along the final tangent for smooth aim.
     const lookaheadDist = TUNING.path.minPointDistWorld * 2
     let idx = trail.nextTargetIndex
     trail.pointAt(idx, scratch)

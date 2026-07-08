@@ -29,54 +29,43 @@ export interface StageOptions {
   /** When true, `clear()` uses `clearRect` so the CSS parent shows through. */
   transparent?: boolean
   /**
-   * Optional label surfaced in the debug HUD's stage selector. Falls back to
-   * `Stage {N}` where N is the insertion index. Leave undefined for the primary
-   * stage, the HUD labels it "Primary" regardless.
+   * Label in the debug HUD stage selector. Defaults to `Stage {N}`. The
+   * primary stage is labelled "Primary" regardless.
    */
   name?: string
   /**
-   * Attach an `InputSystem` to this stage's canvas so scene nodes here can
-   * receive `onPointerDown/Move/Up/Cancel`. Default `false` for secondary
-   * stages, display-only cards stay cheap and event-free. The primary is always
-   * constructed with input on.
+   * Attach an `InputSystem` so scene nodes receive pointer events. Default
+   * `false` for secondary stages, primary is always `true`.
    */
   interactive?: boolean
   /**
-   * Fires whenever the stage's `ResizeObserver` picks up a canvas CSS-size
-   * change AND every dpr change. Runs AFTER `renderer.resize` and
-   * `camera.setPixelSize`, so `info.cssSize` / `pixelSize` reflect the new
-   * backing store. Callers can use this to reshape the world viewport,
-   * reposition anchored scene nodes, etc.
+   * Fires on canvas CSS-size and dpr changes, AFTER `renderer.resize` and
+   * `camera.setPixelSize`. Use to reshape viewport or reposition anchored
+   * nodes.
    */
   onResize?: (info: StageResizeInfo) => void
   /**
-   * Fully-resolved dynamic-resolution policy for this stage. When present and
-   * `enabled`, the stage drops render resolution during camera motion / under
-   * sustained overload and restores it on settle. Omit (or `enabled: false`)
-   * for display-only / cheap stages. The Engine merges caller overrides with
-   * `DEFAULT_DYNAMIC_RESOLUTION` before passing it here.
+   * Dynamic-resolution policy. When `enabled`, drops render resolution
+   * during camera motion or sustained overload and restores on settle.
    */
   dynamicResolution?: DynamicResolutionOptions
   /**
-   * Renderer backend for this stage. Default `'canvas2d'`. Under `'gpu'` the
-   * stage acquires a WebGL2 context on its canvas and routes all `draw` calls
-   * through `GpuGfx`.
+   * Renderer backend. Default `'canvas2d'`. Under `'gpu'`, acquires a
+   * WebGL2 context and routes draws through `GpuGfx`.
    */
   renderer?: RendererMode
   /**
-   * MSAA sample count for the GPU render target. `1` disables MSAA
-   * (single-sample color texture); `> 1` allocates a multisample color
-   * renderbuffer resolved on present. Default 4 under GPU. Clamped to the
-   * driver's `MAX_SAMPLES`. No effect under Canvas mode.
+   * MSAA sample count under GPU. `1` disables, `>1` allocates a multisample
+   * renderbuffer. Default 4, clamped to driver `MAX_SAMPLES`. No effect
+   * under Canvas mode.
    */
   msaaSamples?: number
 }
 
 /**
- * Per-stage pointer events. Fires only when the stage has an `InputSystem`
- * attached (see `StageOptions.interactive`). `pointerMove` is high-frequency. *
- * do NOT bind Svelte stores to it. Direct listeners in a `$effect` are the
- * correct pattern; see the note in `docs/input.md`.
+ * Per-stage pointer events. Fires only on interactive stages. `pointerMove`
+ * is high-frequency, do NOT bind Svelte stores to it. Use `$effect`
+ * listeners instead.
  */
 export interface StagePointerEvents {
   pointerDown: PointerEvent2D
@@ -101,20 +90,15 @@ const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1000, height: 1000 }
 const MIN_RENDER_SCALE = 0.1
 
 /**
- * World-unit slack added to the viewport-cull test, on top of a node's own
- * stroke half-width, to cover anti-aliased edges and sub-pixel drift so a node
- * never pops out a frame early at the visible boundary.
+ * World-unit slack on viewport cull, on top of stroke half-width. Covers AA
+ * edges and sub-pixel drift so nodes don't pop early at the boundary.
  */
 const CULL_AA_PAD_WORLD = 2
 
 /**
- * A render surface, one canvas plus everything that varies per-canvas
- * (`Renderer`, `Scene`, `Camera`, `Layers`) and the render pipeline that
- * targets it. The `Engine` owns a primary stage for its own canvas and can
- * attach additional stages via `Engine.attachStage(canvas, opts)`.
- *
- * All stages share the engine's `Ticker` and `Animator`, so tweens on
- * secondary-scene nodes tick from the same clock as the primary, no drift.
+ * A render surface (canvas + `Renderer` + `Scene` + `Camera` + `Layers`).
+ * All stages share the engine's `Ticker` and `Animator` for drift-free
+ * synced tweens.
  */
 export class Stage {
   readonly renderer: Renderer
@@ -125,10 +109,7 @@ export class Stage {
   readonly canvas: HTMLCanvasElement
   /** Optional label shown in the debug HUD's stage selector. */
   readonly name: string | undefined
-  /**
-   * Per-stage pointer emitter. Always constructed; only fires when this stage
-   * has an `InputSystem` attached (interactive stages).
-   */
+  /** Always constructed. Only fires on interactive stages. */
   readonly events: Emitter<StagePointerEvents> =
     createEmitter<StagePointerEvents>()
   /** `null` when the stage is display-only. */
@@ -139,10 +120,9 @@ export class Stage {
   private disposed = false
 
   /**
-   * On-canvas rendering surface. `GpuGfx` (WebGL2) by default; `Canvas2DGfx`
-   * when `?renderer=canvas2d` is set. Drawing goes through the `Gfx2D`
-   * interface both implement; lifecycle hooks (`beginFrame`/`endFrame`/…) are
-   * present on both so Stage stays backend-branch-free.
+   * On-canvas rendering surface. `GpuGfx` (WebGL2) by default, `Canvas2DGfx`
+   * under `?renderer=canvas2d`. Both implement `Gfx2D` so Stage is
+   * backend-branch-free.
    */
   private readonly screenGfx: Canvas2DGfx | GpuGfx
   /** WebGL2 device (only when `screenGfx instanceof GpuGfx`). */
@@ -220,9 +200,8 @@ export class Stage {
         ? new DynamicResolution(opts.dynamicResolution)
         : null
 
-    // Kiosk hygiene, every stage's canvas gets the same touch/selection
-    // suppression. Applied here rather than in Engine so secondary canvases
-    // Svelte mounts get it automatically. CSS-owned parents can override.
+    // Kiosk hygiene, touch/selection suppression on every canvas. Applied
+    // here so Svelte-mounted secondary canvases inherit it.
     const style = canvas.style
     style.touchAction = 'none'
     style.userSelect = 'none'
@@ -235,23 +214,15 @@ export class Stage {
     this.resizeObserver.observe(canvas)
     window.addEventListener('resize', this.onWindowResize)
 
-    // Attach the input pipeline last, it wants renderer + camera in place
-    // and its `getActiveCamera()` reads from the debug controller which is
-    // set up on Engine after primaryStage construction, so we tolerate a
-    // null debug at this point.
+    // Input attaches last, needs renderer + camera in place. Debug
+    // controller may still be null (set on Engine after primaryStage).
     this.input = opts.interactive ? new InputSystem(this, engine) : null
   }
 
   /**
-   * Recompute local + world transforms across this stage's scene tree. Called
-   * once per frame by `Engine.frame` after `onUpdate` walks and before
-   * `render`.
-   *
-   * Skips clean subtrees: if a node's `_worldDirty` is false AND its parent's
-   * world didn't change this walk, we don't rewrite its world matrix. See
-   * `SceneNode.ensureWorldTransform()` for the mid-frame escape hatch when game
-   * code needs a freshly-composed world for a subtree that hasn't yet reached
-   * this pass.
+   * Recompute local + world transforms across the scene. Skips clean
+   * subtrees (both `_worldDirty` false AND parent world unchanged). See
+   * `SceneNode.ensureWorldTransform` for the mid-frame escape hatch.
    */
   updateTransforms(): void {
     const root = this.scene.root
@@ -366,14 +337,10 @@ export class Stage {
 
     const isGpu = screen instanceof GpuGfx
     if (isGpu) {
-      // Under GPU the map's Path2Ds are tessellated at asset load (see
-      // `game/assets.ts`, `{tessellate: true}` for states/outline/cities),
-      // so rendering the static layer natively every frame is trivial:
-      // ~94 paths × ~50 triangles each ≈ 5K triangles, coalesced into ONE
-      // colored-tri batch by GpuGfx. Sharper than the Canvas bake +
-      // reproject path AND avoids the CLAMP_TO_EDGE artifacts that
-      // approach exhibited when the current viewport strayed outside
-      // the bake's world coverage.
+      // Under GPU, map Path2Ds are tessellated at asset load, so rendering
+      // the static layer live every frame is one colored-tri batch (~5K
+      // tris). Sharper than the bake + reproject and avoids CLAMP_TO_EDGE
+      // artifacts when the viewport strays outside the bake's coverage.
       this.phaseBegin(marks, 'static-render')
       this.drawLayer('static', screen, camera, dprScale, vE, vF, dt)
       this.phaseEnd(marks, 'static-render')
@@ -417,11 +384,8 @@ export class Stage {
     this.phaseEnd(marks, 'dynamic')
     this.flushIfGpu(screen)
 
-    // Debug overlays, drawn INSIDE the frame (before endFrame's blit
-    // under GPU) so they composite on top of the dynamic layer via the
-    // same gfx pipeline. Under Canvas they render onto the primary 2D
-    // context; under GPU they emit through the batching system like any
-    // other draw. `Engine.frame` no longer calls debug drawing separately.
+    // Debug overlays draw INSIDE the frame so they composite on top of the
+    // dynamic layer through the same gfx pipeline.
     const debug = this.scene.engine?.debug
     const activeDebugStage = debug?.activeStage ?? this
     if (debug && activeDebugStage === this) {
@@ -437,11 +401,7 @@ export class Stage {
     screen.endFrame()
   }
 
-  /**
-   * Draw the static bake onto the primary render surface. Canvas-only: GPU
-   * renders the static layer natively every frame instead (see `render()`), so
-   * this method is never called with a `GpuGfx` facade.
-   */
+  /** Canvas-only. GPU renders the static layer live each frame instead. */
   private blitStaticCache(): void {
     const screen = this.screenGfx
     if (!(screen instanceof Canvas2DGfx)) return
@@ -513,9 +473,8 @@ export class Stage {
   }
 
   /**
-   * Close a render-phase perf span opened by `phaseBegin`, emitting a
-   * `performance.measure(name, ...)` the Firefox Profiler surfaces as a
-   * UserTiming marker. No-op unless `engine.perfMarks` is on.
+   * Close a phase span from `phaseBegin`, emits a `performance.measure`
+   * surfaced by the Firefox Profiler. No-op unless `engine.perfMarks` is on.
    */
   private phaseEnd(marks: boolean, name: string): void {
     if (!marks) return
@@ -532,18 +491,10 @@ export class Stage {
     offY: number,
     dt: number,
   ): void {
-    // `engine.perfMarks` opt-in. DevTools Performance → User Timing lane
-    // shows a per-node flame chart when the flag is on. Off by default,
-    // so hot-path cost stays at a single boolean check per node.
     const marks = this.scene.engine?.perfMarks ?? false
-    // Iterate the per-layer node index (populated + cached in Scene). No
-    // walkTree, no filter, every node in `layerNodes` is already on this
-    // layer, in painter order. Visibility and `draw`-presence still need
-    // per-node gates.
-    // Visible world rect for culling. Derived from the canvas CORNERS (not the
-    // camera viewport) so it includes the letterbox margin, culling against
-    // the bare viewport would clip content that's still on screen in the
-    // uncovered axis. Computed once per layer, reused per node.
+    // Cull rect from the canvas corners (not the camera viewport) so it
+    // includes letterbox margins, otherwise content still on screen in the
+    // uncovered axis clips.
     const cssW = this.renderer.cssSize.w
     const cssH = this.renderer.cssSize.h
     camera.screenToWorld(0, 0, this.cullTL)
@@ -705,12 +656,10 @@ export class Stage {
   }
 
   /**
-   * Set the dynamic-resolution scale and re-size the backing store to match
-   * (`devicePixelRatio × scale`). Unlike `applyResize`, this does **not** fire
-   * `onResize`, the CSS layout and world viewport are unchanged, only device-
-   * pixel density, so consumers listening for real resizes must not be woken.
-   * Invalidates the static bake so it re-bakes at the new resolution before the
-   * next blit (guarding against a wrong-sized bitmap).
+   * Set the dynamic-resolution scale and resize the backing store to
+   * `devicePixelRatio × scale`. Does NOT fire `onResize`, only pixel
+   * density changes. Invalidates the static bake so the next blit sees a
+   * correctly-sized bitmap.
    */
   setRenderScale(scale: number): void {
     const clamped = Math.max(MIN_RENDER_SCALE, Math.min(1, scale))
@@ -735,9 +684,8 @@ export class Stage {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    // Tear down input FIRST so pointer capture on the canvas element clears
-    // before we destroy the scene root (which would otherwise fire synthetic
-    // cancels through the captured nodes' onPointerCancel).
+    // Input FIRST so pointer capture clears before scene teardown would
+    // synthesise cancels through captured nodes.
     this.input?.destroy()
     this.resizeObserver?.disconnect()
     this.resizeObserver = null

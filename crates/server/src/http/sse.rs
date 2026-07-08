@@ -25,6 +25,20 @@ pub async fn events(
         }
     });
 
+    // Real named `ping` events every 15 s. The `KeepAlive` below sends an SSE
+    // comment line (`:ping\n\n`) — browsers ignore comment lines, so they
+    // don't dispatch to any EventSource handler and can't feed the client's
+    // heartbeat monitor. A named event does dispatch, so the client bumps its
+    // liveness clock on receipt. Comment keep-alive is kept as a byte-level
+    // fallback for intermediary proxies.
+    let pings = stream::unfold((), |()| async {
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        Some((
+            Ok::<_, Infallible>(Event::default().event("ping").data("ping")),
+            (),
+        ))
+    });
+
     // Replay current snapshot + buffered log history so a (re)connecting client
     // is immediately consistent and gets recent messages ("flush on connect").
     let status = st.controller.status();
@@ -41,7 +55,8 @@ pub async fn events(
         initial.push(Ok(sse_json("log", entry)));
     }
 
-    Sse::new(stream::iter(initial).chain(live)).keep_alive(
+    let tail = stream::select(live, pings);
+    Sse::new(stream::iter(initial).chain(tail)).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(15))
             .text("ping"),

@@ -1,20 +1,13 @@
 /**
- * `WebGL2Device`, the WebGL2 implementation of `GfxDevice`. Owns the GL
- * context, tracks minimal per-frame state (program/VAO/blend) to elide
- * redundant driver calls, and wraps the awkward WebGL bits (attribute binding,
- * texture unpack flags, FBO blit, context loss) behind the `GfxDevice` seam so
- * `GpuGfx`, and, later, a WebGPU sibling, stays blissfully unaware.
+ * WebGL2 implementation of `GfxDevice`. Owns the GL context, elides
+ * redundant driver calls via minimal per-frame state tracking.
  *
- * Context creation notes (matched to the port plan):
- *
- * - `antialias: false`, we own AA (shader-distance in Phase 2), never MSAA.
- * - `alpha: true`, `premultipliedAlpha: true`, the whole pipeline runs
- *   premultiplied so the compositor doesn't apply a hidden extra multiply.
- * - `UNPACK_COLORSPACE_CONVERSION_WEBGL = NONE` on every texture upload. * guards
- *   against sRGB→linear conversions some drivers apply silently when uploading
- *   `ImageBitmap` / `HTMLImageElement`.
- * - Face culling stays disabled (WebGL2 default), our 2D geometry has mixed
- *   winding.
+ * Context creation:
+ * - `antialias: false`, we own AA (shader-distance).
+ * - Premultiplied alpha end-to-end so the compositor doesn't double-multiply.
+ * - `UNPACK_COLORSPACE_CONVERSION_WEBGL = NONE` guards against silent
+ *   sRGB→linear on `ImageBitmap` / `HTMLImageElement` upload.
+ * - Face culling disabled, 2D geometry has mixed winding.
  */
 
 import type {
@@ -59,11 +52,9 @@ interface WebGL2Vao extends Vao {
 }
 
 /**
- * Discriminated union of color-attachment shapes. `samples === 1` uses a
- * regular texture attachment (`color`); `samples > 1` uses a multisample
- * renderbuffer (`colorRb`). Mutually exclusive, only one is set. The `samples`
- * field carries the effective (post-clamp) sample count so `blitToDefault` can
- * pick the right filter (NEAREST for multisample resolve, LINEAR otherwise)
+ * Discriminated color attachment. `samples === 1` uses `color` texture,
+ * `samples > 1` uses `colorRb` multisample renderbuffer. `samples` is the
+ * effective (post-clamp) count so `blitToDefault` picks the right filter
  * without re-querying.
  */
 export type WebGL2RenderTarget = RenderTarget & {

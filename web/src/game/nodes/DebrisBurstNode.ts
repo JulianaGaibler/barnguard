@@ -22,13 +22,9 @@ export interface DebrisBurstOptions {
   /** Cone half-angle around `emitDirectionRad`. Ignored when radial. */
   emitSpreadRad?: number
   /**
-   * If set, each piece's starting rotation is `velocityHeading +
-   * initialAngleOffsetRad` (so the pieces launch with a consistent relationship
-   * to their flight direction, e.g., `π/2` aligns them broadside like wall
-   * shards flung perpendicular to a projectile). If undefined, each piece gets
-   * a uniform random start angle. Independent of the spin fields below, the
-   * piece STILL rotates over time from the transient + base spin, this only
-   * sets its initial pose.
+   * If set, each piece launches at `velocityHeading + initialAngleOffsetRad`.
+   * `π/2` = broadside to flight direction. Undefined = uniform random.
+   * Spin fields still apply on top of this.
    */
   initialAngleOffsetRad?: number
   /**
@@ -51,32 +47,18 @@ export interface DebrisBurstOptions {
   /** Fill / stroke colour. */
   color: string
   /**
-   * When true, radial emission angles are evenly spaced around the circle (`i /
-   * count * 2π`) with a small random jitter, so the settled ring reads as
-   * visibly even spacing rather than a random scatter with visible clumps +
-   * gaps. Ignored when `emitDirectionRad` is set (cone emission stays random
-   * within the cone). Default: `false`, the live game keeps the random-scatter
-   * feel.
+   * Evenly-spaced radial emission with small jitter, no clumps or gaps.
+   * Ignored when `emitDirectionRad` is set. Default false.
    */
   equidistantEmission?: boolean
 }
 
 /**
- * A one-shot burst of debris pieces (mix of filled triangles + stroked lines)
- * that spawns at `center`, integrates outward under exponential drag, and
- * settles into a permanent ring after a fraction of a second.
- *
- * The two loss-animation flavours (collision explosion + border breach) are the
- * same node with different `DebrisBurstOptions`:
- *
- * - **Collision**, radial 360° emission, mix of triangles + lines, random
- *   rotation with a permanent slow residual spin.
- * - **Border breach**, narrow cone along the packet's exit velocity, lines only,
- *   launch-orientation matches each piece's velocity, no spin.
- *
- * Storage is parallel `Float32Array` / `Uint8Array` fields, one slot per piece.
- * No per-frame allocations after construction. Life is unbounded; the session
- * destroys the node during `reset` as part of clearing every round visual.
+ * One-shot debris burst (triangles + lines). Integrates outward under
+ * exponential drag, settles into a permanent ring within ~1 s. Two flavours
+ * driven by `DebrisBurstOptions`, radial collision explosion vs cone border
+ * breach. Parallel typed-array storage, zero per-frame allocation. Session
+ * destroys during `reset`.
  */
 export class DebrisBurstNode extends SceneNode {
   private readonly count: number
