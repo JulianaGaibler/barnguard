@@ -45,3 +45,6 @@ coverage
 
 # SvelteKit (defensive — not currently used)
 .svelte-kit
+
+# Nix build results
+result*
