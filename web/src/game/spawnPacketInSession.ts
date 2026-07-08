@@ -7,6 +7,8 @@ import {
   type EngineHost,
   type Vec2,
 } from '@src/stargazer'
+import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
+import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessellationRegistry'
 import { PacketNode } from './nodes/PacketNode'
 import { PacketMotionTrailNode } from './nodes/PacketMotionTrailNode'
 import { PacketSpawnConvergeNode } from './nodes/PacketSpawnConvergeNode'
@@ -238,13 +240,20 @@ function spawnEmergencePulse(
 
 function buildHexagonPath(radius: number): Path2D {
   const p = new Path2D()
+  const verts = new Float32Array(12)
   for (let i = 0; i < 6; i++) {
     const a = (Math.PI / 3) * i - Math.PI / 6
     const x = Math.cos(a) * radius
     const y = Math.sin(a) * radius
+    verts[i * 2] = x
+    verts[i * 2 + 1] = y
     if (i === 0) p.moveTo(x, y)
     else p.lineTo(x, y)
   }
   p.closePath()
+  // Register a tessellation so `fillPath2D` renders under the GPU backend.
+  // Canvas2D ignores the registry, so this is a no-op there.
+  const contours = [verts]
+  registerPathTessellation(p, tessellateContours(contours), contours)
   return p
 }

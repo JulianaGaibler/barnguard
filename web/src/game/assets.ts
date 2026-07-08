@@ -144,22 +144,31 @@ async function loadImage(url: string): Promise<HTMLImageElement | ImageBitmap> {
 /**
  * Rebuild the impact-flash into a `Path2D` centred on `(0, 0)` and scaled so
  * `max(w, h)` equals `TUNING.lossAnim.impactFlash.worldSize`. Uses
- * `addPath(source, matrix)`, no re-parsing.
+ * `addPath(source, matrix)`, no re-parsing. Also transforms the source's
+ * tessellated contours and registers them under the new Path2D so GPU
+ * `fillPath2D` picks them up (registrations are keyed by instance).
  */
 function buildImpactFlashPath(entry: SvgPathEntry): Path2D {
   const b = entry.bounds
   const cx = b.x + b.width / 2
   const cy = b.y + b.height / 2
   const s = TUNING.lossAnim.impactFlash.worldSize / Math.max(b.width, b.height)
+  const ex = -cx * s
+  const ey = -cy * s
   const out = new Path2D()
-  out.addPath(entry.path, {
-    a: s,
-    b: 0,
-    c: 0,
-    d: s,
-    e: -cx * s,
-    f: -cy * s,
-  })
+  out.addPath(entry.path, { a: s, b: 0, c: 0, d: s, e: ex, f: ey })
+  const srcContours = getPathContours(entry.path)
+  if (srcContours) {
+    const transformed = srcContours.map((c) => {
+      const t = new Float32Array(c.length)
+      for (let i = 0; i < c.length; i += 2) {
+        t[i] = s * c[i] + ex
+        t[i + 1] = s * c[i + 1] + ey
+      }
+      return t
+    })
+    registerPathTessellation(out, tessellateContours(transformed), transformed)
+  }
   return out
 }
 
