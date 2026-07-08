@@ -15,4 +15,8 @@ export { default as StageSelector } from './StageSelector.svelte'
 export { default as DebugSelect } from './DebugSelect.svelte'
 export type { StageChipOption } from './StageSelector.svelte'
 export type { TreeNode } from './DebugTree.svelte'
-export type { DebugSelectOption } from './DebugSelect.svelte'
+export type {
+  DebugSelectOption,
+  DebugSelectDivider,
+  DebugSelectItem,
+} from './DebugSelect.svelte'

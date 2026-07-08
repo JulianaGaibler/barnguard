@@ -7,11 +7,11 @@
  * `game.created` and `game.deleted` incrementally.
  */
 
-import { readable, type Readable } from 'svelte/store'
+import { derived, type Readable } from 'svelte/store'
+import { printerLive, robustFetch } from '@src/lib/print/printerClient'
 
 const BASE: string = import.meta.env.VITE_PRINTER_DAEMON_URL ?? ''
 const API = `${BASE}/api/games`
-const SSE_URL = `${BASE}/api/printer/events`
 
 /** Server-side enum; JSON is `snake_case`. */
 export type GameEndReason = 'collision' | 'exited_germany'
@@ -63,12 +63,12 @@ export async function fetchGames(
   if (opts.limit !== undefined) params.set('limit', String(opts.limit))
   if (opts.offset !== undefined) params.set('offset', String(opts.offset))
   const qs = params.toString()
-  return jsonOrThrow(await fetch(qs ? `${API}?${qs}` : API))
+  return jsonOrThrow(await robustFetch(qs ? `${API}?${qs}` : API))
 }
 
 export async function recordGame(game: NewGame): Promise<GameRecord> {
   return jsonOrThrow(
-    await fetch(API, {
+    await robustFetch(API, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(game),
@@ -77,7 +77,7 @@ export async function recordGame(game: NewGame): Promise<GameRecord> {
 }
 
 export async function deleteGame(id: string): Promise<void> {
-  const res = await fetch(`${API}/${encodeURIComponent(id)}`, {
+  const res = await robustFetch(`${API}/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   })
   if (!res.ok && res.status !== 404) {
@@ -86,18 +86,18 @@ export async function deleteGame(id: string): Promise<void> {
 }
 
 export async function fetchHighScores(): Promise<HighScores> {
-  return jsonOrThrow(await fetch(`${API}/high-scores`))
+  return jsonOrThrow(await robustFetch(`${API}/high-scores`))
 }
 
 /** Wipe the entire game log. Attendant-only; returns the number cleared. */
 export async function clearGames(): Promise<{ cleared: number }> {
-  const res = await fetch(API, { method: 'DELETE' })
+  const res = await robustFetch(API, { method: 'DELETE' })
   if (!res.ok) throw new Error(`clearGames failed: ${res.status}`)
   return (await res.json()) as { cleared: number }
 }
 
 // ---------------------------------------------------------------------------
-// Live store — SSE-driven mirror of the game log, newest-first.
+// Live store — projection of `printerLive` for game-log consumers.
 // ---------------------------------------------------------------------------
 
 export interface GamesLiveState {
@@ -105,48 +105,14 @@ export interface GamesLiveState {
   connected: boolean
 }
 
-const EMPTY_LIVE: GamesLiveState = { games: [], connected: false }
-
 /**
- * Live game log over SSE, sorted newest-first. The server backfills the current
- * list on connect via a `games` event, then pushes `game.created` /
- * `game.deleted` incrementally. This store opens its own `EventSource` (same
- * origin as `printerLive`; HTTP/2 multiplexes, no extra TCP cost) so its state
- * stays cleanly separated from the printer/queue store.
+ * Live game log, newest-first. Derives from `printerLive` so all SSE traffic
+ * flows through a single `EventSource`. This eliminates dual-connection
+ * starvation on the Vite proxy (SSE gets funny when there are two long-lived
+ * streams to the same URL) and keeps the store's `connected` flag in lockstep
+ * with the printer/queue view. Same public API as before.
  */
-export const gamesLive: Readable<GamesLiveState> = readable<GamesLiveState>(
-  EMPTY_LIVE,
-  (set) => {
-    if (typeof EventSource === 'undefined') return () => {}
-
-    let state = EMPTY_LIVE
-    const update = (patch: Partial<GamesLiveState>): void => {
-      state = { ...state, ...patch }
-      set(state)
-    }
-
-    const es = new EventSource(SSE_URL)
-
-    // Backfill on connect: server pushes a `games` event with the current
-    // snapshot (oldest → newest). We flip to newest-first for the store.
-    es.addEventListener('games', (e) => {
-      const list = JSON.parse(e.data) as GameRecord[]
-      update({ games: [...list].reverse(), connected: true })
-    })
-    es.addEventListener('game.created', (e) => {
-      const rec = JSON.parse(e.data) as GameRecord
-      // Guard against dupes if the record already landed via backfill.
-      if (state.games.some((g) => g.id === rec.id)) return
-      update({ games: [rec, ...state.games] })
-    })
-    es.addEventListener('game.deleted', (e) => {
-      const id = String(e.data ?? '').trim()
-      if (!id) return
-      update({ games: state.games.filter((g) => g.id !== id) })
-    })
-    es.onopen = () => update({ connected: true })
-    es.onerror = () => update({ connected: false })
-
-    return () => es.close()
-  },
+export const gamesLive: Readable<GamesLiveState> = derived(
+  printerLive,
+  ($p) => ({ games: $p.games, connected: $p.connection === 'online' }),
 )

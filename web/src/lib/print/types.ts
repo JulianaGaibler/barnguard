@@ -54,7 +54,10 @@ export interface PrinterStatus {
   serial?: string
   backend: string
   lastSeenMs: number
-  /** When the printer first became unreachable (epoch ms); absent while reachable. */
+  /**
+   * When the printer first became unreachable (epoch ms); absent while
+   * reachable.
+   */
   unreachableSinceMs?: number
   /** Consecutive failed status polls since the last success. */
   failedAttempts?: number

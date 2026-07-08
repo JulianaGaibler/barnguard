@@ -3,7 +3,12 @@
   // printer + queue status over SSE and offers cancel / reprint / clear plus
   // (in mock mode) fault-injection buttons for testing. Labels are hardcoded
   // English to match the booth menu's operator-facing convention.
-  import { DebugSection, DraggableWindow } from '@src/stargazer/debug/ui'
+  import {
+    DebugSection,
+    DraggableWindow,
+    ToggleButton,
+  } from '@src/stargazer/debug/ui'
+  import { t } from '@src/i18n'
   import {
     printerLive,
     cancelJob,
@@ -12,6 +17,11 @@
     debugMock,
     reconnect,
   } from './print/printerClient'
+  import {
+    renderLabel,
+    squarePxFrom,
+    type LabelInput,
+  } from './print/labelRenderer'
   import { printerPanelVisible, togglePrinterPanel } from './boothMenuToggle'
   import type { PrintJob, PrinterStatus } from './print/types'
 
@@ -28,15 +38,12 @@
     return parts.join(' · ')
   }
 
-  function fmtTime(ms: number): string {
-    return new Date(ms).toLocaleTimeString()
-  }
-
   function tapeInfo(p: PrinterStatus | null): string {
     if (!p) return ''
     const parts: string[] = []
     if (p.tapeWidthMm) parts.push(`${p.tapeWidthMm.toFixed(0)}mm tape`)
-    if (p.tapeRemainingMm) parts.push(`~${(p.tapeRemainingMm / 1000).toFixed(1)}m left`)
+    if (p.tapeRemainingMm)
+      parts.push(`~${(p.tapeRemainingMm / 1000).toFixed(1)}m left`)
     if (p.model) parts.push(p.model)
     return parts.join(' · ')
   }
@@ -50,10 +57,14 @@
   function unreachableInfo(p: PrinterStatus): string {
     const parts: string[] = []
     if (p.unreachableSinceMs) {
-      parts.push(`unreachable ${fmtDuration(Date.now() - p.unreachableSinceMs)}`)
+      parts.push(
+        `unreachable ${fmtDuration(Date.now() - p.unreachableSinceMs)}`,
+      )
     }
     if (p.failedAttempts) {
-      parts.push(`${p.failedAttempts} failed attempt${p.failedAttempts === 1 ? '' : 's'}`)
+      parts.push(
+        `${p.failedAttempts} failed attempt${p.failedAttempts === 1 ? '' : 's'}`,
+      )
     }
     if (p.printJobError) parts.push(p.printJobError)
     return parts.join(' · ')
@@ -62,7 +73,23 @@
   const onCancel = (id: string): void => void cancelJob(id).catch(logErr)
   const onReprint = (id: string): void => void reprintJob(id).catch(logErr)
   const onClear = (): void => void clearQueue().catch(logErr)
-  const onReconnect = (): void => void reconnect().catch(logErr)
+
+  // Transient "connecting…" feedback for the Reconnect button. Independent of
+  // the SSE state so the operator sees an unambiguous "I heard the click"
+  // signal even if the SSE was already online. Cleared after 1500 ms.
+  let reconnectPending = $state(false)
+  let reconnectPendingTimer: ReturnType<typeof setTimeout> | null = null
+  function onReconnect(): void {
+    reconnectPending = true
+    if (reconnectPendingTimer !== null) clearTimeout(reconnectPendingTimer)
+    reconnectPendingTimer = setTimeout(() => {
+      reconnectPending = false
+      reconnectPendingTimer = null
+    }, 1500)
+    // `reconnect()` force-reopens the SSE in its `finally` block, so we
+    // don't need to invoke that explicitly here.
+    reconnect().catch(logErr)
+  }
   const onDebug = (body: {
     forceNoMedia?: boolean
     forceAwaitingRemoval?: boolean
@@ -73,50 +100,112 @@
   function logErr(err: unknown): void {
     console.error('[printer-panel]', err)
   }
+
+  // Design-preview: render a representative label so the attendant can see
+  // what the printed output looks like without having to run a game. Values
+  // are placeholders; the "new high score" pill is toggleable so the
+  // attendant can preview both variants of the layout — the composition
+  // re-centers when the pill drops in / out.
+  let previewHighScore = $state(true)
+
+  const previewInput = $derived<LabelInput>({
+    reason: 'exitedGermany',
+    stateId: 'BE',
+    score: 42,
+    isOverallHigh: previewHighScore,
+    isStateHigh: previewHighScore,
+    highScores: { overall: 42, byState: { BE: 42 } },
+  })
+
+  let previewUrl = $state<string | null>(null)
+  let previewError = $state<string | null>(null)
+
+  $effect(() => {
+    // Track reactive deps: tape width for size, locale for the caption
+    // text, and the high-score toggle for the pill / layout re-centering.
+    const tapeWidthMm = $printerLive.printer?.tapeWidthMm
+    const messages = $t
+    const input = previewInput
+    let cancelled = false
+    let localUrl: string | null = null
+
+    renderLabel(input, {
+      messages,
+      size: squarePxFrom(tapeWidthMm),
+    })
+      .then((blob) => {
+        if (cancelled) return
+        localUrl = URL.createObjectURL(blob)
+        if (previewUrl !== null) URL.revokeObjectURL(previewUrl)
+        previewUrl = localUrl
+        previewError = null
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        previewError = err instanceof Error ? err.message : String(err)
+      })
+
+    return () => {
+      cancelled = true
+      // If this effect was superseded before the render landed, drop any
+      // URL we managed to create so it isn't leaked.
+      if (localUrl !== null && localUrl !== previewUrl) {
+        URL.revokeObjectURL(localUrl)
+      }
+    }
+  })
 </script>
 
 <DraggableWindow
   visible={$printerPanelVisible}
   title="Printer"
   storageId="barnguard-window-printer-panel"
+  spawnedBy="barnguard-window-booth-menu"
   side="left"
   width={320}
   onClose={togglePrinterPanel}
 >
   <DebugSection title="Status" open>
-    {#if printer}
+    {#if printer && $printerLive.connection === 'online'}
       <div class="status-line">
-        <span class="dot" class:ok={$printerLive.connected}></span>
-        {printer?.backend} · {printer?.state}{printer && !printer.reachable
+        <span class="dot ok"></span>
+        {printer.backend} · {printer.state}{!printer.reachable
           ? ' · offline'
           : ''}
       </div>
-      {#if printer?.state === 'no_media'}
+      {#if printer.state === 'no_media'}
         <div class="banner">⚠ Load tape</div>
       {/if}
-      {#if printer?.state === 'awaiting_removal'}
+      {#if printer.state === 'awaiting_removal'}
         <div class="banner">⚠ Remove printed label</div>
       {/if}
       {#if tapeInfo(printer)}
         <div class="meta">{tapeInfo(printer)}</div>
       {/if}
-      {#if printer && !printer.reachable}
+      {#if !printer.reachable}
         <div class="meta warn-text">{unreachableInfo(printer)}</div>
       {/if}
     {:else}
       <div class="status-line">
-        <span class="dot" class:ok={$printerLive.connected}></span> connecting…
+        <span class="dot" class:busy={$printerLive.connection === 'connecting'}
+        ></span>
+        {$printerLive.connection === 'connecting'
+          ? 'connecting…'
+          : 'backend offline'}
       </div>
     {/if}
 
     <div class="actions">
       <button type="button" class="debug-btn" onclick={onReconnect}>
-        Reconnect printer
+        {reconnectPending ? 'Reconnecting…' : 'Reconnect printer'}
       </button>
     </div>
   </DebugSection>
 
-  <DebugSection title={`Queue (${$printerLive.pending.length + ($printerLive.active ? 1 : 0)})`}>
+  <DebugSection
+    title={`Queue (${$printerLive.pending.length + ($printerLive.active ? 1 : 0)})`}
+    open
+  >
     <div class="debug-list">
       {#if $printerLive.active}
         <div class="debug-list-item active-job">
@@ -126,7 +215,11 @@
       {#each $printerLive.pending as job (job.id)}
         <div class="debug-list-item">
           <span>{jobLine(job)}</span>
-          <button type="button" class="debug-btn" onclick={() => onCancel(job.id)}>
+          <button
+            type="button"
+            class="debug-btn"
+            onclick={() => onCancel(job.id)}
+          >
             Cancel
           </button>
         </div>
@@ -168,19 +261,6 @@
     </div>
   </DebugSection>
 
-  <DebugSection title="Log">
-    <div class="debug-list max-height-300">
-      {#each [...$printerLive.logs].reverse() as entry, i (`${entry.tsMs}-${i}`)}
-        <div class="log-entry log-{entry.level}">
-          <span class="log-time">{fmtTime(entry.tsMs)}</span>
-          <span class="log-msg">{entry.message}</span>
-        </div>
-      {:else}
-        <div class="empty-state">no messages</div>
-      {/each}
-    </div>
-  </DebugSection>
-
   {#if printer?.backend === 'mock'}
     <DebugSection title="Mock controls">
       <div class="actions">
@@ -206,8 +286,10 @@
           type="button"
           class="debug-btn"
           onclick={() =>
-            onDebug({ forceAwaitingRemoval: false, clearAwaitingRemoval: true })}
-          >Release</button
+            onDebug({
+              forceAwaitingRemoval: false,
+              clearAwaitingRemoval: true,
+            })}>Release</button
         >
       </div>
       <div class="actions">
@@ -220,11 +302,32 @@
         <button
           type="button"
           class="debug-btn"
-          onclick={() => onDebug({ forceUnreachable: false })}>Printer up</button
+          onclick={() => onDebug({ forceUnreachable: false })}
+          >Printer up</button
         >
       </div>
     </DebugSection>
   {/if}
+
+  <DebugSection title="Preview">
+    <div class="preview">
+      {#if previewUrl}
+        <img class="preview-img" src={previewUrl} alt="Print label preview" />
+      {:else if previewError}
+        <div class="empty-state">preview failed: {previewError}</div>
+      {:else}
+        <div class="empty-state">rendering…</div>
+      {/if}
+      <div class="preview-caption">
+        Placeholder values · shown at 1:1 aspect
+      </div>
+      <ToggleButton
+        active={previewHighScore}
+        onToggle={() => (previewHighScore = !previewHighScore)}
+        label="New high score"
+      />
+    </div>
+  </DebugSection>
 </DraggableWindow>
 
 <style lang="sass">
@@ -247,6 +350,9 @@
     border-radius: 50%
     background: rgba(248, 113, 113, 0.9)
     flex-shrink: 0
+
+    &.busy
+      background: rgba(240, 210, 140, 0.95)
 
     &.ok
       background: rgba(74, 222, 128, 0.9)
@@ -272,33 +378,28 @@
     background: rgba(96, 165, 250, 0.12)
     border-left: 2px solid rgba(96, 165, 250, 0.7)
 
-  // Log entries aren't the two-column label/action shape that
-  // `.debug-list-item` optimises for, so they use a simpler row layout.
-  .log-entry
-    display: flex
-    gap: 6px
-    align-items: baseline
-    padding: 2px 6px
-    word-break: break-word
-
-  .log-time
-    opacity: 0.5
-    flex-shrink: 0
-
-  .log-msg
-    word-break: break-word
-
-  .log-info .log-msg
-    color: rgba(255, 255, 255, 0.85)
-
-  .log-warn .log-msg
-    color: #fde68a
-
-  .log-error .log-msg
-    color: #fecaca
-
   .actions
     display: flex
     gap: 4px
     flex-wrap: wrap
+
+  // Preview section: the rendered label image + a small caption below.
+  .preview
+    display: flex
+    flex-direction: column
+    gap: 4px
+
+  .preview-img
+    display: block
+    width: 100%
+    aspect-ratio: 1 / 1
+    object-fit: contain
+    background: rgba(0, 0, 0, 0.3)
+    border: 1px solid rgba(255, 255, 255, 0.08)
+    border-radius: 3px
+
+  .preview-caption
+    opacity: 0.55
+    font-size: 10px
+    text-align: center
 </style>

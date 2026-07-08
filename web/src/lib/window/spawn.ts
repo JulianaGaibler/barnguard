@@ -5,27 +5,56 @@
  * code can ask "where is that window right now?" without walking the DOM.
  * `placeNextTo` uses that registry to seed a child window's initial position
  * next to its spawning parent, so operator flows like "booth menu → printer
- * panel" don't dump both windows on top of each other in the top-left
- * corner.
+ * panel" don't dump both windows on top of each other in the top-left corner.
  *
  * The helper only writes a starting position on the child's FIRST open (no
  * saved position). Once the operator has dragged the window anywhere, their
  * saved position wins; subsequent opens honour it and `placeNextTo` no-ops.
- * Closing a window with its × button clears the saved position (matching
- * `DraggableWindow` behaviour), so the next open is treated as first-open
- * again and re-runs `placeNextTo`.
+ *
+ * Re-anchor cascades: when a parent window re-anchors (its `side` prop changes,
+ * or the × close button resets it), any window that declared it as their
+ * `spawnedBy` also resets — otherwise a child's stale saved position (e.g.
+ * seeded when the parent was on the OTHER side) would keep it far from the
+ * parent's new location. See `resetChildrenOf`.
  */
 
 type RectGetter = () => DOMRect | null
+type ResetFn = () => void
 
-const windows = new Map<string, RectGetter>()
+interface WindowEntry {
+  getRect: RectGetter
+  reset: ResetFn
+  spawnedBy?: string
+}
 
-export function registerWindow(storageId: string, getRect: RectGetter): void {
-  windows.set(storageId, getRect)
+const windows = new Map<string, WindowEntry>()
+
+export function registerWindow(
+  storageId: string,
+  getRect: RectGetter,
+  reset: ResetFn,
+  spawnedBy?: string,
+): void {
+  windows.set(storageId, { getRect, reset, spawnedBy })
 }
 
 export function unregisterWindow(storageId: string): void {
   windows.delete(storageId)
+}
+
+/**
+ * Reset every window that declared `parentStorageId` as its `spawnedBy`. Each
+ * child's `reset` clears its localStorage entry and its in-memory position, so
+ * its next reactive tick re-seeds via `placeNextTo` against the parent's new
+ * anchor. Non-recursive: grand-children reset when their own parent's reset
+ * runs.
+ */
+export function resetChildrenOf(parentStorageId: string): void {
+  for (const entry of windows.values()) {
+    if (entry.spawnedBy === parentStorageId) {
+      entry.reset()
+    }
+  }
 }
 
 export interface PlaceNextToOptions {
@@ -57,13 +86,13 @@ export function placeNextTo(
   // don't overwrite.
   if (localStorage.getItem(childStorageId) !== null) return
 
-  const parentRect = windows.get(parentStorageId)?.()
+  const parentRect = windows.get(parentStorageId)?.getRect()
   if (!parentRect) return
 
   const gap = opts.gap ?? 12
   const padding = 10
 
-  const childRect = windows.get(childStorageId)?.()
+  const childRect = windows.get(childStorageId)?.getRect()
   const childW = childRect?.width ?? opts.childWidth ?? 320
   const childH = childRect?.height ?? opts.childHeight ?? 200
 

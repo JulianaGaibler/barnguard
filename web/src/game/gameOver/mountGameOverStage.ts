@@ -18,9 +18,11 @@ export interface MountGameOverStageParams {
  * `loadGameAssets()` is async, needed for the eye SVG paths. If the overlay
  * unmounts before the promise resolves (memoised loader, usually < 1 ms after
  * first call, but not guaranteed), the `aborted` closure flag prevents the
- * constructor from firing on a stale canvas. Without this guard, a fast dismiss
- * + re-open cycle would leak a `GameOverScene` whose `Stage` stays attached to
- * the engine forever.
+ * constructor from firing on a stale canvas. Without this guard, a fast
+ * dismiss
+ *
+ * - Re-open cycle would leak a `GameOverScene` whose `Stage` stays attached to
+ *   the engine forever.
  */
 export function mountGameOverStage(
   canvas: HTMLCanvasElement,

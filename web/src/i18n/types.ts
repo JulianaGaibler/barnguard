@@ -80,6 +80,15 @@ export interface Messages {
     /** Button label offering to retry after a failure. */
     retry: string
   }
+  /**
+   * Visitor-facing strings shown on the cover screen. Attendant-panel labels
+   * (mode names, section title, etc.) are hardcoded English, matching the rest
+   * of BoothMenu's operator-facing convention.
+   */
+  cover: {
+    /** "We'll be right back" preset headline. */
+    backSoon: string
+  }
   /** German state names (long form) keyed by ISO code. */
   states: {
     BW: string

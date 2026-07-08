@@ -43,6 +43,9 @@ export const de: Messages = {
     printError: 'Druck fehlgeschlagen',
     retry: 'Erneut drucken',
   },
+  cover: {
+    backSoon: 'Wir sind gleich wieder da',
+  },
   states: {
     BW: 'Baden-Württemberg',
     BY: 'Bayern',

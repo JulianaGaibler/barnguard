@@ -124,10 +124,9 @@
   ]
 
   /**
-   * Pull the active stage's GPU state into the dropdown-backing signals.
-   * Called on mount and on every `stageChanged` event so a stage switch
-   * shows the target stage's actual mode / MSAA, not the previous
-   * stage's.
+   * Pull the active stage's GPU state into the dropdown-backing signals. Called
+   * on mount and on every `stageChanged` event so a stage switch shows the
+   * target stage's actual mode / MSAA, not the previous stage's.
    */
   function snapGpuControls(): void {
     const active = debug.activeStage

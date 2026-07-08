@@ -52,9 +52,10 @@ const MIN_DRAW_ALPHA = 0.02
 /**
  * Per-cell brightness variance amplitude. Each cell's final alpha is multiplied
  * by `(1 + variance[i])` where `variance[i] ∈ [-VARIANCE_AMP, +VARIANCE_AMP]`.
- * * 10 % up or down. Values are deterministic (index-hashed) so the pattern is
- * stable across reloads within the same grid dimensions. Multiplicative so a
- * `0` target stays `0`.
+ *
+ * - 10 % up or down. Values are deterministic (index-hashed) so the pattern is
+ *   stable across reloads within the same grid dimensions. Multiplicative so a
+ *   `0` target stays `0`.
  */
 const VARIANCE_AMP = 0.1
 

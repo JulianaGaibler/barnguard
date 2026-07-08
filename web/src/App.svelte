@@ -2,9 +2,12 @@
   import { onMount } from 'svelte'
   import { locale } from '@src/i18n'
   import { initBoothMenuToggle } from './lib/boothMenuToggle'
+  import { coverScreen } from '@src/stores/coverScreen'
+  import CoverScreen from './lib/CoverScreen.svelte'
   import GameScreen from './lib/GameScreen.svelte'
   import BoothMenu from './lib/BoothMenu.svelte'
   import PrinterPanel from './lib/PrinterPanel.svelte'
+  import GamesPanel from './lib/GamesPanel.svelte'
   import BackgroundLayer from './lib/BackgroundLayer.svelte'
   import TopBar from './lib/TopBar.svelte'
   import DemoRouter from './stargazer/dev/DemoRouter.svelte'
@@ -30,5 +33,11 @@
 {/if}
 
 <TopBar />
+
+{#if $coverScreen.visible}
+  <CoverScreen />
+{/if}
+
 <BoothMenu />
 <PrinterPanel />
+<GamesPanel />

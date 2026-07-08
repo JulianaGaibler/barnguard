@@ -135,6 +135,12 @@
     overflow-x: hidden
     box-sizing: border-box
     width: 100%
+    // Flex column with a small gap so direct children (status lines, banners,
+    // meta text, action clusters, list containers) breathe without each
+    // consumer having to hand-tune margins.
+    display: flex
+    flex-direction: column
+    gap: 6px
     scrollbar-width: thin
     scrollbar-color: rgba(255, 255, 255, 0.2) rgba(255, 255, 255, 0.05)
 
@@ -185,7 +191,6 @@
   .debug-controls
     display: flex
     flex-direction: column
-    gap: 4px
 
     &.with-divider
       padding-bottom: 6px

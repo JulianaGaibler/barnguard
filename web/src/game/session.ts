@@ -69,8 +69,8 @@ export interface GameEvents {
     escapeHeadingRad?: number
     /**
      * The server-side game record for this round. `null` if the server was
-     * unreachable when the round ended — in that case the card still shows,
-     * but reprint / delete affordances tied to a record id are disabled.
+     * unreachable when the round ended — in that case the card still shows, but
+     * reprint / delete affordances tied to a record id are disabled.
      */
     record: GameRecord | null
   }
@@ -146,8 +146,8 @@ const CAMERA_TWEEN_SEC = 0.6
 // -----------------------------------------------------------------------------
 
 /**
- * Post the finished game to the server and refetch the current high-scores.
- * A single fetch failure returns `{record: null, highScores: empty}` so the
+ * Post the finished game to the server and refetch the current high-scores. A
+ * single fetch failure returns `{record: null, highScores: empty}` so the
  * game-over overlay can still render — the kiosk shouldn't hard-fail on a
  * momentary daemon hiccup.
  */

@@ -1,10 +1,7 @@
 <script lang="ts">
   import Button from './Button.svelte'
   import { t } from '@src/i18n'
-  import {
-    fetchHighScores,
-    type HighScores,
-  } from '@src/lib/gameLogClient'
+  import { fetchHighScores, type HighScores } from '@src/lib/gameLogClient'
   import type { StateId } from '@src/game/data/states'
   import { mountTutorialStage } from '@src/game/tutorial/mountTutorialStage'
   import type { EngineHost } from '@src/stargazer'

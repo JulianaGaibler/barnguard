@@ -7,6 +7,8 @@
   import NumberCounter from './NumberCounter.svelte'
   import Button from './Button.svelte'
   import waveUrl from '@src/assets/over-wave.svg?url'
+  import printIconRaw from '@src/assets/icons/print-16.svg?raw'
+  import checkmarkIconRaw from '@src/assets/icons/checkmark-16.svg?raw'
   import { fade } from 'svelte/transition'
   import { get } from 'svelte/store'
   import {
@@ -162,31 +164,32 @@
 
   // ---------------------------------------------------------------------
   // Label printing; enqueues to the local printer-daemon. Non-blocking:
-  // Continue always works regardless of print state. One label per game ;
-  // the button disables after a successful print and re-enables on error.
+  // `Continue` always works regardless of print state. The button flips to
+  // its "printed" state instantly on tap (checkmark icon, disabled) rather
+  // than tracking the async daemon phases — the visitor gets an immediate
+  // "heard you" signal, and the actual job's success/failure is inspectable
+  // from the attendant panel's printer log rather than through this UI.
   // ---------------------------------------------------------------------
-  type PrintPhase = 'idle' | 'rendering' | 'enqueued' | 'done' | 'error'
-  let printPhase = $state<PrintPhase>('idle')
-  let printJobId = $state<string | null>(null)
-
-  const printLabel = $derived(
-    printPhase === 'rendering' || printPhase === 'enqueued'
-      ? $t.print.printing
-      : printPhase === 'done'
-        ? $t.print.printed
-        : printPhase === 'error'
-          ? $t.print.retry
-          : $t.print.printButton,
+  let printSent = $state(false)
+  // Only allow printing when the daemon reports the printer is currently
+  // reachable. If it's not — daemon offline, printer unplugged, tape jam —
+  // the button greys out with the printer icon still shown so the operator
+  // can see what's meant to happen once things recover.
+  const printerAvailable = $derived(
+    $printerLive.connection === 'online' &&
+      ($printerLive.printer?.reachable ?? false),
   )
-  const printDisabled = $derived(
-    printPhase === 'rendering' ||
-      printPhase === 'enqueued' ||
-      printPhase === 'done',
-  )
+  const printDisabled = $derived(printSent || !printerAvailable)
 
-  async function handlePrint(): Promise<void> {
+  function handlePrint(): void {
     if (printDisabled) return
-    printPhase = 'rendering'
+    // Flip the UI state first so the checkmark shows on the next paint,
+    // regardless of how long the render/enqueue chain takes.
+    printSent = true
+    void submitPrint()
+  }
+
+  async function submitPrint(): Promise<void> {
     try {
       const input: LabelInput = {
         reason,
@@ -205,34 +208,18 @@
         messages: get(t),
         size: squarePxFrom(tapeWidthMm),
       })
-      printPhase = 'enqueued'
-      const { jobId } = await enqueuePrint(blob, {
+      await enqueuePrint(blob, {
         stateId,
         score,
         highScore: isOverallHigh || isStateHigh,
         source: 'game',
       })
-      printJobId = jobId
     } catch (err) {
+      // Log for the attendant panel / dev console — the button stays
+      // "sent" either way (the visitor's card is dismissable on Continue).
       console.error('[print] label print failed:', err)
-      printPhase = 'error'
     }
   }
-
-  // Advance the phase from live job status once the job is enqueued.
-  $effect(() => {
-    if (printJobId === null) return
-    const live = $printerLive
-    const job =
-      live.active?.id === printJobId
-        ? live.active
-        : (live.recent.find((j) => j.id === printJobId) ??
-          live.pending.find((j) => j.id === printJobId))
-    if (!job) return
-    if (job.state === 'done') printPhase = 'done'
-    else if (job.state === 'failed' || job.state === 'canceled')
-      printPhase = 'error'
-  })
 </script>
 
 <div
@@ -317,8 +304,20 @@
     </section>
   </div>
   <div class="game-over__actions">
-    <Button variant="secondary" disabled={printDisabled} onclick={handlePrint}>
-      {printLabel}
+    <Button
+      variant="primary"
+      class="game-over__print-btn"
+      disabled={printDisabled}
+      onclick={handlePrint}
+      aria-label={printSent ? $t.print.printed : $t.print.printButton}
+    >
+      <span class="game-over__print-icon" aria-hidden="true">
+        {#if printSent}
+          {@html checkmarkIconRaw}
+        {:else}
+          {@html printIconRaw}
+        {/if}
+      </span>
     </Button>
     <Button variant="primary" onclick={onContinue}>
       {$t.game.continueButton}
@@ -340,11 +339,37 @@
     pointer-events: auto
     z-index: 30
 
+  // `align-items: stretch` lets flexbox equalise the two buttons' heights
+  // regardless of their intrinsic content — whichever button is taller
+  // sets the cross-axis size, and the other grows to match. Removes any
+  // "print button is a few px taller because the icon is bigger than a
+  // lowercase 'e'" drift.
   .game-over__actions
     display: flex
     justify-content: center
-    align-items: center
+    align-items: stretch
     gap: tint.$size-16
+
+  // Icon-only print button. Just trim the inline padding since there's no
+  // text next to the icon; height comes from the flex-stretch above.
+  :global(.game-over__print-btn)
+    padding-inline-start: tint.$size-16
+    padding-inline-end: tint.$size-16
+
+  .game-over__print-icon
+    display: inline-flex
+    align-items: center
+    justify-content: center
+    line-height: 1
+    // The acorn icons ship with `fill="context-fill"` (a Firefox-only value
+    // that reads the parent's `-moz-context-properties`). Override to
+    // `currentColor` in every browser so the icon picks up the button's
+    // text color — matching the primary button's near-black label.
+    :global(svg)
+      width: 1.25em
+      height: 1.25em
+      fill: currentColor
+      display: block
 
   .game-over__row
     // Explicit `--card-h` / `--card-w` so both cards render at pixel-
@@ -576,12 +601,4 @@
 
   .game-over__score-label--flashing
     animation: score-flash 650ms ease-in-out forwards
-
-    span
-      font-family: tint.$mozilla-headline-extended
-      font-weight: 700
-      font-size: 0.8rem
-      text-transform: uppercase
-      letter-spacing: 0.04em
-      line-height: 1.15
 </style>

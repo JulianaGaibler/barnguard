@@ -4,13 +4,21 @@ import {
   squarePxFrom,
   PIXELS_PER_MM,
   DEFAULT_TAPE_WIDTH_MM,
+  LABEL_URL,
   type LabelInput,
 } from './labelRenderer'
 import { en } from '@src/i18n/en'
 
-/** Minimal 2D-context stub that records the text drawn. */
+/**
+ * Minimal 2D-context stub. Records `fillText` calls; every other method the
+ * renderer uses is a no-op — we're checking that the RIGHT strings land at
+ * text-drawing time, not that the paint pipeline behaves like a real canvas.
+ * Image / gradient / masking calls just need to not throw.
+ */
 function stubCtx(): { ctx: CanvasRenderingContext2D; texts: string[] } {
   const texts: string[] = []
+  const noop = (): void => {}
+  const grad = { addColorStop: noop }
   const ctx = {
     fillStyle: '',
     strokeStyle: '',
@@ -18,11 +26,24 @@ function stubCtx(): { ctx: CanvasRenderingContext2D; texts: string[] } {
     textAlign: 'left',
     textBaseline: 'alphabetic',
     lineWidth: 0,
-    fillRect: () => {},
-    strokeRect: () => {},
+    globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
+    fillRect: noop,
+    strokeRect: noop,
     fillText: (t: string) => {
       texts.push(t)
     },
+    drawImage: noop,
+    measureText: () => ({ width: 100 }),
+    createLinearGradient: () => grad,
+    beginPath: noop,
+    closePath: noop,
+    moveTo: noop,
+    lineTo: noop,
+    quadraticCurveTo: noop,
+    fill: noop,
+    save: noop,
+    restore: noop,
   } as unknown as CanvasRenderingContext2D
   return { ctx, texts }
 }
@@ -52,15 +73,26 @@ describe('squarePxFrom', () => {
 })
 
 describe('drawLabel', () => {
-  it('draws the score and state', () => {
+  it('draws the score, state name, points caption, and enterprise URL', () => {
     const { ctx, texts } = stubCtx()
     drawLabel(ctx, 312, 312, base, en)
     expect(texts).toContain('42')
-    expect(texts).toContain('BW')
+    // State name in the header (localized), not the ISO code.
     expect(texts).toContain(en.states.BW)
+    // Localised "Points" caption underneath the score.
+    expect(texts).toContain(en.game.points)
+    // Enterprise URL top-right.
+    expect(texts).toContain(LABEL_URL)
   })
 
-  it('shows the high-score badge only when a record was set', () => {
+  it('uses the singular "point" when the score is exactly 1', () => {
+    const { ctx, texts } = stubCtx()
+    drawLabel(ctx, 312, 312, { ...base, score: 1 }, en)
+    expect(texts).toContain(en.game.point)
+    expect(texts).not.toContain(en.game.points)
+  })
+
+  it('shows the high-score pill only when a record was set', () => {
     const banner = en.game.newHighScoreBanner.toUpperCase()
 
     const none = stubCtx()

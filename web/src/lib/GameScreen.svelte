@@ -6,16 +6,17 @@
   import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
   import { t } from '@src/i18n'
   import { goToScreen } from '@src/stores/appState'
+  import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
   import { mountEngine, ignoreAbort, type EngineHost } from '@src/stargazer'
   import { startGame, type GameSession, type StateId } from '@src/game'
   import { debugHudVisible, setDebugHudVisible } from './boothMenuToggle'
+  import { coverScreen } from '@src/stores/coverScreen'
   import type { GameEvents } from '@src/game'
 
   type GameOverPayload = GameEvents['gameOver']
 
   let host = $state<EngineHost | null>(null)
   let session = $state<GameSession | null>(null)
-  let selectedStateId = $state<StateId | null>(null)
   let activeStateId = $state<StateId | null>(null)
   let gameOverPayload = $state<GameOverPayload | null>(null)
   let loadError = $state<string | null>(null)
@@ -45,19 +46,29 @@
     }
   }
 
+  // The cover screen freezes the engine while visible so idle CPU/GPU drops
+  // and in-progress rounds don't tick down while nobody's looking. Idempotent
+  // with the manual pause button — either signal being "on" keeps the engine
+  // paused; both being "off" resumes it.
+  $effect(() => {
+    if (!host) return
+    if (paused || $coverScreen.visible) host.pause()
+    else host.resume()
+  })
+
   async function onEngineReady(h: EngineHost): Promise<void> {
     try {
       host = h
       const s = await startGame(h)
       session = s
       s.events.on('stateSelected', (payload) => {
-        selectedStateId = payload.stateId
+        selectedStateId.set(payload.stateId)
       })
       s.events.on('selectionCanceled', () => {
-        selectedStateId = null
+        selectedStateId.set(null)
       })
       s.events.on('roundStarted', (payload) => {
-        selectedStateId = null
+        selectedStateId.set(null)
         activeStateId = payload.stateId
         score = 0
         goToScreen('playing')
@@ -101,6 +112,16 @@
     session?.reset().catch(ignoreAbort)
   }
 
+  // Publish the abort handle for the attendant-menu "Stop game" button.
+  // `session.reset()` is a no-op when already idle, so the handle stays
+  // safe to invoke unconditionally. Unregisters on unmount so a stale
+  // reference to a torn-down session can't be called.
+  $effect(() => {
+    if (!session) return
+    stopGameHandle.set(reset)
+    return () => stopGameHandle.set(null)
+  })
+
   // Two backdrop slots sit behind the (transparent) canvas at the bottom
   // corners. Contents switch on whether a round is live:
   //
@@ -115,7 +136,7 @@
   const backdropLeftText = $derived(
     isRoundActive && activeStateId !== null
       ? $t.states[activeStateId]
-      : session !== null && !loadError && selectedStateId === null
+      : session !== null && !loadError && $selectedStateId === null
         ? // Hide the "pick a state" prompt once a state is selected ;
           // the confirm card takes over the choice at that point and the
           // corner prompt would just repeat what the card already says.
@@ -123,7 +144,7 @@
         : null,
   )
   const backdropRightText = $derived(
-    isRoundActive || selectedStateId !== null
+    isRoundActive || $selectedStateId !== null
       ? null
       : session !== null
         ? $t.game.confirmStateHint
@@ -203,9 +224,9 @@
     </div>
   {/if}
 
-  {#if selectedStateId && host}
+  {#if $selectedStateId && host}
     <StateConfirmCard
-      stateId={selectedStateId}
+      stateId={$selectedStateId}
       {host}
       onConfirm={confirmSelection}
     />

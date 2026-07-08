@@ -68,6 +68,9 @@
       background: rgba(96, 165, 250, 0.18)
       border-color: rgba(96, 165, 250, 0.55)
 
+    &:not(:last-child)
+      margin-bottom: 4px
+
   .hint
     min-width: 2ch
     padding: 1px 4px

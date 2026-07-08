@@ -1,5 +1,4 @@
 import { get, writable } from 'svelte/store'
-import { placeNextTo } from './window/spawn'
 
 export type BoothMenuSide = 'left' | 'right'
 
@@ -48,23 +47,22 @@ export const setDebugHudVisible = (v: boolean): void => debugHudVisible.set(v)
 export const toggleDebugHud = (): void =>
   debugHudVisible.update((prev) => !prev)
 
-/** Whether the attendant printer panel should be visible. */
+/**
+ * Whether the attendant printer panel should be visible. First-open positioning
+ * is handled by `DraggableWindow`'s `spawnedBy` prop, which seeds a spot next
+ * to the booth menu — no per-toggle wiring needed here.
+ */
 export const printerPanelVisible = writable(false)
 export const togglePrinterPanel = (): void =>
-  printerPanelVisible.update((prev) => {
-    // On open, seed the printer panel adjacent to the booth menu so the two
-    // windows don't stack in the same corner on first spawn. `placeNextTo`
-    // no-ops if the printer panel already has a saved position (operator
-    // dragged it somewhere they prefer), so once relocated, it stays put.
-    if (!prev) {
-      placeNextTo(
-        'barnguard-window-booth-menu',
-        'barnguard-window-printer-panel',
-        { childWidth: 320 },
-      )
-    }
-    return !prev
-  })
+  printerPanelVisible.update((prev) => !prev)
+
+/**
+ * Whether the recent-games / high-scores panel should be visible. Same
+ * seed-next-to-booth-menu pattern as the printer panel.
+ */
+export const gamesPanelVisible = writable(false)
+export const toggleGamesPanel = (): void =>
+  gamesPanelVisible.update((prev) => !prev)
 
 // -----------------------------------------------------------------------------
 // DOM fullscreen; driven by the booth menu. The store MIRRORS the
@@ -156,6 +154,15 @@ export const initBoothMenuToggle = (): (() => void) => {
       pending = null
       return
     }
+    // Corner taps are reserved for the menu gesture — swallow them at
+    // capture phase so the underlying UI (state-confirm card's outside-tap
+    // dismissal, canvas pointer handlers, etc.) doesn't fire. Without this
+    // the first tap of a double-tap would cancel a pending selection or
+    // fall through to the game before the second tap could open the menu.
+    // `stopImmediatePropagation` also blocks other capture-phase listeners
+    // on window/document; `preventDefault` suppresses the follow-up click.
+    e.stopImmediatePropagation()
+    e.preventDefault()
     const now = performance.now()
     if (
       pending &&

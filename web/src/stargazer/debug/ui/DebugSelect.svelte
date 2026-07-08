@@ -5,12 +5,23 @@
     /** Display text. */
     label: string
   }
+
+  /**
+   * `<hr>` separator between options. Chromium 119+ / Safari 17.5+ / Firefox
+   * 122+ render this as a native divider inside the picker; older browsers
+   * ignore it, so option order still reads correctly.
+   */
+  export interface DebugSelectDivider {
+    divider: true
+  }
+
+  export type DebugSelectItem<V> = DebugSelectOption<V> | DebugSelectDivider
 </script>
 
 <script lang="ts" generics="V extends string | number">
   interface Props {
     label: string
-    options: readonly DebugSelectOption<V>[]
+    options: readonly DebugSelectItem<V>[]
     value: V
     onChange: (next: V) => void
     /** Short chip shown on the left, matching `ToggleButton`'s hint. */
@@ -33,9 +44,12 @@
   // pre-selects the matching option, then convert back to the caller's
   // native type in the change handler.
   const valueStr = $derived(String(value))
-  const isNumeric = $derived(
-    options.length > 0 && typeof options[0].value === 'number',
-  )
+  const isNumeric = $derived.by(() => {
+    const first = options.find(
+      (o): o is DebugSelectOption<V> => !('divider' in o),
+    )
+    return first !== undefined && typeof first.value === 'number'
+  })
 
   function handleChange(e: Event): void {
     const target = e.currentTarget as HTMLSelectElement
@@ -55,8 +69,12 @@
     <span class="label">{label}</span>
   </span>
   <select class="control" {disabled} value={valueStr} onchange={handleChange}>
-    {#each options as opt (opt.value)}
-      <option value={String(opt.value)}>{opt.label}</option>
+    {#each options as opt, i ('divider' in opt ? `__hr-${i}` : opt.value)}
+      {#if 'divider' in opt}
+        <hr />
+      {:else}
+        <option value={String(opt.value)}>{opt.label}</option>
+      {/if}
     {/each}
   </select>
 </label>
