@@ -15,6 +15,8 @@ pub struct Config {
     pub print: PrintCfg,
     pub timing: TimingCfg,
     pub mock: MockCfg,
+    /// Client-facing values pushed to the web app (reloadable at runtime).
+    pub client: ClientCfg,
     /// Max entries kept in the in-memory message-log ring (surfaced to the UI).
     pub log_buffer_size: usize,
     /// Directory for persisted server state (state.json, games.json). Created on
@@ -32,6 +34,7 @@ impl Default for Config {
             print: PrintCfg::default(),
             timing: TimingCfg::default(),
             mock: MockCfg::default(),
+            client: ClientCfg::default(),
             log_buffer_size: 100,
             data_dir: PathBuf::from("./data"),
         }
@@ -159,6 +162,23 @@ impl Default for MockCfg {
     }
 }
 
+/// Client-facing config (TOML `[client]`). Snake_case on disk; mapped to the
+/// camelCase [`ClientConfig`] DTO before it's sent to the browser.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct ClientCfg {
+    /// URL printed top-right on every result label.
+    pub label_url: String,
+}
+
+impl Default for ClientCfg {
+    fn default() -> Self {
+        Self {
+            label_url: "mzl.la/enterprise".into(),
+        }
+    }
+}
+
 impl Config {
     /// Load from `$PRINTER_DAEMON_CONFIG` (default `config.toml`), falling back
     /// to defaults if the file is absent, then apply env overrides + validate.
@@ -199,6 +219,11 @@ impl Config {
                 self.data_dir = PathBuf::from(v);
             }
         }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_CLIENT_LABEL_URL") {
+            if !v.is_empty() {
+                self.client.label_url = v;
+            }
+        }
     }
 
     /// Resolved config-file path (`$PRINTER_DAEMON_CONFIG` or `./config.toml`),
@@ -221,5 +246,29 @@ impl Config {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_section_parses_and_maps_to_dto() {
+        let cfg: Config = toml::from_str(
+            r#"
+            backend = "mock"
+            [client]
+            label_url = "mzl.la/booth"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.client.label_url, "mzl.la/booth");
+    }
+
+    #[test]
+    fn missing_client_section_falls_back_to_default() {
+        let cfg: Config = toml::from_str(r#"backend = "mock""#).unwrap();
+        assert_eq!(cfg.client.label_url, "mzl.la/enterprise");
     }
 }

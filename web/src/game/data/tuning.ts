@@ -296,8 +296,8 @@ export const TUNING = {
   epicenter: {
     /**
      * Apex-proximity tolerance for capture. Packet must sit within this radius
-     * of the apex AND its trail must terminate at the apex (a connected drag)
-     * for the capture to fire.
+     * of the apex AND be heading INTO the cone (a valid entry angle) for the
+     * capture to fire. The drawn trail no longer has to terminate at the apex.
      */
     captureRadius: 20,
     /** Visual outer bound of the cone / pulse. */

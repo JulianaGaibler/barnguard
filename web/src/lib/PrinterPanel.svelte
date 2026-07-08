@@ -16,6 +16,8 @@
     clearQueue,
     debugMock,
     reconnect,
+    setLabelUrlOverride,
+    resetLabelUrlOverride,
   } from './print/printerClient'
   import {
     renderLabel,
@@ -23,6 +25,7 @@
     type LabelInput,
   } from './print/labelRenderer'
   import { printerPanelVisible, togglePrinterPanel } from './boothMenuToggle'
+  import { daemonConfig } from '@src/stores/daemonConfig'
   import type { PrintJob, PrinterStatus } from './print/types'
 
   const printer = $derived($printerLive.printer)
@@ -101,6 +104,42 @@
     console.error('[printer-panel]', err)
   }
 
+  // --- Label URL override -------------------------------------------------
+  // Escape hatch: set an in-memory URL on the daemon that supersedes
+  // config.toml (and propagates to every client), or reset back to config.
+  // The draft is a local input; the "Current" line reflects whatever the
+  // daemon last echoed over SSE into `daemonConfig`.
+  let urlDraft = $state('')
+  let urlPending = $state(false)
+  const urlDirty = $derived(
+    urlDraft.trim().length > 0 && urlDraft.trim() !== $daemonConfig.labelUrl,
+  )
+
+  function onSetUrl(): void {
+    const url = urlDraft.trim()
+    if (url.length === 0 || urlPending) return
+    urlPending = true
+    setLabelUrlOverride(url)
+      .then(() => {
+        urlDraft = '' // Current line now shows the new value via SSE echo.
+      })
+      .catch(logErr)
+      .finally(() => {
+        urlPending = false
+      })
+  }
+
+  function onResetUrl(): void {
+    if (urlPending) return
+    urlPending = true
+    urlDraft = ''
+    resetLabelUrlOverride()
+      .catch(logErr)
+      .finally(() => {
+        urlPending = false
+      })
+  }
+
   // Design-preview: render a representative label so the attendant can see
   // what the printed output looks like without having to run a game. Values
   // are placeholders; the "new high score" pill is toggleable so the
@@ -126,6 +165,9 @@
     const tapeWidthMm = $printerLive.printer?.tapeWidthMm
     const messages = $t
     const input = previewInput
+    // Re-render the preview when a config reload changes the label URL.
+    // `renderLabel` reads the live value itself; this read just tracks the dep.
+    const _labelUrl = $daemonConfig.labelUrl
     let cancelled = false
     let localUrl: string | null = null
 
@@ -309,6 +351,47 @@
     </DebugSection>
   {/if}
 
+  <DebugSection title="Label URL">
+    <div class="debug-row">
+      <span class="label">Current</span>
+      <span class="value" class:accent={$daemonConfig.labelUrlOverridden}>
+        {$daemonConfig.labelUrl}
+      </span>
+    </div>
+    <div class="meta">
+      {$daemonConfig.labelUrlOverridden
+        ? 'Override active — supersedes config.toml'
+        : 'From config.toml'}
+    </div>
+    <input
+      class="url-input"
+      type="text"
+      bind:value={urlDraft}
+      placeholder={$daemonConfig.labelUrl}
+      onkeydown={(e) => {
+        if (e.key === 'Enter') onSetUrl()
+      }}
+    />
+    <div class="actions">
+      <button
+        type="button"
+        class="debug-btn"
+        onclick={onSetUrl}
+        disabled={!urlDirty || urlPending}
+      >
+        {urlPending ? 'Saving…' : 'Set override'}
+      </button>
+      <button
+        type="button"
+        class="debug-btn"
+        onclick={onResetUrl}
+        disabled={!$daemonConfig.labelUrlOverridden || urlPending}
+      >
+        Reset to config
+      </button>
+    </div>
+  </DebugSection>
+
   <DebugSection title="Preview">
     <div class="preview">
       {#if previewUrl}
@@ -382,6 +465,24 @@
     display: flex
     gap: 4px
     flex-wrap: wrap
+
+  // Label-URL override input. No shared text-input primitive in debug-ui/, so
+  // the chrome is matched by hand to the cover-message textarea in BoothMenu.
+  .url-input
+    display: block
+    width: 100%
+    box-sizing: border-box
+    margin-block: 4px
+    padding: 6px 8px
+    background: rgba(255, 255, 255, 0.05)
+    border: 1px solid rgba(255, 255, 255, 0.18)
+    border-radius: 4px
+    color: #fff
+    font: inherit
+    font-size: 11px
+
+    &:focus
+      outline: none
 
   // Preview section: the rendered label image + a small caption below.
   .preview

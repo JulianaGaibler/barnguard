@@ -23,6 +23,14 @@ log_buffer_size = 100
 # deploys, point this at something writable like /var/lib/barnguard.
 data_dir = "./data"
 
+[client]
+# Values served to the web app. Reloadable at runtime: edit this file, then hit
+# "Reload config" in the attendant panel's Debug section (no restart needed).
+# Other sections below take effect only on a full daemon restart.
+#
+# URL printed top-right on every result label.
+label_url = "mzl.la/enterprise"
+
 [printer]
 # Reserved static IP / mDNS host of the VC-500W (tcp backend only).
 host = ""

@@ -14,20 +14,23 @@
  * slightly wrong size is corrected in hardware, never clipped.
  *
  * Layout: Firefox-Enterprise-branded card. Warm sunrise gradient background,
- * state name top-left, `mzl.la/enterprise` URL top-right, huge score in Mozilla
- * Slab Headline Expanded centred, "Punkte"/"Points" beneath, an optional white
- * "NEUER HIGH SCORE" pill when the round set a record, a bottom navy wave, the
- * state's landscape photo peeking through a second (mask-only) copy of the wave
+ * state name top-left, the label URL (from the daemon's `[client] label_url`,
+ * via the `daemonConfig` store) top-right, huge score in Mozilla Slab Headline
+ * Expanded centred, "Punkte"/"Points" beneath, an optional white "NEUER HIGH
+ * SCORE" pill when the round set a record, a bottom navy wave, the state's
+ * landscape photo peeking through a second (mask-only) copy of the wave
  * positioned just above the blue one at 66% opacity, and the horizontal Firefox
  * Enterprise logo bottom-left. All sizes are ratios of the label edge so it
  * scales cleanly across tape widths — the Figma comp was authored at 330×330
  * base.
  */
 
+import { get } from 'svelte/store'
 import type { GameOverReason, StateId } from '@src/game'
 import type { HighScores } from '@src/lib/gameLogClient'
 import type { Messages } from '@src/i18n'
 import { STATE_PHOTOS } from '@src/game/data/statePhotos'
+import { daemonConfig, DEFAULT_LABEL_URL } from '@src/stores/daemonConfig'
 
 import headlineFontUrl from '@src/assets/fonts/MozillaHeadlineExtended-Bold.woff2?url'
 import textFontUrl from '@src/assets/fonts/MozillaText-Regular.woff2?url'
@@ -39,13 +42,6 @@ import firefoxLogoUrl from '@src/assets/firefox-enterprise-logo-horizontal.png?u
 export const PIXELS_PER_MM = 12.48
 /** Fallback tape width when the printer's is unknown (common CZ-1004 ≈ 25mm). */
 export const DEFAULT_TAPE_WIDTH_MM = 25
-
-/**
- * Enterprise URL rendered top-right on every label. Hardcoded — a single source
- * of truth; if it ever needs to change it's one edit here rather than threading
- * a prop through every call site.
- */
-export const LABEL_URL = 'mzl.la/enterprise'
 
 /** Font family names registered with `document.fonts` by `renderLabel`. */
 const FONT_HEADLINE = 'Mozilla Slab Headline Expanded'
@@ -191,7 +187,15 @@ export async function renderLabel(
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('renderLabel: could not get a 2D context')
 
-  drawLabel(ctx, width, height, input, opts.messages, assets)
+  drawLabel(
+    ctx,
+    width,
+    height,
+    input,
+    opts.messages,
+    assets,
+    get(daemonConfig).labelUrl,
+  )
 
   return canvas.convertToBlob({
     type: 'image/jpeg',
@@ -262,9 +266,12 @@ const COL = {
 }
 
 /**
- * Draw the label. Pure and store-free: takes resolved `messages` + pre-loaded
- * `assets` so it can be exercised with a stub 2D context in tests. Callers from
- * tests may omit `assets` — the image-drawing steps are then skipped.
+ * Draw the label. Pure and store-free: takes resolved `messages`, the resolved
+ * `labelUrl`, and pre-loaded `assets` so it can be exercised with a stub 2D
+ * context in tests. Callers from tests may omit `assets` — the image-drawing
+ * steps are then skipped — and `labelUrl`, which defaults to
+ * {@link DEFAULT_LABEL_URL}. `renderLabel` passes the live value from
+ * `daemonConfig`.
  */
 export function drawLabel(
   ctx: Ctx2D,
@@ -273,6 +280,7 @@ export function drawLabel(
   input: LabelInput,
   messages: Messages,
   assets?: LabelAssets,
+  labelUrl: string = DEFAULT_LABEL_URL,
 ): void {
   const edge = Math.min(w, h)
   const isHigh = input.isOverallHigh || input.isStateHigh
@@ -316,7 +324,7 @@ export function drawLabel(
   ctx.fillText(messages.states[input.stateId], pad, headerY)
 
   ctx.textAlign = 'right'
-  ctx.fillText(LABEL_URL, w - pad, headerY)
+  ctx.fillText(labelUrl, w - pad, headerY)
 
   // 6-8. Score / caption / (optional) pill — top-anchored off the header row.
   //      Three tunable gaps (`scoreGapAfterHeader`, `captionGapAfterScore`,

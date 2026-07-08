@@ -180,6 +180,23 @@ pub struct LogEntry {
     pub message: String,
 }
 
+/// Client-facing daemon configuration pushed to the web app (SSE `config` event
+/// + `GET /api/printer/config`). Deliberately separate from the on-disk
+/// [`crate::config::ClientCfg`]: TOML deserializes snake_case, but everything
+/// sent to the browser is `camelCase` (`{ "labelUrl": "..." }`), matching the
+/// other DTOs here.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientConfig {
+    /// Effective URL printed top-right on every result label (the runtime
+    /// override if one is set, otherwise the `config.toml` value).
+    pub label_url: String,
+    /// True when a runtime override is active (set from the attendant UI) and
+    /// thus superseding the `config.toml` value. Lets the UI show the state and
+    /// offer a reset.
+    pub label_url_overridden: bool,
+}
+
 /// Events broadcast to SSE subscribers.
 #[derive(Debug, Clone)]
 pub enum ServerEvent {
@@ -189,6 +206,8 @@ pub enum ServerEvent {
     Log(LogEntry),
     GameCreated(GameRecord),
     GameDeleted(Uuid),
+    /// Client-facing config changed (emitted on `POST /config/reload`).
+    Config(ClientConfig),
 }
 
 // ---------------------------------------------------------------------------
@@ -358,5 +377,20 @@ mod tests {
         .into_record(&HighScores::default());
         assert!(rec.was_overall_high);
         assert!(rec.was_state_high);
+    }
+
+    #[test]
+    fn client_config_serializes_camel_case() {
+        // The web client parses `labelUrl`; keep the snake_case-in /
+        // camelCase-out contract locked so a rename can't silently break it.
+        let json = serde_json::to_string(&ClientConfig {
+            label_url: "mzl.la/enterprise".into(),
+            label_url_overridden: false,
+        })
+        .unwrap();
+        assert_eq!(
+            json,
+            r#"{"labelUrl":"mzl.la/enterprise","labelUrlOverridden":false}"#
+        );
     }
 }

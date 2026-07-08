@@ -1,8 +1,9 @@
 //! REST handlers. JSON out; the print body is raw `image/jpeg`.
 
 use super::AppState;
+use crate::config::Config;
 use crate::queue::{CancelOutcome, ReprintError};
-use crate::types::{JobMeta, NewGame, PrintJob, PrinterStatus};
+use crate::types::{JobMeta, NewGame, PrintJob, PrinterStatus, ServerEvent};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -165,6 +166,92 @@ pub async fn debug_mock(State(st): State<AppState>, Json(body): Json<DebugMock>)
 /// instead of waiting for the next keep-alive tick.
 pub async fn reconnect(State(st): State<AppState>) -> impl IntoResponse {
     st.controller.request_reconnect();
+    Json(json!({ "ok": true }))
+}
+
+/// `GET /config`. Current client-facing config: the effective label URL plus
+/// whether a runtime override is active.
+pub async fn config_get(State(st): State<AppState>) -> impl IntoResponse {
+    Json(st.client_config.read().unwrap().snapshot())
+}
+
+/// `POST /config/reload`. Re-reads `config.toml` from disk and pushes the
+/// client-facing subset to every browser over SSE. Refreshes the base label URL
+/// but leaves any active override in place. Only `[client]` values take effect
+/// live; printer/print/timing/mock changes still need a daemon restart. Reads
+/// the same file the daemon booted with (`main` forwards `--config` into
+/// `$PRINTER_DAEMON_CONFIG`, which `Config::load` honours).
+pub async fn config_reload(State(st): State<AppState>) -> Response {
+    match Config::load() {
+        Ok(cfg) => {
+            let snapshot = {
+                let mut cc = st.client_config.write().unwrap();
+                cc.set_base_label_url(cfg.client.label_url);
+                cc.snapshot()
+            };
+            st.events.publish(ServerEvent::Config(snapshot));
+            st.log.info(
+                "system",
+                "config reloaded (client values applied; \
+                 printer/print/timing changes need a daemon restart)",
+            );
+            Json(json!({ "ok": true })).into_response()
+        }
+        Err(e) => {
+            st.log
+                .warn("system", format!("config reload failed: {e}"));
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigOverride {
+    pub label_url: String,
+}
+
+/// `POST /config/override`. Set an in-memory label-URL override that supersedes
+/// the `config.toml` value until reset. Not persisted — a last-minute escape
+/// hatch. Rejects a blank URL so the label can't be emptied.
+pub async fn config_override(
+    State(st): State<AppState>,
+    Json(body): Json<ConfigOverride>,
+) -> Response {
+    let url = body.label_url.trim().to_string();
+    if url.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "empty_label_url" })),
+        )
+            .into_response();
+    }
+    let snapshot = {
+        let mut cc = st.client_config.write().unwrap();
+        cc.set_override(url.clone());
+        cc.snapshot()
+    };
+    st.events.publish(ServerEvent::Config(snapshot));
+    st.log
+        .info("system", format!("label URL override set to {url:?}"));
+    Json(json!({ "ok": true })).into_response()
+}
+
+/// `DELETE /config/override`. Clear the override, reverting to the `config.toml`
+/// value.
+pub async fn config_override_reset(State(st): State<AppState>) -> impl IntoResponse {
+    let snapshot = {
+        let mut cc = st.client_config.write().unwrap();
+        cc.clear_override();
+        cc.snapshot()
+    };
+    st.events.publish(ServerEvent::Config(snapshot));
+    st.log
+        .info("system", "label URL override cleared (using config.toml)");
     Json(json!({ "ok": true }))
 }
 

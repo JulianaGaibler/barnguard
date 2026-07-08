@@ -30,6 +30,7 @@ import type {
   StatusResponse,
 } from './types'
 import type { GameRecord } from '@src/lib/gameLogClient'
+import { setDaemonConfig, type DaemonConfig } from '@src/stores/daemonConfig'
 
 /**
  * Daemon base URL. Empty string → same-origin (dev uses the Vite proxy for
@@ -157,6 +158,37 @@ export async function reconnect(): Promise<void> {
  */
 export function forceReopenSse(): void {
   sseForceReopen?.()
+}
+
+/**
+ * Ask the daemon to re-read `config.toml` from disk. The daemon applies the
+ * `[client]` values and broadcasts them over SSE, so the update lands in
+ * `daemonConfig` on its own — no client-side refetch needed here.
+ */
+export async function reloadConfig(): Promise<void> {
+  const res = await robustFetch(`${API}/config/reload`, { method: 'POST' })
+  if (!res.ok) throw new Error(`config reload failed: ${res.status}`)
+}
+
+/**
+ * Set an in-memory label-URL override on the daemon (supersedes `config.toml`
+ * until reset). The daemon echoes the new effective config back over SSE, so
+ * `daemonConfig` updates on its own — no refetch here. Escape hatch for
+ * changing the printed URL last-minute without editing files.
+ */
+export async function setLabelUrlOverride(labelUrl: string): Promise<void> {
+  const res = await robustFetch(`${API}/config/override`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ labelUrl }),
+  })
+  if (!res.ok) throw new Error(`set label URL override failed: ${res.status}`)
+}
+
+/** Clear the label-URL override, reverting to the daemon's `config.toml` value. */
+export async function resetLabelUrlOverride(): Promise<void> {
+  const res = await robustFetch(`${API}/config/override`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`reset label URL override failed: ${res.status}`)
 }
 
 /** Fetch the recent buffered log entries (oldest → newest). */
@@ -327,6 +359,11 @@ export const printerLive: Readable<PrinterLiveState> =
       listen<LogEntry>('log', (entry) => {
         update({ logs: [...state.logs, entry].slice(-LOG_RETAIN) })
       })
+      // Client-facing daemon config. Sent once in the connect snapshot, then
+      // again whenever an operator hits "Reload config". Lives in its own store
+      // (not `printerLiveState`); `onopen`'s log-clear doesn't touch it, and the
+      // default persists until the first snapshot arrives.
+      listen<DaemonConfig>('config', (c) => setDaemonConfig(c))
       // Game log: server sends `games` (full snapshot, oldest → newest) once
       // on connect, then `game.created` / `game.deleted` incrementally.
       listen<GameRecord[]>('games', (list) => {

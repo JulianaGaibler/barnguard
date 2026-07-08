@@ -1,6 +1,6 @@
 <script lang="ts">
   import { locale, setLocale, t } from '@src/i18n'
-  import { printerLive } from '@src/lib/print/printerClient'
+  import { printerLive, reloadConfig } from '@src/lib/print/printerClient'
   import { STATE_PHOTOS } from '@src/game/data/statePhotos'
   import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
   import ConfirmButton from './ConfirmButton.svelte'
@@ -33,6 +33,23 @@
 
   function handleReload(): void {
     location.reload()
+  }
+
+  // Ask the daemon to re-read config.toml. Success is visible when the new
+  // values arrive over SSE (e.g. the label URL); failures land in the Log
+  // list below. Transient label mirrors the Printer panel's reconnect button.
+  let reloadConfigPending = $state(false)
+  let reloadConfigTimer: ReturnType<typeof setTimeout> | null = null
+  function handleReloadConfig(): void {
+    reloadConfigPending = true
+    if (reloadConfigTimer !== null) clearTimeout(reloadConfigTimer)
+    reloadConfigTimer = setTimeout(() => {
+      reloadConfigPending = false
+      reloadConfigTimer = null
+    }, 1500)
+    reloadConfig().catch((err: unknown) =>
+      console.error('[booth-menu] config reload', err),
+    )
   }
 
   function fmtTime(ms: number): string {
@@ -230,6 +247,17 @@
       <span class="label">Page</span>
       <button type="button" class="debug-btn" onclick={handleReload}>
         Reload
+      </button>
+    </div>
+    <div class="debug-row">
+      <span class="label">Config</span>
+      <button
+        type="button"
+        class="debug-btn"
+        onclick={handleReloadConfig}
+        disabled={reloadConfigPending}
+      >
+        {reloadConfigPending ? 'Reloading…' : 'Reload config'}
       </button>
     </div>
 

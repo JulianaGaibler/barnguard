@@ -35,8 +35,9 @@ interface EpicenterNodeOptions {
 
 /**
  * The "safe zone" at a state's capital, drawn as a 60° cone that opens toward
- * the interior of Germany. Capture is gated by both apex proximity AND a
- * connected drag terminating at the apex, see `PacketBehaviour` and
+ * the interior of Germany. Capture is gated by apex proximity AND the packet
+ * entering the cone at a valid heading (`isEntryHeadingValid`); the drawn drag
+ * no longer has to terminate exactly at the apex. See `PacketBehaviour` and
  * `PathDrawBehaviour` for the mechanic.
  *
  * Layered visuals from back to front:
@@ -138,6 +139,22 @@ export class EpicenterNode extends SceneNode {
     const approach = Math.atan2(this.center.y - fromY, this.center.x - fromX)
     const inward = this.axisRad + Math.PI
     const delta = wrapAngle(approach - inward)
+    const tol = this.coneSweep * 0.5 + TUNING.epicenter.approachForgivenessRad
+    return Math.abs(delta) <= tol
+  }
+
+  /**
+   * True when a velocity heading (radians) points INTO the cone, i.e. roughly
+   * along the inward axis (`axisRad + π`, the direction a packet travelling
+   * from the interior toward the apex moves). Allows `approachForgivenessRad`
+   * of slack beyond `±coneSweep/2`, the same band as `isApproachAngleValid`.
+   * Read by `PacketBehaviour` so a packet entering the safe zone at the correct
+   * angle auto-captures without the drawn trail having to terminate at the
+   * apex.
+   */
+  isEntryHeadingValid(headingRad: number): boolean {
+    const inward = this.axisRad + Math.PI
+    const delta = wrapAngle(headingRad - inward)
     const tol = this.coneSweep * 0.5 + TUNING.epicenter.approachForgivenessRad
     return Math.abs(delta) <= tol
   }

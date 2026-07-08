@@ -31,10 +31,12 @@ pub async fn events(
     let snapshot = st.controller.snapshot();
     let logs = st.log.snapshot();
     let games = st.games.snapshot();
-    let mut initial: Vec<Result<Event, Infallible>> = Vec::with_capacity(3 + logs.len());
+    let client_config = st.client_config.read().unwrap().snapshot();
+    let mut initial: Vec<Result<Event, Infallible>> = Vec::with_capacity(4 + logs.len());
     initial.push(Ok(sse_json("status", &status)));
     initial.push(Ok(sse_json("queue", &snapshot)));
     initial.push(Ok(sse_json("games", &games)));
+    initial.push(Ok(sse_json("config", &client_config)));
     for entry in &logs {
         initial.push(Ok(sse_json("log", entry)));
     }
@@ -61,5 +63,6 @@ fn event_to_sse(ev: ServerEvent) -> Event {
         ServerEvent::GameDeleted(id) => {
             Event::default().event("game.deleted").data(id.to_string())
         }
+        ServerEvent::Config(c) => sse_json("config", &c),
     }
 }

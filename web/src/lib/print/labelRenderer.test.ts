@@ -4,9 +4,9 @@ import {
   squarePxFrom,
   PIXELS_PER_MM,
   DEFAULT_TAPE_WIDTH_MM,
-  LABEL_URL,
   type LabelInput,
 } from './labelRenderer'
+import { DEFAULT_LABEL_URL } from '@src/stores/daemonConfig'
 import { en } from '@src/i18n/en'
 
 /**
@@ -73,7 +73,7 @@ describe('squarePxFrom', () => {
 })
 
 describe('drawLabel', () => {
-  it('draws the score, state name, points caption, and enterprise URL', () => {
+  it('draws the score, state name, points caption, and default URL', () => {
     const { ctx, texts } = stubCtx()
     drawLabel(ctx, 312, 312, base, en)
     expect(texts).toContain('42')
@@ -81,8 +81,15 @@ describe('drawLabel', () => {
     expect(texts).toContain(en.states.BW)
     // Localised "Points" caption underneath the score.
     expect(texts).toContain(en.game.points)
-    // Enterprise URL top-right.
-    expect(texts).toContain(LABEL_URL)
+    // Falls back to the default URL top-right when none is passed.
+    expect(texts).toContain(DEFAULT_LABEL_URL)
+  })
+
+  it('renders the label URL passed in (from daemon config)', () => {
+    const { ctx, texts } = stubCtx()
+    drawLabel(ctx, 312, 312, base, en, undefined, 'mzl.la/booth')
+    expect(texts).toContain('mzl.la/booth')
+    expect(texts).not.toContain(DEFAULT_LABEL_URL)
   })
 
   it('uses the singular "point" when the score is exactly 1', () => {

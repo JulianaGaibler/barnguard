@@ -7,11 +7,12 @@ use crate::events::EventHub;
 use printer_driver::MockControls;
 use crate::log::LogHub;
 use crate::queue::QueueController;
+use crate::client_config::ClientConfigState;
 use crate::store::GameLogController;
 use axum::http::{header, HeaderValue, Method};
 use axum::routing::{delete, get, post};
 use axum::Router;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
@@ -24,6 +25,11 @@ pub struct AppState {
     /// `Some` only when the mock backend is active; gates `/debug/mock`.
     pub mock: Option<Arc<MockControls>>,
     pub games: GameLogController,
+    /// Client-facing config served to the web app: base value from
+    /// `config.toml` plus an optional in-memory override. Mutated by
+    /// `/config/reload` and `/config/override`; read by the SSE snapshot +
+    /// `GET /config`.
+    pub client_config: Arc<RwLock<ClientConfigState>>,
 }
 
 pub fn build_router(state: AppState, allowed_origins: &[String]) -> Router {
@@ -34,6 +40,12 @@ pub fn build_router(state: AppState, allowed_origins: &[String]) -> Router {
         .route("/api/printer/queue", get(routes::queue))
         .route("/api/printer/queue/clear", post(routes::clear))
         .route("/api/printer/reconnect", post(routes::reconnect))
+        .route("/api/printer/config", get(routes::config_get))
+        .route("/api/printer/config/reload", post(routes::config_reload))
+        .route(
+            "/api/printer/config/override",
+            post(routes::config_override).delete(routes::config_override_reset),
+        )
         .route("/api/printer/log", get(routes::log))
         .route("/api/printer/jobs/{id}", get(routes::job))
         .route("/api/printer/jobs/{id}/cancel", post(routes::cancel))

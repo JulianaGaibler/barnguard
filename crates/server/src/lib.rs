@@ -3,6 +3,7 @@
 
 pub mod backend_factory;
 pub mod cli;
+pub mod client_config;
 pub mod config;
 pub mod events;
 pub mod http;
@@ -13,6 +14,7 @@ pub mod types;
 #[cfg(feature = "embed-web")]
 pub mod web;
 
+use crate::client_config::ClientConfigState;
 use crate::config::Config;
 use crate::events::EventHub;
 use crate::http::{build_router, AppState};
@@ -21,7 +23,7 @@ use crate::queue::{run_worker, QueueController, QueueStore, WorkerConfig};
 use crate::store::GameLogController;
 use crate::types::PrinterStatus;
 use printer_driver::MockControls;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
@@ -76,12 +78,20 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let games_store = GameLogController::load(&cfg.data_dir, &log, events.clone());
 
+    // Client-facing config lives behind a lock: `POST /config/reload` refreshes
+    // the base from disk, `POST/DELETE /config/override` set/clear the in-memory
+    // override, and every SSE (re)connect reads the effective value.
+    let client_config = Arc::new(RwLock::new(ClientConfigState::new(
+        cfg.client.label_url.clone(),
+    )));
+
     let state = AppState {
         controller,
         events,
         log,
         mock: mock_controls,
         games: games_store,
+        client_config,
     };
     let app = build_router(state, &cfg.allowed_origins);
 

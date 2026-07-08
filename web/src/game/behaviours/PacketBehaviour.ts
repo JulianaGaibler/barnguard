@@ -244,26 +244,25 @@ export class PacketBehaviour extends Behaviour {
       return
     }
 
-    // 6) Epicenter capture. Compound gate: the drawn trail must END at
-    //    the apex (the snap logic in `PathDrawBehaviour` places the apex
-    //    exactly, so a 0.5 wu tolerance is enough) AND the packet must
-    //    be within `captureRadius` of the apex. Free-floating packets
-    //    that happen to drift over the target do NOT capture, the
-    //    player has to actively route them in.
-    if (this.mode === 'travelling' && this.trail && this.trail.pointCount > 0) {
+    // 6) Epicenter capture. Compound gate: the player must have routed this
+    //    packet (a trail is bound) AND the packet must sit within
+    //    `captureRadius` of the apex AND be travelling INTO the cone, i.e.
+    //    its heading lies within `±(coneSweep/2 + approachForgiveness)` of
+    //    the inward axis. The drawn line no longer has to terminate exactly
+    //    at the apex, entering the safe zone at the correct angle
+    //    auto-captures. Free-floating packets that never got a trail do NOT
+    //    capture, the player still has to actively route them in.
+    if (this.mode === 'travelling' && this.trail) {
       const ep = this.session.epicenter()
       if (ep) {
         const c = ep.center
-        this.trail.pointAt(this.trail.pointCount - 1, this._trailScratch)
-        const trailEndsAtApex =
-          Math.abs(this._trailScratch.x - c.x) < 0.5 &&
-          Math.abs(this._trailScratch.y - c.y) < 0.5
-        if (trailEndsAtApex) {
-          const dx = c.x - t.x
-          const dy = c.y - t.y
-          if (dx * dx + dy * dy <= ep.captureRadius * ep.captureRadius) {
-            this.startCapture(packet, c)
-          }
+        const dx = c.x - t.x
+        const dy = c.y - t.y
+        if (
+          dx * dx + dy * dy <= ep.captureRadius * ep.captureRadius &&
+          ep.isEntryHeadingValid(Math.atan2(this.velocity.y, this.velocity.x))
+        ) {
+          this.startCapture(packet, c)
         }
       }
     }
