@@ -8,8 +8,8 @@ import { inOutQuad, outBack } from '../math/easings'
 import type { Rect } from '../math/Rect'
 import type { DemoFn } from './types'
 
-import statesSvgRaw from '@src/assets/de-states.svg?raw'
-import outlineSvgRaw from '@src/assets/de-outline.svg?raw'
+import shapesSvgRaw from '@src/stargazer/dev/fixtures/shapes.svg?raw'
+import outlineSvgRaw from '@src/stargazer/dev/fixtures/outline.svg?raw'
 
 const COLOR_STATE_FILL = '#354a6e'
 const COLOR_STATE_STROKE = 'rgba(253, 246, 227, 0.85)'
@@ -30,26 +30,26 @@ const assetLoader = new AssetLoader()
 async function loadAssets(): Promise<DemoAssets> {
   return assetLoader.load('demo-camera-assets', async () => {
     return {
-      states: parseSvgPaths(statesSvgRaw),
+      states: parseSvgPaths(shapesSvgRaw),
       outline: parseSvgPaths(outlineSvgRaw),
     }
   })
 }
 
 /**
- * M8 demo. Germany map on the `'static'` layer + camera tween on click +
+ * M8 demo. Shape map on the `'static'` layer + camera tween on click +
  * shockwave via `renderLayer` promotion.
  *
  * - The map is drawn every frame the camera is stable via a cheap `drawImage`
  *   blit from the offscreen bake canvas. Verify by watching "Static bakes/s: 0"
  *   in the debug HUD (Scene section).
- * - Click a state → camera tweens to the upper- or lower-half viewport over ~500
+ * - Click a shape → camera tweens to the upper- or lower-half viewport over ~500
  *   ms; during the tween the cache is skipped and the static layer is drawn
  *   fresh each frame. Bakes/s temporarily jumps to 0 → stays 0 (fresh draws
  *   don't bake) → 1 exactly on the settle frame.
- * - Press `P` while hovering a state to pulse its alpha (promote → tween 1→0.7→1
+ * - Press `P` while hovering a shape to pulse its alpha (promote → tween 1→0.7→1
  *   → demote). HUD shows exactly `Static bakes total` +2 for the whole pulse.
- * - Press `Escape` to return to the full-Germany view.
+ * - Press `Escape` to return to the full view.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
@@ -127,7 +127,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const updateOverlay = (): void => {
     overlay.setLines([
       `hover:    ${hovered ?? ';'}`,
-      `click:    zoom to state's half of Germany`,
+      `click:    zoom to shape's half of the map`,
       `[P]:      pulse hovered state (shockwave demo)`,
       `[Escape]: reset to full view`,
     ])

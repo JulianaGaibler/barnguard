@@ -12,12 +12,12 @@ import { writable } from 'svelte/store'
 /**
  * Cover-screen headline modes:
  *
- * - `enterprise` — the Firefox-Enterprise marketing headline that matches the
- *   backdrop's visual identity (default).
+ * - `brand` — the active display's branded headline (default). Sourced from the
+ *   theme, so each display renders its own marketing copy.
  * - `backSoon` — casual "we'll be right back" copy for breaks / event lulls.
  * - `custom` — operator-authored free text.
  */
-export type CoverMode = 'enterprise' | 'backSoon' | 'custom'
+export type CoverMode = 'brand' | 'backSoon' | 'custom'
 
 export interface CoverScreenState {
   visible: boolean
@@ -25,7 +25,7 @@ export interface CoverScreenState {
   /**
    * Free-text headline for the `custom` mode. Preserved across mode flips so an
    * operator switching briefly to a preset doesn't lose what they typed. Empty
-   * (or whitespace-only) `custom` falls back to the enterprise preset at render
+   * (or whitespace-only) `custom` falls back to the brand preset at render
    * time.
    */
   customText: string
@@ -33,7 +33,7 @@ export interface CoverScreenState {
 
 const INITIAL: CoverScreenState = {
   visible: false,
-  mode: 'enterprise',
+  mode: 'brand',
   customText: '',
 }
 

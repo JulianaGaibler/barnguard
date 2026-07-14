@@ -1,10 +1,10 @@
 @use "./tokens"
 @use "./typography"
-@use "./colors"
 @use "./fonts"
 
-// Emit the flat --tint-* palette on :root.
-@include colors.emit-color-variables
+// The `--tint-*` palette is written to `:root` at runtime by
+// `core/theme.applyTheme(...)` — main.ts calls it with the active display's
+// theme before mounting the app. Colors are no longer emitted from SCSS.
 
 // Layer order keeps app-authored styles above the reset and type utilities.
 @layer app-reset, app-typography, app-global

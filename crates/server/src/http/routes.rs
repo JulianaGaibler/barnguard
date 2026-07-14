@@ -3,7 +3,9 @@
 use super::AppState;
 use crate::config::Config;
 use crate::queue::{CancelOutcome, ReprintError};
-use crate::types::{JobMeta, NewGame, PrintJob, PrinterStatus, ServerEvent};
+use crate::types::{
+    JobMeta, NewGame, PrintJob, PrinterStatus, ServerEvent, DISPLAY_STALLWAECHTER,
+};
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -274,14 +276,25 @@ pub async fn healthz() -> &'static str {
 pub struct GamesQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    /// Optional display filter. When set, only records whose `display` tag
+    /// matches this id are returned. Absent → all displays.
+    pub display: Option<String>,
 }
 
-/// `GET /api/games?limit=N&offset=M`. Newest-first.
+/// `GET /api/games?limit=N&offset=M&display=<id>`. Newest-first.
 pub async fn games_list(
     State(st): State<AppState>,
     Query(q): Query<GamesQuery>,
 ) -> impl IntoResponse {
-    Json(st.games.list(q.limit, q.offset.unwrap_or(0)))
+    let all = st.games.list(q.limit, q.offset.unwrap_or(0));
+    let filtered: Vec<_> = match q.display.as_deref() {
+        Some(display) => all
+            .into_iter()
+            .filter(|g| g.display_id() == display)
+            .collect(),
+        None => all,
+    };
+    Json(filtered)
 }
 
 /// `POST /api/games`. Persists the record and emits `game.created`.
@@ -315,9 +328,21 @@ pub async fn games_delete(State(st): State<AppState>, Path(id): Path<String>) ->
     }
 }
 
-/// `GET /api/games/high-scores`. Computed on demand from the log.
-pub async fn games_high_scores(State(st): State<AppState>) -> impl IntoResponse {
-    Json(st.games.high_scores())
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HighScoresQuery {
+    /// Which display to compute high scores for. Defaults to Stallwächter,
+    /// which is the only display shipping today.
+    pub display: Option<String>,
+}
+
+/// `GET /api/games/high-scores?display=<id>`. Computed on demand from the log.
+pub async fn games_high_scores(
+    State(st): State<AppState>,
+    Query(q): Query<HighScoresQuery>,
+) -> impl IntoResponse {
+    let display = q.display.as_deref().unwrap_or(DISPLAY_STALLWAECHTER);
+    Json(st.games.high_scores(display))
 }
 
 /// Surface a persistence I/O error as a 500, and log it loudly. Persistence

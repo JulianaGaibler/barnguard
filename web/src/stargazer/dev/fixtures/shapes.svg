@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 400" fill="none">
+  <path id="alpha" d="M 40 40 L 200 40 L 200 160 L 40 160 Z" />
+  <path id="beta" d="M 240 40 L 400 40 L 400 160 L 240 160 Z" />
+  <path id="gamma" d="M 440 40 L 560 40 L 560 160 L 440 160 Z" />
+  <path id="delta" d="M 40 200 L 200 200 L 200 360 L 40 360 Z" />
+  <path id="epsilon" d="M 240 200 L 400 200 C 440 240 440 320 400 360 L 240 360 Z" />
+  <path id="zeta" d="M 480 200 L 560 260 L 480 360 L 440 260 Z" />
+</svg>

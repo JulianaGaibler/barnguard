@@ -11,7 +11,7 @@
     registerWindow,
     resetChildrenOf,
     unregisterWindow,
-  } from '@src/lib/window/spawn'
+  } from '@src/core/ui/window/spawn'
 
   interface Props {
     visible: boolean

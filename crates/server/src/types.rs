@@ -214,7 +214,12 @@ pub enum ServerEvent {
 // Web-facing state & game log
 // ---------------------------------------------------------------------------
 
-/// Why a round ended. JSON: `snake_case` (`"collision"`, `"exited_germany"`).
+/// Stable id for the Stallwächter display; used as the `display` tag on
+/// records + high scores. Future displays get their own constants alongside.
+pub const DISPLAY_STALLWAECHTER: &str = "stallwaechter";
+
+/// Why a Stallwächter round ended. JSON: `snake_case` (`"collision"`,
+/// `"exited_germany"`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GameEndReason {
@@ -231,104 +236,205 @@ impl fmt::Display for GameEndReason {
     }
 }
 
-/// A single finished game. Persisted in `games.json` (newest last). The high-
-/// score flags are snapshotted at record-creation time so reprints stay 1:1
-/// with the original badge even if a later game surpasses this score.
+/// Display-specific detail payload. Envelope fields (id/ts/score/duration) live
+/// on [`GameRecord`]; anything only meaningful to one display goes here. Tagged
+/// by `display` on the wire and in `games.json` — that discriminator is
+/// authoritative and matches the `?display=` URL parameter on the web side.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "display", rename_all = "snake_case")]
+pub enum GameDetails {
+    Stallwaechter(StallwaechterDetails),
+}
+
+impl GameDetails {
+    /// The display id this variant belongs to. Kept in sync with the serde tag
+    /// so filtering / grouping code doesn't have to string-match.
+    pub fn display_id(&self) -> &'static str {
+        match self {
+            GameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+        }
+    }
+}
+
+/// Stallwächter-specific game details. `state_id` is the ISO code (lowercase);
+/// high-score flags are snapshotted at record-creation time so reprints stay
+/// 1:1 with the original badge even after a later game surpasses this score.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StallwaechterDetails {
+    pub state_id: String,
+    pub reason: GameEndReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escape_heading_rad: Option<f32>,
+    /// True if this score was the overall best (for this display) at the
+    /// moment it was recorded.
+    pub was_overall_high: bool,
+    /// True if this score was the best for its state at the moment it was
+    /// recorded.
+    pub was_state_high: bool,
+}
+
+/// A single finished game. Persisted in `games.json` (newest last). Envelope
+/// fields are shared by every display; display-specific fields live inside
+/// `details` (flattened into the top-level JSON object next to a `display`
+/// discriminator).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameRecord {
     pub id: Uuid,
     pub ts_ms: u64,
-    pub state_id: String,
-    pub reason: GameEndReason,
     pub score: u32,
     pub duration_ms: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub escape_heading_rad: Option<f32>,
-    /// True if this score was the overall best at the moment it was recorded.
-    pub was_overall_high: bool,
-    /// True if this score was the best for its state at the moment it was recorded.
-    pub was_state_high: bool,
+    #[serde(flatten)]
+    pub details: GameDetails,
 }
 
-/// Client-supplied payload for `POST /api/games`. The server assigns `id`,
-/// `ts_ms`, and the `wasOverallHigh` / `wasStateHigh` flags.
+impl GameRecord {
+    pub fn display_id(&self) -> &'static str {
+        self.details.display_id()
+    }
+}
+
+/// Client-supplied payload for `POST /api/games`. Same envelope + details
+/// shape as [`GameRecord`], but the server assigns `id`, `ts_ms`, and (for
+/// Stallwächter) the `was*High` flags.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewGame {
-    pub state_id: String,
-    pub reason: GameEndReason,
     pub score: u32,
     pub duration_ms: u32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
+    pub details: NewGameDetails,
+}
+
+/// Same discriminator as [`GameDetails`], but with the high-score flags left
+/// off — the server fills them in.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "display", rename_all = "snake_case")]
+pub enum NewGameDetails {
+    Stallwaechter(NewStallwaechterDetails),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewStallwaechterDetails {
+    pub state_id: String,
+    pub reason: GameEndReason,
+    #[serde(default)]
     pub escape_heading_rad: Option<f32>,
 }
 
 impl NewGame {
-    /// Assemble a full [`GameRecord`] from this payload plus a computed
-    /// snapshot of the high scores as they stood *before* this game landed.
-    /// The comparison is `>`, matching the web's "beat the previous best"
-    /// semantics (equalling doesn't trigger the star).
-    pub fn into_record(self, prev: &HighScores) -> GameRecord {
-        let was_overall_high = self.score > prev.overall;
-        let was_state_high = self
-            .score
-            > prev.by_state.get(&self.state_id).copied().unwrap_or(0);
+    /// Assemble a full [`GameRecord`] from this payload plus a snapshot of the
+    /// prior high scores for the same display. The comparison is `>`, matching
+    /// the web's "beat the previous best" semantics (equalling doesn't
+    /// trigger the star).
+    pub fn into_record(self, prev: &DisplayHighScores) -> GameRecord {
+        let NewGame {
+            score,
+            duration_ms,
+            details,
+        } = self;
+        let full = match details {
+            NewGameDetails::Stallwaechter(d) => {
+                let DisplayHighScores::Stallwaechter(s) = prev;
+                let was_overall_high = score > s.overall;
+                let was_state_high =
+                    score > s.by_state.get(&d.state_id).copied().unwrap_or(0);
+                GameDetails::Stallwaechter(StallwaechterDetails {
+                    state_id: d.state_id,
+                    reason: d.reason,
+                    escape_heading_rad: d.escape_heading_rad,
+                    was_overall_high,
+                    was_state_high,
+                })
+            }
+        };
         GameRecord {
             id: Uuid::new_v4(),
             ts_ms: now_ms(),
-            state_id: self.state_id,
-            reason: self.reason,
-            score: self.score,
-            duration_ms: self.duration_ms,
-            escape_heading_rad: self.escape_heading_rad,
-            was_overall_high,
-            was_state_high,
+            score,
+            duration_ms,
+            details: full,
         }
     }
 }
 
-/// High scores computed on demand from a game log slice. Never persisted.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// High scores computed on demand from a game log slice. Per-display shape:
+/// each variant matches its [`GameDetails`] sibling. Never persisted.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "display", rename_all = "snake_case")]
+pub enum DisplayHighScores {
+    Stallwaechter(StallwaechterHighScores),
+}
+
+impl DisplayHighScores {
+    pub fn empty_for(display: &str) -> Self {
+        match display {
+            DISPLAY_STALLWAECHTER => {
+                DisplayHighScores::Stallwaechter(StallwaechterHighScores::default())
+            }
+            other => panic!("unknown display id: {other}"),
+        }
+    }
+
+    /// Recompute from a slice of records. Only records whose `display_id()`
+    /// matches `display` contribute; the rest are silently skipped, so
+    /// callers can pass the whole log without prefiltering.
+    pub fn from_games(display: &str, games: &[GameRecord]) -> Self {
+        match display {
+            DISPLAY_STALLWAECHTER => {
+                let mut overall = 0u32;
+                let mut by_state: HashMap<String, u32> = HashMap::new();
+                for g in games {
+                    if let GameDetails::Stallwaechter(d) = &g.details {
+                        if g.score > overall {
+                            overall = g.score;
+                        }
+                        let slot = by_state.entry(d.state_id.clone()).or_insert(0);
+                        if g.score > *slot {
+                            *slot = g.score;
+                        }
+                    }
+                }
+                DisplayHighScores::Stallwaechter(StallwaechterHighScores {
+                    overall,
+                    by_state,
+                })
+            }
+            other => panic!("unknown display id: {other}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HighScores {
+pub struct StallwaechterHighScores {
     pub overall: u32,
     pub by_state: HashMap<String, u32>,
-}
-
-impl HighScores {
-    /// Recompute from any iterable of records; order doesn't matter.
-    pub fn from_games(games: &[GameRecord]) -> Self {
-        let mut overall = 0u32;
-        let mut by_state: HashMap<String, u32> = HashMap::new();
-        for g in games {
-            if g.score > overall {
-                overall = g.score;
-            }
-            let slot = by_state.entry(g.state_id.clone()).or_insert(0);
-            if g.score > *slot {
-                *slot = g.score;
-            }
-        }
-        Self { overall, by_state }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn stall_details(state: &str) -> StallwaechterDetails {
+        StallwaechterDetails {
+            state_id: state.into(),
+            reason: GameEndReason::Collision,
+            escape_heading_rad: None,
+            was_overall_high: false,
+            was_state_high: false,
+        }
+    }
+
     fn record(state: &str, score: u32) -> GameRecord {
         GameRecord {
             id: Uuid::new_v4(),
             ts_ms: 0,
-            state_id: state.into(),
-            reason: GameEndReason::Collision,
             score,
             duration_ms: 0,
-            escape_heading_rad: None,
-            was_overall_high: false,
-            was_state_high: false,
+            details: GameDetails::Stallwaechter(stall_details(state)),
         }
     }
 
@@ -340,49 +446,49 @@ mod tests {
             record("bayern", 150),
             record("hessen", 200),
         ];
-        let hs = HighScores::from_games(&games);
+        let DisplayHighScores::Stallwaechter(hs) =
+            DisplayHighScores::from_games(DISPLAY_STALLWAECHTER, &games);
         assert_eq!(hs.overall, 250);
         assert_eq!(hs.by_state.get("bayern").copied(), Some(150));
         assert_eq!(hs.by_state.get("hessen").copied(), Some(250));
     }
 
+    fn stall_new(state: &str, score: u32) -> NewGame {
+        NewGame {
+            score,
+            duration_ms: 5_000,
+            details: NewGameDetails::Stallwaechter(NewStallwaechterDetails {
+                state_id: state.into(),
+                reason: GameEndReason::Collision,
+                escape_heading_rad: None,
+            }),
+        }
+    }
+
     #[test]
     fn new_game_flags_are_strict_greater_than() {
-        let prev = HighScores {
+        let prev = DisplayHighScores::Stallwaechter(StallwaechterHighScores {
             overall: 100,
             by_state: [("bayern".to_string(), 50)].into_iter().collect(),
-        };
+        });
+        let rec = stall_new("bayern", 100).into_record(&prev);
+        let GameDetails::Stallwaechter(d) = &rec.details;
         // Equalling the overall best does NOT trigger the star.
-        let rec = NewGame {
-            state_id: "bayern".into(),
-            reason: GameEndReason::Collision,
-            score: 100,
-            duration_ms: 5_000,
-            escape_heading_rad: None,
-        }
-        .into_record(&prev);
-        assert!(!rec.was_overall_high);
-        assert!(rec.was_state_high); // 100 > 50
+        assert!(!d.was_overall_high);
+        assert!(d.was_state_high); // 100 > 50
     }
 
     #[test]
     fn new_game_flags_first_ever_beats_zero() {
-        let rec = NewGame {
-            state_id: "sachsen".into(),
-            reason: GameEndReason::ExitedGermany,
-            score: 1,
-            duration_ms: 100,
-            escape_heading_rad: Some(1.5),
-        }
-        .into_record(&HighScores::default());
-        assert!(rec.was_overall_high);
-        assert!(rec.was_state_high);
+        let prev = DisplayHighScores::empty_for(DISPLAY_STALLWAECHTER);
+        let rec = stall_new("sachsen", 1).into_record(&prev);
+        let GameDetails::Stallwaechter(d) = &rec.details;
+        assert!(d.was_overall_high);
+        assert!(d.was_state_high);
     }
 
     #[test]
     fn client_config_serializes_camel_case() {
-        // The web client parses `labelUrl`; keep the snake_case-in /
-        // camelCase-out contract locked so a rename can't silently break it.
         let json = serde_json::to_string(&ClientConfig {
             label_url: "mzl.la/enterprise".into(),
             label_url_overridden: false,
@@ -392,5 +498,18 @@ mod tests {
             json,
             r#"{"labelUrl":"mzl.la/enterprise","labelUrlOverridden":false}"#
         );
+    }
+
+    #[test]
+    fn game_record_flattens_display_tag() {
+        let rec = record("bayern", 42);
+        let json = serde_json::to_string(&rec).unwrap();
+        // Top-level object carries envelope + flattened display tag +
+        // per-display fields (no nested `details` object).
+        assert!(json.contains(r#""display":"stallwaechter""#));
+        assert!(json.contains(r#""stateId":"bayern""#));
+        assert!(!json.contains(r#""details":"#));
+        let round: GameRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(round.display_id(), DISPLAY_STALLWAECHTER);
     }
 }

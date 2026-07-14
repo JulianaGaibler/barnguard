@@ -13,7 +13,10 @@
 
 use crate::events::EventHub;
 use crate::log::LogHub;
-use crate::types::{now_ms, GameRecord, HighScores, NewGame, ServerEvent};
+use crate::types::{
+    now_ms, DisplayHighScores, GameRecord, NewGame, ServerEvent, DISPLAY_STALLWAECHTER,
+};
+use serde_json::Value as JsonValue;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -21,6 +24,27 @@ use std::sync::{Arc, Mutex};
 use uuid::Uuid;
 
 const GAMES_FILE: &str = "games.json";
+
+/// One-shot migration: legacy `games.json` records had the Stallwächter shape
+/// flat at the top level (no `display` discriminator). Inject
+/// `"display": "stallwaechter"` on any object that lacks it so the tagged-enum
+/// deserializer accepts it. New records always carry the tag.
+fn migrate_legacy_games_json(bytes: &[u8]) -> io::Result<Vec<u8>> {
+    let mut value: JsonValue = serde_json::from_slice(bytes).map_err(io::Error::other)?;
+    if let JsonValue::Array(items) = &mut value {
+        for item in items {
+            if let JsonValue::Object(map) = item {
+                if !map.contains_key("display") {
+                    map.insert(
+                        "display".to_string(),
+                        JsonValue::String(DISPLAY_STALLWAECHTER.to_string()),
+                    );
+                }
+            }
+        }
+    }
+    serde_json::to_vec(&value).map_err(io::Error::other)
+}
 
 // ---------------------------------------------------------------------------
 // GameLogStore
@@ -37,7 +61,7 @@ impl GameLogController {
     pub fn load(data_dir: &Path, log: &LogHub, events: EventHub) -> Self {
         ensure_dir(data_dir, log);
         let path = data_dir.join(GAMES_FILE);
-        let games = match read_json::<Vec<GameRecord>>(&path) {
+        let games = match read_json_migrated::<Vec<GameRecord>>(&path) {
             LoadResult::Loaded(v) => v,
             LoadResult::Missing => Vec::new(),
             LoadResult::Corrupt(err) => {
@@ -70,8 +94,9 @@ impl GameLogController {
         self.inner.lock().unwrap().clone()
     }
 
-    pub fn high_scores(&self) -> HighScores {
-        HighScores::from_games(&self.inner.lock().unwrap())
+    /// High scores for the given display, computed over the current log.
+    pub fn high_scores(&self, display: &str) -> DisplayHighScores {
+        DisplayHighScores::from_games(display, &self.inner.lock().unwrap())
     }
 
     /// Append a new game. High-score flags are computed under the same lock so
@@ -79,7 +104,12 @@ impl GameLogController {
     /// best" star.
     pub fn push(&self, new: NewGame) -> io::Result<GameRecord> {
         let mut guard = self.inner.lock().unwrap();
-        let prev = HighScores::from_games(&guard);
+        // The details variant already tells us which display's high scores to
+        // compare against — snapshot only those before inserting.
+        let display = match &new.details {
+            crate::types::NewGameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+        };
+        let prev = DisplayHighScores::from_games(display, &guard);
         let record = new.into_record(&prev);
         guard.push(record.clone());
         atomic_write_json(&self.path, &*guard)?;
@@ -133,7 +163,7 @@ impl GameLogController {
 /// parse errors to the caller so a corrupted file surfaces loudly.
 pub fn load_games(data_dir: &Path) -> Result<Vec<GameRecord>, Box<dyn std::error::Error>> {
     let path = data_dir.join(GAMES_FILE);
-    match read_json::<Vec<GameRecord>>(&path) {
+    match read_json_migrated::<Vec<GameRecord>>(&path) {
         LoadResult::Loaded(v) => Ok(v),
         LoadResult::Missing => Ok(Vec::new()),
         LoadResult::Corrupt(e) => Err(format!(
@@ -155,12 +185,33 @@ enum LoadResult<T> {
     Corrupt(String),
 }
 
+#[allow(dead_code)]
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult<T> {
     match fs::read(path) {
         Ok(bytes) => match serde_json::from_slice::<T>(&bytes) {
             Ok(v) => LoadResult::Loaded(v),
             Err(e) => LoadResult::Corrupt(e.to_string()),
         },
+        Err(e) if e.kind() == io::ErrorKind::NotFound => LoadResult::Missing,
+        Err(e) => LoadResult::Corrupt(format!("read error: {e}")),
+    }
+}
+
+/// Same as [`read_json`], but first passes the raw bytes through
+/// [`migrate_legacy_games_json`] so legacy Stallwächter records (missing the
+/// `display` discriminator) still deserialize.
+fn read_json_migrated<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult<T> {
+    match fs::read(path) {
+        Ok(bytes) => {
+            let migrated = match migrate_legacy_games_json(&bytes) {
+                Ok(b) => b,
+                Err(e) => return LoadResult::Corrupt(format!("migrate error: {e}")),
+            };
+            match serde_json::from_slice::<T>(&migrated) {
+                Ok(v) => LoadResult::Loaded(v),
+                Err(e) => LoadResult::Corrupt(e.to_string()),
+            }
+        }
         Err(e) if e.kind() == io::ErrorKind::NotFound => LoadResult::Missing,
         Err(e) => LoadResult::Corrupt(format!("read error: {e}")),
     }
@@ -236,8 +287,22 @@ fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> io::Result<
 mod tests {
     use super::*;
     use crate::events::EventHub;
-    use crate::types::GameEndReason;
+    use crate::types::{
+        GameDetails, GameEndReason, NewGameDetails, NewStallwaechterDetails,
+    };
     use tempfile::TempDir;
+
+    fn stall_new(state: &str, reason: GameEndReason, score: u32, duration_ms: u32) -> NewGame {
+        NewGame {
+            score,
+            duration_ms,
+            details: NewGameDetails::Stallwaechter(NewStallwaechterDetails {
+                state_id: state.into(),
+                reason,
+                escape_heading_rad: None,
+            }),
+        }
+    }
 
     fn hub() -> (LogHub, EventHub) {
         let events = EventHub::new(16);
@@ -252,42 +317,27 @@ mod tests {
         let store = GameLogController::load(dir.path(), &log, events);
 
         let first = store
-            .push(NewGame {
-                state_id: "bayern".into(),
-                reason: GameEndReason::Collision,
-                score: 100,
-                duration_ms: 5000,
-                escape_heading_rad: None,
-            })
+            .push(stall_new("bayern", GameEndReason::Collision, 100, 5000))
             .unwrap();
-        assert!(first.was_overall_high);
-        assert!(first.was_state_high);
+        let GameDetails::Stallwaechter(fd) = &first.details;
+        assert!(fd.was_overall_high);
+        assert!(fd.was_state_high);
 
         let second = store
-            .push(NewGame {
-                state_id: "bayern".into(),
-                reason: GameEndReason::Collision,
-                score: 50,
-                duration_ms: 3000,
-                escape_heading_rad: None,
-            })
+            .push(stall_new("bayern", GameEndReason::Collision, 50, 3000))
             .unwrap();
-        assert!(!second.was_overall_high);
-        assert!(!second.was_state_high);
+        let GameDetails::Stallwaechter(sd) = &second.details;
+        assert!(!sd.was_overall_high);
+        assert!(!sd.was_state_high);
 
         let third = store
-            .push(NewGame {
-                state_id: "hessen".into(),
-                reason: GameEndReason::ExitedGermany,
-                score: 75,
-                duration_ms: 4000,
-                escape_heading_rad: Some(1.5),
-            })
+            .push(stall_new("hessen", GameEndReason::ExitedGermany, 75, 4000))
             .unwrap();
-        assert!(!third.was_overall_high); // 75 < 100
-        assert!(third.was_state_high); // new state, > 0
+        let GameDetails::Stallwaechter(td) = &third.details;
+        assert!(!td.was_overall_high); // 75 < 100
+        assert!(td.was_state_high); // new state, > 0
 
-        let hs = store.high_scores();
+        let DisplayHighScores::Stallwaechter(hs) = store.high_scores(DISPLAY_STALLWAECHTER);
         assert_eq!(hs.overall, 100);
         assert_eq!(hs.by_state.get("bayern").copied(), Some(100));
         assert_eq!(hs.by_state.get("hessen").copied(), Some(75));
@@ -307,13 +357,7 @@ mod tests {
         let (log, events) = hub();
         let store = GameLogController::load(dir.path(), &log, events.clone());
         let rec = store
-            .push(NewGame {
-                state_id: "berlin".into(),
-                reason: GameEndReason::Collision,
-                score: 42,
-                duration_ms: 1000,
-                escape_heading_rad: None,
-            })
+            .push(stall_new("berlin", GameEndReason::Collision, 42, 1000))
             .unwrap();
         assert!(store.delete(rec.id).unwrap());
 
@@ -348,13 +392,7 @@ mod tests {
         let store = GameLogController::load(dir.path(), &log, events);
         for i in 0..5 {
             store
-                .push(NewGame {
-                    state_id: "bayern".into(),
-                    reason: GameEndReason::Collision,
-                    score: i,
-                    duration_ms: 1000,
-                    escape_heading_rad: None,
-                })
+                .push(stall_new("bayern", GameEndReason::Collision, i, 1000))
                 .unwrap();
         }
         // Newest-first: scores should be 4,3,2,1,0.

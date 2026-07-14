@@ -34,36 +34,16 @@ describe('parseSvgPaths', () => {
     expect(() => parseSvgPaths('<svg><path')).toThrow()
   })
 
-  it('parses the real de-states.svg into exactly the 16 Bundesländer', async () => {
-    // Note: we import the file via Vite's `?raw` loader so the test exercises
-    // the same code path as production.
-    const raw = (await import('@src/assets/de-states.svg?raw')).default
+  it('parses the engine dev fixture — Vite ?raw loader end-to-end', async () => {
+    // Import via Vite's `?raw` loader so the test exercises the same code
+    // path as production.
+    const raw = (await import('@src/stargazer/dev/fixtures/shapes.svg?raw'))
+      .default
     const map = parseSvgPaths(raw)
-    const expected = new Set([
-      'BB',
-      'BE',
-      'BW',
-      'BY',
-      'HB',
-      'HE',
-      'HH',
-      'MV',
-      'NI',
-      'NW',
-      'RP',
-      'SH',
-      'SL',
-      'SN',
-      'ST',
-      'TH',
-    ])
-    expect(map.paths.size).toBe(16)
-    for (const id of expected) {
-      const entry = map.paths.get(id)
-      expect(entry, `state ${id} missing`).toBeDefined()
-      // Every state has non-empty AABB.
-      expect(entry!.bounds.width).toBeGreaterThan(0)
-      expect(entry!.bounds.height).toBeGreaterThan(0)
+    expect(map.paths.size).toBeGreaterThanOrEqual(4)
+    for (const [id, entry] of map.paths) {
+      expect(entry.bounds.width, `path ${id} width`).toBeGreaterThan(0)
+      expect(entry.bounds.height, `path ${id} height`).toBeGreaterThan(0)
     }
   })
 })

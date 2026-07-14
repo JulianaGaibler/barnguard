@@ -55,7 +55,7 @@ export interface EngineOptions {
 }
 
 // Landscape 16:9 by default. The kiosk is 3840×2160 and every dev browser
-// is landscape too; specific games (e.g. the Germany-map one) override.
+// is landscape too; specific games (e.g. the map-based one) override.
 const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1920, height: 1080 }
 
 /**

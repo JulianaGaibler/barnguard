@@ -6,8 +6,8 @@ import { buildBitmapMask, type BitmapMask } from '../assets/BitmapMask'
 import { AssetLoader } from '../assets/AssetLoader'
 import type { DemoFn } from './types'
 
-import statesSvgRaw from '@src/assets/de-states.svg?raw'
-import outlineSvgRaw from '@src/assets/de-outline.svg?raw'
+import shapesSvgRaw from '@src/stargazer/dev/fixtures/shapes.svg?raw'
+import outlineSvgRaw from '@src/stargazer/dev/fixtures/outline.svg?raw'
 
 const COLOR_STATE_FILL = '#354a6e'
 const COLOR_STATE_HOVER = '#5c7fb0'
@@ -24,7 +24,7 @@ const assetLoader = new AssetLoader()
 
 async function loadAssets(): Promise<DemoAssets> {
   return assetLoader.load('demo-svg-assets', async () => {
-    const states = parseSvgPaths(statesSvgRaw)
+    const states = parseSvgPaths(shapesSvgRaw)
     const outline = parseSvgPaths(outlineSvgRaw)
     // Use the outline SVG's viewBox as the mask's world extent so
     // BitmapMask.contains(worldX, worldY) speaks the same coord system as
@@ -51,8 +51,8 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    // Use the states SVG viewBox as the world viewport, the Camera's
-    // uniform-fit centers Germany in whatever landscape canvas we have.
+    // Use the shapes SVG viewBox as the world viewport, the Camera's
+    // uniform-fit centers the map in whatever landscape canvas we have.
     initialViewport: { x: 0, y: 0, width: 661, height: 899 },
   })
   attach?.(host)
@@ -136,7 +136,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       }
     }
     setHover(hit)
-    // 2) BitmapMask readout: is this world point inside Germany's coastline?
+    // 2) BitmapMask readout: is this world point inside the outline?
     const inside = assets.outlineMask.contains(world.x, world.y)
     const insideInset10 = assets.outlineMask.contains(world.x, world.y, 10)
     overlay.setLines([

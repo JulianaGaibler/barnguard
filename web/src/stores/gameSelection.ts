@@ -1,20 +1,19 @@
 import { writable } from 'svelte/store'
-import type { StateId } from '@src/game/data/states'
 
 /**
- * Currently-selected state on the map, mirrored from the game session so
- * observers outside the game canvas (booth menu, future score-management panel)
- * can react without having to hold a `GameSession` reference. Set by
- * `GameScreen` in the `stateSelected` / `selectionCanceled` / `roundStarted`
- * event handlers.
+ * Opaque id of whatever the active display considers "currently selected",
+ * mirrored from the game session so observers outside the game canvas (booth
+ * menu, future score-management panel) can react without holding a session
+ * reference. The display sets its own id shape (state code, level tag, …) —
+ * this store is a plain string bag with no interpretation.
  *
- * Semantics match `GameSession.selectedStateId`:
+ * Semantics:
  *
- * - `stateSelected` → the tapped state id
- * - `selectionCanceled` → `null`
- * - `roundStarted` → `null` (selection has been consumed by the round)
+ * - selected → the tapped id
+ * - canceled → `null`
+ * - roundStarted → `null` (selection consumed by the round)
  */
-export const selectedStateId = writable<StateId | null>(null)
+export const selectedStateId = writable<string | null>(null)
 
 /**
  * Attendant-facing "stop the game" handle. `GameScreen` registers a callback

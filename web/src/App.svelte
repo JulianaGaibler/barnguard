@@ -1,18 +1,24 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { locale } from '@src/i18n'
-  import { initBoothMenuToggle } from './lib/boothMenuToggle'
+  import { initBoothMenuToggle } from '@src/core/attendant/boothMenuToggle'
   import { coverScreen } from '@src/stores/coverScreen'
-  import CoverScreen from './lib/CoverScreen.svelte'
-  import GameScreen from './lib/GameScreen.svelte'
-  import BoothMenu from './lib/BoothMenu.svelte'
-  import PrinterPanel from './lib/PrinterPanel.svelte'
-  import GamesPanel from './lib/GamesPanel.svelte'
-  import BackgroundLayer from './lib/BackgroundLayer.svelte'
-  import TopBar from './lib/TopBar.svelte'
+  import CoverScreen from '@src/core/attendant/CoverScreen.svelte'
+  import BoothMenu from '@src/core/attendant/BoothMenu.svelte'
+  import PrinterPanel from '@src/core/attendant/PrinterPanel.svelte'
+  import GamesPanel from '@src/core/attendant/GamesPanel.svelte'
+  import BackgroundLayer from '@src/core/ui/BackgroundLayer.svelte'
+  import TopBar from '@src/core/attendant/TopBar.svelte'
   import DemoRouter from './stargazer/dev/DemoRouter.svelte'
+  import type { DisplayManifest } from '@src/core/display'
+
+  interface Props {
+    display: DisplayManifest
+  }
+  let { display }: Props = $props()
 
   const demoName = new URLSearchParams(window.location.search).get('demo')
+  const DisplayRoot = $derived(display.root)
 
   // Keep the document language in sync with the active locale (accessibility).
   $effect(() => {
@@ -29,7 +35,7 @@
 {#if demoName}
   <DemoRouter {demoName} />
 {:else}
-  <GameScreen />
+  <DisplayRoot />
 {/if}
 
 <TopBar />

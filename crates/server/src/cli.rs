@@ -4,7 +4,7 @@
 
 use crate::config::Config;
 use crate::store::load_games;
-use crate::types::HighScores;
+use crate::types::{DisplayHighScores, GameDetails, DISPLAY_STALLWAECHTER};
 use std::error::Error;
 
 pub fn show_config() -> Result<(), Box<dyn Error>> {
@@ -80,16 +80,20 @@ pub fn list_games(limit: usize, offset: usize, json: bool) -> Result<(), Box<dyn
         return Ok(());
     }
     println!(
-        "{:<38}  {:>7}  {:<12}  {:<14}  {:>6}s  when",
-        "id", "score", "state", "reason", "dur"
+        "{:<38}  {:<14}  {:>7}  {:<12}  {:<14}  {:>6}s  when",
+        "id", "display", "score", "state", "reason", "dur"
     );
     for g in &slice {
+        let (state, reason) = match &g.details {
+            GameDetails::Stallwaechter(d) => (d.state_id.as_str(), d.reason.to_string()),
+        };
         println!(
-            "{:<38}  {:>7}  {:<12}  {:<14}  {:>6.1}  {}",
+            "{:<38}  {:<14}  {:>7}  {:<12}  {:<14}  {:>6.1}  {}",
             g.id,
+            g.display_id(),
             g.score,
-            g.state_id,
-            g.reason,
+            state,
+            reason,
             g.duration_ms as f64 / 1000.0,
             format_ts(g.ts_ms),
         );
@@ -100,12 +104,16 @@ pub fn list_games(limit: usize, offset: usize, json: bool) -> Result<(), Box<dyn
 pub fn high_scores(json: bool) -> Result<(), Box<dyn Error>> {
     let cfg = Config::load()?;
     let games = load_games(&cfg.data_dir)?;
-    let hs = HighScores::from_games(&games);
+    // Only Stallwächter ships today; when a second display arrives this loops
+    // over the known displays instead.
+    let hs = DisplayHighScores::from_games(DISPLAY_STALLWAECHTER, &games);
 
     if json {
         println!("{}", serde_json::to_string_pretty(&hs)?);
         return Ok(());
     }
+    let DisplayHighScores::Stallwaechter(hs) = hs;
+    println!("display: {DISPLAY_STALLWAECHTER}");
     println!("overall: {}", hs.overall);
     if hs.by_state.is_empty() {
         println!("(no per-state entries)");
