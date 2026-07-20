@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SceneNode } from './SceneNode'
-import { Behaviour } from './Behaviour'
+import { Behavior } from './Behavior'
 import { Scene } from './Scene'
 import { Animator } from '../anim/Animator'
 import type { Engine } from '../engine/Engine'
@@ -14,9 +14,9 @@ function makeSceneWithAnimator(): { scene: Scene; animator: Animator } {
   return { scene, animator }
 }
 
-class BehaviourA extends Behaviour {}
-class BehaviourB extends Behaviour {}
-class BehaviourC extends BehaviourA {}
+class BehaviorA extends Behavior {}
+class BehaviorB extends Behavior {}
+class BehaviorC extends BehaviorA {}
 
 describe('SceneNode', () => {
   it('destroy() aborts the abort signal', () => {
@@ -60,34 +60,34 @@ describe('SceneNode', () => {
     expect(parent.children.length).toBe(0)
   })
 
-  it('getBehaviour<T> returns the first matching instance', () => {
+  it('getBehavior<T> returns the first matching instance', () => {
     const node = new SceneNode()
-    const a = new BehaviourA()
-    const b = new BehaviourB()
-    node.addBehaviour(a)
-    node.addBehaviour(b)
-    expect(node.getBehaviour(BehaviourA)).toBe(a)
-    expect(node.getBehaviour(BehaviourB)).toBe(b)
+    const a = new BehaviorA()
+    const b = new BehaviorB()
+    node.addBehavior(a)
+    node.addBehavior(b)
+    expect(node.getBehavior(BehaviorA)).toBe(a)
+    expect(node.getBehavior(BehaviorB)).toBe(b)
   })
 
-  it('getBehaviour<T> supports subclass polymorphism', () => {
+  it('getBehavior<T> supports subclass polymorphism', () => {
     const node = new SceneNode()
-    const c = new BehaviourC()
-    node.addBehaviour(c)
-    // BehaviourC extends BehaviourA, lookup by BehaviourA returns it.
-    expect(node.getBehaviour(BehaviourA)).toBe(c)
-    expect(node.getBehaviour(BehaviourC)).toBe(c)
+    const c = new BehaviorC()
+    node.addBehavior(c)
+    // BehaviorC extends BehaviorA, lookup by BehaviorA returns it.
+    expect(node.getBehavior(BehaviorA)).toBe(c)
+    expect(node.getBehavior(BehaviorC)).toBe(c)
   })
 
-  it('getBehaviours<T> returns all matches in insertion order', () => {
+  it('getBehaviors<T> returns all matches in insertion order', () => {
     const node = new SceneNode()
-    const a1 = new BehaviourA()
-    const a2 = new BehaviourA()
-    const b = new BehaviourB()
-    node.addBehaviour(a1)
-    node.addBehaviour(b)
-    node.addBehaviour(a2)
-    const found = node.getBehaviours(BehaviourA)
+    const a1 = new BehaviorA()
+    const a2 = new BehaviorA()
+    const b = new BehaviorB()
+    node.addBehavior(a1)
+    node.addBehavior(b)
+    node.addBehavior(a2)
+    const found = node.getBehaviors(BehaviorA)
     expect(found).toEqual([a1, a2])
   })
 
@@ -217,20 +217,18 @@ describe('SceneNode', () => {
       leaf.renderLayer = 'static'
       root.add(leaf)
       // Manually corrupt the count to simulate drift.
-      ;(
-        root as unknown as { _staticDescendantCount: number }
-      )._staticDescendantCount = 42
+      root._forceStaticDescendantCount(42)
       expect(() => root._verifyStaticCount()).toThrow(/drift/i)
     })
   })
 
-  describe('Behaviour.onSceneReady (C4)', () => {
-    it('fires synchronously when the node is already scene-attached at addBehaviour', () => {
+  describe('Behavior.onSceneReady (C4)', () => {
+    it('fires synchronously when the node is already scene-attached at addBehavior', () => {
       const scene = new Scene()
       const node = new SceneNode('n')
       scene.root.add(node)
       const seen: string[] = []
-      class B extends Behaviour {
+      class B extends Behavior {
         override onAttach(): void {
           seen.push('attach')
         }
@@ -238,7 +236,7 @@ describe('SceneNode', () => {
           seen.push('ready')
         }
       }
-      node.addBehaviour(new B())
+      node.addBehavior(new B())
       // Sync ordering: attach before ready, both before the next line.
       expect(seen).toEqual(['attach', 'ready'])
     })
@@ -246,12 +244,12 @@ describe('SceneNode', () => {
     it('is deferred until scene attachment when node is standalone', () => {
       const node = new SceneNode('n')
       const seen: string[] = []
-      class B extends Behaviour {
+      class B extends Behavior {
         override onSceneReady(): void {
           seen.push('ready')
         }
       }
-      node.addBehaviour(new B())
+      node.addBehavior(new B())
       // Not yet attached, onSceneReady has NOT fired.
       expect(seen).toEqual([])
       const scene = new Scene()
@@ -260,18 +258,18 @@ describe('SceneNode', () => {
       expect(seen).toEqual(['ready'])
     })
 
-    it('fires only ONCE per addBehaviour (detach + reattach does not refire)', () => {
+    it('fires only ONCE per addBehavior (detach + reattach does not refire)', () => {
       const scene = new Scene()
       const other = new Scene()
       const node = new SceneNode('n')
       scene.root.add(node)
       let readyCount = 0
-      class B extends Behaviour {
+      class B extends Behavior {
         override onSceneReady(): void {
           readyCount++
         }
       }
-      node.addBehaviour(new B())
+      node.addBehavior(new B())
       expect(readyCount).toBe(1)
       // Detach + re-attach to a different scene: onSceneReady should NOT refire.
       scene.root.remove(node)
@@ -279,21 +277,21 @@ describe('SceneNode', () => {
       expect(readyCount).toBe(1)
     })
 
-    it('removeBehaviour + addBehaviour again fires onSceneReady a second time', () => {
+    it('removeBehavior + addBehavior again fires onSceneReady a second time', () => {
       const scene = new Scene()
       const node = new SceneNode('n')
       scene.root.add(node)
       let readyCount = 0
-      class B extends Behaviour {
+      class B extends Behavior {
         override onSceneReady(): void {
           readyCount++
         }
       }
       const b = new B()
-      node.addBehaviour(b)
+      node.addBehavior(b)
       expect(readyCount).toBe(1)
-      node.removeBehaviour(b)
-      node.addBehaviour(b)
+      node.removeBehavior(b)
+      node.addBehavior(b)
       expect(readyCount).toBe(2)
     })
   })

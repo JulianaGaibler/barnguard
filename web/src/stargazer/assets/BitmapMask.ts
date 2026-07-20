@@ -1,5 +1,10 @@
 import type { Rect } from '../math/Rect'
 
+/**
+ * Options for {@link buildBitmapMask}.
+ *
+ * @category Assets
+ */
 export interface BitmapMaskOptions {
   /** The shape filled to produce the mask. */
   path: Path2D
@@ -15,6 +20,12 @@ export interface BitmapMaskOptions {
   alphaThreshold?: number
 }
 
+/**
+ * A rasterized fill mask with O(1) `contains()` lookups. Build one with
+ * {@link buildBitmapMask}.
+ *
+ * @category Assets
+ */
 export interface BitmapMask {
   readonly worldRect: Rect
   readonly resolution: { w: number; h: number }
@@ -44,6 +55,8 @@ export interface BitmapMask {
  * boundary checks. Async because the readback (`getImageData`) can be expensive
  * on GPU-backed canvases, we yield around it so a stalled readback doesn't
  * freeze the page.
+ *
+ * @category Assets
  */
 export async function buildBitmapMask(
   opts: BitmapMaskOptions,

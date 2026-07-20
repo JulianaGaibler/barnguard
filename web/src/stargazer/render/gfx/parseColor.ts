@@ -48,6 +48,53 @@ export function parseColor(css: string): RGBA {
   return parsed
 }
 
+/** Format an {@link RGBA} (0..1 channels) as a CSS `rgb()` / `rgba()` string. */
+function rgbaString(c: RGBA): string {
+  const r = Math.round(c.r * 255)
+  const g = Math.round(c.g * 255)
+  const b = Math.round(c.b * 255)
+  return c.a >= 1 ? `rgb(${r}, ${g}, ${b})` : `rgba(${r}, ${g}, ${b}, ${c.a})`
+}
+
+/**
+ * Linear blend of two CSS colors as a CSS string; `t=0` returns `a`, `t=1`
+ * returns `b`. `t` is clamped to `[0, 1]`. Both inputs parse through the same
+ * cache as {@link parseColor}, so repeatedly mixing the same endpoints is
+ * cheap.
+ *
+ * @category Advanced
+ * @example
+ *   const c = mixColor('#ff0000', '#0000ff', 0.5) // 'rgb(128, 0, 128)'
+ */
+export function mixColor(a: string, b: string, t: number): string {
+  const k = t < 0 ? 0 : t > 1 ? 1 : t
+  const ca = parseColor(a)
+  const cb = parseColor(b)
+  return rgbaString({
+    r: ca.r + (cb.r - ca.r) * k,
+    g: ca.g + (cb.g - ca.g) * k,
+    b: ca.b + (cb.b - ca.b) * k,
+    a: ca.a + (cb.a - ca.a) * k,
+  })
+}
+
+/**
+ * Return `color` with its alpha replaced by `alpha` (0..1, clamped), as a CSS
+ * `rgba()` string. Parsing goes through the {@link parseColor} cache.
+ *
+ * @category Advanced
+ * @example
+ *   withAlpha('#3b82f6', 0.5) // 'rgba(59, 130, 246, 0.5)'
+ */
+export function withAlpha(color: string, alpha: number): string {
+  const a = alpha < 0 ? 0 : alpha > 1 ? 1 : alpha
+  const c = parseColor(color)
+  const r = Math.round(c.r * 255)
+  const g = Math.round(c.g * 255)
+  const b = Math.round(c.b * 255)
+  return `rgba(${r}, ${g}, ${b}, ${a})`
+}
+
 function warnFallback(css: string): RGBA {
   if (!warned.has(css)) {
     warned.add(css)

@@ -11,6 +11,8 @@ import { walkTree } from '../scene/traverse'
  * from `Scene.getPainterOrder()`, a cached array rebuilt only on tree mutation,
  * so hit tests during a drag storm allocate nothing. When `root` is a synthetic
  * subtree (e.g. tests), we fall back to a fresh `walkTree` allocation.
+ *
+ * @category Input
  */
 export function findHitNode(
   root: SceneNode,

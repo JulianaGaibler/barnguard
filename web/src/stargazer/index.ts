@@ -11,7 +11,11 @@ export type {
   SceneBuilder,
 } from './engine/EngineHost'
 export { Engine } from './engine/Engine'
-export type { EngineOptions } from './engine/Engine'
+export type {
+  EngineOptions,
+  RegisteredPhysicsWorld,
+  RegisterPhysicsWorldOptions,
+} from './engine/Engine'
 export { createTicker } from './engine/Ticker'
 export type { Ticker, TickerOptions } from './engine/Ticker'
 
@@ -20,13 +24,17 @@ export { createEmitter } from './events/Emitter'
 export type { Emitter, EmitterHandler } from './events/Emitter'
 export type { EngineEvents } from './events/EngineEvents'
 
+// ai (adversarial game search)
+export { searchBestMove } from './ai/minimax'
+export type { AdversarialGame, SearchOptions, SearchResult } from './ai/minimax'
+
 // scene
 export { Scene } from './scene/Scene'
-export { SceneNode } from './scene/SceneNode'
 export type { RenderLayer, NodeEvents } from './scene/SceneNode'
-export { Behaviour } from './scene/Behaviour'
-export type { BehaviourCtor } from './scene/Behaviour'
+export { Behavior } from './scene/Behavior'
+export type { BehaviorCtor } from './scene/Behavior'
 export { walkTree } from './scene/traverse'
+export { hitTestCircle } from './scene/hitTest'
 
 // math
 export { Transform2D } from './math/Transform2D'
@@ -42,6 +50,13 @@ export {
   vec2Distance,
   vec2DistanceSq,
   vec2Lerp,
+  vec2Dot,
+  vec2Cross,
+  vec2CrossSV,
+  vec2Perp,
+  vec2Normalize,
+  vec2Rotate,
+  vec2Negate,
 } from './math/Vec2'
 export type { Rect } from './math/Rect'
 export {
@@ -54,8 +69,20 @@ export {
 // `MatrixPool` was previously exported here but is not consumed by the engine
 // or any downstream game code, kept as an internal helper in `math/matrix.ts`
 // so its tests still resolve; not part of the public API.
-export { copyMatrix2D, multiplyMatrix2D } from './math/matrix'
+export {
+  copyMatrix2D,
+  multiplyMatrix2D,
+  invertMatrix2D,
+  transformPoint2D,
+} from './math/matrix'
+export { clamp, clampAbs, lerp, lerpAngle } from './math/scalar'
 export type { Easing } from './math/easings'
+/**
+ * Easing functions for tweens, e.g. `easings.inOutCubic`. Each is an
+ * {@link Easing}.
+ *
+ * @category Math
+ */
 export * as easings from './math/easings'
 
 // camera
@@ -69,16 +96,23 @@ export type {
   StageOptions,
   StageResizeInfo,
   StagePointerEvents,
+  RendererMode,
 } from './render/Stage'
 export { Renderer } from './render/Renderer'
 export type { RendererOptions } from './render/Renderer'
+export type { DynamicResolutionOptions } from './render/DynamicResolution'
 export type {
   Gfx2D,
   GfxBlend,
   GfxStrokeStyle,
+  GfxTextStyle,
   GfxGradientStop,
 } from './render/gfx/Gfx2D'
+export type { GeometryHandle } from './render/gfx/GeometryHandle'
 export { Canvas2DGfx } from './render/gfx/Canvas2DGfx'
+export type { Canvas2DGfxOptions } from './render/gfx/Canvas2DGfx'
+export { parseColor, mixColor, withAlpha } from './render/gfx/parseColor'
+export type { RGBA } from './render/gfx/parseColor'
 
 // debug (dev-only surface; production code sees `host.debug === null`)
 export { DebugController } from './debug/DebugController'
@@ -88,12 +122,18 @@ export type {
   DebugStatsSnapshot,
   DebugControllerOptions,
   DebugPanelSpec,
+  ActivePointerReadout,
+  StageChip,
+  DebugGpuStatsReadout,
+  PhysicsWorldReadout,
 } from './debug/DebugController'
+export type { PhysicsOverlayFlags } from './debug/DebugPhysicsRenderer'
+export type { DebugRenderMode } from './render/gfx/gpu/GpuGfx'
 export { DebugCamera } from './debug/DebugCamera'
 export { FrameStats } from './debug/FrameStats'
 
 // primitives
-export { GroupNode } from './nodes/GroupNode'
+export { SceneNode } from './scene/SceneNode'
 export { ShapeNode } from './nodes/ShapeNode'
 export type { ShapeGeometry, ShapeNodeOptions } from './nodes/ShapeNode'
 export { PolylineNode } from './nodes/PolylineNode'
@@ -105,6 +145,46 @@ export { Path2DNode } from './nodes/Path2DNode'
 export type { Path2DNodeOptions, Path2DHitMode } from './nodes/Path2DNode'
 export { ParticleEmitterNode } from './nodes/ParticleEmitterNode'
 export type { ParticleEmitterNodeOptions } from './nodes/ParticleEmitterNode'
+export { TextNode } from './nodes/TextNode'
+export type { TextNodeOptions } from './nodes/TextNode'
+
+// physics
+export { PhysicsWorld } from './physics/PhysicsWorld'
+export type {
+  PhysicsWorldConfig,
+  ResolvedPhysicsConfig,
+} from './physics/PhysicsWorld'
+export { Body, BodyType } from './physics/Body'
+export type { BodyDef } from './physics/Body'
+export {
+  Collider,
+  circleShape,
+  aabbShape,
+  polygonShape,
+} from './physics/Collider'
+export type {
+  ColliderDef,
+  Shape,
+  CircleShape,
+  AABBShape,
+  PolygonShape,
+} from './physics/Collider'
+export { LAYER_DEFAULT, LAYER_ALL, shouldCollide } from './physics/layers'
+export { BruteForceBroadPhase } from './physics/BroadPhase'
+export type { BroadPhase, PairCallback } from './physics/BroadPhase'
+export { SpatialHashBroadPhase } from './physics/SpatialHashBroadPhase'
+export { RigidBodyBehavior } from './physics/RigidBodyBehavior'
+export type { RigidBodyBehaviorOptions } from './physics/RigidBodyBehavior'
+export { PhysicsWorldBehavior } from './physics/PhysicsWorldBehavior'
+export type { PhysicsWorldBehaviorOptions } from './physics/PhysicsWorldBehavior'
+export type {
+  Material,
+  Contact,
+  Manifold,
+  RaycastHit,
+  KinematicHit,
+  PhysicsEvents,
+} from './physics/types'
 
 // particles
 export { ParticleEmitter } from './particles/ParticleEmitter'
@@ -117,7 +197,11 @@ export type { ParticleSpriteStyle } from './particles/draw'
 // assets
 export { AssetLoader } from './assets/AssetLoader'
 export { parseSvgPaths, computePathBounds } from './assets/SvgPathMap'
-export type { SvgPathMap, SvgPathEntry } from './assets/SvgPathMap'
+export type {
+  SvgPathMap,
+  SvgPathEntry,
+  ParseSvgPathsOptions,
+} from './assets/SvgPathMap'
 export { buildBitmapMask } from './assets/BitmapMask'
 export type { BitmapMask, BitmapMaskOptions } from './assets/BitmapMask'
 
@@ -143,9 +227,19 @@ export {
 } from './anim/abortSignal'
 export type { CombinedAbort } from './anim/abortSignal'
 
+// dom (attach HTML elements to scene nodes)
+export { DomTransformSync, projectWorldToCss } from './dom/DomTransformSync'
+export type {
+  DomAttachment,
+  DomAttachOptions,
+  CssMatrix,
+} from './dom/DomTransformSync'
+
 // svelte
 export { mountEngine } from './svelte/mountEngine'
 export type { MountEngineActionParams } from './svelte/mountEngine'
 export { mountStage } from './svelte/mountStage'
 export type { MountStageParams } from './svelte/mountStage'
+export { domAnchor } from './svelte/domAnchor'
+export type { DomAnchorParams } from './svelte/domAnchor'
 export { emitterStore, latestEventStore } from './svelte/emitterStore'

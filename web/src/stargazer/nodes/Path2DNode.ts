@@ -3,13 +3,28 @@ import type { Camera } from '../camera/Camera'
 import type { Rect } from '../math/Rect'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 
+/**
+ * Hit-testing strategy for a {@link Path2DNode}. See the `hitMode` field on
+ * {@link Path2DNodeOptions} for what each value tests.
+ *
+ * @category Nodes
+ */
 export type Path2DHitMode = 'none' | 'fill' | 'stroke' | 'circle'
 
+/**
+ * Constructor options for {@link Path2DNode}.
+ *
+ * @category Nodes
+ */
 export interface Path2DNodeOptions {
   id?: string
+  /** The path to draw, in the node's local coord frame. */
   path: Path2D
+  /** Fill color (any CSS color). Omit to leave unfilled. */
   fill?: string
+  /** Stroke color (any CSS color). Omit to leave unstroked. */
   stroke?: string
+  /** Stroke width in `strokeSpace` units. Default 1. */
   lineWidth?: number
   /**
    * `'screen'` (default), `lineWidth` is a CSS-pixel value that stays visually
@@ -19,10 +34,10 @@ export interface Path2DNodeOptions {
   strokeSpace?: 'screen' | 'world'
   /**
    * Hit-testing strategy (world coords → boolean): 'none', never a hit
-   * (default) 'fill', `ctx.isPointInPath` (exact interior test, right for state
-   * selection) 'stroke', `ctx.isPointInStroke` (exact edge test) 'circle',
-   * `worldX²+worldY² ≤ (hitRadiusWorld + touchSlopWorld)²` (cheap; right for
-   * packets & UI-scale hitboxes)
+   * (default) 'fill', `ctx.isPointInPath` (exact interior test) 'stroke',
+   * `ctx.isPointInStroke` (exact edge test) 'circle', `worldX²+worldY² ≤
+   * (hitRadiusWorld + touchSlopWorld)²` (cheap; good for round targets and
+   * UI-scale hitboxes)
    */
   hitMode?: Path2DHitMode
   /** For 'circle' hit-mode. World units. */
@@ -35,12 +50,20 @@ export interface Path2DNodeOptions {
 }
 
 /**
- * A scene node that draws a Path2D and hit-tests points against it.
+ * Draws a `Path2D` (filled and/or stroked) and hit-tests points against it.
+ * Build the path by hand, or get one from `parseSvgPaths` for SVG artwork. On
+ * the GPU backend a path needs a registered tessellation before it renders;
+ * `parseSvgPaths` registers one for each path it returns, so paths from there
+ * draw with no extra setup. A path with no tessellation is skipped and counted
+ * in the debug HUD.
  *
- * Design note, hit-testing walks in _world_ coords (that's what the input
- * pipeline delivers), but Path2D data is in the node's _local_ coords. We
- * invert the node's 2D-affine `world` matrix to transform the world point into
- * local space, then run `isPointInPath` on a shared scratch context.
+ * Hit-testing walks in world coords (what the input pipeline delivers) while
+ * the path data is in the node's local coords, so the node inverts its `world`
+ * matrix to bring the point into local space before running `isPointInPath` on
+ * a shared scratch context. See `hitMode` on {@link Path2DNodeOptions} for the
+ * strategies.
+ *
+ * @category Nodes
  */
 export class Path2DNode extends SceneNode {
   path: Path2D

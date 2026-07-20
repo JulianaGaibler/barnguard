@@ -1,5 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
-import { GroupNode } from '../nodes/GroupNode'
+import { SceneNode } from '../scene/SceneNode'
 import { Path2DNode } from '../nodes/Path2DNode'
 import { parseSvgPaths } from '../assets/SvgPathMap'
 import { buildBitmapMask, type BitmapMask } from '../assets/BitmapMask'
@@ -73,7 +73,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const stateNodes = new Map<string, Path2DNode>()
   await host.loadScene((scene) => {
     if (!assets) return
-    const mapGroup = new GroupNode('map')
+    const mapGroup = new SceneNode('map')
     scene.root.add(mapGroup)
 
     for (const [id, entry] of assets.states.paths) {

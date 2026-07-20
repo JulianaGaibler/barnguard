@@ -8,12 +8,12 @@ import type { PointerEvent2D } from '../input/PointerState'
 import type { DemoFn } from './types'
 
 /**
- * Two-canvas demo driven by one Engine. Primary is a fullscreen tweening
- * hero, secondary "Loss Card" is a 30 % × 30 % overlay with its own scene,
- * camera, and InputSystem.
+ * Two-canvas demo driven by one Engine. Primary is a fullscreen tweening hero,
+ * secondary "Loss Card" is a 30 % × 30 % overlay with its own scene, camera,
+ * and InputSystem.
  *
- * Keys: [SPACE] detach + re-attach the secondary. [R] restart the shared
- * tween. Console logs event counts so the cross-talk fix is visible.
+ * Keys: [SPACE] detach + re-attach the secondary. [R] restart the shared tween.
+ * Console logs event counts so the cross-talk fix is visible.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({

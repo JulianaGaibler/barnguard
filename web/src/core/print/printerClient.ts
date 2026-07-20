@@ -3,13 +3,13 @@
  * queue/printer status over one EventSource per subscription cycle.
  *
  * Connection state machine (`connecting → online → offline`):
- * - Retries on ANY `onerror`, never checks `readyState`. Vite's proxy 502
- *   stalls the EventSource in `CONNECTING`, so a `CLOSED` check would never
- *   fire.
- * - 5 s heartbeat tick, reopen if no named event arrives in 25 s. The
- *   daemon's `ping` event fires every 15 s. Its comment keep-alive is
- *   byte-level only, browsers don't dispatch comment lines to EventSource
- *   handlers, so we can't observe them.
+ *
+ * - Retries on ANY `onerror`, never checks `readyState`. Vite's proxy 502 stalls
+ *   the EventSource in `CONNECTING`, so a `CLOSED` check would never fire.
+ * - 5 s heartbeat tick, reopen if no named event arrives in 25 s. The daemon's
+ *   `ping` event fires every 15 s. Its comment keep-alive is byte-level only,
+ *   browsers don't dispatch comment lines to EventSource handlers, so we can't
+ *   observe them.
  * - Exponential backoff 1 → 15 s, resets on `onopen` or `forceReopen`.
  */
 
@@ -45,6 +45,7 @@ let sseForceReopen: (() => void) | null = null
 
 /**
  * `fetch` wrapper that keeps SSE state in sync with HTTP liveness.
+ *
  * - Network error or 5xx nudges SSE offline and kicks the retry loop early.
  * - 2xx force-reopens the SSE if it's currently offline.
  * - 4xx is a business error, connection state untouched.
@@ -121,8 +122,8 @@ export async function clearQueue(): Promise<{ cleared: number }> {
 
 /**
  * Nudge the daemon to reconnect to the printer, and force-reopen the SSE.
- * Two-fer for the "try everything" Reconnect button. Force-reopen runs even
- * if the POST fails so recovery is instant when the daemon returns.
+ * Two-fer for the "try everything" Reconnect button. Force-reopen runs even if
+ * the POST fails so recovery is instant when the daemon returns.
  */
 export async function reconnect(): Promise<void> {
   try {
@@ -136,8 +137,8 @@ export async function reconnect(): Promise<void> {
 
 /**
  * Force an immediate SSE reopen, bypassing backoff and resetting it to 1 s.
- * Safe on an already-online stream (tears down + reconnects). No-op before
- * any subscriber is attached.
+ * Safe on an already-online stream (tears down + reconnects). No-op before any
+ * subscriber is attached.
  */
 export function forceReopenSse(): void {
   sseForceReopen?.()
@@ -225,8 +226,8 @@ const BACKOFF_MAX_MS = 15_000
 const HEARTBEAT_TICK_MS = 5_000
 /**
  * No named event in this long = dead. Must exceed the daemon's 15 s `ping`
- * cadence with headroom for jitter. Two back-to-back missed pings still
- * trip it. SSE comment keep-alives don't dispatch, only named events count.
+ * cadence with headroom for jitter. Two back-to-back missed pings still trip
+ * it. SSE comment keep-alives don't dispatch, only named events count.
  */
 const HEARTBEAT_TIMEOUT_MS = 25_000
 

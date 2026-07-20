@@ -2,7 +2,7 @@ import type { StateId } from './states'
 
 /**
  * Hand-authored neighbor graph for the German states. Used by
- * `ShockwaveBehaviour` to propagate the game-over pulse from the selected state
+ * `ShockwaveBehavior` to propagate the game-over pulse from the selected state
  * outward in BFS order.
  *
  * Every entry is symmetric, if `A` lists `B`, `B` lists `A`. Verified by the
@@ -62,7 +62,7 @@ export function bfsDepth(from: StateId, to: StateId, maxDepth: number): number {
 /**
  * BFS the graph outward from `origin` up to `maxDepth` layers deep. Returns a
  * map `stateId → depth (1..maxDepth)`. `origin` itself is NOT included. Used by
- * `ShockwaveBehaviour.pulse` to schedule delayed alpha pulses on concentric
+ * `ShockwaveBehavior.pulse` to schedule delayed alpha pulses on concentric
  * rings of neighbors.
  */
 export function bfsLayers(

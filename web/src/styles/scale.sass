@@ -1,0 +1,72 @@
+// Static token layer emitted once at :root. Everything here is either relative
+// (rem, so it scales with the adjustable base font-size — see global.sass) or a
+// neutral default that a display/game theme overrides at runtime (see
+// core/theme). Defining every color role here means no `var(--color-*)` is ever
+// undefined, so a theme only needs to override what differs.
+
+:root
+  // Spacing scale, rem = px / 16 at the base size. Relative so spacing tracks
+  // type when the base changes.
+  --space-2: 0.125rem
+  --space-4: 0.25rem
+  --space-8: 0.5rem
+  --space-12: 0.75rem
+  --space-16: 1rem
+  --space-24: 1.5rem
+  --space-32: 2rem
+  --space-40: 2.5rem
+  --space-48: 3rem
+  --space-64: 4rem
+  --space-80: 5rem
+
+  // Radii. Pill is a guaranteed capsule at any size.
+  --radius-input: 0.5rem
+  --radius-card: 0.75rem
+  --radius-panel: 2rem
+  --radius-pill: 100vmax
+
+  // Stacking order, single source of truth. In-game overlays sit low (below the
+  // core chrome); the off-duty cover sits above the top bar but below the
+  // attendant's draggable windows so they stay reachable to toggle it off.
+  --z-overlay: 40
+  --z-cover: 120
+
+  // Neutral color defaults (light). A theme overrides these via `--color-*`.
+  --color-surface: #ffffff
+  --color-surface-card: #ffffff
+  --color-surface-inverse: #010612
+  --color-scrim: rgba(6, 8, 12, 0.45)
+
+  --color-text: #1c1c22
+  --color-text-secondary: #5a5560
+  --color-text-accent: #7a5bd0
+  --color-text-link: #6d4bb0
+  --color-text-inverse: #ffffff
+
+  --color-border: rgba(20, 20, 30, 0.12)
+  --color-accent: #7a5bd0
+  --color-team-a: #4a90e2
+  --color-team-b: #e24a4a
+
+  --color-action-primary: #1c1c22
+  --color-action-primary-text: #ffffff
+  --color-action-primary-hover: #2c2c34
+  --color-action-primary-active: #000000
+  --color-action-primary-disabled: rgba(28, 28, 34, 0.4)
+
+  --color-action-secondary: #1c1c22
+  --color-action-secondary-text: #1c1c22
+  --color-action-secondary-hover: rgba(28, 28, 34, 0.08)
+  --color-action-secondary-active: rgba(28, 28, 34, 0.16)
+  --color-action-secondary-disabled: rgba(28, 28, 34, 0.35)
+
+  --color-input-bg: #ffffff
+  --color-shadow-card: 0 0.5rem 2.5rem rgba(10, 12, 20, 0.18)
+  // Heavier lift for large modal panels (pause / game-over cards).
+  --color-shadow-panel: 0 1.25rem 3.75rem rgba(9, 22, 44, 0.45)
+  // App-wide DOM backdrop (behind the canvas-less chrome).
+  --color-app-backdrop: linear-gradient(299deg, #243b67 19.93%, #223663 75.96%), #263860
+
+  // Optional decorative gradients (themes may override).
+  --color-gradient-play: linear-gradient(120deg, #f6cce1, #cfb5f3)
+  --color-gradient-result: linear-gradient(75deg, #ffeb49, #ff6600, #fb2872)

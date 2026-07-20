@@ -12,21 +12,21 @@ export const TUNING = {
     spawnGrowSec: 1.0,
     /**
      * Delay before the grow tween starts. `spawnBurst` particles are already
-     * streaming inward, so a positive value here reads as "energy gathers,
-     * THEN forms into a packet".
+     * streaming inward, so a positive value here reads as "energy gathers, THEN
+     * forms into a packet".
      */
     preGrowDelaySec: 0.5,
     /**
-     * Quick scale pop on pointerdown so the hex reacts before the finger
-     * starts producing path samples. Total = `upSec + downSec`, kept short so
-     * drawing feels immediate.
+     * Quick scale pop on pointerdown so the hex reacts before the finger starts
+     * producing path samples. Total = `upSec + downSec`, kept short so drawing
+     * feels immediate.
      */
     pressFeedback: {
       /** Peak scale multiplier at the top of the pop. */
       scaleTo: 1.4,
       /** 1 → scaleTo grow phase (seconds). */
       upSec: 0.05,
-      /** scaleTo → 1 settle phase (seconds). */
+      /** ScaleTo → 1 settle phase (seconds). */
       downSec: 0.25,
     },
     /** Time to accelerate from stationary to current travel speed. */
@@ -73,15 +73,15 @@ export const TUNING = {
       /** Per-hex radius range (world units). */
       sizeWorld: [3, 5] as readonly [number, number],
       /**
-       * Fallback speed. `PacketBehaviour` overrides each fixed step to match
-       * the packet's live velocity so spawned hexes peel off with the packet.
+       * Fallback speed. `PacketBehavior` overrides each fixed step to match the
+       * packet's live velocity so spawned hexes peel off with the packet.
        */
       speedWorld: [40, 40] as readonly [number, number],
       /** Cone half-angle around velocity direction. */
       spreadRad: Math.PI * 0.12,
       /**
-       * Exponential drag. A hex at packet speed decays to ~5 % within ~0.6 s
-       * so the wake distance matches the shooting-star ribbon.
+       * Exponential drag. A hex at packet speed decays to ~5 % within ~0.6 s so
+       * the wake distance matches the shooting-star ribbon.
        */
       dampingPerSec: 5,
       /** Alpha over life, spawn opaque, fade to zero. */
@@ -119,16 +119,16 @@ export const TUNING = {
       /** Peak world size at end of life. Particles start at scale 0. */
       sizeMaxWorld: 2.7,
       /**
-       * Fraction of life spent ramping alpha 0 → 1. After this, quick-fades
-       * to 0 for the remainder.
+       * Fraction of life spent ramping alpha 0 → 1. After this, quick-fades to
+       * 0 for the remainder.
        */
       alphaGrowFraction: 0.72,
       /** Matches packet stroke so the ring reads as the same object. */
       color: '#D84EFF',
     },
     /**
-     * Emergence pulse fired when grow-in completes. Big translucent hex
-     * scales up and fades out, same visual grammar as `lossAnim.impactFlash`.
+     * Emergence pulse fired when grow-in completes. Big translucent hex scales
+     * up and fades out, same visual grammar as `lossAnim.impactFlash`.
      */
     spawnPulse: {
       /** Total duration (seconds). */
@@ -152,8 +152,8 @@ export const TUNING = {
     /** Regular travel speed (wu/s). First spawn is always regular. */
     regularSpeedWorld: 75,
     /**
-     * Slow packets travel at this fraction of regular. 40 % is behind enough
-     * to require routing without reading as stalled.
+     * Slow packets travel at this fraction of regular. 40 % is behind enough to
+     * require routing without reading as stalled.
      */
     slowSpeedFactor: 0.4,
     /**
@@ -176,9 +176,10 @@ export const TUNING = {
     firstDelaySec: 1.5,
     /**
      * Rejection-sampling constraints. Reroll any candidate that fails:
-     * - too close to border (mask.contains fails at `minDistFromBorderWorld`)
-     * - too close to epicenter
-     * - within `pairThreshold + minDistFromPacketWorld` of an active packet
+     *
+     * - Too close to border (mask.contains fails at `minDistFromBorderWorld`)
+     * - Too close to epicenter
+     * - Within `pairThreshold + minDistFromPacketWorld` of an active packet
      */
     minDistFromEpicenterWorld: 220,
     minDistFromBorderWorld: 45,
@@ -191,11 +192,11 @@ export const TUNING = {
     /** Retries per spawn slot before skipping. */
     maxRetries: 20,
     /**
-     * Ample-runway probe for the initial heading. `pickInitialHeading`
-     * sweeps the candidate ray in small steps up to this distance, tracking
-     * how long it stays inside the mask. Longest surviving ray wins, a full
-     * sweep is accepted immediately. Bump higher if late-round wall crashes
-     * feel unfair.
+     * Ample-runway probe for the initial heading. `pickInitialHeading` sweeps
+     * the candidate ray in small steps up to this distance, tracking how long
+     * it stays inside the mask. Longest surviving ray wins, a full sweep is
+     * accepted immediately. Bump higher if late-round wall crashes feel
+     * unfair.
      */
     initialHeadingProbeWorld: 250,
     /** Step size for the ray sweep. Smaller = finer but more mask samples. */
@@ -226,8 +227,8 @@ export const TUNING = {
     coneRadiusWorld: 40,
     /**
      * Angular slack beyond ±(coneSweep / 2) that still counts as valid.
-     * Approaches outside this band get auto-routed via two inserted
-     * waypoints (entry point + apex) so the packet U-turns into the cone.
+     * Approaches outside this band get auto-routed via two inserted waypoints
+     * (entry point + apex) so the packet U-turns into the cone.
      */
     approachForgivenessRad: (Math.PI * 3) / 40, // 13.5°
   },
@@ -261,8 +262,8 @@ export const TUNING = {
   },
   /**
    * BFS ripple through the states from an origin. Fired on selection,
-   * collision, and border breach. Each state rises over `riseSec`, falls
-   * over `fallSec`, staggered by `delayPerLayerSec` per BFS depth.
+   * collision, and border breach. Each state rises over `riseSec`, falls over
+   * `fallSec`, staggered by `delayPerLayerSec` per BFS depth.
    */
   stateRipple: {
     /** Delay between BFS layers. Origin fires at t=0. */
@@ -274,29 +275,30 @@ export const TUNING = {
     /** Peak alpha of the overlay. */
     peakAlpha: 0.1,
     /**
-     * Overlay fill. Bright / warm so the ripple reads against dim state
-     * fills without shifting toward game-over red.
+     * Overlay fill. Bright / warm so the ripple reads against dim state fills
+     * without shifting toward game-over red.
      */
     color: '#fdf6e3',
     /**
-     * Delay after `endRound` before the session clears its highlight.
-     * Must exceed the ripple's wall-clock duration or the "unify state
-     * colours" tween lands mid-ripple over a splotchy map.
+     * Delay after `endRound` before the session clears its highlight. Must
+     * exceed the ripple's wall-clock duration or the "unify state colours"
+     * tween lands mid-ripple over a splotchy map.
      */
     settleClearDelaySec: 1.3,
   },
   /**
-   * Grid overlay clipped to Germany. Owns each cell's alpha buffer and
-   * hosts two effects:
+   * Grid overlay clipped to Germany. Owns each cell's alpha buffer and hosts
+   * two effects:
+   *
    * - Pulse, event-driven ripple that spreads outward from a world point.
    * - Warn, continuous yellow tint on cells near a packet in danger.
    */
   wahlkreise: {
     grid: {
       /**
-       * Cell edge length. `12` gives ~2600 cells inside Germany after
-       * outline filtering. Smaller cells push the LIT-cell count under a
-       * full pulse into thousands of state changes per frame on the kiosk.
+       * Cell edge length. `12` gives ~2600 cells inside Germany after outline
+       * filtering. Smaller cells push the LIT-cell count under a full pulse
+       * into thousands of state changes per frame on the kiosk.
        */
       cellSizeWorld: 12,
     },
@@ -324,13 +326,13 @@ export const TUNING = {
       /** Two packets closer than this ramp pair-danger 0 → 1. */
       pairRadiusWorld: 55,
       /**
-       * How far a packet's warn contribution spreads. Alpha falls linearly
-       * with distance to the cell centroid.
+       * How far a packet's warn contribution spreads. Alpha falls linearly with
+       * distance to the cell centroid.
        */
       spreadRadiusWorld: 70,
       /**
-       * Ceiling on final warn alpha per cell. Every contribution is scaled
-       * by this before max-blending in.
+       * Ceiling on final warn alpha per cell. Every contribution is scaled by
+       * this before max-blending in.
        */
       peakAlpha: 0.5,
       /** Warn integrator response rate. 8 → ~125 ms to reach 63 % of a step. */
@@ -339,10 +341,11 @@ export const TUNING = {
   },
   lossAnim: {
     /**
-     * Grace between collision and the game-over card sliding in. Session
-     * flips to `'gameOver'` immediately (spawning + physics halt) but the
-     * outward event fires only after this so the player sees the impact
-     * flash + debris + shockwave settle first.
+     * Grace between collision and the game-over card sliding in. Session flips
+     * to `'gameOver'` immediately (spawning + physics halt) but the outward
+     * event fires only after this so the player sees the impact flash + debris
+     *
+     * - Shockwave settle first.
      */
     endScreenGraceSec: 3,
     /** Delay between adjacency layers in the shockwave pulse. */
@@ -352,9 +355,9 @@ export const TUNING = {
     /** BFS depth cap for shockwave propagation. */
     shockwaveDepth: 3,
     /**
-     * White sparkle-star at the collision point. SVG pre-scaled at load so
-     * its max dim equals `worldSize`, then this tweens scale from `scaleFrom`
-     * → `scaleTo` in parallel with alpha 1 → 0.
+     * White sparkle-star at the collision point. SVG pre-scaled at load so its
+     * max dim equals `worldSize`, then this tweens scale from `scaleFrom` →
+     * `scaleTo` in parallel with alpha 1 → 0.
      */
     impactFlash: {
       durationSec: 0.25,
@@ -364,9 +367,9 @@ export const TUNING = {
       color: '#ffffff',
     },
     /**
-     * Debris ring: magenta triangles + lines that fly outward, decelerate
-     * under drag, settle into a permanent ring with slow residual rotation.
-     * Never self-destroys, cleared by `session.reset()`.
+     * Debris ring: magenta triangles + lines that fly outward, decelerate under
+     * drag, settle into a permanent ring with slow residual rotation. Never
+     * self-destroys, cleared by `session.reset()`.
      */
     debris: {
       /** Total pieces. */
@@ -381,8 +384,8 @@ export const TUNING = {
       /** Translational drag. Pieces coast noticeably before settling. */
       dampingPerSec: 4.4,
       /**
-       * Evenly-spaced angular slots (with jitter) instead of pure random.
-       * No clumps, no visible gaps.
+       * Evenly-spaced angular slots (with jitter) instead of pure random. No
+       * clumps, no visible gaps.
        */
       equidistantEmission: true,
       /**
@@ -392,9 +395,7 @@ export const TUNING = {
       angInitialRadPerSec: [-9, 9] as readonly [number, number],
       /** Damping of the transient spin. */
       angInitialDampingPerSec: 3.5,
-      /**
-       * Permanent slow spin. Magnitude range with random ± sign per piece.
-       */
+      /** Permanent slow spin. Magnitude range with random ± sign per piece. */
       angBaseAbsRadPerSec: [0.2, 1.35] as readonly [number, number],
       /** Equilateral fill. */
       triangleSideWorld: 4,
@@ -412,8 +413,8 @@ export const TUNING = {
       triangleFraction: 0,
       /**
        * Wide range so pieces settle at clearly different distances. Under
-       * `dampingPerSec: 4`, travelled distance ≈ speed / damping, giving
-       * ~14 → ~54 wu spread.
+       * `dampingPerSec: 4`, travelled distance ≈ speed / damping, giving ~14 →
+       * ~54 wu spread.
        */
       initialSpeedWorld: [20, 280] as readonly [number, number],
       dampingPerSec: 4,

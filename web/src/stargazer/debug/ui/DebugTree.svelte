@@ -79,10 +79,12 @@
 
   .tree-node
     display: flex
-    align-items: flex-start
+    align-items: center
     gap: 4px
-    padding: 2px 4px
-    min-height: 16px
+    // A little vertical padding so rows are easy to tap on a touchscreen; font
+    // size is unchanged.
+    padding: 3px 4px
+    min-height: 22px
     border-radius: 2px
 
     &.clickable

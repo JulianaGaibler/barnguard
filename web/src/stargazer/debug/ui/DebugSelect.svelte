@@ -56,7 +56,7 @@
     const raw = target.value
     const next = (isNumeric ? Number(raw) : raw) as V
     // No preventDefault / no `blur()`, the browser's native `<select>` needs
-    // to keep default behaviour on pointerdown to open its dropdown. An
+    // to keep default behavior on pointerdown to open its dropdown. An
     // over-eager `blur` inside the handler also races with the picker close
     // animation on some browsers.
     onChange(next)
@@ -109,6 +109,11 @@
 
     &.disabled
       opacity: 0.4
+
+    // Match the ToggleButton spacing so mixed stacks of boxed controls
+    // (selects + toggles) sit 4px apart.
+    &:not(:last-child)
+      margin-bottom: 4px
 
   .head
     display: flex

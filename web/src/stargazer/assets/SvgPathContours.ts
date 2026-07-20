@@ -4,8 +4,8 @@
  * - `flattenSvgPath(d, tol)` load-time, one contour per `M`.
  * - `flattenQuadratic` / `flattenCubic` live, zero-alloc subdivision into a
  *   caller-owned `Float32Array`. Safe on the render hot path.
- * - `tessellateContours(contours)` runs `earcut`. Uint16 indexing, throws
- *   above 65 535 verts per shape.
+ * - `tessellateContours(contours)` runs `earcut`. Uint16 indexing, throws above
+ *   65 535 verts per shape.
  *
  * Flatness = midpoint deviation from chord. Tolerance is in input coordinate
  * space, callers convert pixel tolerance via the current transform's scale.
@@ -396,12 +396,12 @@ export function flattenSvgPath(d: string, tol: number): Float32Array[] {
 
 /**
  * Triangulate contours via earcut. Each contour is an independent outer
- * polygon, NEVER a hole in a previous one. The game's map SVGs are
- * multi-region (mainland + islands), not single-region-with-holes.
- * Enclaves live in separate top-level `Path2D`s at the `SvgPathMap` level.
+ * polygon, NEVER a hole in a previous one. The game's map SVGs are multi-region
+ * (mainland + islands), not single-region-with-holes. Enclaves live in separate
+ * top-level `Path2D`s at the `SvgPathMap` level.
  *
- * Returns interleaved f32 vertices + uint16 triangle indices. Throws above
- * 65 535 total verts.
+ * Returns interleaved f32 vertices + uint16 triangle indices. Throws above 65
+ * 535 total verts.
  */
 export function tessellateContours(contours: Float32Array[]): GeometryHandle {
   if (contours.length === 0) {

@@ -9,9 +9,9 @@ import { writable } from 'svelte/store'
  *
  * Semantics:
  *
- * - selected → the tapped id
- * - canceled → `null`
- * - roundStarted → `null` (selection consumed by the round)
+ * - Selected → the tapped id
+ * - Canceled → `null`
+ * - RoundStarted → `null` (selection consumed by the round)
  */
 export const selectedStateId = writable<string | null>(null)
 

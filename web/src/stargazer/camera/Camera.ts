@@ -8,6 +8,8 @@ import type { Easing } from '../math/easings'
  * space, the renderer applies DPR separately as a baseline factor.
  *
  * ScreenX = worldX * scale + offsetX screenY = worldY * scale + offsetY
+ *
+ * @category Camera
  */
 export interface ScreenTransform {
   scale: number
@@ -15,6 +17,11 @@ export interface ScreenTransform {
   offsetY: number
 }
 
+/**
+ * Options for {@link Camera.animateTo}.
+ *
+ * @category Camera
+ */
 export interface CameraAnimateOptions {
   /** Total duration in seconds. Default 0.5. */
   duration?: number
@@ -25,15 +32,32 @@ export interface CameraAnimateOptions {
 }
 
 /**
- * Camera, describes a rectangular window into world coords that the renderer
- * FITS into the canvas at a **uniform scale** (aspect-preserving,
- * `contain`-style). Wherever the fitted region doesn't cover the canvas, the
- * clear color shows through, no visible letterbox bars, no distortion.
+ * A rectangular window into world coordinates that the renderer fits into the
+ * canvas at a uniform, aspect-preserving scale (`contain`-style). Where the
+ * fitted region doesn't cover the canvas the clear color shows through, so
+ * there are no letterbox bars and no distortion.
  *
- * `animateTo` (async zoom/pan) lands in M8.
+ * Pan and zoom by changing {@link Camera.viewport} through
+ * {@link Camera.setViewport}, or animate it with {@link Camera.animateTo}.
+ * Convert between coordinate spaces with {@link Camera.worldToScreen} and
+ * {@link Camera.screenToWorld}.
+ *
+ * Each `Stage` owns one camera. The debug HUD can swap in its own camera to
+ * inspect a stage without disturbing the game camera.
+ *
+ * @category Camera
  */
 export class Camera {
+  /**
+   * World-space rect the camera frames. Change it through
+   * {@link Camera.setViewport} rather than mutating in place, the setter bumps
+   * the frame counter that invalidates the cached screen transform.
+   */
   viewport: Rect
+  /**
+   * Canvas size in CSS pixels the viewport fits into. Kept in sync by the
+   * stage.
+   */
   pixelSize: { w: number; h: number }
   /**
    * Set by the owning `Engine` immediately after construction. Null when the
@@ -41,18 +65,18 @@ export class Camera {
    * `animateTo` needs it.
    */
   engine: Engine | null = null
-  private _frameNum = 0
+  #_frameNum = 0
 
   // Per-viewport/pixelSize cache for `getScreenTransform()`. The mapping is a
   // pure function of `viewport` and `pixelSize`, both of which bump
   // `_frameNum` when they change, so the frame-num tag doubles as a cache
   // key. Callers who pass an explicit `out` parameter bypass the cache.
-  private readonly _cachedScreenTransform: ScreenTransform = {
+  readonly #_cachedScreenTransform: ScreenTransform = {
     scale: 0,
     offsetX: 0,
     offsetY: 0,
   }
-  private _cachedScreenTransformFrameNum = -1
+  #_cachedScreenTransformFrameNum = -1
 
   constructor(
     viewport: Rect,
@@ -63,7 +87,7 @@ export class Camera {
   }
 
   get frameNum(): number {
-    return this._frameNum
+    return this.#_frameNum
   }
 
   setViewport(v: Rect): void {
@@ -76,13 +100,13 @@ export class Camera {
       return
     }
     this.viewport = { ...v }
-    this._frameNum++
+    this.#_frameNum++
   }
 
   setPixelSize(w: number, h: number): void {
     if (this.pixelSize.w === w && this.pixelSize.h === h) return
     this.pixelSize = { w, h }
-    this._frameNum++
+    this.#_frameNum++
   }
 
   /**
@@ -93,15 +117,15 @@ export class Camera {
    * read-only. Pass `out` to receive a private copy that's safe to mutate.
    */
   getScreenTransform(out?: ScreenTransform): ScreenTransform {
-    if (out) return this._computeScreenTransform(out)
-    if (this._cachedScreenTransformFrameNum !== this._frameNum) {
-      this._computeScreenTransform(this._cachedScreenTransform)
-      this._cachedScreenTransformFrameNum = this._frameNum
+    if (out) return this.#_computeScreenTransform(out)
+    if (this.#_cachedScreenTransformFrameNum !== this.#_frameNum) {
+      this.#_computeScreenTransform(this.#_cachedScreenTransform)
+      this.#_cachedScreenTransformFrameNum = this.#_frameNum
     }
-    return this._cachedScreenTransform
+    return this.#_cachedScreenTransform
   }
 
-  private _computeScreenTransform(t: ScreenTransform): ScreenTransform {
+  #_computeScreenTransform(t: ScreenTransform): ScreenTransform {
     const vw = this.viewport.width
     const vh = this.viewport.height
     const pw = this.pixelSize.w
@@ -123,6 +147,7 @@ export class Camera {
     return t
   }
 
+  /** Map a world-space point to CSS-pixel canvas coordinates. */
   worldToScreen(x: number, y: number, out?: Vec2): Vec2 {
     const t = this.getScreenTransform()
     const sx = x * t.scale + t.offsetX
@@ -135,6 +160,11 @@ export class Camera {
     return { x: sx, y: sy }
   }
 
+  /**
+   * Map a CSS-pixel canvas point back to world space, e.g. a pointer position
+   * into world coordinates. Returns `(0, 0)` while the transform is degenerate
+   * (zero-size viewport or canvas, during initial resize).
+   */
   screenToWorld(x: number, y: number, out?: Vec2): Vec2 {
     const t = this.getScreenTransform()
     if (t.scale === 0) {
@@ -177,11 +207,18 @@ export class Camera {
   }
 
   /**
-   * Animate the viewport rect from its current value to `target`. The
-   * static-layer cache is skipped during the tween (each frame draws the static
-   * content fresh) and re-baked once on settle. Returns a Promise that resolves
-   * when the tween completes or rejects with `AbortError` on `opts.signal`
-   * abort.
+   * Animate {@link Camera.viewport} from its current value to `target` (a
+   * pan-and-zoom). The static-layer cache is skipped during the tween and
+   * re-baked once on settle, so a zoom stays crisp. Resolves when the tween
+   * completes, rejects with `AbortError` if `opts.signal` aborts. Requires the
+   * camera to be attached to an {@link Engine} (every stage camera is).
+   *
+   * @example
+   *   // Zoom in on a 200×200 world region over 0.8s.
+   *   await camera.animateTo(
+   *     { x: 300, y: 300, width: 200, height: 200 },
+   *     { duration: 0.8, easing: easings.inOutCubic },
+   *   )
    */
   async animateTo(
     target: Rect,

@@ -144,53 +144,53 @@ export interface GameOverSceneOptions {
  * `AbortController` and the frame handler is unsubscribed in `destroy()`.
  */
 export class GameOverScene {
-  private readonly host: EngineHost
-  private readonly stage: Stage
-  private readonly reason: GameOverReason
-  private readonly escapeHeadingRad: number
-  private readonly eyeOutlinePath: Path2D
-  private readonly eyeOutlineBounds: Rect
-  private readonly impactFlashPath: Path2D
-  private readonly sessionAbort = new AbortController()
-  private offFrame: (() => void) | null = null
-  private destroyed = false
+  readonly #host: EngineHost
+  readonly #stage: Stage
+  readonly #reason: GameOverReason
+  readonly #escapeHeadingRad: number
+  readonly #eyeOutlinePath: Path2D
+  readonly #eyeOutlineBounds: Rect
+  readonly #impactFlashPath: Path2D
+  readonly #sessionAbort = new AbortController()
+  #offFrame: (() => void) | null = null
+  #destroyed = false
   /** Monotonic counter so multiple impact flashes have unique scene ids. */
-  private flashIdSeq = 0
+  #flashIdSeq = 0
 
   // --- collision state ---
-  private leftPacket: PacketNode | null = null
-  private rightPacket: PacketNode | null = null
-  private leftTrail: PacketMotionTrailNode | null = null
-  private rightTrail: PacketMotionTrailNode | null = null
-  private collided = false
+  #leftPacket: PacketNode | null = null
+  #rightPacket: PacketNode | null = null
+  #leftTrail: PacketMotionTrailNode | null = null
+  #rightTrail: PacketMotionTrailNode | null = null
+  #collided = false
 
   // --- escape state ---
-  private escapePacket: PacketNode | null = null
-  private escapeTrail: PacketMotionTrailNode | null = null
-  private escapeDirX = 1
-  private escapeDirY = 0
-  private borderLine: BorderLineNode | null = null
-  private borderCrossed = false
-  private eyes: EyeNode[] = []
+  #escapePacket: PacketNode | null = null
+  #escapeTrail: PacketMotionTrailNode | null = null
+  #escapeDirX = 1
+  #escapeDirY = 0
+  #borderLine: BorderLineNode | null = null
+  #borderCrossed = false
+  #eyes: EyeNode[] = []
 
   constructor(
     host: EngineHost,
     canvas: HTMLCanvasElement,
     opts: GameOverSceneOptions,
   ) {
-    this.host = host
-    this.reason = opts.reason
-    this.escapeHeadingRad = opts.escapeHeadingRad ?? 0
+    this.#host = host
+    this.#reason = opts.reason
+    this.#escapeHeadingRad = opts.escapeHeadingRad ?? 0
 
     // Merge the two eyelid paths into one centred Path2D. `eye.svg`
     // authors the eye at (0, 0)-(125, 76); we shift so (0, 0) is the
     // visual centre and scale to `EYE_WIDTH_WORLD` on the long axis.
     const merged = mergeEyeParts(opts.eyeOutlineParts, EYE_WIDTH_WORLD)
-    this.eyeOutlinePath = merged.path
-    this.eyeOutlineBounds = merged.bounds
-    this.impactFlashPath = opts.impactFlashPath
+    this.#eyeOutlinePath = merged.path
+    this.#eyeOutlineBounds = merged.bounds
+    this.#impactFlashPath = opts.impactFlashPath
 
-    this.stage = host.engine.attachStage(canvas, {
+    this.#stage = host.engine.attachStage(canvas, {
       name: 'GameOver',
       interactive: false,
       // Transparent compositing so the frame clear leaves the canvas
@@ -213,100 +213,100 @@ export class GameOverScene {
     // Starfield is added inside `runEscapeScene` only, it's the camera
     // motion that sells the parallax, and the collision scene's camera
     // stays put.
-    if (this.reason === 'collision') {
-      void this.runCollisionScene()
+    if (this.#reason === 'collision') {
+      void this.#runCollisionScene()
     } else {
-      void this.runEscapeScene()
+      void this.#runEscapeScene()
     }
 
     // Per-frame integration for packet movement + camera follow + eye
     // positions. Registered even before either flow adds a packet, the
     // handler bails on null refs.
-    this.offFrame = this.host.engine.ticker.onFrame((dt) => this.tick(dt))
+    this.#offFrame = this.#host.engine.ticker.onFrame((dt) => this.#tick(dt))
   }
 
   destroy(): void {
-    if (this.destroyed) return
-    this.destroyed = true
-    this.sessionAbort.abort()
-    this.offFrame?.()
-    this.offFrame = null
-    this.host.engine.detachStage(this.stage)
+    if (this.#destroyed) return
+    this.#destroyed = true
+    this.#sessionAbort.abort()
+    this.#offFrame?.()
+    this.#offFrame = null
+    this.#host.engine.detachStage(this.#stage)
   }
 
   // -------------------------------------------------------------------------
   // Frame integration
   // -------------------------------------------------------------------------
 
-  private tick(dt: number): void {
-    if (this.destroyed) return
-    if (this.reason === 'collision') {
-      this.tickCollision(dt)
+  #tick(dt: number): void {
+    if (this.#destroyed) return
+    if (this.#reason === 'collision') {
+      this.#tickCollision(dt)
     } else {
-      this.tickEscape(dt)
+      this.#tickEscape(dt)
     }
   }
 
-  private tickCollision(dt: number): void {
-    if (this.collided) return
-    const left = this.leftPacket
-    const right = this.rightPacket
+  #tickCollision(dt: number): void {
+    if (this.#collided) return
+    const left = this.#leftPacket
+    const right = this.#rightPacket
     if (!left || !right) return
     left.transform.x += COLLIDE_SPEED_WU_PER_SEC * dt
     right.transform.x -= COLLIDE_SPEED_WU_PER_SEC * dt
     // Feed the shooting-star trails. `setLiveHead` glues the ribbon
     // tip to the current position each frame; `sample` pushes only if
     // the distance filter accepts it (dedupes near-stationary samples).
-    if (this.leftTrail) {
-      this.leftTrail.setLiveHead(left.transform.x, left.transform.y)
-      this.leftTrail.sample(left.transform.x, left.transform.y)
+    if (this.#leftTrail) {
+      this.#leftTrail.setLiveHead(left.transform.x, left.transform.y)
+      this.#leftTrail.sample(left.transform.x, left.transform.y)
     }
-    if (this.rightTrail) {
-      this.rightTrail.setLiveHead(right.transform.x, right.transform.y)
-      this.rightTrail.sample(right.transform.x, right.transform.y)
+    if (this.#rightTrail) {
+      this.#rightTrail.setLiveHead(right.transform.x, right.transform.y)
+      this.#rightTrail.sample(right.transform.x, right.transform.y)
     }
     // Overlap check, meet when centres are within the same collision
     // threshold the live game uses. Guarantees the collision fires at
     // ~x=0 regardless of the exact frame boundaries.
     const gap = right.transform.x - left.transform.x
     if (gap <= TUNING.collision.pairThresholdWorld) {
-      this.collided = true
+      this.#collided = true
       const meetX = (left.transform.x + right.transform.x) / 2
       const meetY = 0
       if (!left.isDestroyed) left.destroy()
       if (!right.isDestroyed) right.destroy()
-      this.leftPacket = null
-      this.rightPacket = null
+      this.#leftPacket = null
+      this.#rightPacket = null
       // Fade + destroy trails so the ribbons don't hang static in the
       // scene after the packets are gone. Motion trails don't
       // self-fade like `PathTrailNode` does, they render the last N
       // samples at uniform alpha, so an explicit alpha tween is the
       // only way to make them disappear cleanly.
-      this.fadeAndDestroyTrail(this.leftTrail)
-      this.fadeAndDestroyTrail(this.rightTrail)
-      this.leftTrail = null
-      this.rightTrail = null
+      this.#fadeAndDestroyTrail(this.#leftTrail)
+      this.#fadeAndDestroyTrail(this.#rightTrail)
+      this.#leftTrail = null
+      this.#rightTrail = null
       // Impact flash + debris ring, same visual grammar as the live
       // game (`session.spawnImpactFlash` + collision debris burst).
-      this.spawnImpactFlash({ x: meetX, y: meetY })
-      this.spawnCollisionDebris({ x: meetX, y: meetY })
+      this.#spawnImpactFlash({ x: meetX, y: meetY })
+      this.#spawnCollisionDebris({ x: meetX, y: meetY })
     }
   }
 
-  private tickEscape(dt: number): void {
-    const packet = this.escapePacket
+  #tickEscape(dt: number): void {
+    const packet = this.#escapePacket
     if (!packet) return
     // Integrate packet position along the recorded escape heading.
-    packet.transform.x += this.escapeDirX * ESCAPE_SPEED_WU_PER_SEC * dt
-    packet.transform.y += this.escapeDirY * ESCAPE_SPEED_WU_PER_SEC * dt
+    packet.transform.x += this.#escapeDirX * ESCAPE_SPEED_WU_PER_SEC * dt
+    packet.transform.y += this.#escapeDirY * ESCAPE_SPEED_WU_PER_SEC * dt
     // Feed the trail, same pattern the live game uses via
-    // `PacketBehaviour.onFixedStep` / `.onUpdate`.
-    if (this.escapeTrail) {
-      this.escapeTrail.setLiveHead(packet.transform.x, packet.transform.y)
-      this.escapeTrail.sample(packet.transform.x, packet.transform.y)
+    // `PacketBehavior.onFixedStep` / `.onUpdate`.
+    if (this.#escapeTrail) {
+      this.#escapeTrail.setLiveHead(packet.transform.x, packet.transform.y)
+      this.#escapeTrail.sample(packet.transform.x, packet.transform.y)
     }
     // Camera keeps the packet centred.
-    this.stage.camera.setViewport({
+    this.#stage.camera.setViewport({
       x: packet.transform.x - CAM_W / 2,
       y: packet.transform.y - CAM_H / 2,
       width: CAM_W,
@@ -315,13 +315,13 @@ export class GameOverScene {
     // Border cross detection, projection of the packet's position onto
     // the heading vector. When that projection passes the fixed
     // BORDER_LINE_OFFSET, fire the shrapnel and dissolve the line.
-    if (!this.borderCrossed) {
+    if (!this.#borderCrossed) {
       const projected =
-        packet.transform.x * this.escapeDirX +
-        packet.transform.y * this.escapeDirY
+        packet.transform.x * this.#escapeDirX +
+        packet.transform.y * this.#escapeDirY
       if (projected >= BORDER_LINE_OFFSET_WORLD) {
-        this.borderCrossed = true
-        this.onBorderCrossed({
+        this.#borderCrossed = true
+        this.#onBorderCrossed({
           x: packet.transform.x,
           y: packet.transform.y,
         })
@@ -330,9 +330,9 @@ export class GameOverScene {
     // Eyes float alongside the packet at fixed local offsets, their
     // world position rides the packet each frame so they stay in view
     // as the camera follows.
-    for (let i = 0; i < this.eyes.length; i++) {
+    for (let i = 0; i < this.#eyes.length; i++) {
       const off = EYE_LOCAL_OFFSETS[i]
-      const eye = this.eyes[i]
+      const eye = this.#eyes[i]
       eye.transform.x = packet.transform.x + off.x
       eye.transform.y = packet.transform.y + off.y
       eye.lookAtX = packet.transform.x
@@ -344,48 +344,48 @@ export class GameOverScene {
   // Per-reason flows
   // -------------------------------------------------------------------------
 
-  private async runCollisionScene(): Promise<void> {
+  async #runCollisionScene(): Promise<void> {
     // Two hexes fly in from opposite sides, meeting at the centre. The
     // `pre-orient rotation = heading + π/2` matches the live game's
     // spawn-packet convention so the top vertex points along the
     // velocity vector. Motion trails ride behind each hex, same
     // shooting-star ribbon the live packets use.
     const spawnX = (CAM_W / 2) * COLLIDE_SPAWN_X_FRAC
-    this.leftTrail = new PacketMotionTrailNode()
-    this.rightTrail = new PacketMotionTrailNode()
+    this.#leftTrail = new PacketMotionTrailNode()
+    this.#rightTrail = new PacketMotionTrailNode()
     // Trails first (behind), then packets on top.
-    this.stage.scene.root.add(this.leftTrail)
-    this.stage.scene.root.add(this.rightTrail)
+    this.#stage.scene.root.add(this.#leftTrail)
+    this.#stage.scene.root.add(this.#rightTrail)
 
-    this.leftPacket = new PacketNode({ id: 'gameover-collide-left' })
-    this.leftPacket.transform.x = -spawnX
-    this.leftPacket.transform.y = 0
-    this.leftPacket.transform.rotation = 0 + Math.PI / 2 // heading = 0 (+x)
-    this.leftPacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.rightPacket = new PacketNode({ id: 'gameover-collide-right' })
-    this.rightPacket.transform.x = spawnX
-    this.rightPacket.transform.y = 0
-    this.rightPacket.transform.rotation = Math.PI + Math.PI / 2 // heading = π (-x)
-    this.rightPacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.stage.scene.root.add(this.leftPacket)
-    this.stage.scene.root.add(this.rightPacket)
+    this.#leftPacket = new PacketNode({ id: 'gameover-collide-left' })
+    this.#leftPacket.transform.x = -spawnX
+    this.#leftPacket.transform.y = 0
+    this.#leftPacket.transform.rotation = 0 + Math.PI / 2 // heading = 0 (+x)
+    this.#leftPacket.lineWidth = PACKET_STROKE_CSS_PX
+    this.#rightPacket = new PacketNode({ id: 'gameover-collide-right' })
+    this.#rightPacket.transform.x = spawnX
+    this.#rightPacket.transform.y = 0
+    this.#rightPacket.transform.rotation = Math.PI + Math.PI / 2 // heading = π (-x)
+    this.#rightPacket.lineWidth = PACKET_STROKE_CSS_PX
+    this.#stage.scene.root.add(this.#leftPacket)
+    this.#stage.scene.root.add(this.#rightPacket)
 
     // Seed the trails' live-head + one sample so the ribbon starts
     // glued to each hex from frame 1 rather than snapping in on the
     // first tick.
-    this.leftTrail.setLiveHead(-spawnX, 0)
-    this.leftTrail.sample(-spawnX, 0)
-    this.rightTrail.setLiveHead(spawnX, 0)
-    this.rightTrail.sample(spawnX, 0)
+    this.#leftTrail.setLiveHead(-spawnX, 0)
+    this.#leftTrail.sample(-spawnX, 0)
+    this.#rightTrail.setLiveHead(spawnX, 0)
+    this.#rightTrail.sample(spawnX, 0)
     // Nothing more to sequence, `tickCollision` handles the meeting
     // moment and spawns the debris burst inline.
   }
 
-  private async runEscapeScene(): Promise<void> {
+  async #runEscapeScene(): Promise<void> {
     // Precompute the heading direction. Store as (dirX, dirY) so the
     // frame handler doesn't `cos/sin` every tick.
-    this.escapeDirX = Math.cos(this.escapeHeadingRad)
-    this.escapeDirY = Math.sin(this.escapeHeadingRad)
+    this.#escapeDirX = Math.cos(this.#escapeHeadingRad)
+    this.#escapeDirY = Math.sin(this.#escapeHeadingRad)
 
     // Starfield behind everything, fixed world positions pan past the
     // camera as it follows the packet, selling the "we are travelling"
@@ -397,37 +397,37 @@ export class GameOverScene {
       alphaRange: [0.15, 0.5],
       color: '#ffffff',
     })
-    this.stage.scene.root.add(stars)
+    this.#stage.scene.root.add(stars)
 
     // Motion trail behind the packet, added after stars so it renders
     // above them but under the hex. Same shooting-star ribbon the live
     // packets use.
-    this.escapeTrail = new PacketMotionTrailNode()
-    this.stage.scene.root.add(this.escapeTrail)
+    this.#escapeTrail = new PacketMotionTrailNode()
+    this.#stage.scene.root.add(this.#escapeTrail)
 
     // Single packet at world origin, the camera keeps it centred as it
     // drifts. Pre-orient so the top vertex points along the heading.
-    this.escapePacket = new PacketNode({ id: 'gameover-escape-packet' })
-    this.escapePacket.transform.rotation = this.escapeHeadingRad + Math.PI / 2
-    this.escapePacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.stage.scene.root.add(this.escapePacket)
+    this.#escapePacket = new PacketNode({ id: 'gameover-escape-packet' })
+    this.#escapePacket.transform.rotation = this.#escapeHeadingRad + Math.PI / 2
+    this.#escapePacket.lineWidth = PACKET_STROKE_CSS_PX
+    this.#stage.scene.root.add(this.#escapePacket)
 
     // Seed trail so the ribbon is anchored to the hex on frame 1.
-    this.escapeTrail.setLiveHead(0, 0)
-    this.escapeTrail.sample(0, 0)
+    this.#escapeTrail.setLiveHead(0, 0)
+    this.#escapeTrail.sample(0, 0)
 
     // Border line, dashed, perpendicular to the heading, offset ahead
     // of the packet's start. Fades out on cross.
-    this.borderLine = new BorderLineNode(
-      this.escapeHeadingRad,
+    this.#borderLine = new BorderLineNode(
+      this.#escapeHeadingRad,
       BORDER_LINE_LENGTH_WORLD,
       BORDER_LINE_COLOR,
       BORDER_LINE_WIDTH_CSS_PX,
       BORDER_LINE_DASH_CSS_PX,
     )
-    this.borderLine.transform.x = this.escapeDirX * BORDER_LINE_OFFSET_WORLD
-    this.borderLine.transform.y = this.escapeDirY * BORDER_LINE_OFFSET_WORLD
-    this.stage.scene.root.add(this.borderLine)
+    this.#borderLine.transform.x = this.#escapeDirX * BORDER_LINE_OFFSET_WORLD
+    this.#borderLine.transform.y = this.#escapeDirY * BORDER_LINE_OFFSET_WORLD
+    this.#stage.scene.root.add(this.#borderLine)
 
     // Wait for `tickEscape` to detect the crossing (sets
     // `this.borderCrossed = true` and calls `onBorderCrossed`), then
@@ -435,60 +435,60 @@ export class GameOverScene {
     try {
       // Poll for crossing (rare, usually resolves in ~700 ms). Sleep in
       // 60 ms chunks so we don't spin the animator with tiny waits.
-      while (!this.borderCrossed && !this.destroyed) {
-        await this.host.engine.wait(0.06, this.sessionAbort.signal)
+      while (!this.#borderCrossed && !this.#destroyed) {
+        await this.#host.engine.wait(0.06, this.#sessionAbort.signal)
       }
-      if (this.destroyed) return
+      if (this.#destroyed) return
 
-      await this.host.engine.wait(
+      await this.#host.engine.wait(
         EYE_APPEAR_DELAY_SEC,
-        this.sessionAbort.signal,
+        this.#sessionAbort.signal,
       )
-      if (this.destroyed) return
+      if (this.#destroyed) return
 
       // Spawn three eyes at the fixed local offsets. Actual world
       // positioning happens per-frame in `tickEscape`.
       for (let i = 0; i < EYE_LOCAL_OFFSETS.length; i++) {
         const eye = new EyeNode({
-          outlinePath: this.eyeOutlinePath,
-          outlineBounds: this.eyeOutlineBounds,
+          outlinePath: this.#eyeOutlinePath,
+          outlineBounds: this.#eyeOutlineBounds,
           irisRadius: EYE_IRIS_RADIUS_WORLD,
           irisMaxOffset: EYE_IRIS_MAX_OFFSET_WORLD,
           outlineFill: EYE_OUTLINE_FILL,
           irisFill: EYE_IRIS_FILL,
         })
-        this.stage.scene.root.add(eye)
-        this.eyes.push(eye)
+        this.#stage.scene.root.add(eye)
+        this.#eyes.push(eye)
       }
 
       // Staggered open + iris-slide per eye. Each eye runs its own async
       // chain so the three animations fully overlap after their offsets.
-      const openPromises = this.eyes.map(async (eye, i) => {
+      const openPromises = this.#eyes.map(async (eye, i) => {
         try {
           if (i > 0) {
-            await this.host.engine.wait(
+            await this.#host.engine.wait(
               i * EYE_STAGGER_SEC,
-              this.sessionAbort.signal,
+              this.#sessionAbort.signal,
             )
           }
-          if (this.destroyed) return
-          await this.host.engine.animation.tween(
+          if (this.#destroyed) return
+          await this.#host.engine.animation.tween(
             eye,
             { openAmount: 1 },
             {
               duration: EYE_OPEN_MS / 1000,
               easing: easings.outCubic,
-              signal: this.sessionAbort.signal,
+              signal: this.#sessionAbort.signal,
             },
           )
-          if (this.destroyed) return
-          await this.host.engine.animation.tween(
+          if (this.#destroyed) return
+          await this.#host.engine.animation.tween(
             eye,
             { irisFocusAmount: 1 },
             {
               duration: IRIS_SLIDE_MS / 1000,
               easing: easings.outCubic,
-              signal: this.sessionAbort.signal,
+              signal: this.#sessionAbort.signal,
             },
           )
         } catch (err) {
@@ -496,9 +496,9 @@ export class GameOverScene {
         }
       })
       await Promise.all(openPromises)
-      if (this.destroyed) return
+      if (this.#destroyed) return
 
-      if (EYE_BLINK_ENABLED) this.runBlinkLoop()
+      if (EYE_BLINK_ENABLED) this.#runBlinkLoop()
     } catch (err) {
       ignoreAbort(err)
     }
@@ -508,10 +508,10 @@ export class GameOverScene {
   // Beat handlers
   // -------------------------------------------------------------------------
 
-  private onBorderCrossed(at: Vec2): void {
+  #onBorderCrossed(at: Vec2): void {
     // Match the live game's border-breach sequence: impact flash first,
     // then the directional wall-shard burst.
-    this.spawnImpactFlash(at)
+    this.#spawnImpactFlash(at)
     // Border-breach shrapnel, same config the live game uses.
     const c = TUNING.lossAnim.borderBreach
     const burst = new DebrisBurstNode({
@@ -520,7 +520,7 @@ export class GameOverScene {
       triangleFraction: c.triangleFraction,
       initialSpeedWorld: c.initialSpeedWorld,
       dampingPerSec: c.dampingPerSec,
-      emitDirectionRad: this.escapeHeadingRad,
+      emitDirectionRad: this.#escapeHeadingRad,
       emitSpreadRad: c.emitSpreadRad,
       initialAngleOffsetRad: c.initialAngleOffsetRad,
       angInitialRadPerSec: c.angInitialRadPerSec,
@@ -531,19 +531,19 @@ export class GameOverScene {
       lineWidthCssPx: c.lineWidthCssPx,
       color: c.color,
     })
-    this.stage.scene.root.add(burst)
+    this.#stage.scene.root.add(burst)
 
     // Fade the border line out.
-    const line = this.borderLine
+    const line = this.#borderLine
     if (line && !line.isDestroyed) {
-      void this.host.engine.animation
+      void this.#host.engine.animation
         .tween(
           line.transform,
           { alpha: 0 },
           {
             duration: BORDER_LINE_FADE_MS / 1000,
             easing: easings.outQuad,
-            signal: this.sessionAbort.signal,
+            signal: this.#sessionAbort.signal,
           },
         )
         .then(() => {
@@ -553,7 +553,7 @@ export class GameOverScene {
     }
   }
 
-  private spawnCollisionDebris(at: Vec2): void {
+  #spawnCollisionDebris(at: Vec2): void {
     // Same code path the live game uses in `session.spawnCollisionDebris`
     //, every knob (speed range, damping, equidistant emission) lives on
     // `TUNING.lossAnim.debris` so the game-over vignette and the live
@@ -574,7 +574,7 @@ export class GameOverScene {
       color: c.color,
       equidistantEmission: c.equidistantEmission,
     })
-    this.stage.scene.root.add(burst)
+    this.#stage.scene.root.add(burst)
   }
 
   /**
@@ -582,11 +582,11 @@ export class GameOverScene {
    * white sparkle at the impact point. Reuses the same pre-centred
    * `impactFlashPath` from `loadGameAssets`.
    */
-  private spawnImpactFlash(at: Vec2): void {
+  #spawnImpactFlash(at: Vec2): void {
     const cfg = TUNING.lossAnim.impactFlash
     const flash = new Path2DNode({
-      id: `gameover-impact-flash-${this.flashIdSeq++}`,
-      path: this.impactFlashPath,
+      id: `gameover-impact-flash-${this.#flashIdSeq++}`,
+      path: this.#impactFlashPath,
       fill: cfg.color,
       hitMode: 'none',
     })
@@ -594,7 +594,7 @@ export class GameOverScene {
     flash.transform.y = at.y
     flash.transform.scaleX = cfg.scaleFrom
     flash.transform.scaleY = cfg.scaleFrom
-    this.stage.scene.root.add(flash)
+    this.#stage.scene.root.add(flash)
     flash
       .tween(
         { scaleX: cfg.scaleTo, scaleY: cfg.scaleTo, alpha: 0 },
@@ -611,7 +611,7 @@ export class GameOverScene {
    * both packets when they collide, otherwise the ribbon's last frame of
    * samples sits static in the scene forever.
    */
-  private fadeAndDestroyTrail(trail: PacketMotionTrailNode | null): void {
+  #fadeAndDestroyTrail(trail: PacketMotionTrailNode | null): void {
     if (!trail || trail.isDestroyed) return
     trail
       .tween({ alpha: 0 }, { duration: 0.3, easing: easings.outQuad })
@@ -621,41 +621,41 @@ export class GameOverScene {
       .catch(ignoreAbort)
   }
 
-  private runBlinkLoop(): void {
+  #runBlinkLoop(): void {
     // Each eye runs its own independent blink loop, every iteration
     // picks a fresh random delay in `EYE_BLINK_INTERVAL_SEC`, so the
     // three eyes fall out of sync naturally over time. Reads as three
     // separate creatures glancing at their own pace rather than one
     // three-eyed thing blinking as one.
-    for (const eye of this.eyes) {
-      void this.runEyeBlinkLoop(eye)
+    for (const eye of this.#eyes) {
+      void this.#runEyeBlinkLoop(eye)
     }
   }
 
-  private async runEyeBlinkLoop(eye: EyeNode): Promise<void> {
+  async #runEyeBlinkLoop(eye: EyeNode): Promise<void> {
     try {
-      while (!this.destroyed && !eye.isDestroyed) {
+      while (!this.#destroyed && !eye.isDestroyed) {
         const [lo, hi] = EYE_BLINK_INTERVAL_SEC
         const delay = lo + Math.random() * (hi - lo)
-        await this.host.engine.wait(delay, this.sessionAbort.signal)
-        if (this.destroyed || eye.isDestroyed) return
-        await this.host.engine.animation.tween(
+        await this.#host.engine.wait(delay, this.#sessionAbort.signal)
+        if (this.#destroyed || eye.isDestroyed) return
+        await this.#host.engine.animation.tween(
           eye,
           { openAmount: 0.05 },
           {
             duration: EYE_BLINK_HALF_MS / 1000,
             easing: easings.inQuad,
-            signal: this.sessionAbort.signal,
+            signal: this.#sessionAbort.signal,
           },
         )
-        if (this.destroyed || eye.isDestroyed) return
-        await this.host.engine.animation.tween(
+        if (this.#destroyed || eye.isDestroyed) return
+        await this.#host.engine.animation.tween(
           eye,
           { openAmount: 1 },
           {
             duration: EYE_BLINK_HALF_MS / 1000,
             easing: easings.outQuad,
-            signal: this.sessionAbort.signal,
+            signal: this.#sessionAbort.signal,
           },
         )
       }
@@ -675,12 +675,12 @@ export class GameOverScene {
  * allocations.
  */
 class BorderLineNode extends SceneNode {
-  private readonly nx: number
-  private readonly ny: number
-  private readonly halfLength: number
-  private readonly color: string
-  private readonly widthCssPx: number
-  private readonly dashCssPx: readonly [number, number]
+  readonly #nx: number
+  readonly #ny: number
+  readonly #halfLength: number
+  readonly #color: string
+  readonly #widthCssPx: number
+  readonly #dashCssPx: readonly [number, number]
 
   constructor(
     headingRad: number,
@@ -691,12 +691,12 @@ class BorderLineNode extends SceneNode {
   ) {
     super('gameover-border-line')
     // Perpendicular direction (heading rotated +π/2).
-    this.nx = -Math.sin(headingRad)
-    this.ny = Math.cos(headingRad)
-    this.halfLength = lengthWorld / 2
-    this.color = color
-    this.widthCssPx = widthCssPx
-    this.dashCssPx = dashCssPx
+    this.#nx = -Math.sin(headingRad)
+    this.#ny = Math.cos(headingRad)
+    this.#halfLength = lengthWorld / 2
+    this.#color = color
+    this.#widthCssPx = widthCssPx
+    this.#dashCssPx = dashCssPx
   }
 
   override draw(gfx: Gfx2D, camera: Camera): void {
@@ -705,17 +705,17 @@ class BorderLineNode extends SceneNode {
     const s = camera.strokeSpaceScale()
     // Zero-length dashes = solid stroke.
     const dash =
-      this.dashCssPx[0] <= 0 && this.dashCssPx[1] <= 0
+      this.#dashCssPx[0] <= 0 && this.#dashCssPx[1] <= 0
         ? undefined
-        : [this.dashCssPx[0] * s, this.dashCssPx[1] * s]
+        : [this.#dashCssPx[0] * s, this.#dashCssPx[1] * s]
     gfx.save()
     gfx.setAlpha(a > 1 ? 1 : a)
     gfx.strokeLine(
-      -this.nx * this.halfLength,
-      -this.ny * this.halfLength,
-      this.nx * this.halfLength,
-      this.ny * this.halfLength,
-      { color: this.color, width: this.widthCssPx * s, dash },
+      -this.#nx * this.#halfLength,
+      -this.#ny * this.#halfLength,
+      this.#nx * this.#halfLength,
+      this.#ny * this.#halfLength,
+      { color: this.#color, width: this.#widthCssPx * s, dash },
     )
     gfx.restore()
   }

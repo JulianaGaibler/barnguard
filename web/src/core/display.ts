@@ -7,8 +7,8 @@ import type { LanguageCode, Messages } from '@src/i18n'
 /**
  * One language a display supports: its BCP-47-ish code, an operator-facing
  * label for the language-toggle UI, and the full merged `Messages` bundle for
- * that language (typically composed by spreading `@src/i18n/coreLocales.de`
- * or `.en` and adding the display's own sections on top). Displays can also
+ * that language (typically composed by spreading `@src/i18n/coreLocales.de` or
+ * `.en` and adding the display's own sections on top). Displays can also
  * introduce languages the core has never shipped — the label + messages are
  * fully owned here.
  */
@@ -19,8 +19,8 @@ export interface LocaleBundle {
 }
 
 /**
- * Context handed to a display's label renderer. Panels pass the live locale
- * and the current tape width so the renderer stays store-free.
+ * Context handed to a display's label renderer. Panels pass the live locale and
+ * the current tape width so the renderer stays store-free.
  */
 export interface LabelRenderContext {
   messages: Messages
@@ -28,9 +28,9 @@ export interface LabelRenderContext {
 }
 
 /**
- * Options for the attendant printer-panel preview. Toggling the high-score
- * pill lets the operator inspect the layout for both cases without waiting
- * for a real game.
+ * Options for the attendant printer-panel preview. Toggling the high-score pill
+ * lets the operator inspect the layout for both cases without waiting for a
+ * real game.
  */
 export interface PreviewLabelContext extends LabelRenderContext {
   highScore: boolean
@@ -39,9 +39,9 @@ export interface PreviewLabelContext extends LabelRenderContext {
 /**
  * A "display" is one event's variant of the kiosk: theme + game viewport +
  * label renderer. Each display module exports a `DisplayManifest` and is
- * registered in `displayRegistry.ts` under a stable id. `main.ts` resolves
- * the manifest from the `?display=` URL parameter, applies the theme, sets
- * the active-display store, and hands the manifest to `App.svelte`.
+ * registered in `displayRegistry.ts` under a stable id. `main.ts` resolves the
+ * manifest from the `?display=` URL parameter, applies the theme, sets the
+ * active-display store, and hands the manifest to `App.svelte`.
  */
 export interface DisplayManifest {
   /** Stable id, matches the URL parameter and the server `display` tag. */
@@ -51,17 +51,16 @@ export interface DisplayManifest {
   theme: Theme
   /**
    * Languages this display ships. Must contain at least one entry. Attendant
-   * UI's language toggle cycles this list — single-locale displays end up
-   * with the toggle hidden.
+   * UI's language toggle cycles this list — single-locale displays end up with
+   * the toggle hidden.
    */
   locales: LocaleBundle[]
-  /**
-   * Language selected at boot. Must be one of the `locales` language codes.
-   */
+  /** Language selected at boot. Must be one of the `locales` language codes. */
   defaultLanguage: LanguageCode
   /**
    * The Svelte component rendered in the main viewport. Owns the game canvas
-   * and any display-specific overlays (confirm dialogs, game-over card, pause).
+   * and any display-specific overlays (confirm dialogs, game-over card,
+   * pause).
    */
   root: Component
   /**

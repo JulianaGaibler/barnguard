@@ -8,23 +8,25 @@ const ZOOM_OUT_KEY = 'KeyQ'
  * Free camera controlled by keyboard. Extends the base Camera so the renderer
  * can swap it in transparently, anything that reads world↔screen projection off
  * a Camera keeps working.
+ *
+ * @category Debug
  */
 export class DebugCamera extends Camera {
-  private readonly held = new Set<string>()
-  private _follow = false
-  private gameCamera: Camera
+  readonly #held = new Set<string>()
+  #_follow = false
+  #gameCamera: Camera
 
   constructor(gameCamera: Camera) {
     super({ ...gameCamera.viewport }, { ...gameCamera.pixelSize })
-    this.gameCamera = gameCamera
+    this.#gameCamera = gameCamera
   }
 
   get follow(): boolean {
-    return this._follow
+    return this.#_follow
   }
   setFollow(v: boolean): void {
-    this._follow = v
-    if (v) this.setViewport({ ...this.gameCamera.viewport })
+    this.#_follow = v
+    if (v) this.setViewport({ ...this.#gameCamera.viewport })
   }
 
   /**
@@ -33,23 +35,23 @@ export class DebugCamera extends Camera {
    * the new stage's camera. Callers usually invoke `reset()` after.
    */
   setGameCamera(cam: Camera): void {
-    this.gameCamera = cam
-    if (this._follow) this.setViewport({ ...cam.viewport })
+    this.#gameCamera = cam
+    if (this.#_follow) this.setViewport({ ...cam.viewport })
   }
 
   /** Snap to whatever the game camera currently shows. */
   reset(): void {
-    this.setViewport({ ...this.gameCamera.viewport })
+    this.setViewport({ ...this.#gameCamera.viewport })
   }
 
   /** Report a key state change (down / up). */
   setKey(code: string, pressed: boolean): void {
-    if (pressed) this.held.add(code)
-    else this.held.delete(code)
+    if (pressed) this.#held.add(code)
+    else this.#held.delete(code)
   }
 
   clearKeys(): void {
-    this.held.clear()
+    this.#held.clear()
   }
 
   /**
@@ -57,26 +59,26 @@ export class DebugCamera extends Camera {
    * from currently-held keys.
    */
   step(dt: number): void {
-    if (this._follow) {
-      this.setViewport({ ...this.gameCamera.viewport })
+    if (this.#_follow) {
+      this.setViewport({ ...this.#gameCamera.viewport })
       return
     }
-    if (this.held.size === 0) return
+    if (this.#held.size === 0) return
     // Pan: 0.7× viewport per second at full press (feels the same at any zoom).
     const panRate = 0.7 * dt
     let vx = this.viewport.x
     let vy = this.viewport.y
     let vw = this.viewport.width
     let vh = this.viewport.height
-    if (this.held.has('KeyW')) vy -= vh * panRate
-    if (this.held.has('KeyS')) vy += vh * panRate
-    if (this.held.has('KeyA')) vx -= vw * panRate
-    if (this.held.has('KeyD')) vx += vw * panRate
+    if (this.#held.has('KeyW')) vy -= vh * panRate
+    if (this.#held.has('KeyS')) vy += vh * panRate
+    if (this.#held.has('KeyA')) vx -= vw * panRate
+    if (this.#held.has('KeyD')) vx += vw * panRate
     // Zoom: exponential factor per second.
     const zoomRate = 1.5 * dt
     let factor = 1
-    if (this.held.has(ZOOM_IN_KEY)) factor *= Math.exp(-zoomRate)
-    if (this.held.has(ZOOM_OUT_KEY)) factor *= Math.exp(zoomRate)
+    if (this.#held.has(ZOOM_IN_KEY)) factor *= Math.exp(-zoomRate)
+    if (this.#held.has(ZOOM_OUT_KEY)) factor *= Math.exp(zoomRate)
     if (factor !== 1) {
       const cx = vx + vw / 2
       const cy = vy + vh / 2

@@ -1,4 +1,5 @@
 import { SceneNode } from '../scene/SceneNode'
+import { hitTestCircle } from '../scene/hitTest'
 import type { Camera } from '../camera/Camera'
 import type { Rect } from '../math/Rect'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
@@ -6,6 +7,11 @@ import type { Gfx2D } from '../render/gfx/Gfx2D'
 /** Reused scratch for the 4-corner rect-stroke polyline (draw is synchronous). */
 const RECT_STROKE_SCRATCH = new Float32Array(8)
 
+/**
+ * Local-space extent of a {@link ShapeNode}: a circle or a rect.
+ *
+ * @category Nodes
+ */
 export type ShapeGeometry =
   | {
       kind: 'circle'
@@ -22,11 +28,19 @@ export type ShapeGeometry =
       centered?: boolean
     }
 
+/**
+ * Constructor options for {@link ShapeNode}.
+ *
+ * @category Nodes
+ */
 export interface ShapeNodeOptions {
   id?: string
   geometry: ShapeGeometry
+  /** Fill color (any CSS color). Omit to leave unfilled. */
   fill?: string
+  /** Stroke color (any CSS color). Omit to leave unstroked. */
   stroke?: string
+  /** Stroke width in `strokeSpace` units. Default 1. */
   lineWidth?: number
   /**
    * `'screen'` (default), `lineWidth` is a CSS-pixel value that stays visually
@@ -37,8 +51,22 @@ export interface ShapeNodeOptions {
 }
 
 /**
- * Primitive circle/rect renderer. The node's transform positions the shape in
- * world space; `geometry` describes local-space extent.
+ * Draws a filled and/or stroked circle or rect. The node's `Transform2D` places
+ * it in the world; {@link ShapeGeometry} gives the local-space extent. A circle
+ * centers on the node origin, a rect centers by default (set `centered: false`
+ * for a top-left origin). Circles hit-test exactly; rects fall back to the AABB
+ * check.
+ *
+ * @category Nodes
+ * @example
+ *   const dot = new ShapeNode({
+ *     geometry: { kind: 'circle', radius: 12 },
+ *     fill: '#ffd34d',
+ *     stroke: '#000',
+ *     lineWidth: 2,
+ *   })
+ *   dot.transform.x = 200
+ *   scene.root.add(dot)
  */
 export class ShapeNode extends SceneNode {
   geometry: ShapeGeometry
@@ -54,10 +82,10 @@ export class ShapeNode extends SceneNode {
     this.stroke = opts.stroke ?? null
     this.lineWidth = opts.lineWidth ?? 1
     this.strokeSpace = opts.strokeSpace ?? 'screen'
-    this.recomputeDebugBounds()
+    this.#recomputeDebugBounds()
   }
 
-  private recomputeDebugBounds(): void {
+  #recomputeDebugBounds(): void {
     switch (this.geometry.kind) {
       case 'circle': {
         const r = this.geometry.radius
@@ -90,16 +118,13 @@ export class ShapeNode extends SceneNode {
     if (this.geometry.kind !== 'circle') {
       return super.hitTest(worldX, worldY, touchSlopWorld)
     }
-    const w = this.transform.world
-    const det = w.a * w.d - w.b * w.c
-    if (det === 0) return false
-    const invDet = 1 / det
-    const dx = worldX - w.e
-    const dy = worldY - w.f
-    const localX = (w.d * dx - w.c * dy) * invDet
-    const localY = (-w.b * dx + w.a * dy) * invDet
-    const r = this.geometry.radius + touchSlopWorld
-    return localX * localX + localY * localY <= r * r
+    return hitTestCircle(
+      this,
+      worldX,
+      worldY,
+      this.geometry.radius,
+      touchSlopWorld,
+    )
   }
 
   /** Expose the current geometry-derived local AABB for downstream code. */

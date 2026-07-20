@@ -13,9 +13,8 @@ const HIT_RADIUS = 14
 
 /**
  * A small hit-enabled circle drawn at the tip of a partially-drawn path.
- * Grabbing it resumes the drag via `EndpointResumeBehaviour`, the behaviour
- * hides the handle during drag and re-parks it at the trail's new tip on
- * release.
+ * Grabbing it resumes the drag via `EndpointResumeBehavior`, the behavior hides
+ * the handle during drag and re-parks it at the trail's new tip on release.
  *
  * Renders as a filled cream dot (no stroke) so the affordance reads as a
  * discreet marker without pulling attention off the packet. Overrides `hitTest`

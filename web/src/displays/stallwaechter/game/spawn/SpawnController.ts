@@ -11,14 +11,14 @@ import { TUNING } from '../data/tuning'
  * speeding things up. See `TUNING.difficulty`.
  */
 export class SessionDifficulty {
-  private spawns = 0
+  #spawns = 0
 
   reset(): void {
-    this.spawns = 0
+    this.#spawns = 0
   }
 
   onSpawn(): void {
-    this.spawns++
+    this.#spawns++
   }
 
   /**
@@ -37,7 +37,7 @@ export class SessionDifficulty {
       slowChanceGrowthPer,
       slowChanceCap,
     } = TUNING.difficulty
-    const raw = slowChanceStart + slowChanceGrowthPer * this.spawns
+    const raw = slowChanceStart + slowChanceGrowthPer * this.#spawns
     const slowChance = raw > slowChanceCap ? slowChanceCap : raw
     const isSlow = Math.random() < slowChance
     return isSlow ? regularSpeedWorld * slowSpeedFactor : regularSpeedWorld
@@ -46,7 +46,7 @@ export class SessionDifficulty {
   get nextInterval(): number {
     const { startIntervalSec, intervalDecayPer, intervalFloorSec } =
       TUNING.difficulty
-    const raw = startIntervalSec * Math.pow(intervalDecayPer, this.spawns)
+    const raw = startIntervalSec * Math.pow(intervalDecayPer, this.#spawns)
     return Math.max(raw, intervalFloorSec)
   }
 }
@@ -79,48 +79,45 @@ export interface SpawnControllerHooks {
  */
 export class SpawnController {
   readonly difficulty = new SessionDifficulty()
-  private readonly hooks: SpawnControllerHooks
-  private readonly wait: (
-    seconds: number,
-    signal?: AbortSignal,
-  ) => Promise<void>
-  private controller: AbortController | null = null
+  readonly #hooks: SpawnControllerHooks
+  readonly #wait: (seconds: number, signal?: AbortSignal) => Promise<void>
+  #controller: AbortController | null = null
 
   constructor(
     hooks: SpawnControllerHooks,
     wait: (seconds: number, signal?: AbortSignal) => Promise<void>,
   ) {
-    this.hooks = hooks
-    this.wait = wait
+    this.#hooks = hooks
+    this.#wait = wait
   }
 
   /** Kick off the spawn loop. Cancellable via `stop()`. */
   start(): void {
-    this.controller?.abort()
+    this.#controller?.abort()
     const controller = new AbortController()
-    this.controller = controller
+    this.#controller = controller
     this.difficulty.reset()
-    void this.loop(controller.signal).catch(ignoreAbort)
+    void this.#loop(controller.signal).catch(ignoreAbort)
   }
 
   /** Cancel the spawn loop (aborts any pending `wait`). */
   stop(): void {
-    this.controller?.abort()
-    this.controller = null
+    this.#controller?.abort()
+    this.#controller = null
   }
 
-  private async loop(signal: AbortSignal): Promise<void> {
-    await this.wait(TUNING.spawn.firstDelaySec, signal)
+  async #loop(signal: AbortSignal): Promise<void> {
+    await this.#wait(TUNING.spawn.firstDelaySec, signal)
     while (!signal.aborted) {
-      if (!this.hooks.isPlaying()) return
-      this.trySpawn()
+      if (!this.#hooks.isPlaying()) return
+      this.#trySpawn()
       const interval = this.difficulty.nextInterval
-      await this.wait(interval, signal)
+      await this.#wait(interval, signal)
     }
   }
 
-  private trySpawn(): void {
-    const point = this.rejectionSample()
+  #trySpawn(): void {
+    const point = this.#rejectionSample()
     if (!point) {
       // Every spawn slot has 20 retries; if all failed, we log and skip.
       // The next interval kicks in normally, no cascade of failures.
@@ -129,9 +126,9 @@ export class SpawnController {
       )
       return
     }
-    const ep = this.hooks.epicenter()
-    const heading = pickInitialHeading(point, ep?.center, this.hooks.mask())
-    const packet = this.hooks.spawnPacket(
+    const ep = this.#hooks.epicenter()
+    const heading = pickInitialHeading(point, ep?.center, this.#hooks.mask())
+    const packet = this.#hooks.spawnPacket(
       point,
       heading,
       this.difficulty.sampleTravelSpeed(),
@@ -139,11 +136,11 @@ export class SpawnController {
     if (packet) this.difficulty.onSpawn()
   }
 
-  private rejectionSample(): Vec2 | null {
-    const bounds = this.hooks.spawnBounds()
-    const mask = this.hooks.mask()
-    const ep = this.hooks.epicenter()
-    const packets = this.hooks.activePackets()
+  #rejectionSample(): Vec2 | null {
+    const bounds = this.#hooks.spawnBounds()
+    const mask = this.#hooks.mask()
+    const ep = this.#hooks.epicenter()
+    const packets = this.#hooks.activePackets()
     const maxRetries = TUNING.spawn.maxRetries
     const minBorder = TUNING.spawn.minDistFromBorderWorld
     const minEp = TUNING.spawn.minDistFromEpicenterWorld
@@ -178,8 +175,8 @@ export class SpawnController {
 }
 
 /**
- * Random heading pointing broadly at Germany's interior but at least 45°
- * off the direct-to-epicenter line. Sweeps each candidate ray forward in
+ * Random heading pointing broadly at Germany's interior but at least 45° off
+ * the direct-to-epicenter line. Sweeps each candidate ray forward in
  * `initialHeadingProbeStepWorld` steps up to `initialHeadingProbeWorld`,
  * keeping `initialHeadingClearInsetWorld` off the border. Longest surviving
  * runway wins, a full sweep is accepted immediately. Always returns.

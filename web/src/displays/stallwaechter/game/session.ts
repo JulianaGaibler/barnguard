@@ -1,5 +1,5 @@
 import {
-  GroupNode,
+  SceneNode,
   Path2DNode,
   createEmitter,
   easings,
@@ -17,9 +17,9 @@ import {
   DebrisBurstNode,
   type DebrisBurstOptions,
 } from './nodes/DebrisBurstNode'
-import { EpicenterBehaviour } from './behaviours/EpicenterBehaviour'
-import { StateSelectionBehaviour } from './behaviours/StateSelectionBehaviour'
-import { PacketBehaviour } from './behaviours/PacketBehaviour'
+import { EpicenterBehavior } from './behaviors/EpicenterBehavior'
+import { StateSelectionBehavior } from './behaviors/StateSelectionBehavior'
+import { PacketBehavior } from './behaviors/PacketBehavior'
 import { spawnPacketInSession } from './spawnPacketInSession'
 import { fireStateRipple } from './animations/stateRipple'
 import { GridOverlayNode } from './nodes/GridOverlayNode'
@@ -185,9 +185,9 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   const stateNodes = new Map<StateId, Path2DNode>()
   const outlineNode = buildOutlineNode(assets)
-  const packetLayer = new GroupNode('packet-layer')
-  const pathLayer = new GroupNode('path-layer')
-  const handleLayer = new GroupNode('handle-layer')
+  const packetLayer = new SceneNode('packet-layer')
+  const pathLayer = new SceneNode('path-layer')
+  const handleLayer = new SceneNode('handle-layer')
   const activePackets: PacketNode[] = []
   const gridOverlay = new GridOverlayNode({
     mask: assets.mask,
@@ -236,7 +236,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   // --- Scene build ---------------------------------------------------------
   await host.loadScene((scene) => {
-    const mapGroup = new GroupNode('map')
+    const mapGroup = new SceneNode('map')
     mapGroup.renderLayer = 'static'
     scene.root.add(mapGroup)
 
@@ -253,7 +253,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
         debugBounds: entry.bounds,
       })
       node.renderLayer = 'static'
-      node.addBehaviour(new StateSelectionBehaviour(info.id, onStateTap))
+      node.addBehavior(new StateSelectionBehavior(info.id, onStateTap))
       mapGroup.add(node)
       stateNodes.set(info.id, node)
     }
@@ -344,7 +344,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
       })
       epicenter.transform.alpha = 0
       epicenter.renderLayer = 'dynamic'
-      epicenter.addBehaviour(new EpicenterBehaviour())
+      epicenter.addBehavior(new EpicenterBehavior())
       host.engine.scene.root.add(epicenter)
       // Fade the epicenter in as the camera zooms.
       void epicenter
@@ -383,7 +383,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   // demote back to `'static'` on completion. Setting `renderLayer` to /
   // from `'static'` invalidates `scene.staticInvalid`, so the demote
   // triggers exactly one re-bake with the final alpha value, the same
-  // pattern `ShockwaveBehaviour` uses for pulses.
+  // pattern `ShockwaveBehavior` uses for pulses.
   //
   // The same treatment applies to the outline path. Nodes whose alpha is
   // already at target skip the promote-tween-demote dance entirely so
@@ -477,7 +477,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
           pathLayerAdd: (node) => pathLayer.add(node),
           handleLayerAdd: (node) => handleLayer.add(node),
           bindTrailToPacket: (target, trail) => {
-            const b = target.getBehaviour(PacketBehaviour)
+            const b = target.getBehavior(PacketBehavior)
             b?.setTrail(trail)
           },
         },
@@ -503,9 +503,9 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   ): void {
     if (sessionState !== 'playing') return
     if (selectedStateId === null) return
-    // The exit packet keeps drifting per the spec, behaviour handles that
+    // The exit packet keeps drifting per the spec, behavior handles that
     // in its `'lost'` mode gate. All other packets freeze via the state
-    // check inside PacketBehaviour.onFixedStep. The visual pair (flash +
+    // check inside PacketBehavior.onFixedStep. The visual pair (flash +
     // border-shrapnel burst) plays out at the breach point on the shared
     // clock while the grace timer counts down before the game-over card.
     spawnImpactFlash(worldPos)
@@ -658,7 +658,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // scaffolding. Packets are gated on `mode === 'travelling'` before
     // they steer along a trail, and by this point they're either
     // destroyed (collision) or `'lost'` (breach drifting out), so a
-    // dangling trail ref on `PacketBehaviour` never gets dereferenced.
+    // dangling trail ref on `PacketBehavior` never gets dereferenced.
     pathLayer.destroyChildren()
     handleLayer.destroyChildren()
 

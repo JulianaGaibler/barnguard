@@ -13,15 +13,25 @@
  *   even with `'disc'`.
  * - `'hexagon'` , solid filled hexagon, flat-topped (vertex-up), centered on the
  *   sprite. Sized to ~85% of the tile for a small AA safety margin. Pair with
- *   `blend: 'source-over'` for a crisp "small packet" look; additive blends
- *   still bloom on overlap.
+ *   `blend: 'source-over'` for a crisp small-sprite look; additive blends still
+ *   bloom on overlap.
+ *
+ * @category Particles
  */
+
+import { withAlpha } from '../render/gfx/parseColor'
 
 export type ParticleSpriteStyle = 'gradient' | 'disc' | 'hexagon'
 
 const SPRITE_SIZE = 64
 const spriteCache = new Map<string, HTMLCanvasElement>()
 
+/**
+ * Return the cached sprite tile for a `(color, style)` pair, rendering and
+ * caching it on first use. See {@link ParticleSpriteStyle} for the styles.
+ *
+ * @category Particles
+ */
 export function getParticleSprite(
   color: string,
   style: ParticleSpriteStyle = 'gradient',
@@ -66,11 +76,11 @@ export function getParticleSprite(
     // last ~6%, reads as a hard-edged disc at any target size.
     grad.addColorStop(0, color)
     grad.addColorStop(0.94, color)
-    grad.addColorStop(1, withAlpha(color, 0x00))
+    grad.addColorStop(1, withAlpha(color, 0))
   } else {
     grad.addColorStop(0, color)
-    grad.addColorStop(0.5, withAlpha(color, 0x80))
-    grad.addColorStop(1, withAlpha(color, 0x00))
+    grad.addColorStop(0.5, withAlpha(color, 0.5))
+    grad.addColorStop(1, withAlpha(color, 0))
   }
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, SPRITE_SIZE, SPRITE_SIZE)
@@ -90,28 +100,13 @@ function tagAsParticleAtlasCandidate(canvas: HTMLCanvasElement): void {
     true
 }
 
-/** For tests + tear-down; the engine itself doesn't need to touch this. */
+/**
+ * For tests + tear-down; the engine itself doesn't need to touch this.
+ *
+ * @category Particles
+ */
 export function clearParticleSpriteCache(): void {
   spriteCache.clear()
-}
-
-function withAlpha(color: string, alphaByte: number): string {
-  const a = clampByte(alphaByte).toString(16).padStart(2, '0')
-  if (color.startsWith('#')) {
-    if (color.length === 4) {
-      const r = color[1]
-      const g = color[2]
-      const b = color[3]
-      return `#${r}${r}${g}${g}${b}${b}${a}`
-    }
-    if (color.length === 7) return `${color}${a}`
-    if (color.length === 9) return `${color.slice(0, 7)}${a}`
-  }
-  return color
-}
-
-function clampByte(n: number): number {
-  return Math.max(0, Math.min(255, Math.round(n)))
 }
 
 export const PARTICLE_SPRITE_SIZE = SPRITE_SIZE

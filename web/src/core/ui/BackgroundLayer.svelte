@@ -13,7 +13,7 @@
     position: fixed
     inset: 0
     z-index: 0
-    background: linear-gradient(299deg, #243B67 19.93%, #223663 75.96%), #263860
+    background: var(--color-app-backdrop)
     pointer-events: none
 
   .bg__wave

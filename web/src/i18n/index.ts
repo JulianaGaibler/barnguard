@@ -20,9 +20,9 @@ export const supportedLanguages = writable<DisplayLanguage[]>([])
 
 /**
  * The active UI language. In-memory only — reloads reset to the display's
- * default. The booth typically runs a long-lived session so this rarely
- * resets in practice; an attendant can flip it via BoothMenu or the corner
- * language toggle.
+ * default. The booth typically runs a long-lived session so this rarely resets
+ * in practice; an attendant can flip it via BoothMenu or the corner language
+ * toggle.
  */
 export const locale = writable<LanguageCode>('')
 
@@ -59,8 +59,8 @@ export function registerDisplayLocales(
 /**
  * The active message tree. Components read localized strings from this store,
  * e.g. `$t.game.startButton` — never inline text. Returns `null` before the
- * display has registered its locales; components should render conditionally
- * on boot but in practice `main.ts` finishes registration before mount.
+ * display has registered its locales; components should render conditionally on
+ * boot but in practice `main.ts` finishes registration before mount.
  */
 export const t: Readable<Messages> = derived(
   [locale, displayLocales],

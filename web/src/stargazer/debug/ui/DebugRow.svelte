@@ -2,7 +2,7 @@
   interface Props {
     label: string
     value: string | number
-    tone?: 'default' | 'warning' | 'error' | 'accent'
+    tone?: 'default' | 'warning' | 'error' | 'accent' | 'muted'
   }
 
   let { label, value, tone = 'default' }: Props = $props()
@@ -15,6 +15,7 @@
     class:warning={tone === 'warning'}
     class:error={tone === 'error'}
     class:accent={tone === 'accent'}
+    class:muted={tone === 'muted'}
   >
     {value}
   </span>

@@ -43,17 +43,17 @@ export interface EyeNodeOptions {
  *   anchored to the packet, so its `dx/dy` to the packet stay constant across
  *   frames).
  *
- * Not hit-enabled. Not driven by any behaviour, the scene owns the tween
+ * Not hit-enabled. Not driven by any behavior, the scene owns the tween
  * lifecycle directly.
  */
 export class EyeNode extends SceneNode {
-  private readonly outlinePath: Path2D
-  private readonly outlineHalfWidth: number
-  private readonly outlineHalfHeight: number
-  private readonly irisRadius: number
-  private readonly irisMaxOffset: number
-  private readonly outlineFill: string
-  private readonly irisFill: string
+  readonly #outlinePath: Path2D
+  readonly #outlineHalfWidth: number
+  readonly #outlineHalfHeight: number
+  readonly #irisRadius: number
+  readonly #irisMaxOffset: number
+  readonly #outlineFill: string
+  readonly #irisFill: string
 
   /** 0..1, vertical scale on the outline. Scene tweens this on spawn. */
   openAmount = 0
@@ -68,18 +68,18 @@ export class EyeNode extends SceneNode {
 
   constructor(opts: EyeNodeOptions) {
     super('eye')
-    this.outlinePath = opts.outlinePath
-    this.outlineHalfWidth = opts.outlineBounds.width / 2
-    this.outlineHalfHeight = opts.outlineBounds.height / 2
-    this.irisRadius = opts.irisRadius
+    this.#outlinePath = opts.outlinePath
+    this.#outlineHalfWidth = opts.outlineBounds.width / 2
+    this.#outlineHalfHeight = opts.outlineBounds.height / 2
+    this.#irisRadius = opts.irisRadius
     // Clamp to something sane in case the caller passes a giant offset.
-    this.irisMaxOffset = Math.min(
+    this.#irisMaxOffset = Math.min(
       opts.irisMaxOffset,
-      this.outlineHalfWidth - this.irisRadius,
-      this.outlineHalfHeight - this.irisRadius,
+      this.#outlineHalfWidth - this.#irisRadius,
+      this.#outlineHalfHeight - this.#irisRadius,
     )
-    this.outlineFill = opts.outlineFill
-    this.irisFill = opts.irisFill
+    this.#outlineFill = opts.outlineFill
+    this.#irisFill = opts.irisFill
   }
 
   override draw(gfx: Gfx2D, _camera: Camera): void {
@@ -90,7 +90,7 @@ export class EyeNode extends SceneNode {
     // (0, 0) is the eye's visual centre, and the Y-scale keeps that
     // centre pinned.
     gfx.scale(1, this.openAmount)
-    gfx.fillPath2D(this.outlinePath, this.outlineFill)
+    gfx.fillPath2D(this.#outlinePath, this.#outlineFill)
 
     // Iris offset, direction from eye centre (world) toward `lookAt`,
     // multiplied by `irisMaxOffset` and by `irisFocusAmount` so the
@@ -101,13 +101,13 @@ export class EyeNode extends SceneNode {
     const dy = this.lookAtY - this.transform.y
     const len = Math.hypot(dx, dy) || 1
     const focus = this.irisFocusAmount
-    const ox = (dx / len) * this.irisMaxOffset * focus
+    const ox = (dx / len) * this.#irisMaxOffset * focus
     // Compensate the outer Y scale so the iris's Y position tracks the
     // world direction rather than being squashed with the lid.
     const oy =
-      ((dy / len) * this.irisMaxOffset * focus) /
+      ((dy / len) * this.#irisMaxOffset * focus) /
       Math.max(this.openAmount, 0.001)
-    gfx.fillCircle(ox, oy, this.irisRadius, this.irisFill)
+    gfx.fillCircle(ox, oy, this.#irisRadius, this.#irisFill)
     gfx.restore()
   }
 }

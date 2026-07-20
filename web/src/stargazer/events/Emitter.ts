@@ -1,8 +1,23 @@
+/**
+ * Handler for an {@link Emitter} event, called with the event's payload.
+ *
+ * @category Events
+ */
 export type EmitterHandler<T> = (payload: T) => void
 
+/**
+ * Typed event bus keyed by an event map `M`. Payload types follow the map, so
+ * `on` and `emit` are checked against the key. Build one with
+ * {@link createEmitter}.
+ *
+ * @category Events
+ */
 export interface Emitter<M> {
+  /** Subscribe to `key`. Returns an unsubscribe function. */
   on<K extends keyof M>(key: K, handler: EmitterHandler<M[K]>): () => void
+  /** Unsubscribe a handler previously passed to `on`. */
   off<K extends keyof M>(key: K, handler: EmitterHandler<M[K]>): void
+  /** Dispatch `payload` to every handler registered for `key`. */
   emit<K extends keyof M>(key: K, payload: M[K]): void
 }
 
@@ -16,42 +31,42 @@ interface KeyState {
 }
 
 class EmitterImpl<M> implements Emitter<M> {
-  private readonly handlers = new Map<keyof M, Set<AnyHandler>>()
-  private readonly stateByKey = new Map<keyof M, KeyState>()
-  private reentrancyWarnings = 0
+  readonly #handlers = new Map<keyof M, Set<AnyHandler>>()
+  readonly #stateByKey = new Map<keyof M, KeyState>()
+  #reentrancyWarnings = 0
 
   on<K extends keyof M>(key: K, handler: EmitterHandler<M[K]>): () => void {
-    let set = this.handlers.get(key)
+    let set = this.#handlers.get(key)
     if (!set) {
       set = new Set()
-      this.handlers.set(key, set)
+      this.#handlers.set(key, set)
     }
     set.add(handler as AnyHandler)
     return () => {
-      this.handlers.get(key)?.delete(handler as AnyHandler)
+      this.#handlers.get(key)?.delete(handler as AnyHandler)
     }
   }
 
   off<K extends keyof M>(key: K, handler: EmitterHandler<M[K]>): void {
-    this.handlers.get(key)?.delete(handler as AnyHandler)
+    this.#handlers.get(key)?.delete(handler as AnyHandler)
   }
 
   emit<K extends keyof M>(key: K, payload: M[K]): void {
-    const set = this.handlers.get(key)
+    const set = this.#handlers.get(key)
     if (!set || set.size === 0) return
 
-    let state = this.stateByKey.get(key)
+    let state = this.#stateByKey.get(key)
     if (!state) {
       state = { scratch: [], depth: 0 }
-      this.stateByKey.set(key, state)
+      this.#stateByKey.set(key, state)
     }
 
     // Reentrant same-key emit, outer dispatch's scratch is still in use, so
     // fall back to a fresh allocation. Warn (throttled), reentrant emits
     // almost always indicate a handler that emits back to itself.
     if (state.depth > 0) {
-      if (this.reentrancyWarnings < 3) {
-        this.reentrancyWarnings++
+      if (this.#reentrancyWarnings < 3) {
+        this.#reentrancyWarnings++
         console.warn(
           `[stargazer] Emitter.emit reentrant on key '${String(key)}', ` +
             `a handler emitted the same event during dispatch. depth=${state.depth + 1}. ` +
@@ -92,6 +107,11 @@ class EmitterImpl<M> implements Emitter<M> {
   }
 }
 
+/**
+ * Create an {@link Emitter} for the event map `M`.
+ *
+ * @category Events
+ */
 export function createEmitter<M>(): Emitter<M> {
   return new EmitterImpl<M>()
 }

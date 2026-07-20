@@ -1,9 +1,9 @@
 /**
  * `GfxDevice`, backend seam. Thin and imperative: allocate handles, upload
- * data, set state, draw. Handle types are branded opaque markers (not
- * classes) so a WebGPU backend can return `GPURenderPipeline` / `GPUBuffer`
- * / etc. through the same seam without instanceof checks. Typed uniform
- * setters keep the caller side clean.
+ * data, set state, draw. Handle types are branded opaque markers (not classes)
+ * so a WebGPU backend can return `GPURenderPipeline` / `GPUBuffer` / etc.
+ * through the same seam without instanceof checks. Typed uniform setters keep
+ * the caller side clean.
  */
 
 // --- opaque handle types ----------------------------------------------------

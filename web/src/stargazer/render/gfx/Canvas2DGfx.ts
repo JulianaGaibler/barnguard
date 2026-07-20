@@ -1,10 +1,21 @@
-import type { Gfx2D, GfxBlend, GfxGradientStop, GfxStrokeStyle } from './Gfx2D'
+import type {
+  Gfx2D,
+  GfxBlend,
+  GfxGradientStop,
+  GfxStrokeStyle,
+  GfxTextStyle,
+} from './Gfx2D'
 import type { BitmapMask } from '../../assets/BitmapMask'
 
 const TAU = Math.PI * 2
 /** Shared "no dash" argument so `setLineDash` calls don't allocate. */
 const NO_DASH: number[] = []
 
+/**
+ * Construction options for {@link Canvas2DGfx}.
+ *
+ * @category Advanced
+ */
 export interface Canvas2DGfxOptions {
   /**
    * Match the Renderer's transparent flag; forwarded to `getContext('2d',
@@ -14,17 +25,19 @@ export interface Canvas2DGfxOptions {
 }
 
 /**
- * `Gfx2D` backed by a `CanvasRenderingContext2D`. Reference implementation
- * and visual-parity oracle for the GPU backend.
+ * `Gfx2D` backed by a `CanvasRenderingContext2D`. Reference implementation and
+ * visual-parity oracle for the GPU backend.
  *
  * Two forms: `new Canvas2DGfx(ctx)` wraps an existing context (`Layers`,
  * tests). `new Canvas2DGfx(canvas, opts)` acquires `getContext('2d')` and
  * enables `reacquireContext` after a browser context-loss event.
+ *
+ * @category Advanced
  */
 export class Canvas2DGfx implements Gfx2D {
   ctx: CanvasRenderingContext2D
-  private readonly owningCanvas: HTMLCanvasElement | null
-  private readonly transparent: boolean
+  readonly #owningCanvas: HTMLCanvasElement | null
+  readonly #transparent: boolean
 
   constructor(ctx: CanvasRenderingContext2D)
   constructor(canvas: HTMLCanvasElement, opts?: Canvas2DGfxOptions)
@@ -32,15 +45,15 @@ export class Canvas2DGfx implements Gfx2D {
     arg: CanvasRenderingContext2D | HTMLCanvasElement,
     opts: Canvas2DGfxOptions = {},
   ) {
-    this.transparent = opts.transparent ?? false
+    this.#transparent = opts.transparent ?? false
     if (arg instanceof HTMLCanvasElement) {
-      const ctx = arg.getContext('2d', { alpha: this.transparent })
+      const ctx = arg.getContext('2d', { alpha: this.#transparent })
       if (!ctx) throw new Error('Canvas2DGfx: failed to acquire 2D context')
       this.ctx = ctx
-      this.owningCanvas = arg
+      this.#owningCanvas = arg
     } else {
       this.ctx = arg
-      this.owningCanvas = null
+      this.#owningCanvas = null
     }
   }
 
@@ -54,8 +67,10 @@ export class Canvas2DGfx implements Gfx2D {
    * this facade owns its canvas (i.e. constructed with the canvas form).
    */
   reacquireContext(): void {
-    if (!this.owningCanvas) return
-    const ctx = this.owningCanvas.getContext('2d', { alpha: this.transparent })
+    if (!this.#owningCanvas) return
+    const ctx = this.#owningCanvas.getContext('2d', {
+      alpha: this.#transparent,
+    })
     if (!ctx) throw new Error('Canvas2DGfx: failed to re-acquire 2D context')
     this.ctx = ctx
   }
@@ -156,29 +171,19 @@ export class Canvas2DGfx implements Gfx2D {
   }
 
   /**
-   * Draw a text label. **Not part of the `Gfx2D` interface**, the GPU backend
-   * has no text-rendering subsystem, and building one for debug-only glyphs
-   * would be overkill. `DebugController` duck-types `if ('fillText' in gfx)` so
-   * labels render under Canvas mode and silently drop under GPU.
-   * Font/align/baseline default to values that match the previous inline
-   * `ctx.fillText` calls.
+   * Draw a single line of text. Direct pass-through to the Canvas2D text API,
+   * which delegates to the OS for shaping/kerning/emoji. `(x, y)` is the anchor
+   * per `style.align` / `style.baseline`. Only the provided style fields are
+   * applied, so unset fields inherit the context's current values (matches the
+   * previous inline `ctx.fillText` behavior). See the GPU backend
+   * (`GpuGfx.fillText`) for the render-to-texture counterpart.
    */
-  fillText(
-    text: string,
-    x: number,
-    y: number,
-    opts: {
-      font?: string
-      align?: CanvasTextAlign
-      baseline?: CanvasTextBaseline
-      color?: string
-    } = {},
-  ): void {
+  fillText(text: string, x: number, y: number, style: GfxTextStyle = {}): void {
     const c = this.ctx
-    if (opts.font !== undefined) c.font = opts.font
-    if (opts.align !== undefined) c.textAlign = opts.align
-    if (opts.baseline !== undefined) c.textBaseline = opts.baseline
-    if (opts.color !== undefined) c.fillStyle = opts.color
+    if (style.font !== undefined) c.font = style.font
+    if (style.align !== undefined) c.textAlign = style.align
+    if (style.baseline !== undefined) c.textBaseline = style.baseline
+    if (style.color !== undefined) c.fillStyle = style.color
     c.fillText(text, x, y)
   }
 
@@ -234,6 +239,48 @@ export class Canvas2DGfx implements Gfx2D {
     c.fill()
   }
 
+  /**
+   * Parity oracle for the GPU `maskedRadialGradient` program: composite a
+   * world-fixed radial gradient with the mask silhouette on a temp canvas
+   * (`destination-in`), then blit. Only exercised on the Canvas2D backend.
+   */
+  fillMaskedRadialGradient(
+    mask: CanvasImageSource,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+    gcx: number,
+    gcy: number,
+    gr: number,
+    stops: readonly GfxGradientStop[],
+  ): void {
+    if (gr <= 0 || dw <= 0 || dh <= 0 || stops.length === 0) return
+    if (typeof OffscreenCanvas === 'undefined') return
+    const w = Math.max(1, Math.ceil(dw))
+    const h = Math.max(1, Math.ceil(dh))
+    const tmp = new OffscreenCanvas(w, h)
+    const tc = tmp.getContext('2d')
+    if (!tc) return
+    // Gradient in temp space (rect origin at 0,0), center offset into the rect.
+    const grad = tc.createRadialGradient(
+      gcx - dx,
+      gcy - dy,
+      0,
+      gcx - dx,
+      gcy - dy,
+      gr,
+    )
+    for (let i = 0; i < stops.length; i++) {
+      grad.addColorStop(stops[i].offset, stops[i].color)
+    }
+    tc.fillStyle = grad
+    tc.fillRect(0, 0, w, h)
+    tc.globalCompositeOperation = 'destination-in'
+    tc.drawImage(mask, 0, 0, w, h)
+    this.ctx.drawImage(tmp, dx, dy, dw, dh)
+  }
+
   fillPolyLinearGradient(
     pts: ArrayLike<number>,
     count: number,
@@ -261,7 +308,7 @@ export class Canvas2DGfx implements Gfx2D {
 
   // --- strokes -------------------------------------------------------------
 
-  private applyStroke(style: GfxStrokeStyle): void {
+  #applyStroke(style: GfxStrokeStyle): void {
     const c = this.ctx
     c.strokeStyle = style.color
     c.lineWidth = style.width
@@ -271,7 +318,7 @@ export class Canvas2DGfx implements Gfx2D {
   }
 
   strokeCircle(cx: number, cy: number, r: number, style: GfxStrokeStyle): void {
-    this.applyStroke(style)
+    this.#applyStroke(style)
     const c = this.ctx
     c.beginPath()
     c.arc(cx, cy, r, 0, TAU)
@@ -285,7 +332,7 @@ export class Canvas2DGfx implements Gfx2D {
     y1: number,
     style: GfxStrokeStyle,
   ): void {
-    this.applyStroke(style)
+    this.#applyStroke(style)
     const c = this.ctx
     c.beginPath()
     c.moveTo(x0, y0)
@@ -302,7 +349,7 @@ export class Canvas2DGfx implements Gfx2D {
     y1: number,
     style: GfxStrokeStyle,
   ): void {
-    this.applyStroke(style)
+    this.#applyStroke(style)
     const c = this.ctx
     c.beginPath()
     c.moveTo(x0, y0)
@@ -316,7 +363,7 @@ export class Canvas2DGfx implements Gfx2D {
     style: GfxStrokeStyle,
   ): void {
     if (count < 2) return
-    this.applyStroke(style)
+    this.#applyStroke(style)
     const c = this.ctx
     c.beginPath()
     c.moveTo(pts[0], pts[1])
@@ -347,7 +394,7 @@ export class Canvas2DGfx implements Gfx2D {
   }
 
   strokePath2D(path: Path2D, style: GfxStrokeStyle): void {
-    this.applyStroke(style)
+    this.#applyStroke(style)
     this.ctx.stroke(path)
   }
 

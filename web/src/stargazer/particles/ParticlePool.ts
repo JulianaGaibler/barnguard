@@ -1,7 +1,8 @@
 /**
- * Parallel-Float32Array particle pool with an index freelist. Allocation
- * happens once at construction; per-frame emit/update/kill are all
- * allocation-free.
+ * Structure-of-arrays storage for a {@link ParticlePool}. Each field is a
+ * parallel typed array indexed by slot; a slot is live when `alive[i] === 1`.
+ *
+ * @category Particles
  */
 export interface ParticleField {
   x: Float32Array
@@ -16,16 +17,22 @@ export interface ParticleField {
   alive: Uint8Array
 }
 
+/**
+ * Fixed-capacity particle pool with an index freelist. All storage is allocated
+ * once at construction; per-frame `spawn`/`kill`/`clear` are allocation-free.
+ *
+ * @category Particles
+ */
 export class ParticlePool {
   readonly capacity: number
   readonly field: ParticleField
 
   /** Stack of currently-free slot indices; top-of-stack is at `freeTop - 1`. */
-  private readonly freelist: Int32Array
-  private freeTop: number
+  readonly #freelist: Int32Array
+  #freeTop: number
   /** Highest slot index that has EVER been alive; bounds the update loop. */
-  private highWater = 0
-  private _aliveCount = 0
+  #highWater = 0
+  #_aliveCount = 0
 
   constructor(capacity: number) {
     if (capacity <= 0 || !Number.isFinite(capacity)) {
@@ -45,24 +52,24 @@ export class ParticlePool {
       colorIdx: new Uint8Array(this.capacity),
       alive: new Uint8Array(this.capacity),
     }
-    this.freelist = new Int32Array(this.capacity)
+    this.#freelist = new Int32Array(this.capacity)
     // Prefill the freelist in reverse so `spawn()` returns index 0 first,
     // 1 next, etc, deterministic and easier to reason about.
     for (let i = 0; i < this.capacity; i++) {
-      this.freelist[i] = this.capacity - 1 - i
+      this.#freelist[i] = this.capacity - 1 - i
     }
-    this.freeTop = this.capacity
+    this.#freeTop = this.capacity
   }
 
   get aliveCount(): number {
-    return this._aliveCount
+    return this.#_aliveCount
   }
   get availableCount(): number {
-    return this.freeTop
+    return this.#freeTop
   }
   /** Inclusive upper bound for `update()` / `draw()` loops. */
   get highWaterIndex(): number {
-    return this.highWater
+    return this.#highWater
   }
 
   /**
@@ -70,12 +77,12 @@ export class ParticlePool {
    * Caller is responsible for initialising the slot's fields.
    */
   spawn(): number {
-    if (this.freeTop === 0) return -1
-    this.freeTop--
-    const idx = this.freelist[this.freeTop]
+    if (this.#freeTop === 0) return -1
+    this.#freeTop--
+    const idx = this.#freelist[this.#freeTop]
     this.field.alive[idx] = 1
-    this._aliveCount++
-    if (idx + 1 > this.highWater) this.highWater = idx + 1
+    this.#_aliveCount++
+    if (idx + 1 > this.#highWater) this.#highWater = idx + 1
     return idx
   }
 
@@ -84,21 +91,21 @@ export class ParticlePool {
     if (idx < 0 || idx >= this.capacity) return
     if (this.field.alive[idx] === 0) return
     this.field.alive[idx] = 0
-    this.freelist[this.freeTop] = idx
-    this.freeTop++
-    this._aliveCount--
+    this.#freelist[this.#freeTop] = idx
+    this.#freeTop++
+    this.#_aliveCount--
   }
 
   /** Return every slot to the freelist. Cheap, just zeroes the alive mask. */
   clear(): void {
-    for (let i = 0; i < this.highWater; i++) {
+    for (let i = 0; i < this.#highWater; i++) {
       this.field.alive[i] = 0
     }
-    this._aliveCount = 0
+    this.#_aliveCount = 0
     for (let i = 0; i < this.capacity; i++) {
-      this.freelist[i] = this.capacity - 1 - i
+      this.#freelist[i] = this.capacity - 1 - i
     }
-    this.freeTop = this.capacity
-    this.highWater = 0
+    this.#freeTop = this.capacity
+    this.#highWater = 0
   }
 }

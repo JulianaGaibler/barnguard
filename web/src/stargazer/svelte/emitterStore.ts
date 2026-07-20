@@ -3,7 +3,7 @@ import type { Emitter } from '../events/Emitter'
 
 /**
  * Names of engine events that fire many times per second. Binding one of these
- * to a Svelte store crushes the framerate through re-render churn. *
+ * to a Svelte store crushes the framerate through re-render churn.
  * `emitterStore` and `latestEventStore` both warn (dev-time) when asked to.
  * Read the value directly via `emitter.on(...)` in a `$effect` (or a manual rAF
  * loop for canvas-driven overlays) instead.
@@ -17,8 +17,7 @@ function warnIfHighFrequency(key: PropertyKey): void {
     `[stargazer] emitterStore('${key}'): this event is HIGH FREQUENCY. ` +
       `Binding it to a Svelte store fires the reactivity graph on every ` +
       `emission and will crush the framerate. Subscribe with ` +
-      `\`emitter.on('${key}', …)\` in a manual rAF loop instead ` +
-      `(see plan §"Engine ↔ app boundary").`,
+      `\`emitter.on('${key}', …)\` in a \`$effect\` instead.`,
   )
 }
 
@@ -27,7 +26,9 @@ function warnIfHighFrequency(key: PropertyKey): void {
  * `initial` and updates on every emission. Attaches on first subscriber,
  * detaches on last.
  *
- * Const score = emitterStore(session.events, 'score', 0) // template: {$score}
+ * @category Svelte
+ * @example
+ *   const score = emitterStore(session.events, 'score', 0) // {$score} in markup
  */
 export function emitterStore<M, K extends keyof M>(
   emitter: Emitter<M>,
@@ -44,6 +45,8 @@ export function emitterStore<M, K extends keyof M>(
  * Convenience variant for "the payload of the most recent event, or `null`
  * before any has fired". Handy when the store powers a modal that appears on
  * the first event and disappears when the caller resets to `null`.
+ *
+ * @category Svelte
  */
 export function latestEventStore<M, K extends keyof M>(
   emitter: Emitter<M>,

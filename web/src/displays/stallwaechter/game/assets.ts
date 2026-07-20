@@ -116,8 +116,8 @@ export async function loadGameAssets(): Promise<GameAssets> {
 }
 
 /**
- * Fetch a bitmap. `imageOrientation: 'from-image'` bakes EXIF orientation
- * into the decoded pixels so downstream drawing sees a plain grid.
+ * Fetch a bitmap. `imageOrientation: 'from-image'` bakes EXIF orientation into
+ * the decoded pixels so downstream drawing sees a plain grid.
  */
 async function loadImage(url: string): Promise<HTMLImageElement | ImageBitmap> {
   if (

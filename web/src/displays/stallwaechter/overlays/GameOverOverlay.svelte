@@ -1,6 +1,9 @@
 <script lang="ts">
   import { t } from '@src/displays/stallwaechter/i18n'
-  import type { GameOverReason, StateId } from '@src/displays/stallwaechter/game'
+  import type {
+    GameOverReason,
+    StateId,
+  } from '@src/displays/stallwaechter/game'
   import type { StallwaechterHighScores as HighScores } from '@src/displays/stallwaechter/game-log'
   import type { EngineHost } from '@src/stargazer'
   import { mountGameOverStage } from '@src/displays/stallwaechter/game/gameOver/mountGameOverStage'
@@ -11,7 +14,10 @@
   import checkmarkIconRaw from '@src/assets/icons/checkmark-16.svg?raw'
   import { fade } from 'svelte/transition'
   import { get } from 'svelte/store'
-  import { renderLabel, type LabelInput } from '@src/displays/stallwaechter/label'
+  import {
+    renderLabel,
+    type LabelInput,
+  } from '@src/displays/stallwaechter/label'
   import { squarePxFrom } from '@src/core/print/canvas'
   import { enqueuePrint, printerLive } from '@src/core/print/printerClient'
 
@@ -313,11 +319,11 @@
     flex-direction: column
     align-items: center
     justify-content: center
-    gap: tint.$size-24
-    background: rgba(1, 6, 18, 0.55)
+    gap: var(--space-24)
+    background: var(--color-scrim)
     // Full-surface tap target so any touch after the reveal dismisses.
     pointer-events: auto
-    z-index: 30
+    z-index: var(--z-overlay)
 
   // `align-items: stretch` lets flexbox equalise the two buttons' heights
   // regardless of their intrinsic content — whichever button is taller
@@ -328,13 +334,13 @@
     display: flex
     justify-content: center
     align-items: stretch
-    gap: tint.$size-16
+    gap: var(--space-16)
 
   // Icon-only print button. Just trim the inline padding since there's no
   // text next to the icon; height comes from the flex-stretch above.
   :global(.game-over__print-btn)
-    padding-inline-start: tint.$size-16
-    padding-inline-end: tint.$size-16
+    padding-inline-start: var(--space-16)
+    padding-inline-end: var(--space-16)
 
   .game-over__print-icon
     display: inline-flex
@@ -357,19 +363,19 @@
     // `aspect-ratio` + flex was letting one card compute a slightly
     // different width than the other on some viewport sizes. Sized to
     // 2/3 of the design mock (645 × 490) for a subtler footprint.
-    --card-h: min(53.33vh, 550px)
+    --card-h: min(53.33vh, 34.375rem)
     --card-w: calc(var(--card-h) * 490 / 645)
     display: flex
-    gap: tint.$size-16
+    gap: var(--space-16)
     height: var(--card-h)
-    margin: 0 auto
+    margin-inline: auto
 
   .game-over__card
     box-sizing: border-box
     height: var(--card-h)
     width: var(--card-w)
     flex: 0 0 auto
-    border-radius: tint.$size-32
+    border-radius: var(--radius-panel)
     overflow: hidden
     position: relative
 
@@ -379,22 +385,21 @@
   // as a plain element so a future scene mount inherits the layout.
   // -----------------------------------------------------------------
   .game-over__loss
-    background: #010612
+    background: var(--color-surface-inverse)
     display: flex
     flex-direction: column
-    color: #ffffff
-    padding: tint.$size-48 tint.$size-32
+    color: var(--color-text-inverse)
+    padding-block: var(--space-48)
+    padding-inline: var(--space-32)
     align-items: center
-    gap: tint.$size-16
+    gap: var(--space-16)
     // Canvas is absolutely positioned to span the whole card behind the
     // text; the title + message stay in normal flow but get `position:
     // relative` so they paint on top of the canvas.
     justify-content: space-between
 
   .game-over__loss-title
-    font-family: tint.$mozilla-headline-extended
-    font-weight: 700
-    font-size: 1.667rem
+    @include tint.type-class(headline-sm)
     line-height: 1.05
     margin: 0
     text-align: center
@@ -418,12 +423,11 @@
     pointer-events: none
 
   .game-over__loss-message
-    font-family: tint.$mozilla-headline-extended
-    font-weight: 700
-    font-size: 1rem
+    @include tint.type-class(body-bold)
     text-align: center
     margin: 0
-    color: rgba(255, 255, 255, 0.9)
+    color: var(--color-text-inverse)
+    opacity: 0.9
     max-width: 22ch
     // Same reason as the title; sits above the canvas.
     position: relative
@@ -435,8 +439,8 @@
   //   bottom: wave background + two smaller high-score cells
   // -----------------------------------------------------------------
   .game-over__score
-    background: linear-gradient(75deg, #FFEB49 -30.28%, #F60 119.37%, #FB2872 232.27%)
-    color: #010612
+    background: var(--color-gradient-result)
+    color: var(--color-text)
     display: flex
     flex-direction: column
     // No padding on the card; the top / bottom halves manage their own
@@ -449,23 +453,21 @@
     flex-direction: column
     align-items: center
     justify-content: center
-    gap: tint.$size-8
+    gap: var(--space-8)
     position: relative
-    padding: tint.$size-80 tint.$size-32
-    padding-block-start: tint.$size-64
+    padding-block: var(--space-64) var(--space-80)
+    padding-inline: var(--space-32)
 
   .game-over__pill
-    padding: tint.$size-8 tint.$size-16
-    background: #ffffff
-    color: #010612
-    border-radius: 9999px
-    font-family: tint.$mozilla-text
-    font-weight: 700
+    padding-block: var(--space-8)
+    padding-inline: var(--space-16)
+    background: var(--color-surface-card)
+    color: var(--color-text)
+    border-radius: var(--radius-pill)
+    @include tint.type-class(action)
     letter-spacing: 0.06em
-    text-transform: uppercase
-    font-size: 0.883rem
     white-space: nowrap
-    margin-block-end: tint.$size-24
+    margin-block-end: var(--space-24)
     // Reveal-from-centre: the pill's box (including its padding) is
     // present at final size the whole time, but the visible area is
     // clipped by `clip-path: inset(0 50% 0 50%)`; a zero-width
@@ -493,11 +495,8 @@
       box-shadow: 0 0 0 32px rgba(255, 255, 255, 0)
 
   :global(.game-over__score-big)
-    font-family: tint.$mozilla-headline-extended
-    font-weight: 700
-    font-size: 8.333rem
+    @include tint.type-class(score-lg)
     line-height: 1
-    font-variant-numeric: tabular-nums
 
   // White-then-black flash on the record readouts. Runs once; the class
   // is added and stays, but the keyframe returns to the base colour on
@@ -511,18 +510,16 @@
   // then ease back. The plateau between 25% and 55% is the "hold".
   @keyframes score-flash
     0%
-      color: #010612
+      color: var(--color-text)
     25%
-      color: #ffffff
+      color: var(--color-text-inverse)
     55%
-      color: #ffffff
+      color: var(--color-text-inverse)
     100%
-      color: #010612
+      color: var(--color-text)
 
   .game-over__score-label
-    font-family: tint.$mozilla-headline-extended
-    font-weight: 700
-    font-size: 1.333rem
+    @include tint.type-class(label-lg)
     line-height: 1
 
   .game-over__score-bottom
@@ -536,9 +533,8 @@
 
   .game-over__wave
     position: absolute
-    left: 0
-    right: 0
-    top: -96px
+    inset-inline: 0
+    inset-block-start: -6rem
     width: 100%
     height: auto
     pointer-events: none
@@ -548,8 +544,9 @@
   .game-over__stats
     position: relative
     display: flex
-    gap: tint.$size-48
-    padding: tint.$size-24 tint.$size-32
+    gap: var(--space-48)
+    padding-block: var(--space-24)
+    padding-inline: var(--space-32)
     justify-content: center
     align-items: flex-start
 
@@ -557,15 +554,12 @@
     display: flex
     flex-direction: column
     align-items: center
-    gap: tint.$size-4
+    gap: var(--space-4)
     text-align: center
 
     strong
-      font-family: tint.$mozilla-headline-extended
-      font-weight: 700
-      font-size: 2.917rem
+      @include tint.type-class(headline-lg)
       line-height: 1
-      font-variant-numeric: tabular-nums
 
   // Applied to the stat wrapper so both the number and its label share
   // the flash. Children have no explicit `color` so they inherit the

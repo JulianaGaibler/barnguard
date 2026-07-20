@@ -53,6 +53,13 @@ export default ts.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', '**/*.config.js', '**/*.config.ts'],
+    ignores: [
+      'dist/',
+      'node_modules/',
+      // Generated stargazer docs-site bundles (git-ignored build output).
+      'src/stargazer/site/',
+      '**/*.config.js',
+      '**/*.config.ts',
+    ],
   },
 )

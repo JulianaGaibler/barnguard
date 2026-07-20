@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { MatrixPool, copyMatrix2D, multiplyMatrix2D } from './matrix'
+import {
+  MatrixPool,
+  copyMatrix2D,
+  multiplyMatrix2D,
+  invertMatrix2D,
+  transformPoint2D,
+} from './matrix'
 
 function isIdentity(m: DOMMatrix): boolean {
   return (
@@ -103,6 +109,58 @@ describe('copyMatrix2D', () => {
     expect(dst.d).toBe(10)
     expect(dst.e).toBe(11)
     expect(dst.f).toBe(12)
+  })
+})
+
+describe('invertMatrix2D', () => {
+  it('inverts a translate + scale so M · inv(M) = identity on a point', () => {
+    const m = new DOMMatrix().translateSelf(10, 5).scaleSelf(2, 4)
+    const inv = new DOMMatrix()
+    expect(invertMatrix2D(inv, m)).toBe(true)
+    // Map a point forward then back.
+    const p = transformPoint2D({ x: 0, y: 0 }, m, 3, 7)
+    const back = transformPoint2D({ x: 0, y: 0 }, inv, p.x, p.y)
+    expect(back.x).toBeCloseTo(3, 10)
+    expect(back.y).toBeCloseTo(7, 10)
+  })
+
+  it('inverts a rotation', () => {
+    const m = new DOMMatrix().rotateSelf(30)
+    const inv = new DOMMatrix()
+    invertMatrix2D(inv, m)
+    const p = transformPoint2D({ x: 0, y: 0 }, m, 1, 0)
+    const back = transformPoint2D({ x: 0, y: 0 }, inv, p.x, p.y)
+    expect(back.x).toBeCloseTo(1, 10)
+    expect(back.y).toBeCloseTo(0, 10)
+  })
+
+  it('is safe when dst aliases src', () => {
+    const m = new DOMMatrix().translateSelf(4, -2).scaleSelf(2, 2)
+    invertMatrix2D(m, m)
+    // inv of T(4,-2)·S(2,2): map (4,-2) origin-image back to origin.
+    const p = transformPoint2D({ x: 0, y: 0 }, m, 4, -2)
+    expect(p.x).toBeCloseTo(0, 10)
+    expect(p.y).toBeCloseTo(0, 10)
+  })
+
+  it('returns false and sets identity for a singular matrix', () => {
+    const singular = new DOMMatrix()
+    singular.a = 0
+    singular.b = 0
+    singular.c = 0
+    singular.d = 0
+    const inv = new DOMMatrix()
+    expect(invertMatrix2D(inv, singular)).toBe(false)
+    expect(isIdentity(inv)).toBe(true)
+  })
+})
+
+describe('transformPoint2D', () => {
+  it('applies the affine to a point', () => {
+    const m = new DOMMatrix().translateSelf(10, 20).scaleSelf(2, 3)
+    const out = transformPoint2D({ x: 0, y: 0 }, m, 1, 1)
+    expect(out.x).toBe(12)
+    expect(out.y).toBe(23)
   })
 })
 

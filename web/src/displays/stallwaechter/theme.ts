@@ -4,28 +4,42 @@ import mozillaLogo from './assets/mozilla-logo.svg?url'
 import flames from './assets/flames.svg?url'
 
 /**
- * Baden-Württemberg gold/black palette + Firefox / Mozilla branding used for
- * the Stallwächter 2026 booth. Historical values from the retired
- * `styles/colors.scss`.
+ * Baden-Württemberg gold/black palette + Firefox / Mozilla branding for the
+ * Stallwächter 2026 booth. The primary action is dark with a gold label.
  */
 export const stallwaechterTheme: Theme = {
   palette: {
-    bg: '#ffffff',
+    surface: '#ffffff',
+    surfaceCard: '#ffffff',
+    surfaceInverse: '#010612',
+    scrim: 'rgba(1, 6, 18, 0.55)',
+
     text: '#1c1c1c',
-    'text-secondary': '#4e4e4e',
-    'text-accent': '#d4a10a',
-    'text-link': '#9a6f00',
-    'action-primary': '#1c1c1c',
-    'action-primary-text': '#ffd34d',
-    'action-primary-hover': '#333333',
-    'action-primary-active': '#000000',
-    'action-secondary': '#1c1c1c',
-    'action-secondary-text': '#1c1c1c',
-    'action-secondary-hover': 'rgba(28, 28, 28, 0.08)',
-    'action-secondary-active': 'rgba(28, 28, 28, 0.16)',
-    'input-bg': '#f2f0e9',
-    'card-border': 'rgba(0, 0, 0, 0.1)',
-    'card-shadow': '0 5px 40px #0000001a, inset 0 2px 0 -1px #ffffff80',
+    textSecondary: '#4e4e4e',
+    textAccent: '#d4a10a',
+    textLink: '#9a6f00',
+    textInverse: '#ffffff',
+
+    border: 'rgba(0, 0, 0, 0.1)',
+    accent: '#d4a10a',
+
+    actionPrimary: '#1c1c1c',
+    actionPrimaryText: '#ffd34d',
+    actionPrimaryHover: '#333333',
+    actionPrimaryActive: '#000000',
+    actionPrimaryDisabled: 'rgba(28, 28, 28, 0.4)',
+
+    actionSecondary: '#1c1c1c',
+    actionSecondaryText: '#1c1c1c',
+    actionSecondaryHover: 'rgba(28, 28, 28, 0.08)',
+    actionSecondaryActive: 'rgba(28, 28, 28, 0.16)',
+    actionSecondaryDisabled: 'rgba(28, 28, 28, 0.35)',
+
+    inputBg: '#f2f0e9',
+    shadowCard:
+      '0 0.3125rem 2.5rem #0000001a, inset 0 0.125rem 0 -0.0625rem #ffffff80',
+    gradientResult:
+      'linear-gradient(75deg, #FFEB49 -30.28%, #F60 119.37%, #FB2872 232.27%)',
   },
   assets: {
     topBarPrimary: enterpriseLogo,

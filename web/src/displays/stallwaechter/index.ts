@@ -12,10 +12,7 @@ import {
 import { stallwaechterTheme } from './theme'
 import GameScreen from './overlays/GameScreen.svelte'
 import SelectedStatePreview from './attendant/SelectedStatePreview.svelte'
-import {
-  stallwaechterLocales,
-  STALLWAECHTER_DEFAULT_LANGUAGE,
-} from './i18n'
+import { stallwaechterLocales, STALLWAECHTER_DEFAULT_LANGUAGE } from './i18n'
 import { renderLabel, type LabelInput } from './label'
 import type { StallwaechterMessages } from './i18n/types'
 import { squarePxFrom } from '@src/core/print/canvas'
@@ -29,8 +26,7 @@ async function recordToLabelInput(record: GameRecord): Promise<LabelInput> {
   const narrow: StallwaechterGameRecord = asStallwaechter(record)
   const highScores = await fetchStallwaechterHighScores()
   return {
-    reason:
-      narrow.reason === 'exited_germany' ? 'exitedGermany' : 'collision',
+    reason: narrow.reason === 'exited_germany' ? 'exitedGermany' : 'collision',
     stateId: narrow.stateId as StateId,
     score: narrow.score,
     isOverallHigh: narrow.wasOverallHigh,
@@ -88,7 +84,11 @@ export const stallwaechter: DisplayManifest = {
       score: 42,
       isOverallHigh: ctx.highScore,
       isStateHigh: ctx.highScore,
-      highScores: { display: 'stallwaechter', overall: 42, byState: { BE: 42 } },
+      highScores: {
+        display: 'stallwaechter',
+        overall: 42,
+        byState: { BE: 42 },
+      },
     }
     return renderLabel(input, {
       // The manifest boundary types `messages` as the core shape; internally

@@ -53,7 +53,7 @@ export function getPathContours(path: Path2D): Float32Array[] | undefined {
 
 /**
  * Return whether contour `i` of `path` is closed. Defaults to `true` when no
- * per-contour flag was registered (matches historical behaviour for SVG shape
+ * per-contour flag was registered (matches historical behavior for SVG shape
  * paths).
  */
 export function getContourClosed(path: Path2D, i: number): boolean {

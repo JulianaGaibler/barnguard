@@ -1,9 +1,10 @@
 import {
-  GroupNode,
+  SceneNode,
   ParticleEmitterNode,
   Path2DNode,
   easings,
   ignoreAbort,
+  withAlpha,
   type EngineHost,
   type Vec2,
 } from '@src/stargazer'
@@ -12,24 +13,23 @@ import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessella
 import { PacketNode } from './nodes/PacketNode'
 import { PacketMotionTrailNode } from './nodes/PacketMotionTrailNode'
 import { PacketSpawnConvergeNode } from './nodes/PacketSpawnConvergeNode'
-import { withAlpha } from './nodes/colorUtils'
 import {
-  PacketBehaviour,
+  PacketBehavior,
   type PacketSessionHooks,
-} from './behaviours/PacketBehaviour'
+} from './behaviors/PacketBehavior'
 import {
-  PathDrawBehaviour,
+  PathDrawBehavior,
   type PathDrawSessionHooks,
-} from './behaviours/PathDrawBehaviour'
+} from './behaviors/PathDrawBehavior'
 import { TUNING } from './data/tuning'
 
 export interface SpawnPacketOpts {
   host: EngineHost
   /** Where the packet's hex + trail + hex-particle emitter mount. */
-  packetLayer: GroupNode
-  /** Session-hook surface consumed by `PacketBehaviour`. */
+  packetLayer: SceneNode
+  /** Session-hook surface consumed by `PacketBehavior`. */
   hooks: PacketSessionHooks
-  /** Session-hook surface consumed by `PathDrawBehaviour`. */
+  /** Session-hook surface consumed by `PathDrawBehavior`. */
   drawHooks: PathDrawSessionHooks
   /**
    * Unique-per-caller identifiers so the debug HUD's Scene panel stays
@@ -54,10 +54,10 @@ export interface SpawnPacketOpts {
 }
 
 /**
- * Spawn one packet with the same visual and behavioural stack the live game
+ * Spawn one packet with the same visual and behavioral stack the live game
  * uses, hex node, shooting-star motion trail (`PacketMotionTrailNode`),
- * decaying-hex wake emitter, `PacketBehaviour` (with configurable autonomous
- * drift), and, once travel-ready, `PathDrawBehaviour` bound to the packet.
+ * decaying-hex wake emitter, `PacketBehavior` (with configurable autonomous
+ * drift), and, once travel-ready, `PathDrawBehavior` bound to the packet.
  *
  * Extracted from `session.ts::spawnPacket` so both the main `GameSession` and
  * the tutorial `TutorialSession` share one construction path, any visual or
@@ -90,7 +90,7 @@ export function spawnPacketInSession(
   packet.transform.y = worldPos.y
   // Pre-orient the hex to face its initial heading so the first physics
   // tick doesn't snap the visible rotation from 0. Mirrors the offset
-  // `PacketBehaviour.onFixedStep` applies (+π/2 so the hex's top vertex
+  // `PacketBehavior.onFixedStep` applies (+π/2 so the hex's top vertex
   // aligns with the velocity vector).
   packet.transform.rotation = headingRad + Math.PI / 2
   // Start invisible, the convergent-particle emitter carries the visual
@@ -105,12 +105,12 @@ export function spawnPacketInSession(
   packetLayer.add(motionTrail)
 
   // Wake of decaying magenta hexes, sits above the ribbon but under the
-  // main packet. Origin is written per-frame from PacketBehaviour so
+  // main packet. Origin is written per-frame from PacketBehavior so
   // hexes spawn at the packet's live position and stay in world space.
   // Constructed with `ratePerSec: 0` so no hexes emit during the packet's
   // grow-in animation (that would visibly leak hexes at the emitter's
   // default (0, 0) origin before `markTravelReady` flips it on). The
-  // behaviour restores the configured rate when travel begins.
+  // behavior restores the configured rate when travel begins.
   const hexCfg = TUNING.packet.hexParticles
   const hexParticles = new ParticleEmitterNode({
     id: hexParticleId,
@@ -121,7 +121,7 @@ export function spawnPacketInSession(
       sizeWorld: hexCfg.sizeWorld,
       speedWorld: hexCfg.speedWorld,
       spreadRad: hexCfg.spreadRad,
-      // emitDirectionRad is set per-frame in PacketBehaviour so the
+      // emitDirectionRad is set per-frame in PacketBehavior so the
       // wake fires opposite the current velocity; seed with 0 so the
       // config is valid until the first physics tick.
       emitDirectionRad: 0,
@@ -157,12 +157,12 @@ export function spawnPacketInSession(
   })
   packetLayer.add(convergeNode)
 
-  const behaviour = new PacketBehaviour(hooks, headingRad, travelSpeed, {
+  const behavior = new PacketBehavior(hooks, headingRad, travelSpeed, {
     autonomousDrift,
   })
-  packet.addBehaviour(behaviour)
-  behaviour.attachMotionTrail(motionTrail)
-  behaviour.attachHexParticles(hexParticles)
+  packet.addBehavior(behavior)
+  behavior.attachMotionTrail(motionTrail)
+  behavior.attachHexParticles(hexParticles)
 
   // Wait for `preGrowDelaySec` so the convergent-particle emitter has a
   // head-start, then grow the packet in place, then flip to travelling mode.
@@ -180,17 +180,17 @@ export function spawnPacketInSession(
     })
     .then(() => {
       if (packet.isDestroyed) return
-      behaviour.markTravelReady()
+      behavior.markTravelReady()
       // Emergence pulse, big translucent hex that scales up and fades out
       // from the packet's spawn position, marking the transition into
       // travel mode. Same visual grammar as `lossAnim.impactFlash` but at
       // spawn instead of collision, and in the trail colour so the packet
       // reads as "arriving" from its own ribbon.
       spawnEmergencePulse(packetLayer, worldPos, packetId)
-      // Attach the path-draw behaviour only after travel starts, before
+      // Attach the path-draw behavior only after travel starts, before
       // that, the packet has no meaningful "current world position" for
       // the player to grab.
-      packet.addBehaviour(new PathDrawBehaviour(drawHooks))
+      packet.addBehavior(new PathDrawBehavior(drawHooks))
     })
     .catch(ignoreAbort)
 
@@ -212,7 +212,7 @@ export function spawnPacketInSession(
 }
 
 function spawnEmergencePulse(
-  packetLayer: GroupNode,
+  packetLayer: SceneNode,
   center: Vec2,
   packetId: string,
 ): void {

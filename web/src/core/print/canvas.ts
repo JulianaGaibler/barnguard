@@ -1,6 +1,6 @@
 /**
- * Generic 2D canvas primitives shared by every display's label renderer.
- * No game/display-specific knowledge lives here — colors, layout, and asset
+ * Generic 2D canvas primitives shared by every display's label renderer. No
+ * game/display-specific knowledge lives here — colors, layout, and asset
  * bindings belong to each display's `label.ts`.
  */
 
@@ -121,8 +121,8 @@ export function drawCssGradient(
 
 /**
  * Draw `photo` clipped to the silhouette of `mask` at `alpha`. Uses a scratch
- * offscreen for `destination-in` masking so main canvas pixels outside the
- * mask are untouched.
+ * offscreen for `destination-in` masking so main canvas pixels outside the mask
+ * are untouched.
  */
 export function drawMaskedImage(
   ctx: Ctx2D,

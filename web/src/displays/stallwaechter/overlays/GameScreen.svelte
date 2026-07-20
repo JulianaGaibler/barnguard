@@ -8,8 +8,15 @@
   import { goToScreen } from '@src/stores/appState'
   import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
   import { mountEngine, ignoreAbort, type EngineHost } from '@src/stargazer'
-  import { startGame, type GameSession, type StateId } from '@src/displays/stallwaechter/game'
-  import { debugHudVisible, setDebugHudVisible } from '@src/core/attendant/boothMenuToggle'
+  import {
+    startGame,
+    type GameSession,
+    type StateId,
+  } from '@src/displays/stallwaechter/game'
+  import {
+    debugHudVisible,
+    setDebugHudVisible,
+  } from '@src/core/attendant/boothMenuToggle'
   import { coverScreen } from '@src/stores/coverScreen'
   import type { GameEvents } from '@src/displays/stallwaechter/game'
 
@@ -295,7 +302,7 @@
     pointer-events: none
 
   .game__hint
-    color: var(--tint-text-secondary)
+    color: var(--color-text-secondary)
     @include tint.type-class(ui)
 
   // Bottom-corner backdrop copy; sits behind the transparent canvas so
@@ -317,19 +324,20 @@
   // these back to the tighter playing values.
   .game__backdrop-headline
     position: absolute
-    left: tint.$size-80
-    bottom: tint.$size-80
+    inset-inline-start: var(--space-80)
+    inset-block-end: var(--space-80)
     max-width: 35%
-    color: #fff
+    color: var(--color-text-inverse)
+    // Art-directed backdrop copy sizes (not part of the semantic UI scale).
     font-size: 4.5rem
     letter-spacing: -0.01em
 
   .game__backdrop-mission
     position: absolute
-    right: tint.$size-80
-    bottom: tint.$size-80
+    inset-inline-end: var(--space-80)
+    inset-block-end: var(--space-80)
     max-width: 25%
-    color: #fff
+    color: var(--color-text-inverse)
     font-size: 1.5rem
     font-weight: 500
     line-height: 1.25
@@ -337,15 +345,15 @@
 
   .game__backdrop-score
     position: absolute
-    right: tint.$size-48
-    bottom: tint.$size-48
+    inset-inline-end: var(--space-48)
+    inset-block-end: var(--space-48)
     // Huge outlined-looking numeral. `font-variant-numeric: slashed-zero`
     // matches the mock's slash through the leading zero; `tabular-nums`
     // keeps every digit the same width so the score doesn't jitter as
     // it counts up (10 vs 11 render the same shape width). Text is
     // right-anchored so 3-digit scores extend leftward from a fixed
     // right edge without shifting the final digit.
-    font-size: 16rem
+    @include tint.type-class(watermark)
     letter-spacing: -0.04em
     font-variant-numeric: slashed-zero tabular-nums
     line-height: 0.9
@@ -360,8 +368,8 @@
   // `src/assets/fonts/`.
   .game__backdrop--active
     .game__backdrop-headline
-      left: tint.$size-48
-      bottom: tint.$size-48
+      inset-inline-start: var(--space-48)
+      inset-block-end: var(--space-48)
 
     .game__backdrop-headline,
     .game__backdrop-score

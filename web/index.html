@@ -11,6 +11,20 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>Stallwächterparty Booth</title>
+    <!--
+      Apply the stored UI scale before the bundle loads so the first paint is
+      already at the right size (no flash of unscaled content). The Svelte store
+      in core/ui/uiScale.ts owns it from mount on.
+    -->
+    <script>
+      try {
+        var s = parseFloat(localStorage.getItem('bg.uiScale') || '')
+        if (s && s > 0)
+          document.documentElement.style.setProperty('--ui-scale', String(s))
+      } catch (e) {
+        /* storage blocked; fall back to the CSS default of 1 */
+      }
+    </script>
   </head>
   <body>
     <div id="app"></div>

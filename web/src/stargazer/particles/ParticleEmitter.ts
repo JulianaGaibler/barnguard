@@ -2,6 +2,12 @@ import type { Vec2 } from '../math/Vec2'
 import { ParticlePool } from './ParticlePool'
 import type { ParticleSpriteStyle } from './draw'
 
+/**
+ * Behavior and appearance of a {@link ParticleEmitter}: spawn rate, kinematics,
+ * and the size/alpha curves each particle follows over its life.
+ *
+ * @category Particles
+ */
 export interface ParticleEmitterConfig {
   /** Maximum number of live particles at once. */
   capacity: number
@@ -42,32 +48,41 @@ export interface ParticleEmitterConfig {
 }
 
 /**
- * Emits particles into a ParticlePool with baked kinematics:
+ * A pooled particle system. Allocates {@link ParticleEmitterConfig.capacity}
+ * particles up front, then emits and integrates them allocation-free. Drive it
+ * two ways: a continuous stream ({@link ParticleEmitter.setOrigin} plus a
+ * non-zero `ratePerSec`) and one-shot {@link ParticleEmitter.burst} calls. The
+ * two run together.
  *
- * - Velocity integration
- * - Exponential damping
- * - Constant acceleration
- * - Life countdown
+ * {@link ParticleEmitter.update} advances each live particle every frame with
+ * velocity integration, exponential damping, constant acceleration, and a life
+ * countdown. The draw step (in `ParticleEmitterNode`) reads the size and alpha
+ * curves off the config to fade a particle over its life.
  *
- * The `draw` step (in `ParticleEmitterNode`) reads size + alpha curves off the
- * config to interpolate visual attributes across each particle's life.
+ * Usually you build a `ParticleEmitterNode` and reach this through its
+ * `emitter` field rather than constructing it directly.
+ *
+ * @category Particles
+ * @example
+ *   // One-shot explosion at a world point.
+ *   node.emitter.burst(200, worldX, worldY)
  */
 export class ParticleEmitter {
   readonly config: ParticleEmitterConfig
   readonly pool: ParticlePool
   originX = 0
   originY = 0
-  private emitAccumulator = 0
-  private readonly accelX: number
-  private readonly accelY: number
-  private readonly damping: number
+  #emitAccumulator = 0
+  readonly #accelX: number
+  readonly #accelY: number
+  readonly #damping: number
 
   constructor(config: ParticleEmitterConfig) {
     this.config = { ...config }
     this.pool = new ParticlePool(config.capacity)
-    this.accelX = config.accelerationWorld?.x ?? 0
-    this.accelY = config.accelerationWorld?.y ?? 0
-    this.damping = config.dampingPerSec ?? 0
+    this.#accelX = config.accelerationWorld?.x ?? 0
+    this.#accelY = config.accelerationWorld?.y ?? 0
+    this.#damping = config.dampingPerSec ?? 0
   }
 
   get aliveCount(): number {
@@ -83,14 +98,14 @@ export class ParticleEmitter {
   /** Emit `count` particles at (x, y) NOW (bypasses ratePerSec). */
   burst(count: number, x: number, y: number, axisRad?: number): void {
     for (let i = 0; i < count; i++) {
-      if (!this.emitOne(x, y, axisRad)) break
+      if (!this.#emitOne(x, y, axisRad)) break
     }
   }
 
   /** Kill every live particle immediately. */
   clear(): void {
     this.pool.clear()
-    this.emitAccumulator = 0
+    this.#emitAccumulator = 0
   }
 
   /**
@@ -101,21 +116,21 @@ export class ParticleEmitter {
     if (dt <= 0) return
     // Continuous emission.
     if (this.config.ratePerSec > 0) {
-      this.emitAccumulator += this.config.ratePerSec * dt
-      const emitCount = Math.floor(this.emitAccumulator)
+      this.#emitAccumulator += this.config.ratePerSec * dt
+      const emitCount = Math.floor(this.#emitAccumulator)
       if (emitCount > 0) {
-        this.emitAccumulator -= emitCount
+        this.#emitAccumulator -= emitCount
         for (let i = 0; i < emitCount; i++) {
-          if (!this.emitOne(this.originX, this.originY)) break
+          if (!this.#emitOne(this.originX, this.originY)) break
         }
       }
     }
 
     // Physics + life countdown.
     const { x, y, vx, vy, life, alive } = this.pool.field
-    const dampFactor = this.damping === 0 ? 1 : Math.exp(-this.damping * dt)
-    const ax = this.accelX
-    const ay = this.accelY
+    const dampFactor = this.#damping === 0 ? 1 : Math.exp(-this.#damping * dt)
+    const ax = this.#accelX
+    const ay = this.#accelY
     const hi = this.pool.highWaterIndex
     for (let i = 0; i < hi; i++) {
       if (alive[i] === 0) continue
@@ -140,7 +155,7 @@ export class ParticleEmitter {
    * Initialise a single particle slot. Returns `false` when the pool is
    * exhausted so callers can bail out of a burst loop early.
    */
-  private emitOne(worldX: number, worldY: number, axisRad?: number): boolean {
+  #emitOne(worldX: number, worldY: number, axisRad?: number): boolean {
     const idx = this.pool.spawn()
     if (idx < 0) return false
     const cfg = this.config

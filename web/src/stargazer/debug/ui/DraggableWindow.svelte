@@ -18,9 +18,9 @@
     title: string
     storageId: string
     /**
-     * Default anchor when no saved position exists. Changing at runtime
-     * resets the saved position so "open on the other side" wins over an
-     * earlier drag.
+     * Default anchor when no saved position exists. Changing at runtime resets
+     * the saved position so "open on the other side" wins over an earlier
+     * drag.
      */
     side?: 'left' | 'right'
     /** Optional width override in CSS px. Default comes from debug-ui.sass. */

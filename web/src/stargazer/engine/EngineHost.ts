@@ -4,6 +4,12 @@ import type { EngineEvents } from '../events/EngineEvents'
 import type { Scene } from '../scene/Scene'
 import { DebugController } from '../debug/DebugController'
 
+/**
+ * Construction options for {@link createEngineHost}. Extends
+ * {@link EngineOptions} but takes its own `renderer` and context-loss handlers.
+ *
+ * @category Engine
+ */
 export interface EngineHostOptions extends Omit<
   EngineOptions,
   'canvas' | 'renderer'
@@ -11,8 +17,8 @@ export interface EngineHostOptions extends Omit<
   canvas: HTMLCanvasElement
   /**
    * Called when the canvas loses its 2D context. Default is
-   * `location.reload()`, the kiosk-safe recovery. Apps that don't want a page
-   * reload should override this and manage rebuild themselves.
+   * `location.reload()`. Apps that don't want a page reload should override
+   * this and manage the rebuild themselves.
    */
   onContextLost?: (restorable: boolean) => void
   /**
@@ -23,8 +29,8 @@ export interface EngineHostOptions extends Omit<
    * HUD hidden on boot
    *
    * The DebugController is ALWAYS instantiated, the URL flag only controls its
-   * initial visibility. External code (a booth menu, an admin panel) toggles
-   * the HUD at runtime via `host.debug.setHudVisible`.
+   * initial visibility. External code (a menu or admin panel) toggles the HUD
+   * at runtime via `host.debug.setHudVisible`.
    */
   debug?: 'hidden' | 'hud' | 'perf'
   /**
@@ -38,31 +44,80 @@ export interface EngineHostOptions extends Omit<
    * Fallback triggered when the retry ladder decides recovery isn't feasible
    * (≥3 context losses within 60 s, or the browser signaled the loss is
    * unrestorable). Default: `() => window.location.reload()`. Tests inject a
-   * stub to observe the trigger without actually reloading; kiosk deployments
-   * can wire it to a supervisor.
+   * stub to observe the trigger without actually reloading; deployments can
+   * wire it to a supervisor.
    */
   onReload?: () => void
 }
 
+/**
+ * Populates a fresh {@link Scene}. Passed to {@link EngineHost.loadScene}, which
+ * destroys the current scene's contents before calling it. Add root nodes
+ * through `scene.root`; reach shared services (input, animation, camera)
+ * through `engine`. May be async, so it can await asset loads before building
+ * the tree.
+ *
+ * @category Engine
+ * @example
+ *   const build: SceneBuilder = (scene) => {
+ *     scene.root.add(
+ *       new ShapeNode({
+ *         geometry: { kind: 'circle', radius: 40 },
+ *         fill: '#fff',
+ *       }),
+ *     )
+ *   }
+ */
 export type SceneBuilder = (
   scene: Scene,
   engine: Engine,
 ) => void | Promise<void>
 
+/**
+ * Owns an {@link Engine} plus the lifecycle concerns a page needs around it:
+ * start/stop, pause/resume, scene swapping, and WebGL context-loss recovery.
+ * Mount one host per canvas. Inside a Svelte component, prefer the
+ * `mountEngine` action, which builds the host and wires resize and teardown for
+ * you.
+ *
+ * Build one with {@link createEngineHost}.
+ *
+ * @category Engine
+ */
 export interface EngineHost {
+  /** The wrapped engine. Reach scene, camera, input, and animation through it. */
   readonly engine: Engine
+  /** The engine's event bus (`ready`, `frame`, `resize`, `contextlost`, …). */
   readonly events: Emitter<EngineEvents>
+  /** True between {@link EngineHost.pause} and {@link EngineHost.resume}. */
   readonly paused: boolean
   /**
-   * Always present, the booth menu toggles HUD visibility at runtime, so the
-   * controller has to exist regardless of the URL flag.
+   * The debug controller. Always present so an external menu can toggle the HUD
+   * at runtime; the `?debug` URL flag only decides whether it starts open.
    */
   readonly debug: DebugController
+  /** Start the render loop. The first call also emits the `ready` event. */
   start(): void
+  /** Stop the render loop. The scene and GL resources stay intact. */
   stop(): void
+  /**
+   * Pause for a full-screen overlay covering the canvas. This stops the ticker
+   * outright, unlike {@link Engine.paused}, a soft freeze that keeps the ticker
+   * running so debug tools stay live. Resume with {@link EngineHost.resume}.
+   */
   pause(): void
+  /** Resume after {@link EngineHost.pause}. */
   resume(): void
+  /**
+   * Tear down the engine: stop the loop, remove context-loss listeners, and
+   * reject every pending tween/wait with `AbortError`.
+   */
   destroy(): void
+  /**
+   * Swap the scene. Destroys every current root child, then calls `build` to
+   * populate the emptied scene. Await it, `build` may load assets before it
+   * returns.
+   */
   loadScene(build: SceneBuilder): Promise<void>
 }
 
@@ -118,6 +173,32 @@ export function resolveMsaaSamples(explicit?: number): number {
   return 4
 }
 
+/**
+ * Build an {@link EngineHost} around a canvas: construct the {@link Engine},
+ * attach a {@link DebugController}, and register WebGL context-loss recovery.
+ *
+ * The renderer backend, MSAA sample count, and debug HUD state resolve from
+ * `opts` first, then fall back to URL flags (`?renderer=`, `?msaa=`, `?debug=`)
+ * so a deployed build can be probed without a code change. See
+ * {@link EngineHostOptions} for the per-field precedence.
+ *
+ * @category Engine
+ * @example
+ *   const host = createEngineHost({
+ *     canvas,
+ *     clearColor: '#0d1a2c',
+ *     initialViewport: { x: 0, y: 0, width: 1920, height: 1080 },
+ *   })
+ *   await host.loadScene((scene) => {
+ *     scene.root.add(
+ *       new ShapeNode({
+ *         geometry: { kind: 'circle', radius: 40 },
+ *         fill: '#fff',
+ *       }),
+ *     )
+ *   })
+ *   host.start()
+ */
 export function createEngineHost(opts: EngineHostOptions): EngineHost {
   const rendererMode = resolveRendererMode(opts.renderer)
   const msaaSamples = resolveMsaaSamples(opts.msaaSamples)

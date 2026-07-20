@@ -4,8 +4,8 @@
  * `GameSession` control surface.
  *
  * Everything below is intentionally re-exported from more focused modules; this
- * file exists so `import { startGame } from '@src/displays/stallwaechter/game'` stays stable as
- * internals move around.
+ * file exists so `import { startGame } from '@src/displays/stallwaechter/game'`
+ * stays stable as internals move around.
  */
 export {
   startGame,

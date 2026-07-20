@@ -1,15 +1,15 @@
 /**
- * Stallwächter's game-over label. Renders the German-states scoreboard
- * (state photo behind a wave, big score, "Punkte" caption, high-score pill,
- * Firefox Enterprise logo) to a JPEG for the label printer.
+ * Stallwächter's game-over label. Renders the German-states scoreboard (state
+ * photo behind a wave, big score, "Punkte" caption, high-score pill, Firefox
+ * Enterprise logo) to a JPEG for the label printer.
  *
- * Composed on a standalone OffscreenCanvas, NOT the live WebGL canvas
- * (created without `preserveDrawingBuffer`, readback is blank). Also gives
- * pixel-exact control independent of DPR and works headless in tests.
+ * Composed on a standalone OffscreenCanvas, NOT the live WebGL canvas (created
+ * without `preserveDrawingBuffer`, readback is blank). Also gives pixel-exact
+ * control independent of DPR and works headless in tests.
  *
- * VC-500W tape is continuous, only the cross-tape dimension is fixed. We
- * render square (edge = tape width px), daemon sends `<print autofit=1>` so
- * hardware corrects any small size mismatch without clipping.
+ * VC-500W tape is continuous, only the cross-tape dimension is fixed. We render
+ * square (edge = tape width px), daemon sends `<print autofit=1>` so hardware
+ * corrects any small size mismatch without clipping.
  *
  * All layout sizes are ratios of the label edge (Figma comp is 330×330).
  */
@@ -160,8 +160,8 @@ const COL = {
 }
 
 /**
- * Pure, store-free draw. Tests can pass a stub 2D context, omit `assets`
- * (image steps skip) and rely on the `labelUrl` default.
+ * Pure, store-free draw. Tests can pass a stub 2D context, omit `assets` (image
+ * steps skip) and rely on the `labelUrl` default.
  */
 export function drawLabel(
   ctx: Ctx2D,

@@ -1,9 +1,9 @@
 import type { CoreMessages, Messages } from '@src/i18n'
 
 /**
- * Strongly-typed message tree for the Stallwächter display. Extends the
- * core shell with the game + states sections; both locale bundles satisfy
- * this shape, and display components import a `t` store typed to it.
+ * Strongly-typed message tree for the Stallwächter display. Extends the core
+ * shell with the game + states sections; both locale bundles satisfy this
+ * shape, and display components import a `t` store typed to it.
  */
 export interface StallwaechterMessages extends CoreMessages {
   /** The public-facing game screen shown to visitors. */
@@ -55,7 +55,7 @@ export interface StallwaechterMessages extends CoreMessages {
 /**
  * `StallwaechterMessages` narrows the framework's `Messages` — the two are
  * interchangeable at the store boundary. This alias makes the intent explicit
- * where a variable is typed as the core shape but consumed as the display's
- * one (e.g. the manifest's label-render callbacks).
+ * where a variable is typed as the core shape but consumed as the display's one
+ * (e.g. the manifest's label-render callbacks).
  */
 export type MessagesAsStallwaechter = Messages & StallwaechterMessages

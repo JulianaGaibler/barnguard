@@ -29,7 +29,7 @@ class MockEventSource {
   onopen: (() => void) | null = null
   onerror: (() => void) | null = null
   onmessage: ((e: MessageEvent) => void) | null = null
-  private listeners = new Map<string, ((e: MessageEvent) => void)[]>()
+  #listeners = new Map<string, ((e: MessageEvent) => void)[]>()
   readonly url: string
   closed = false
 
@@ -39,9 +39,9 @@ class MockEventSource {
   }
 
   addEventListener(name: string, handler: (e: MessageEvent) => void): void {
-    const arr = this.listeners.get(name) ?? []
+    const arr = this.#listeners.get(name) ?? []
     arr.push(handler)
-    this.listeners.set(name, arr)
+    this.#listeners.set(name, arr)
   }
 
   close(): void {
@@ -60,7 +60,7 @@ class MockEventSource {
     this.onerror?.()
   }
   fireEvent(name: string, data: unknown): void {
-    const arr = this.listeners.get(name) ?? []
+    const arr = this.#listeners.get(name) ?? []
     const e = new MessageEvent(name, { data: JSON.stringify(data) })
     for (const h of arr) h(e)
   }

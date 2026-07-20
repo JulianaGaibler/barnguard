@@ -85,6 +85,73 @@ $typography-styles: (
     letter-spacing: 1px,
     text-transform: uppercase,
   ),
+  // Display + game roles. All rem, so they scale with the adjustable base.
+  display: (
+    font-size: 6rem,
+    font-family: $mozilla-headline,
+    font-weight: 700,
+    letter-spacing: 0.04em,
+  ),
+  watermark: (
+    font-size: 16rem,
+    font-family: $mozilla-headline,
+    font-weight: 700,
+    line-height: 1,
+    font-variant-numeric: tabular-nums,
+  ),
+  score-lg: (
+    font-size: 8.333rem,
+    font-family: $mozilla-headline-extended,
+    font-weight: 700,
+    font-variant-numeric: tabular-nums,
+  ),
+  score: (
+    font-size: 3rem,
+    font-family: $mozilla-headline,
+    font-weight: 700,
+    font-variant-numeric: tabular-nums,
+  ),
+  headline-lg: (
+    font-size: 2.917rem,
+    font-family: $mozilla-headline-extended,
+    font-weight: 700,
+  ),
+  headline: (
+    font-size: 2.5rem,
+    font-family: $mozilla-headline,
+    font-weight: 700,
+  ),
+  headline-sm: (
+    font-size: 1.667rem,
+    font-family: $mozilla-headline-extended,
+    font-weight: 700,
+  ),
+  card-title: (
+    font-size: 2rem,
+    font-family: $mozilla-headline,
+    font-weight: 700,
+  ),
+  pill: (
+    font-size: 1.1rem,
+    font-family: $mozilla-headline,
+    font-weight: 700,
+  ),
+  pill-small: (
+    font-size: 0.95rem,
+    font-family: $mozilla-headline,
+    font-weight: 700,
+  ),
+  label-lg: (
+    font-size: 1.333rem,
+    font-family: $mozilla-headline-extended,
+    font-weight: 700,
+  ),
+  button: (
+    font-size: 1.2rem,
+    font-family: $mozilla-text,
+    font-weight: 700,
+    letter-spacing: 1px,
+  ),
 );
 
 @mixin type-class($key) {

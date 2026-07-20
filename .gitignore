@@ -11,6 +11,9 @@ build
 /web/dist/*
 !/web/dist/.gitkeep
 
+# Generated stargazer API docs (built on demand via `npm run docs:stargazer`).
+/web/src/stargazer/site
+
 # Rust
 /target
 /mock-out

@@ -1,6 +1,12 @@
 import type { SceneNode } from './SceneNode'
 
-/** Depth-first pre-order visit (parents before children). */
+/**
+ * Visit every node in a subtree depth-first, parents before children and each
+ * node's children left to right. This is painter order: `visit` sees nodes in
+ * the sequence they should draw. `root` itself is visited first.
+ *
+ * @category Scene
+ */
 export function walkTree(
   root: SceneNode,
   visit: (node: SceneNode) => void,

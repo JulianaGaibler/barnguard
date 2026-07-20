@@ -19,56 +19,65 @@
   }: Props = $props()
 
   let active = $state(false)
-  // Track pointer IDs currently pressing this button. Multiple fingers on the
-  // same button (rare but possible on a 20-finger panel) must not release the
-  // press until the *last* finger lifts. Different buttons capture their own
-  // pointer IDs independently, so two fingers on Up + Right pan diagonally.
+  // Pointer IDs currently pressing this button. Multiple fingers on the same
+  // button must not release the press until the *last* lifts; different buttons
+  // track their own IDs, so two fingers on Up + Right pan diagonally.
   const activePointers = new SvelteSet<number>()
-  // Reference to the underlying <button>, used to release any lingering
-  // captures during a full clear (blur / visibilitychange).
-  let btnEl: HTMLButtonElement | undefined = $state(undefined)
+  // Whether the window-level release listeners are attached (only while held).
+  let listening = false
+
+  // Release is heard on `window`, NOT on the button. On touchscreens the
+  // element's own `pointerup` is unreliable, it can fire on a different target,
+  // get dropped after the implicit touch capture, or be lost on a system
+  // gesture, leaving the button "stuck" (for the camera pad, the debug camera
+  // then pans forever). A window listener keyed by `pointerId` catches the
+  // release wherever it lands. See the camera pad in `DebugHud.svelte`.
+  function attach(): void {
+    if (listening) return
+    listening = true
+    window.addEventListener('pointerup', onWindowRelease)
+    window.addEventListener('pointercancel', onWindowRelease)
+  }
+  function detach(): void {
+    if (!listening) return
+    listening = false
+    window.removeEventListener('pointerup', onWindowRelease)
+    window.removeEventListener('pointercancel', onWindowRelease)
+  }
 
   function down(e: PointerEvent): void {
     if (disabled) return
+    // Prevent the synthetic mouse/focus follow-up; keyboard focus must never
+    // land on a pad button (WASD/QE must reach DebugController).
     e.preventDefault()
-    // Capture on the button so a finger sliding off doesn't strand the press;
-    // pointerup then fires on this element wherever the release happens.
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
     activePointers.add(e.pointerId)
+    attach()
     if (!active) {
       active = true
       onPress()
     }
   }
 
-  function up(e: PointerEvent): void {
-    activePointers.delete(e.pointerId)
+  function releasePointer(id: number): void {
+    if (!activePointers.delete(id)) return
     if (active && activePointers.size === 0) {
       active = false
+      detach()
       onRelease()
     }
   }
 
+  function onWindowRelease(e: PointerEvent): void {
+    releasePointer(e.pointerId)
+  }
+
   /**
-   * Belt-and-braces release. Called on `pointerleave` and from the global blur
-   * / visibilitychange listeners. Touchscreen browsers (esp. Android Firefox
-   * mid-gesture, iOS Safari on system swipes / notifications) sometimes drop
-   * the `pointerup` / `pointercancel` after a `pointerdown` , that leaves the
-   * button "stuck active", which for the camera pad means the debug camera pans
-   * forever. Force-clear all state so the caller's `onRelease` fires and any
-   * lingering pointer captures on this element are released.
+   * Force-release everything. Called on window blur / tab hide (the browser
+   * drops pointer events on a background tab, incoming call, home-indicator
+   * swipe) and on unmount, so a held key can never outlive the button.
    */
   function clearAll(): void {
-    if (activePointers.size === 0 && !active) return
-    if (btnEl) {
-      for (const id of activePointers) {
-        try {
-          btnEl.releasePointerCapture(id)
-        } catch {
-          // Capture may already be gone (e.g. element detached); ignore.
-        }
-      }
-    }
+    detach()
     activePointers.clear()
     if (active) {
       active = false
@@ -77,10 +86,6 @@
   }
 
   onMount(() => {
-    // Global fallbacks, the browser silently drops pointer events in a
-    // handful of scenarios (tab hidden, window blur, incoming call on
-    // mobile, iOS home-indicator swipe). Without these, the press never
-    // ends.
     const onWinBlur = (): void => clearAll()
     const onVisibility = (): void => {
       if (document.visibilityState === 'hidden') clearAll()
@@ -90,21 +95,19 @@
     return () => {
       window.removeEventListener('blur', onWinBlur)
       document.removeEventListener('visibilitychange', onVisibility)
+      // Unmounting mid-press (e.g. the section collapses) must still release.
+      clearAll()
     }
   })
 </script>
 
 <button
-  bind:this={btnEl}
   type="button"
   class="hold-btn"
   class:active
   {disabled}
   aria-label={ariaLabel}
   onpointerdown={down}
-  onpointerup={up}
-  onpointercancel={up}
-  onpointerleave={up}
 >
   {@render children()}
 </button>

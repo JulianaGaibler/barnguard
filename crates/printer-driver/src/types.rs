@@ -69,7 +69,7 @@ impl PrintMode {
     }
 }
 
-/// Cut behaviour after a print.
+/// Cut behavior after a print.
 #[derive(Debug, Clone, Copy)]
 pub enum CutMode {
     Full,

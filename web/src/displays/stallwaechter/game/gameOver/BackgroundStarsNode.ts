@@ -29,33 +29,33 @@ export interface BackgroundStarsOptions {
  * regenerates stars ahead of the packet.
  */
 export class BackgroundStarsNode extends SceneNode {
-  private readonly count: number
+  readonly #count: number
   /** Interleaved `[x, y, size, alpha]`, 4 floats per star. */
-  private readonly data: Float32Array
-  private readonly color: string
+  readonly #data: Float32Array
+  readonly #color: string
 
   constructor(opts: BackgroundStarsOptions) {
     super('background-stars')
-    this.count = opts.count
-    this.data = new Float32Array(this.count * 4)
-    this.color = opts.color
+    this.#count = opts.count
+    this.#data = new Float32Array(this.#count * 4)
+    this.#color = opts.color
 
     const [sizeMin, sizeMax] = opts.sizeWorld
     const [alphaMin, alphaMax] = opts.alphaRange
     const extent = opts.halfExtent
-    for (let i = 0; i < this.count; i++) {
+    for (let i = 0; i < this.#count; i++) {
       const j = i * 4
-      this.data[j] = (Math.random() * 2 - 1) * extent
-      this.data[j + 1] = (Math.random() * 2 - 1) * extent
-      this.data[j + 2] = sizeMin + Math.random() * (sizeMax - sizeMin)
-      this.data[j + 3] = alphaMin + Math.random() * (alphaMax - alphaMin)
+      this.#data[j] = (Math.random() * 2 - 1) * extent
+      this.#data[j + 1] = (Math.random() * 2 - 1) * extent
+      this.#data[j + 2] = sizeMin + Math.random() * (sizeMax - sizeMin)
+      this.#data[j + 3] = alphaMin + Math.random() * (alphaMax - alphaMin)
     }
   }
 
   override draw(gfx: Gfx2D, _camera: Camera): void {
-    const n = this.count
-    const d = this.data
-    const color = this.color
+    const n = this.#count
+    const d = this.#data
+    const color = this.#color
     gfx.save()
     // One filled circle per star. At n = 400 this is ~400 fills/frame which
     // the Canvas backend handles comfortably; the stars are tiny (< 1 wu) so

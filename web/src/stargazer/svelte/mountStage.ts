@@ -1,6 +1,11 @@
 import type { Engine } from '../engine/Engine'
 import type { Stage, StageOptions } from '../render/Stage'
 
+/**
+ * Params for the {@link mountStage} Svelte action.
+ *
+ * @category Svelte
+ */
 export interface MountStageParams {
   /** The primary engine that will drive this secondary stage. */
   engine: Engine
@@ -13,18 +18,18 @@ export interface MountStageParams {
 }
 
 /**
- * Svelte action for a secondary `<canvas>` element. Attaches a `Stage` to the
- * given engine on mount, calls `onReady(stage)` so the caller can build a
- * scene, and detaches on unmount. Mirrors `mountEngine`.
+ * Svelte action for a second `<canvas>` driven by an existing engine. Attaches
+ * a {@link Stage} via {@link Engine.attachStage} on mount, calls `onReady(stage)`
+ * so the caller can build the stage's scene, and detaches on unmount. The
+ * counterpart to `mountEngine` for the primary canvas.
  *
- * @example
- *   <canvas
- *   use:mountStage={{
- *   engine,
- *   options: { initialViewport: { x: -100, y: -100, width: 200, height: 200 } },
- *   onReady: (stage) => buildLossScene(stage),
- *   }}
- *   ></canvas>
+ * A secondary stage has its own `Scene`, `Camera`, and `Layers` but shares the
+ * engine's ticker and `Animator`, so tweens on both canvases stay in sync. Used
+ * for a side card that renders through the same clock as the main view (a
+ * tutorial mini-view, a game-over panel). Attach it as `use:mountStage={{
+ * engine, options, onReady }}`.
+ *
+ * @category Svelte
  */
 export function mountStage(
   canvas: HTMLCanvasElement,

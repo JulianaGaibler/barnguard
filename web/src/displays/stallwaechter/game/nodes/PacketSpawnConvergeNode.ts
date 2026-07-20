@@ -47,121 +47,124 @@ export interface PacketSpawnConvergeOptions {
  * `Float32Array` + `Uint8Array`, no per-frame allocations.
  */
 export class PacketSpawnConvergeNode extends SceneNode {
-  private readonly ratePerSec: number
-  private readonly spawnDuration: number
-  private readonly lifetime: number
-  private readonly ringRadius: number
-  private readonly radiusEndFraction: number
-  private readonly sizeMax: number
-  private readonly alphaGrowFraction: number
-  private readonly color: string
+  readonly #ratePerSec: number
+  readonly #spawnDuration: number
+  readonly #lifetime: number
+  readonly #ringRadius: number
+  readonly #radiusEndFraction: number
+  readonly #sizeMax: number
+  readonly #alphaGrowFraction: number
+  readonly #color: string
 
-  private readonly capacity: number
-  private readonly angle: Float32Array
-  private readonly age: Float32Array
-  private readonly active: Uint8Array
-  private nextSlot = 0
-  private spawnAccumulator = 0
-  private elapsedSec = 0
-  private aliveCount = 0
+  readonly #capacity: number
+  readonly #angle: Float32Array
+  readonly #age: Float32Array
+  readonly #active: Uint8Array
+  #nextSlot = 0
+  #spawnAccumulator = 0
+  #elapsedSec = 0
+  #aliveCount = 0
 
-  private readonly hexPath: Path2D
+  readonly #hexPath: Path2D
 
   constructor(opts: PacketSpawnConvergeOptions) {
     super('packet-spawn-converge')
     this.transform.x = opts.center.x
     this.transform.y = opts.center.y
-    this.ratePerSec = opts.ratePerSec
-    this.spawnDuration = opts.spawnDurationSec
-    this.lifetime = opts.particleLifetimeSec
-    this.ringRadius = opts.ringRadiusWorld
-    this.radiusEndFraction = opts.radiusEndFraction
-    this.sizeMax = opts.sizeMaxWorld
-    this.alphaGrowFraction = opts.alphaGrowFraction
-    this.color = opts.color
+    this.#ratePerSec = opts.ratePerSec
+    this.#spawnDuration = opts.spawnDurationSec
+    this.#lifetime = opts.particleLifetimeSec
+    this.#ringRadius = opts.ringRadiusWorld
+    this.#radiusEndFraction = opts.radiusEndFraction
+    this.#sizeMax = opts.sizeMaxWorld
+    this.#alphaGrowFraction = opts.alphaGrowFraction
+    this.#color = opts.color
 
     // Pool size sized for the peak simultaneous alive count with a small
     // buffer, `ratePerSec * lifetime + 4` covers the steady-state plus
     // rounding slack from the emission accumulator.
-    this.capacity = Math.max(4, Math.ceil(this.ratePerSec * this.lifetime) + 4)
-    this.angle = new Float32Array(this.capacity)
-    this.age = new Float32Array(this.capacity)
-    this.active = new Uint8Array(this.capacity)
+    this.#capacity = Math.max(
+      4,
+      Math.ceil(this.#ratePerSec * this.#lifetime) + 4,
+    )
+    this.#angle = new Float32Array(this.#capacity)
+    this.#age = new Float32Array(this.#capacity)
+    this.#active = new Uint8Array(this.#capacity)
 
-    this.hexPath = buildUnitHexagonPath()
+    this.#hexPath = buildUnitHexagonPath()
   }
 
   override onUpdate(dt: number): void {
     if (dt <= 0) return
-    this.elapsedSec += dt
+    this.#elapsedSec += dt
 
     // Spawn while the emitter is active. Fractional accumulator ensures
     // the target rate is hit precisely regardless of frame timing.
-    if (this.elapsedSec < this.spawnDuration) {
-      this.spawnAccumulator += this.ratePerSec * dt
-      while (this.spawnAccumulator >= 1) {
-        this.spawnAccumulator -= 1
-        this.spawnOne()
+    if (this.#elapsedSec < this.#spawnDuration) {
+      this.#spawnAccumulator += this.#ratePerSec * dt
+      while (this.#spawnAccumulator >= 1) {
+        this.#spawnAccumulator -= 1
+        this.#spawnOne()
       }
     }
 
     // Advance ages; deactivate on expiry.
-    const cap = this.capacity
+    const cap = this.#capacity
     for (let i = 0; i < cap; i++) {
-      if (!this.active[i]) continue
-      this.age[i] += dt
-      if (this.age[i] >= this.lifetime) {
-        this.active[i] = 0
-        this.aliveCount--
+      if (!this.#active[i]) continue
+      this.#age[i] += dt
+      if (this.#age[i] >= this.#lifetime) {
+        this.#active[i] = 0
+        this.#aliveCount--
       }
     }
 
     // Self-destroy once emission has ended AND no particles remain alive.
     if (
-      this.elapsedSec >= this.spawnDuration &&
-      this.aliveCount <= 0 &&
+      this.#elapsedSec >= this.#spawnDuration &&
+      this.#aliveCount <= 0 &&
       !this.isDestroyed
     ) {
       this.destroy()
     }
   }
 
-  private spawnOne(): void {
+  #spawnOne(): void {
     // Ring-scan slot allocation. In steady state the capacity is sized so
     // the oldest slot is already expired by the time we wrap around, so
     // overwriting is safe. Guard defensively just in case a burst pushes
     // us up against the ceiling.
-    const cap = this.capacity
-    let slot = this.nextSlot
+    const cap = this.#capacity
+    let slot = this.#nextSlot
     for (let tries = 0; tries < cap; tries++) {
-      if (!this.active[slot]) break
+      if (!this.#active[slot]) break
       slot = (slot + 1) % cap
     }
-    if (this.active[slot]) {
+    if (this.#active[slot]) {
       // Pool full, silently drop this spawn. Prefer visible truncation
       // over overwriting an in-flight particle mid-life.
       return
     }
-    this.active[slot] = 1
-    this.age[slot] = 0
-    this.angle[slot] = Math.random() * Math.PI * 2
-    this.nextSlot = (slot + 1) % cap
-    this.aliveCount++
+    this.#active[slot] = 1
+    this.#age[slot] = 0
+    this.#angle[slot] = Math.random() * Math.PI * 2
+    this.#nextSlot = (slot + 1) % cap
+    this.#aliveCount++
   }
 
   override draw(gfx: Gfx2D, _camera: Camera): void {
-    const cap = this.capacity
-    const rStart = this.ringRadius
-    const rEnd = this.ringRadius * this.radiusEndFraction
-    const sizeMax = this.sizeMax
-    const growFrac = this.alphaGrowFraction
+    const cap = this.#capacity
+    const rStart = this.#ringRadius
+    const rEnd = this.#ringRadius * this.#radiusEndFraction
+    const sizeMax = this.#sizeMax
+    const growFrac = this.#alphaGrowFraction
     const invGrow = growFrac > 0 ? 1 / growFrac : 1
     const invFade = growFrac < 1 ? 1 / (1 - growFrac) : 1
-    const color = this.color
+    const color = this.#color
 
     for (let i = 0; i < cap; i++) {
-      if (!this.active[i]) continue
-      const t = this.age[i] / this.lifetime
+      if (!this.#active[i]) continue
+      const t = this.#age[i] / this.#lifetime
       if (t >= 1) continue
       // Quad-in radial ease, particles start slow near the ring and
       // accelerate as they rush inward.
@@ -171,14 +174,14 @@ export class PacketSpawnConvergeNode extends SceneNode {
       const alpha =
         t < growFrac ? t * invGrow : Math.max(0, 1 - (t - growFrac) * invFade)
       if (alpha <= 0 || size <= 0) continue
-      const a = this.angle[i]
+      const a = this.#angle[i]
       const x = Math.cos(a) * r
       const y = Math.sin(a) * r
       gfx.save()
       gfx.setAlpha(alpha)
       gfx.translate(x, y)
       gfx.scale(size, size)
-      gfx.fillPath2D(this.hexPath, color)
+      gfx.fillPath2D(this.#hexPath, color)
       gfx.restore()
     }
   }

@@ -8,10 +8,10 @@ import { Layers } from './Layers'
 let liveBitmaps = 0
 
 class FakeBitmap {
-  private closed = false
+  #closed = false
   close(): void {
-    if (this.closed) return
-    this.closed = true
+    if (this.#closed) return
+    this.#closed = true
     liveBitmaps--
   }
 }
@@ -24,10 +24,13 @@ const noopCtx = {
 } as unknown as CanvasRenderingContext2D
 
 class FakeOffscreen {
-  constructor(
-    public width: number,
-    public height: number,
-  ) {}
+  public width: number
+  public height: number
+
+  constructor(width: number, height: number) {
+    this.width = width
+    this.height = height
+  }
   getContext(): CanvasRenderingContext2D {
     return noopCtx
   }

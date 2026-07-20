@@ -1,5 +1,11 @@
+/**
+ * Construction options for {@link Renderer}.
+ *
+ * @category Advanced
+ */
 export interface RendererOptions {
   canvas: HTMLCanvasElement
+  /** Solid clear color used each frame when `transparent` is false. */
   clearColor?: string
   /**
    * When true the frame clear leaves the canvas transparent so a CSS background
@@ -18,6 +24,8 @@ export interface RendererOptions {
  *
  * The clear color + transparent flag are carried through as configuration for
  * the facade to consume on `beginFrame`.
+ *
+ * @category Advanced
  */
 export class Renderer {
   readonly canvas: HTMLCanvasElement

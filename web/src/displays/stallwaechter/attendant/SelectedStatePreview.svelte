@@ -48,10 +48,10 @@
     gap: 8px
     padding: 4px 0
   .label
-    color: var(--tint-text-secondary)
+    color: var(--color-text-secondary)
   .state-name
     font-weight: 600
   .dim
-    color: var(--tint-text-secondary)
+    color: var(--color-text-secondary)
     font-weight: 400
 </style>

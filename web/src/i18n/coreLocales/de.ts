@@ -1,8 +1,8 @@
 import type { CoreMessages } from '../types'
 
 /**
- * Core German shell strings. A display composes its own bundle via
- * `{ ...coreLocales.de, game: {...}, states: {...} }` — overrides work by
+ * Core German shell strings. A display composes its own bundle via `{
+ * ...coreLocales.de, game: {...}, states: {...} }` — overrides work by
  * spreading later.
  */
 export const de: CoreMessages = {

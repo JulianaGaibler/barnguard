@@ -1,12 +1,12 @@
 import {
   SceneNode,
+  withAlpha,
   type Camera,
   type Gfx2D,
   type Rect,
   type Vec2,
 } from '@src/stargazer'
 import { TUNING } from '../data/tuning'
-import { withAlpha } from './colorUtils'
 
 /** Number of segments used to tessellate the cone's arc. */
 const CONE_ARC_SEGMENTS = 20
@@ -36,9 +36,9 @@ interface EpicenterNodeOptions {
 /**
  * Safe zone at a state's capital, a 60° cone opening toward the interior.
  * Capture requires apex proximity AND a valid entry heading, not a drag
- * terminating at the apex. Visuals: gradient wedge + outline (breathing
- * via `pulseScale`) then a white apex dot. Passive, packets read
- * `center` / `axisRad` / radii directly.
+ * terminating at the apex. Visuals: gradient wedge + outline (breathing via
+ * `pulseScale`) then a white apex dot. Passive, packets read `center` /
+ * `axisRad` / radii directly.
  */
 export class EpicenterNode extends SceneNode {
   readonly captureRadius: number
@@ -51,24 +51,24 @@ export class EpicenterNode extends SceneNode {
    * INWARD axis (`axisRad + π`) are considered valid entries.
    */
   readonly axisRad: number
-  /** Set by `EpicenterBehaviour`, outer alpha for the breathing pulse. */
+  /** Set by `EpicenterBehavior`, outer alpha for the breathing pulse. */
   outerAlpha = 1
   /**
-   * Set by `EpicenterBehaviour`, grow-in scale applied on show. Kept for
-   * compatibility with the behaviour; multiplied into the wedge radius.
+   * Set by `EpicenterBehavior`, grow-in scale applied on show. Kept for
+   * compatibility with the behavior; multiplied into the wedge radius.
    */
   outerScale = 1
   /**
-   * `EpicenterBehaviour`-driven pulse scale (0..1). Tweens 0 → 1 over 2 s,
+   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 → 1 over 2 s,
    * resets, waits 3 s, repeats. Multiplied into the wedge radius.
    */
   pulseScale = 0
-  /** Retained for compatibility with `EpicenterBehaviour`, unused visually. */
+  /** Retained for compatibility with `EpicenterBehavior`, unused visually. */
   dashRotation = 0
 
-  private readonly _arcPoly: Float32Array
-  private readonly apexIcon: CanvasImageSource | null
-  private readonly apexIconSize: number
+  readonly #_arcPoly: Float32Array
+  readonly #apexIcon: CanvasImageSource | null
+  readonly #apexIconSize: number
 
   constructor(opts: EpicenterNodeOptions) {
     super('epicenter')
@@ -100,10 +100,10 @@ export class EpicenterNode extends SceneNode {
       pts[(i + 1) * 2] = Math.cos(a) * r
       pts[(i + 1) * 2 + 1] = Math.sin(a) * r
     }
-    this._arcPoly = pts
+    this.#_arcPoly = pts
 
-    this.apexIcon = opts.apexIcon ?? null
-    this.apexIconSize = opts.apexIconSizeWorld ?? 14
+    this.#apexIcon = opts.apexIcon ?? null
+    this.#apexIconSize = opts.apexIconSizeWorld ?? 14
 
     this.debugBounds = boundsFromRadius(this.coneRadius)
   }
@@ -128,7 +128,7 @@ export class EpicenterNode extends SceneNode {
   /**
    * True when a heading (radians) points INTO the cone, i.e. within
    * `±(coneSweep/2 + approachForgivenessRad)` of the inward axis.
-   * `PacketBehaviour` reads this for auto-capture on cone entry.
+   * `PacketBehavior` reads this for auto-capture on cone entry.
    */
   isEntryHeadingValid(headingRad: number): boolean {
     const inward = this.axisRad + Math.PI
@@ -151,10 +151,10 @@ export class EpicenterNode extends SceneNode {
       gfx.scale(this.outerScale, this.outerScale)
 
       gfx.setAlpha(alpha * this.outerAlpha * 0.08)
-      gfx.fillConvexPoly(this._arcPoly, this._arcPoly.length / 2, '#36FFB9')
+      gfx.fillConvexPoly(this.#_arcPoly, this.#_arcPoly.length / 2, '#36FFB9')
 
       gfx.setAlpha(alpha * this.outerAlpha * 0.7)
-      gfx.strokePolyline(this._arcPoly, this._arcPoly.length / 2, {
+      gfx.strokePolyline(this.#_arcPoly, this.#_arcPoly.length / 2, {
         color: '#81FFD3',
         width: (1.5 * s) / this.outerScale,
         closed: true,
@@ -176,7 +176,7 @@ export class EpicenterNode extends SceneNode {
         gfx.save()
         gfx.scale(s2, s2)
         gfx.setAlpha(pulseAlpha * 0.55)
-        gfx.fillConvexPoly(this._arcPoly, this._arcPoly.length / 2, '#81FFD3')
+        gfx.fillConvexPoly(this.#_arcPoly, this.#_arcPoly.length / 2, '#81FFD3')
         gfx.restore()
       }
     }
@@ -185,16 +185,16 @@ export class EpicenterNode extends SceneNode {
     // supplied) so the mark reads clearly against the cone; falls back
     // to a small marker dot when no icon is provided (e.g. tutorial).
     gfx.setAlpha(alpha)
-    if (this.apexIcon) {
-      const half = this.apexIconSize * 0.5
+    if (this.#apexIcon) {
+      const half = this.#apexIconSize * 0.5
       const padding = 3
       gfx.fillCircle(0, 0, half + padding, withAlpha('#f8fafc', 1))
       gfx.drawImage(
-        this.apexIcon,
+        this.#apexIcon,
         -half,
         -half,
-        this.apexIconSize,
-        this.apexIconSize,
+        this.#apexIconSize,
+        this.#apexIconSize,
       )
     } else {
       gfx.fillCircle(0, 0, 4, withAlpha('#f8fafc', 1))

@@ -3,8 +3,15 @@ import type { GeometryHandle } from '../render/gfx/GeometryHandle'
 import { registerPathTessellation } from '../render/gfx/PathTessellationRegistry'
 import { flattenSvgPath, tessellateContours } from './SvgPathContours'
 
+/**
+ * One entry in a {@link SvgPathMap}: the parsed `Path2D` plus its bounds and,
+ * when tessellation was requested, GPU-ready contours and triangles.
+ *
+ * @category Assets
+ */
 export interface SvgPathEntry {
   path: Path2D
+  /** Axis-aligned bounds of `path` in the SVG's own coordinate space. */
   bounds: Rect
   /**
    * Flattened polyline contours (`[x0,y0,x1,y1,…]`) in the SVG's own coordinate
@@ -19,6 +26,11 @@ export interface SvgPathEntry {
   triangles?: GeometryHandle
 }
 
+/**
+ * Options for {@link parseSvgPaths}.
+ *
+ * @category Assets
+ */
 export interface ParseSvgPathsOptions {
   /**
    * When true, also emit `contours` + `triangles` for each path. Default
@@ -33,8 +45,22 @@ export interface ParseSvgPathsOptions {
   flattenTol?: number
 }
 
+/**
+ * Result of {@link parseSvgPaths}: the SVG's viewBox and its paths keyed by id.
+ *
+ * @category Assets
+ */
+/**
+ * Result of {@link parseSvgPaths}: the source `viewBox` and a map from key to
+ * {@link SvgPathEntry} (a `Path2D` plus its local AABB). Feed an entry's `path`
+ * to a `Path2DNode` to render it.
+ *
+ * @category Assets
+ */
 export interface SvgPathMap {
+  /** The SVG's coordinate space, from its `viewBox` (or `width`/`height`). */
   viewBox: Rect
+  /** Parsed paths keyed by id / group id / `path-<index>`. */
   paths: ReadonlyMap<string, SvgPathEntry>
 }
 
@@ -53,6 +79,18 @@ export interface SvgPathMap {
  *    are merged into ONE `Path2D` (via `addPath`), with a union AABB.
  * 3. If neither is present, fall back to `path-<index>`, unique per path so
  *    unnamed, ungrouped SVGs behave the same as before.
+ *
+ * Set `opts.tessellate` to pre-triangulate each path and register it for the
+ * GPU backend, which a `Path2DNode` needs before it can draw the path on GPU
+ * (see `Path2DNode`).
+ *
+ * @category Assets
+ * @example
+ *   const { paths } = parseSvgPaths(svgText, { tessellate: true })
+ *   const france = paths.get('france')
+ *   if (france) {
+ *     scene.root.add(new Path2DNode({ path: france.path, fill: '#88c' }))
+ *   }
  */
 export function parseSvgPaths(
   raw: string,
@@ -194,6 +232,13 @@ export function tokenizeSvgPath(d: string): string[] {
   return tokens
 }
 
+/**
+ * Approximate axis-aligned bounds for a raw SVG `d` string. The result is
+ * always ≥ the true AABB (Bézier and arc segments are bounded conservatively),
+ * which is fine for hit broad-phase and debug outlines.
+ *
+ * @category Assets
+ */
 export function computePathBounds(d: string): Rect {
   let minX = Infinity
   let minY = Infinity

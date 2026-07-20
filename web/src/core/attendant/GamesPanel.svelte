@@ -13,7 +13,10 @@
   import ConfirmButton, {
     createConfirmCoordinator,
   } from '@src/core/ui/ConfirmButton.svelte'
-  import { gamesPanelVisible, toggleGamesPanel } from '@src/core/attendant/boothMenuToggle'
+  import {
+    gamesPanelVisible,
+    toggleGamesPanel,
+  } from '@src/core/attendant/boothMenuToggle'
 
   const RECENT_MAX = 10
   let nowTick = $state(Date.now())

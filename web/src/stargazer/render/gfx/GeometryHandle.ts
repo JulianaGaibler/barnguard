@@ -7,6 +7,8 @@
  *
  * ≤ 65 535 vertices per handle (Uint16 addressing); asserted in
  * `SvgPathContours.tessellateContours` at construction time.
+ *
+ * @category Advanced
  */
 export interface GeometryHandle {
   vertices: Float32Array

@@ -47,9 +47,9 @@ function buildNode(): GridOverlayNode {
   })
 }
 
-/** Read alpha[i] via a tiny reflection helper, `pulseAlpha` is private. */
+/** Read alpha[i] through the node's internal test seam. */
 function readPulseAlpha(node: GridOverlayNode, i: number): number {
-  return (node as unknown as { pulseAlpha: Float32Array }).pulseAlpha[i]
+  return node._pulseAlphaAt(i)
 }
 
 describe('GridOverlayNode.pulseFrom', () => {

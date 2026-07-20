@@ -1,13 +1,22 @@
 import { createEmitter, type Emitter } from '../events/Emitter'
-import type { Engine } from '../engine/Engine'
+import type { Engine, RegisteredPhysicsWorld } from '../engine/Engine'
 import type { Camera } from '../camera/Camera'
 import type { Stage } from '../render/Stage'
-import type { InputSystem } from '../input/InputSystem'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { BitmapMask } from '../assets/BitmapMask'
 import { DebugCamera } from './DebugCamera'
 import { FrameStats } from './FrameStats'
 import { walkTree } from '../scene/traverse'
+import { drawGrid } from './DebugGridRenderer'
+import { drawNodeOutlines } from './DebugOutlineRenderer'
+import { drawPointerOverlay } from './DebugPointerRenderer'
+import {
+  drawPhysicsOverlay,
+  type PhysicsOverlayFlags,
+} from './DebugPhysicsRenderer'
+import { BodyType } from '../physics/types'
+import type { PhysicsWorld } from '../physics/PhysicsWorld'
+import type { SceneNode } from '../scene/SceneNode'
 import { get, writable, type Readable } from 'svelte/store'
 import type { Component } from 'svelte'
 // Global debug UI styles, imported by the module that owns debug so we get
@@ -18,6 +27,11 @@ import type { Component } from 'svelte'
 // the debug controller.
 import './ui/debug-ui.sass'
 
+/**
+ * Current on/off state of every debug toggle, emitted on the `toggle` event.
+ *
+ * @category Debug
+ */
 export interface DebugToggleState {
   hud: boolean
   camera: boolean
@@ -26,8 +40,14 @@ export interface DebugToggleState {
   grid: boolean
   paused: boolean
   pointerOverlay: boolean
+  physics: PhysicsOverlayFlags
 }
 
+/**
+ * Flattened view of one active pointer, shaped for the HUD's pointer sections.
+ *
+ * @category Debug
+ */
 export interface ActivePointerReadout {
   id: number
   kind: 'touch' | 'mouse' | 'pen'
@@ -36,7 +56,11 @@ export interface ActivePointerReadout {
   capturedByNodeId: string | null
 }
 
-/** One entry per attached stage, surfaced to the HUD for the chip strip. */
+/**
+ * One entry per attached stage, surfaced to the HUD for the chip strip.
+ *
+ * @category Debug
+ */
 export interface StageChip {
   /** Stable identifier, `'primary'` or `'stage-{N}'`. */
   id: string
@@ -46,6 +70,11 @@ export interface StageChip {
   isPrimary: boolean
 }
 
+/**
+ * Per-frame GPU pipeline counters, read from the WebGL2 backend for the HUD.
+ *
+ * @category Debug
+ */
 export interface DebugGpuStatsReadout {
   drawCalls: number
   programSwitches: number
@@ -58,12 +87,24 @@ export interface DebugGpuStatsReadout {
   msaaSamples: number
 }
 
+/**
+ * One frame's worth of debug metrics for the active stage. Produced by
+ * {@link DebugController.snapshotStats} and consumed by the HUD.
+ *
+ * @category Debug
+ */
 export interface DebugStatsSnapshot {
+  /** CPU work-time percentiles (seconds) per frame, headroom, NOT frame cadence. */
   p50: number
   p95: number
   p99: number
   max: number
   count: number
+  /**
+   * Actual frames per second, from the real post-cap frame interval. Reflects
+   * the FPS cap and vsync. `0` when not yet measured.
+   */
+  fps: number
   nodeCounts: {
     static: number
     aboveStatic: number
@@ -102,8 +143,40 @@ export interface DebugStatsSnapshot {
   activeIsPrimary: boolean
   /** True when the active stage has its own `InputSystem`. */
   activeHasInput: boolean
+  /** One entry per physics world in the active stage; empty when it has none. */
+  physics: PhysicsWorldReadout[]
 }
 
+/**
+ * Live stats for one physics world in the active stage, shown in the HUD's
+ * Physics panel. One of these per world; several worlds can coexist in a
+ * stage.
+ *
+ * @category Debug
+ */
+export interface PhysicsWorldReadout {
+  /** Stable id for keying the HUD list within one snapshot. */
+  id: string
+  /** The world's label, from its registration. */
+  label: string
+  /** CSS color used for this world in the panel swatch and the overlay. */
+  accent: string
+  bodyCount: number
+  sleeping: number
+  static: number
+  dynamic: number
+  kinematic: number
+  /** Solid contact manifolds from the last step (sensors excluded). */
+  contactCount: number
+  atRest: boolean
+  gravity: { x: number; y: number }
+}
+
+/**
+ * Event map for {@link DebugController.events}.
+ *
+ * @category Debug
+ */
 export interface DebugEvents {
   toggle: DebugToggleState
   /**
@@ -113,9 +186,18 @@ export interface DebugEvents {
   stageChanged: { activeStageId: string }
 }
 
+/**
+ * Initial toggle state for a {@link DebugController}. Everything defaults to
+ * off.
+ *
+ * @category Debug
+ */
 export interface DebugControllerOptions {
+  /** Show the HUD on construction. */
   showHud?: boolean
+  /** Draw node outlines on construction. */
   showOutlines?: boolean
+  /** Draw the world grid on construction. */
   showGrid?: boolean
 }
 
@@ -128,6 +210,8 @@ export interface DebugControllerOptions {
  * caller spreads via `props`. Prop-type correctness is the caller's
  * responsibility, we deliberately widen `props` to `Record<string, unknown>`
  * here so the stargazer stays generic.
+ *
+ * @category Debug
  */
 export interface DebugPanelSpec {
   /**
@@ -166,11 +250,16 @@ interface StageMetrics {
  * Global sections (Performance, Pause) are unaffected. Pointer sections follow
  * the active stage's `InputSystem`, when it has one, its pointers show up in
  * the readouts; when it doesn't, the section shows a hint.
+ *
+ * @category Debug
  */
 export class DebugController {
   readonly enabled = true as const
   readonly camera: DebugCamera
+  /** CPU work-time per frame (headroom); drives the frame graph + `CPU pXX`. */
   readonly frameStats: FrameStats
+  /** Real (post-cap) frame interval per frame; drives the actual FPS readout. */
+  readonly #frameIntervalStats = new FrameStats(300)
   readonly events: Emitter<DebugEvents>
   /** Read-only handle for HUD components that need scene / input access. */
   readonly engine: Engine
@@ -182,17 +271,33 @@ export class DebugController {
    * `_hudVisible` getter reads `get(store)` synchronously for backward-compat
    * with the existing plain-JS API.
    */
-  private readonly hudVisibleStore = writable<boolean>(false)
+  readonly #hudVisibleStore = writable<boolean>(false)
   /** Reactive HUD visibility, subscribe from Svelte with `$`. */
-  readonly hudVisible$: Readable<boolean> = this.hudVisibleStore
-  private _cameraActive = false
-  private _outlinesVisible = false
-  private _followGameCamera = false
-  private _gridVisible = false
-  private _pointerOverlayVisible = false
-  private _activeStage: Stage | null = null // null → primary
+  readonly hudVisible$: Readable<boolean> = this.#hudVisibleStore
+  #_cameraActive = false
+  #_outlinesVisible = false
+  #_followGameCamera = false
+  #_gridVisible = false
+  #_pointerOverlayVisible = false
+  #_physicsFlags: PhysicsOverlayFlags = {
+    colliders: false,
+    aabbs: false,
+    contacts: false,
+    velocities: false,
+  }
+  /** Cached OR of `_physicsFlags`, so `drawOverlay` is one test when all off. */
+  #_physicsAny = false
+  /**
+   * Stable overlay color per world, assigned on first sight from a fixed
+   * palette. Keying by the world (not a render-time index) keeps a color from
+   * shifting when another world is removed.
+   */
+  readonly #worldAccents = new Map<PhysicsWorld, string>()
+  /** Node whose bounds the overlay highlights, driven by the Scene panel. */
+  #highlightedNode: SceneNode | null = null
+  #_activeStage: Stage | null = null // null → primary
 
-  private _pointerScreen: { x: number; y: number } | null = null
+  #_pointerScreen: { x: number; y: number } | null = null
 
   /**
    * Currently-inspected clip mask, surfaced in the HUD via the `'clip-mask'`
@@ -200,12 +305,12 @@ export class DebugController {
    * consumer holding the same `BitmapMask` used by `GridOverlayNode`). Null
    * when nothing is registered.
    */
-  private _inspectedMask: BitmapMask | null = null
+  #_inspectedMask: BitmapMask | null = null
 
   /** Per-stage sliding window for the "static bakes/s" HUD row. */
-  private readonly stageMetrics = new WeakMap<Stage, StageMetrics>()
+  readonly #stageMetrics = new WeakMap<Stage, StageMetrics>()
 
-  private readonly disposeCallbacks: Array<() => void> = []
+  readonly #disposeCallbacks: Array<() => void> = []
 
   /**
    * Registered consumer panels, surfaced to `DebugHud.svelte` for
@@ -213,13 +318,13 @@ export class DebugController {
    * `#each` re-runs whenever a panel registers or unregisters. Sort-by-`order`
    * happens on read (see the `panels` getter).
    */
-  private readonly panelsStore = writable<DebugPanelSpec[]>([])
+  readonly #panelsStore = writable<DebugPanelSpec[]>([])
   /**
    * Public readable view of the registered-panels list. Sorted ascending by
    * `order` (unset = `Infinity`, keeping ordered panels first and
    * registration-order for the rest).
    */
-  readonly panels: Readable<DebugPanelSpec[]> = this.panelsStore
+  readonly panels: Readable<DebugPanelSpec[]> = this.#panelsStore
 
   constructor(engine: Engine, opts: DebugControllerOptions = {}) {
     this.engine = engine
@@ -227,15 +332,15 @@ export class DebugController {
     this.frameStats = new FrameStats(300)
     this.events = createEmitter<DebugEvents>()
 
-    this.hudVisibleStore.set(opts.showHud ?? false)
-    this._outlinesVisible = opts.showOutlines ?? false
-    this._gridVisible = opts.showGrid ?? false
+    this.#hudVisibleStore.set(opts.showHud ?? false)
+    this.#_outlinesVisible = opts.showOutlines ?? false
+    this.#_gridVisible = opts.showGrid ?? false
 
-    const onKeyDown = (e: KeyboardEvent): void => this.onKeyDown(e)
-    const onKeyUp = (e: KeyboardEvent): void => this.onKeyUp(e)
+    const onKeyDown = (e: KeyboardEvent): void => this.#onKeyDown(e)
+    const onKeyUp = (e: KeyboardEvent): void => this.#onKeyUp(e)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
-    this.disposeCallbacks.push(() => {
+    this.#disposeCallbacks.push(() => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     })
@@ -244,18 +349,18 @@ export class DebugController {
     const canvas = engine.canvas
     const onPointerMove = (e: PointerEvent): void => {
       const rect = canvas.getBoundingClientRect()
-      this._pointerScreen = {
+      this.#_pointerScreen = {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top,
       }
     }
     const onPointerLeave = (): void => {
-      this._pointerScreen = null
+      this.#_pointerScreen = null
     }
     canvas.addEventListener('pointermove', onPointerMove)
     canvas.addEventListener('pointerleave', onPointerLeave)
     canvas.addEventListener('pointercancel', onPointerLeave)
-    this.disposeCallbacks.push(() => {
+    this.#disposeCallbacks.push(() => {
       canvas.removeEventListener('pointermove', onPointerMove)
       canvas.removeEventListener('pointerleave', onPointerLeave)
       canvas.removeEventListener('pointercancel', onPointerLeave)
@@ -265,7 +370,7 @@ export class DebugController {
     // camera doesn't drag pointer state behind by one frame. Sized against
     // the active stage so pan feel is consistent regardless of canvas.
     const offBefore = engine.onBeforeFrame((dt) => {
-      if (this._cameraActive) {
+      if (this.#_cameraActive) {
         const active = this.activeStage
         this.camera.setPixelSize(
           active.renderer.cssSize.w,
@@ -280,10 +385,13 @@ export class DebugController {
     // `engine.lastFrameWorkSec` for the derivation. This is the value
     // that answers "did this frame have headroom or is it right at
     // budget?", the vsync-locked dt can't distinguish the two.
-    const offFrame = engine.ticker.onFrame(() => {
+    const offFrame = engine.ticker.onFrame((dt) => {
       this.frameStats.push(engine.lastFrameWorkSec)
+      // The real post-cap frame interval (only processed frames reach this
+      // callback), the actual FPS readout, which reflects the FPS cap.
+      this.#frameIntervalStats.push(dt)
     })
-    this.disposeCallbacks.push(offBefore, offFrame)
+    this.#disposeCallbacks.push(offBefore, offFrame)
   }
 
   /**
@@ -296,7 +404,7 @@ export class DebugController {
    * inside a reactive effect whose deps change.
    */
   registerPanel(spec: DebugPanelSpec): () => void {
-    this.panelsStore.update((list) => {
+    this.#panelsStore.update((list) => {
       const without = list.filter((p) => p.id !== spec.id)
       const next = [...without, spec]
       // Sort by `order` (undefined = Infinity so unordered panels append
@@ -305,27 +413,27 @@ export class DebugController {
       return next
     })
     return () => {
-      this.panelsStore.update((list) => list.filter((p) => p.id !== spec.id))
+      this.#panelsStore.update((list) => list.filter((p) => p.id !== spec.id))
     }
   }
 
   get hudVisible(): boolean {
-    return get(this.hudVisibleStore)
+    return get(this.#hudVisibleStore)
   }
   get cameraActive(): boolean {
-    return this._cameraActive
+    return this.#_cameraActive
   }
   get outlinesVisible(): boolean {
-    return this._outlinesVisible
+    return this.#_outlinesVisible
   }
   get followGameCamera(): boolean {
-    return this._followGameCamera
+    return this.#_followGameCamera
   }
   get gridVisible(): boolean {
-    return this._gridVisible
+    return this.#_gridVisible
   }
   get pointerOverlayVisible(): boolean {
-    return this._pointerOverlayVisible
+    return this.#_pointerOverlayVisible
   }
   get paused(): boolean {
     return this.engine.paused
@@ -336,8 +444,24 @@ export class DebugController {
   setPerfMarks(enabled: boolean): void {
     this.engine.perfMarks = enabled
   }
+  /** Current render frame-rate cap in Hz, or 0 when uncapped. */
+  get maxFps(): number {
+    return this.engine.ticker.maxFps
+  }
+  /** Cap the render frame rate (Hz); 0 removes the cap. */
+  setMaxFps(fps: number): void {
+    this.engine.ticker.setMaxFps(fps)
+  }
+  /** Whether render `dt` smoothing is on. */
+  get smoothTimestep(): boolean {
+    return this.engine.ticker.smoothTimestep
+  }
+  /** Toggle render `dt` smoothing (timer-jitter filter). */
+  setSmoothTimestep(enabled: boolean): void {
+    this.engine.ticker.setSmoothTimestep(enabled)
+  }
   get inspectedMask(): BitmapMask | null {
-    return this._inspectedMask
+    return this.#_inspectedMask
   }
   /**
    * Register the clip mask to visualise under the `'clip-mask'` render mode.
@@ -345,17 +469,17 @@ export class DebugController {
    * `GridOverlayNode`. Passing `null` clears.
    */
   setInspectedMask(mask: BitmapMask | null): void {
-    this._inspectedMask = mask
+    this.#_inspectedMask = mask
   }
   /**
    * The stage currently being inspected. Defaults to the primary; the HUD's
    * chip strip drives it via `setActiveStage`.
    */
   get activeStage(): Stage {
-    return this._activeStage ?? this.engine.primaryStage
+    return this.#_activeStage ?? this.engine.primaryStage
   }
   get activeIsPrimary(): boolean {
-    return this._activeStage === null
+    return this.#_activeStage === null
   }
 
   /**
@@ -364,20 +488,20 @@ export class DebugController {
    * camera.
    */
   setActiveStage(stage: Stage | null): void {
-    if (this._activeStage === stage) return
+    if (this.#_activeStage === stage) return
     // Passing the primary stage explicitly normalises to null.
     if (stage === this.engine.primaryStage) stage = null
-    this._activeStage = stage
+    this.#_activeStage = stage
     const active = this.activeStage
     this.camera.setGameCamera(active.camera)
-    if (this._cameraActive) {
+    if (this.#_cameraActive) {
       this.camera.reset()
       this.camera.setPixelSize(
         active.renderer.cssSize.w,
         active.renderer.cssSize.h,
       )
     }
-    this.events.emit('stageChanged', { activeStageId: this.stageIdOf(active) })
+    this.events.emit('stageChanged', { activeStageId: this.#stageIdOf(active) })
   }
 
   /**
@@ -385,10 +509,10 @@ export class DebugController {
    * active one, snap back to the primary. Called by `Engine.detachStage`.
    */
   onStageDetached(stage: Stage): void {
-    if (this._activeStage !== stage) return
-    this._activeStage = null
+    if (this.#_activeStage !== stage) return
+    this.#_activeStage = null
     this.camera.setGameCamera(this.engine.primaryStage.camera)
-    if (this._cameraActive) {
+    if (this.#_cameraActive) {
       this.camera.reset()
     }
     this.events.emit('stageChanged', { activeStageId: 'primary' })
@@ -404,13 +528,13 @@ export class DebugController {
    */
   setHudVisible(visible: boolean): void {
     if (visible === this.hudVisible) return
-    this.hudVisibleStore.set(visible)
-    this.emitToggle()
+    this.#hudVisibleStore.set(visible)
+    this.#emitToggle()
   }
 
   toggleCamera(): void {
-    this._cameraActive = !this._cameraActive
-    if (this._cameraActive) {
+    this.#_cameraActive = !this.#_cameraActive
+    if (this.#_cameraActive) {
       const active = this.activeStage
       // Make sure the debug camera is anchored to the current active stage
       // before we snap its viewport, matters when the user switched stages
@@ -424,33 +548,89 @@ export class DebugController {
     } else {
       this.camera.clearKeys()
     }
-    this.emitToggle()
+    this.#emitToggle()
   }
 
   toggleOutlines(): void {
-    this._outlinesVisible = !this._outlinesVisible
-    this.emitToggle()
+    this.#_outlinesVisible = !this.#_outlinesVisible
+    this.#emitToggle()
   }
 
   toggleFollow(): void {
-    this._followGameCamera = !this._followGameCamera
-    this.camera.setFollow(this._followGameCamera)
-    this.emitToggle()
+    this.#_followGameCamera = !this.#_followGameCamera
+    this.camera.setFollow(this.#_followGameCamera)
+    this.#emitToggle()
   }
 
   toggleGrid(): void {
-    this._gridVisible = !this._gridVisible
-    this.emitToggle()
+    this.#_gridVisible = !this.#_gridVisible
+    this.#emitToggle()
   }
 
   togglePause(): void {
     this.engine.setPaused(!this.engine.paused)
-    this.emitToggle()
+    this.#emitToggle()
   }
 
   togglePointerOverlay(): void {
-    this._pointerOverlayVisible = !this._pointerOverlayVisible
-    this.emitToggle()
+    this.#_pointerOverlayVisible = !this.#_pointerOverlayVisible
+    this.#emitToggle()
+  }
+
+  /** Current physics overlay flags (read-only). */
+  get physicsFlags(): Readonly<PhysicsOverlayFlags> {
+    return this.#_physicsFlags
+  }
+
+  /**
+   * Highlight a node's bounds in the overlay, or pass `null` to clear. The
+   * Scene panel calls this as the selection changes.
+   */
+  setHighlightedNode(node: SceneNode | null): void {
+    this.#highlightedNode = node
+  }
+
+  /** The node currently highlighted in the overlay, or null. */
+  get highlightedNode(): SceneNode | null {
+    return this.#highlightedNode
+  }
+
+  /**
+   * Overlay accent color of the world a node hosts (its
+   * `PhysicsWorldBehavior`), or null when the node hosts none. The Scene panel
+   * uses it to tint a world boundary the same color as the overlay.
+   */
+  overlayAccentForNode(node: SceneNode): string | null {
+    for (const entry of this.engine.physicsWorlds) {
+      if (entry.spaceNode === node) return this.#accentFor(entry.world)
+    }
+    return null
+  }
+
+  /** Registered worlds anchored in `stage`'s scene. */
+  #worldsForStage(stage: Stage): RegisteredPhysicsWorld[] {
+    const scene = stage.scene
+    return this.engine.physicsWorlds.filter(
+      (e) => (e.spaceNode?.scene ?? null) === scene,
+    )
+  }
+
+  /** Stable overlay color for a world, assigned from the palette on demand. */
+  #accentFor(world: PhysicsWorld): string {
+    let c = this.#worldAccents.get(world)
+    if (!c) {
+      c = WORLD_ACCENTS[this.#worldAccents.size % WORLD_ACCENTS.length]
+      this.#worldAccents.set(world, c)
+    }
+    return c
+  }
+
+  /** Flip one physics overlay layer on or off. */
+  togglePhysics(key: keyof PhysicsOverlayFlags): void {
+    this.#_physicsFlags[key] = !this.#_physicsFlags[key]
+    const f = this.#_physicsFlags
+    this.#_physicsAny = f.colliders || f.aabbs || f.contacts || f.velocities
+    this.#emitToggle()
   }
 
   resetDebugCamera(): void {
@@ -463,13 +643,14 @@ export class DebugController {
    * otherwise the stage's own game camera. Called by `Engine.frame()`.
    */
   activeCameraFor(stage: Stage): Camera {
-    return this._cameraActive && stage === this.activeStage
+    return this.#_cameraActive && stage === this.activeStage
       ? this.camera
       : stage.camera
   }
 
   snapshotStats(): DebugStatsSnapshot {
     const p = this.frameStats.percentiles()
+    const fi = this.#frameIntervalStats.percentiles()
     const active = this.activeStage
     const counts = { static: 0, aboveStatic: 0, dynamic: 0, total: 0 }
     let aliveParticles = 0
@@ -485,7 +666,7 @@ export class DebugController {
     // Hover-pointer readout is primary-only (DebugController's own
     // pointermove listener is attached to engine.canvas). Active-pointer
     // sections follow the active stage's InputSystem instead.
-    const ps = this.activeIsPrimary ? this._pointerScreen : null
+    const ps = this.activeIsPrimary ? this.#_pointerScreen : null
     const pw = ps ? cam.screenToWorld(ps.x, ps.y) : null
     const stageInput = active.input
     const activePointers: ActivePointerReadout[] = []
@@ -502,16 +683,18 @@ export class DebugController {
     }
     // `stage.gpuStats` is a public getter, returns null under Canvas.
     const gpu = active.gpuStats ? { ...active.gpuStats } : null
+    const physics = this.#snapshotPhysics(active)
     return {
       p50: p.p50,
       p95: p.p95,
       p99: p.p99,
+      fps: fi.p50 > 0 ? 1 / fi.p50 : 0,
       max: p.max,
       count: p.count,
       nodeCounts: counts,
       gpu,
-      cameraMode: this._cameraActive ? 'debug' : 'game',
-      cameraFollowing: this._followGameCamera,
+      cameraMode: this.#_cameraActive ? 'debug' : 'game',
+      cameraFollowing: this.#_followGameCamera,
       viewport: { ...cam.viewport },
       screenPxPerWorldUnit: cam.screenPxPerWorldUnit(),
       pointerScreen: ps ? { ...ps } : null,
@@ -524,22 +707,56 @@ export class DebugController {
       touchSlopWorld: stageInput?.touchSlopWorld ?? 0,
       aliveParticles,
       staticBakesTotal: active.layers.totalBakes,
-      staticBakesPerSecond: this.sampleBakeRate(active),
+      staticBakesPerSecond: this.#sampleBakeRate(active),
       renderScale: active.renderScale,
       activeBitmaps: active.layers.activeBitmaps,
-      stages: this.snapshotStageChips(),
-      activeStageId: this.stageIdOf(active),
+      stages: this.#snapshotStageChips(),
+      activeStageId: this.#stageIdOf(active),
       activeIsPrimary: this.activeIsPrimary,
       activeHasInput: stageInput !== null,
+      physics,
     }
   }
 
+  /** Tally physics stats for every world in a stage. */
+  #snapshotPhysics(stage: Stage): PhysicsWorldReadout[] {
+    const out: PhysicsWorldReadout[] = []
+    const worlds = this.#worldsForStage(stage)
+    for (let i = 0; i < worlds.length; i++) {
+      const { world, label } = worlds[i]
+      let sleeping = 0
+      let staticCount = 0
+      let dynamic = 0
+      let kinematic = 0
+      for (const b of world.bodies) {
+        if (b.sleeping) sleeping++
+        if (b.type === BodyType.Static) staticCount++
+        else if (b.type === BodyType.Kinematic) kinematic++
+        else dynamic++
+      }
+      out.push({
+        id: `world-${i}`,
+        label,
+        accent: this.#accentFor(world),
+        bodyCount: world.bodyCount,
+        sleeping,
+        static: staticCount,
+        dynamic,
+        kinematic,
+        contactCount: world.contactCount,
+        atRest: world.isAtRest(),
+        gravity: { ...world.config.gravity },
+      })
+    }
+    return out
+  }
+
   /** Per-stage sliding window, bake stamps age out of a 1-second window. */
-  private sampleBakeRate(stage: Stage): number {
-    let m = this.stageMetrics.get(stage)
+  #sampleBakeRate(stage: Stage): number {
+    let m = this.#stageMetrics.get(stage)
     if (!m) {
       m = { bakeStamps: [], lastSeenTotalBakes: 0 }
-      this.stageMetrics.set(stage, m)
+      this.#stageMetrics.set(stage, m)
     }
     const total = stage.layers.totalBakes
     const delta = total - m.lastSeenTotalBakes
@@ -553,13 +770,13 @@ export class DebugController {
     return m.bakeStamps.length
   }
 
-  private snapshotStageChips(): StageChip[] {
+  #snapshotStageChips(): StageChip[] {
     const chips: StageChip[] = []
     const primary = this.engine.primaryStage
     chips.push({
       id: 'primary',
       label: primary.name ?? 'Primary',
-      isActive: this._activeStage === null,
+      isActive: this.#_activeStage === null,
       isPrimary: true,
     })
     let idx = 1
@@ -567,7 +784,7 @@ export class DebugController {
       chips.push({
         id: `stage-${idx}`,
         label: stage.name ?? `Stage ${idx}`,
-        isActive: this._activeStage === stage,
+        isActive: this.#_activeStage === stage,
         isPrimary: false,
       })
       idx++
@@ -575,7 +792,7 @@ export class DebugController {
     return chips
   }
 
-  private stageIdOf(stage: Stage): string {
+  #stageIdOf(stage: Stage): string {
     if (stage === this.engine.primaryStage) return 'primary'
     let idx = 1
     for (const s of this.engine.stages) {
@@ -616,8 +833,8 @@ export class DebugController {
     // so the mask UVs computed inside `GpuGfx.fillRect` line up with the
     // mask's worldRect. Only active on GPU stages under `'clip-mask'`
     // render mode.
-    if (stage.getDebugRenderMode() === 'clip-mask' && this._inspectedMask) {
-      this.drawClipMaskOverlay(gfx, activeCamera, dpr)
+    if (stage.getDebugRenderMode() === 'clip-mask' && this.#_inspectedMask) {
+      this.#drawClipMaskOverlay(gfx, activeCamera, dpr)
     }
 
     // Reset blend so a lingering `lighter` from the last dynamic-layer
@@ -627,18 +844,39 @@ export class DebugController {
     gfx.setAlpha(1)
     gfx.setBaseTransform(dpr, 0, 0, dpr, 0, 0)
 
-    if (this._gridVisible) {
-      this.drawGrid(gfx, activeCamera, renderer.cssSize.w, renderer.cssSize.h)
+    if (this.#_gridVisible) {
+      drawGrid(gfx, activeCamera, renderer.cssSize.w, renderer.cssSize.h)
     }
 
-    if (this._outlinesVisible) {
-      this.drawNodeOutlines(gfx, stage, activeCamera)
+    if (this.#_outlinesVisible) {
+      drawNodeOutlines(gfx, stage, activeCamera)
+    }
+
+    if (this.#_physicsAny) {
+      const alpha = this.engine.ticker.fixedAlpha
+      for (const entry of this.#worldsForStage(stage)) {
+        const space = entry.spaceNode?.transform.world ?? null
+        drawPhysicsOverlay(
+          gfx,
+          entry.world,
+          activeCamera,
+          this.#_physicsFlags,
+          space,
+          alpha,
+          this.#accentFor(entry.world),
+          entry.label,
+        )
+      }
+    }
+
+    if (this.#highlightedNode && this.#highlightedNode.scene === stage.scene) {
+      this.#drawNodeHighlight(gfx, activeCamera, this.#highlightedNode)
     }
 
     // Only meaningful when the debug camera is active, the pip shows the
     // stage's game camera rect in debug-camera space.
-    if (this._cameraActive) {
-      this.drawGameCameraRect(gfx, activeCamera, stage.camera)
+    if (this.#_cameraActive) {
+      this.#drawGameCameraRect(gfx, activeCamera, stage.camera)
     }
   }
 
@@ -648,8 +886,8 @@ export class DebugController {
    * transform + `gfx.setClipMask(mask)` so `fillRect` uses local (world) coords
    * for the mask UVs, same coord system the mask's `worldRect` is in.
    */
-  private drawClipMaskOverlay(gfx: Gfx2D, camera: Camera, dpr: number): void {
-    const mask = this._inspectedMask
+  #drawClipMaskOverlay(gfx: Gfx2D, camera: Camera, dpr: number): void {
+    const mask = this.#_inspectedMask
     if (!mask) return
     const cam = camera.getScreenTransform()
     const s = cam.scale * dpr
@@ -669,34 +907,35 @@ export class DebugController {
    * the toggle is off or the stage has no input attached.
    */
   drawInputOverlay(stage: Stage, gfx: Gfx2D): void {
-    if (!this._pointerOverlayVisible) return
+    if (!this.#_pointerOverlayVisible) return
     const input = stage.input
     if (!input) return
     const dpr = stage.renderer.dpr
     gfx.setBlend('source-over')
     gfx.setAlpha(1)
     gfx.setBaseTransform(dpr, 0, 0, dpr, 0, 0)
-    this.drawPointerOverlay(gfx, input)
+    drawPointerOverlay(gfx, input)
   }
 
   destroy(): void {
-    for (const fn of this.disposeCallbacks) fn()
-    this.disposeCallbacks.length = 0
+    for (const fn of this.#disposeCallbacks) fn()
+    this.#disposeCallbacks.length = 0
   }
 
-  private emitToggle(): void {
+  #emitToggle(): void {
     this.events.emit('toggle', {
       hud: this.hudVisible,
-      camera: this._cameraActive,
-      outlines: this._outlinesVisible,
-      follow: this._followGameCamera,
-      grid: this._gridVisible,
+      camera: this.#_cameraActive,
+      outlines: this.#_outlinesVisible,
+      follow: this.#_followGameCamera,
+      grid: this.#_gridVisible,
       paused: this.engine.paused,
-      pointerOverlay: this._pointerOverlayVisible,
+      pointerOverlay: this.#_pointerOverlayVisible,
+      physics: { ...this.#_physicsFlags },
     })
   }
 
-  private onKeyDown(e: KeyboardEvent): void {
+  #onKeyDown(e: KeyboardEvent): void {
     const target = e.target
     if (
       target instanceof HTMLInputElement ||
@@ -707,7 +946,7 @@ export class DebugController {
       return
     }
     // Debug camera key state (WASD Q E), feed the DebugCamera when it's active.
-    if (this._cameraActive && DebugCamera.isControlKey(e.code)) {
+    if (this.#_cameraActive && DebugCamera.isControlKey(e.code)) {
       this.camera.setKey(e.code, true)
       e.preventDefault()
       return
@@ -742,7 +981,7 @@ export class DebugController {
         e.preventDefault()
         return
       case 'KeyR':
-        if (this._cameraActive) {
+        if (this.#_cameraActive) {
           this.resetDebugCamera()
           e.preventDefault()
         }
@@ -752,203 +991,13 @@ export class DebugController {
     }
   }
 
-  private onKeyUp(e: KeyboardEvent): void {
-    if (this._cameraActive && DebugCamera.isControlKey(e.code)) {
+  #onKeyUp(e: KeyboardEvent): void {
+    if (this.#_cameraActive && DebugCamera.isControlKey(e.code)) {
       this.camera.setKey(e.code, false)
     }
   }
 
-  private drawNodeOutlines(gfx: Gfx2D, stage: Stage, cam: Camera): void {
-    const strokeStyle = { color: 'rgba(96, 165, 250, 0.6)', width: 1 }
-    const rectPts = new Float32Array(8)
-
-    walkTree(stage.scene.root, (node) => {
-      if (!node.debugVisible || !node.visible) return
-      const w = node.transform.world
-      // Pivot cross at node origin.
-      const px = w.e
-      const py = w.f
-      const screenOrigin = cam.worldToScreen(px, py)
-      const cross = 4
-      gfx.strokeLine(
-        screenOrigin.x - cross,
-        screenOrigin.y,
-        screenOrigin.x + cross,
-        screenOrigin.y,
-        strokeStyle,
-      )
-      gfx.strokeLine(
-        screenOrigin.x,
-        screenOrigin.y - cross,
-        screenOrigin.x,
-        screenOrigin.y + cross,
-        strokeStyle,
-      )
-
-      // OBB from debugBounds corners → world → screen. See scene/SceneNode.ts
-      // for the debug-bounds convention (local AABB, projected through world).
-      const b = node.debugBounds
-      if (!b) return
-      const corners: Array<[number, number]> = [
-        [b.x, b.y],
-        [b.x + b.width, b.y],
-        [b.x + b.width, b.y + b.height],
-        [b.x, b.y + b.height],
-      ]
-      for (let i = 0; i < 4; i++) {
-        const lx = corners[i][0]
-        const ly = corners[i][1]
-        const wx = w.a * lx + w.c * ly + w.e
-        const wy = w.b * lx + w.d * ly + w.f
-        const s = cam.worldToScreen(wx, wy)
-        rectPts[i * 2] = s.x
-        rectPts[i * 2 + 1] = s.y
-      }
-      gfx.strokePolyline(rectPts, 4, { ...strokeStyle, closed: true })
-    })
-  }
-
-  private drawGrid(
-    gfx: Gfx2D,
-    cam: Camera,
-    canvasW: number,
-    canvasH: number,
-  ): void {
-    const vp = cam.viewport
-    if (vp.width <= 0 || vp.height <= 0) return
-
-    const step = niceGridStep(vp.width)
-    const subStep = step / 5
-
-    // World range covering the entire visible canvas (includes letterbox
-    // beyond the camera's fitted viewport).
-    const originTL = cam.screenToWorld(0, 0)
-    const originBR = cam.screenToWorld(canvasW, canvasH)
-    const xLo = Math.min(originTL.x, originBR.x)
-    const xHi = Math.max(originTL.x, originBR.x)
-    const yLo = Math.min(originTL.y, originBR.y)
-    const yHi = Math.max(originTL.y, originBR.y)
-
-    const minor = { color: 'rgba(255, 255, 255, 0.05)', width: 1 }
-    const major = { color: 'rgba(96, 165, 250, 0.25)', width: 1 }
-    const axis = { color: 'rgba(255, 215, 77, 0.5)', width: 1 }
-
-    for (let x = Math.ceil(xLo / subStep) * subStep; x <= xHi; x += subStep) {
-      const sx = cam.worldToScreen(x, 0).x
-      gfx.strokeLine(sx, 0, sx, canvasH, minor)
-    }
-    for (let y = Math.ceil(yLo / subStep) * subStep; y <= yHi; y += subStep) {
-      const sy = cam.worldToScreen(0, y).y
-      gfx.strokeLine(0, sy, canvasW, sy, minor)
-    }
-    for (let x = Math.ceil(xLo / step) * step; x <= xHi; x += step) {
-      const sx = cam.worldToScreen(x, 0).x
-      gfx.strokeLine(sx, 0, sx, canvasH, major)
-    }
-    for (let y = Math.ceil(yLo / step) * step; y <= yHi; y += step) {
-      const sy = cam.worldToScreen(0, y).y
-      gfx.strokeLine(0, sy, canvasW, sy, major)
-    }
-    if (0 >= xLo && 0 <= xHi) {
-      const sx = cam.worldToScreen(0, 0).x
-      gfx.strokeLine(sx, 0, sx, canvasH, axis)
-    }
-    if (0 >= yLo && 0 <= yHi) {
-      const sy = cam.worldToScreen(0, 0).y
-      gfx.strokeLine(0, sy, canvasW, sy, axis)
-    }
-
-    // Labels on major lines. Canvas-mode only (GPU backend has no
-    // fillText; duck-typed check).
-    const canText = 'fillText' in gfx
-    if (canText) {
-      const yAxisScreenX = cam.worldToScreen(0, 0).x
-      const xAxisScreenY = cam.worldToScreen(0, 0).y
-      const labelX = Math.max(2, Math.min(yAxisScreenX + 2, canvasW - 40))
-      const labelY = Math.max(0, Math.min(xAxisScreenY + 2, canvasH - 14))
-      const labelStyle = {
-        font: '10px monospace',
-        align: 'left' as const,
-        baseline: 'top' as const,
-        color: 'rgba(255, 255, 255, 0.55)',
-      }
-      const gfxText = gfx as unknown as {
-        fillText(
-          text: string,
-          x: number,
-          y: number,
-          opts?: typeof labelStyle,
-        ): void
-      }
-      for (let x = Math.ceil(xLo / step) * step; x <= xHi; x += step) {
-        const sx = cam.worldToScreen(x, 0).x
-        gfxText.fillText(formatCoord(x), sx + 2, labelY, labelStyle)
-      }
-      for (let y = Math.ceil(yLo / step) * step; y <= yHi; y += step) {
-        const sy = cam.worldToScreen(0, y).y
-        if (Math.abs(y) < 1e-6) continue
-        gfxText.fillText(formatCoord(y), labelX, sy + 2, labelStyle)
-      }
-    }
-  }
-
-  /**
-   * Draw a marker at each active pointer's screen position with its pointer ID
-   * and kind. Draws on the canvas whose `InputSystem` owns the pointers, so a
-   * finger on the secondary card gets markers on the secondary canvas.
-   */
-  private drawPointerOverlay(gfx: Gfx2D, input: InputSystem): void {
-    const pointers = input.pointers
-    if (pointers.size === 0) return
-
-    const slop = input.touchSlopScreen
-    const radius = Math.max(20, slop)
-    const canText = 'fillText' in gfx
-    const gfxText = canText
-      ? (gfx as unknown as {
-          fillText(
-            text: string,
-            x: number,
-            y: number,
-            opts?: {
-              font?: string
-              align?: CanvasTextAlign
-              baseline?: CanvasTextBaseline
-              color?: string
-            },
-          ): void
-        })
-      : null
-
-    for (const p of pointers.values()) {
-      const idx = Math.abs(p.id) % POINTER_PALETTE.length
-      const [stroke, fill] = POINTER_PALETTE[idx]
-      gfx.fillCircle(p.screen.x, p.screen.y, radius, fill)
-      gfx.strokeCircle(p.screen.x, p.screen.y, radius, {
-        color: stroke,
-        width: 2,
-      })
-      gfx.fillCircle(p.screen.x, p.screen.y, 3, stroke)
-
-      if (gfxText) {
-        const label = `#${p.id} ${p.kind}`
-        const tx = p.screen.x + radius + 6
-        const ty = p.screen.y
-        gfxText.fillText(label, tx, ty, {
-          font: '11px "SF Mono", "Monaco", "Roboto Mono", "Courier New", monospace',
-          align: 'left',
-          baseline: 'middle',
-          color: '#fff',
-        })
-      }
-    }
-  }
-
-  private drawGameCameraRect(
-    gfx: Gfx2D,
-    activeCam: Camera,
-    gameCam: Camera,
-  ): void {
+  #drawGameCameraRect(gfx: Gfx2D, activeCam: Camera, gameCam: Camera): void {
     // Game camera's world-space viewport rect (dashed) as seen through the
     // currently-active (debug) camera.
     const g = gameCam.viewport
@@ -967,66 +1016,75 @@ export class DebugController {
       closed: true,
     })
 
-    if ('fillText' in gfx) {
-      const gfxText = gfx as unknown as {
-        fillText(
-          text: string,
-          x: number,
-          y: number,
-          opts?: {
-            font?: string
-            color?: string
-          },
-        ): void
-      }
-      const anchor = activeCam.worldToScreen(g.x, g.y)
-      gfxText.fillText('game camera', anchor.x + 4, anchor.y + 12, {
-        font: '10px monospace',
-        color: 'rgba(255, 215, 77, 0.9)',
-      })
+    const anchor = activeCam.worldToScreen(g.x, g.y)
+    gfx.fillText('game camera', anchor.x + 4, anchor.y + 12, {
+      font: '11px monospace',
+      color: 'rgba(255, 215, 77, 0.9)',
+    })
+  }
+
+  /**
+   * Outline a node's bounds (through its world transform) and label it with the
+   * node id. Falls back to a small ring at the node origin when the node has no
+   * `debugBounds`.
+   */
+  #drawNodeHighlight(gfx: Gfx2D, cam: Camera, node: SceneNode): void {
+    // Bright line over a dark halo so the highlight reads on any background.
+    const color = 'rgba(255, 255, 255, 0.98)'
+    const halo = 'rgba(0, 0, 0, 0.85)'
+    const m = node.transform.world
+    const b = node.debugBounds
+    if (!b) {
+      const o = cam.worldToScreen(m.e, m.f)
+      gfx.strokeCircle(o.x, o.y, 6, { color: halo, width: 4 })
+      gfx.strokeCircle(o.x, o.y, 6, { color, width: 1.5 })
+      this.#labelWithHalo(gfx, node.id, o.x + 9, o.y - 4, color)
+      return
     }
+    const pts = new Float32Array(8)
+    const corners = [
+      [b.x, b.y],
+      [b.x + b.width, b.y],
+      [b.x + b.width, b.y + b.height],
+      [b.x, b.y + b.height],
+    ]
+    for (let i = 0; i < 4; i++) {
+      const lx = corners[i][0]
+      const ly = corners[i][1]
+      const s = cam.worldToScreen(
+        m.a * lx + m.c * ly + m.e,
+        m.b * lx + m.d * ly + m.f,
+      )
+      pts[i * 2] = s.x
+      pts[i * 2 + 1] = s.y
+    }
+    gfx.strokePolyline(pts, 4, { color: halo, width: 4, closed: true })
+    gfx.strokePolyline(pts, 4, { color, width: 2, dash: [4, 3], closed: true })
+    this.#labelWithHalo(gfx, node.id, pts[0] + 4, pts[1] - 4, color)
+  }
+
+  /** Draw label text on a dark backplate so it stays legible on any color. */
+  #labelWithHalo(
+    gfx: Gfx2D,
+    text: string,
+    x: number,
+    y: number,
+    color: string,
+  ): void {
+    // 11px monospace advance is ~6.6px; no measureText on Gfx2D, so approximate.
+    const w = text.length * 6.6
+    gfx.fillRect(x - 2, y - 10, w + 4, 14, 'rgba(0, 0, 0, 0.65)')
+    gfx.fillText(text, x, y, { font: '11px monospace', color })
   }
 }
 
-/**
- * Palette rotated by `pointerId % length` for the pointer overlay. Each entry
- * is a `[stroke, fill]` pair so we don't recompute alpha strings per frame.
- */
-const POINTER_PALETTE: ReadonlyArray<readonly [string, string]> = [
-  ['#60a5fa', 'rgba(96, 165, 250, 0.2)'],
-  ['#c084fc', 'rgba(192, 132, 252, 0.2)'],
-  ['#4ade80', 'rgba(74, 222, 128, 0.2)'],
-  ['#fbbf24', 'rgba(251, 191, 36, 0.2)'],
-  ['#f87171', 'rgba(248, 113, 113, 0.2)'],
-  ['#fb923c', 'rgba(251, 146, 60, 0.2)'],
+// Overlay colors cycled across coexisting physics worlds. Distinct hues so two
+// worlds on screen read apart at a glance.
+const WORLD_ACCENTS = [
+  'rgba(34, 211, 238, 1)', // cyan
+  'rgba(232, 121, 249, 1)', // magenta
+  'rgba(250, 204, 21, 1)', // amber
+  'rgba(74, 222, 128, 1)', // green
+  'rgba(248, 113, 113, 1)', // red
+  'rgba(129, 140, 248, 1)', // indigo
 ]
-
-/**
- * Pick a nice round grid step so ~8-12 major lines fit across `range` world
- * units. Snaps to 1/2/5 × 10ⁿ.
- */
-function niceGridStep(range: number): number {
-  if (!Number.isFinite(range) || range <= 0) return 1
-  const raw = range / 10
-  const magnitude = Math.pow(10, Math.floor(Math.log10(raw)))
-  const normalized = raw / magnitude
-  let nice: number
-  if (normalized < 1.5) nice = 1
-  else if (normalized < 3) nice = 2
-  else if (normalized < 7) nice = 5
-  else nice = 10
-  return nice * magnitude
-}
-
-/**
- * Compact numeric label, trims trailing fractional zeros (but never integer
- * digits) and avoids scientific notation for typical world-coord magnitudes.
- */
-function formatCoord(n: number): string {
-  if (Math.abs(n) < 1e-9) return '0'
-  const abs = Math.abs(n)
-  const decimals = abs >= 100 ? 0 : abs >= 10 ? 1 : 2
-  const s = n.toFixed(decimals)
-  if (s.indexOf('.') === -1) return s
-  return s.replace(/0+$/, '').replace(/\.$/, '')
-}

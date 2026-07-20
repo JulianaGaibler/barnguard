@@ -3,7 +3,7 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte'
 /**
  * Prepend the shared SASS utilities to every component `<style lang="sass">`
  * block so the `tint.*` namespace is available without an explicit `@use`.
- * Mirrors the behaviour configured for Vite in `vite.config.ts`.
+ * Mirrors the behavior configured for Vite in `vite.config.ts`.
  *
  * @param {string} source - The original SASS source of the style block.
  * @returns {string} The source with the `@use` prepended.

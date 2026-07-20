@@ -28,58 +28,63 @@ interface PointerRecord {
 const DEFAULT_TOUCH_SLOP_SCREEN_PX = 30
 
 /**
- * Multi-touch input pipeline. One per interactive `Stage`.
+ * Multi-touch input for one interactive `Stage`, reached as `stage.input` (or
+ * `engine.input` for the primary stage). Wire pointer handling on a node
+ * (`shape.hitEnabled = true`, `shape.onPointerDown = ...`) rather than going
+ * through this class directly; see the input guide. `pointers` and the touch
+ * slop settings are the parts most game code touches here.
  *
- * Responsibilities:
+ * For engine developers: this owns the DOM `PointerEvent` listeners on the
+ * stage's canvas (with `setPointerCapture` so a finger sliding off the physical
+ * bezel keeps producing events), hit-walks this stage's scene on `down` to
+ * capture the topmost `hitEnabled` node, and re-projects every active pointer's
+ * `world` at the start of each frame, emitting a synthetic `pointerMove` when a
+ * camera animation has drifted the world coord under a still finger. It emits
+ * `pointerDown/Move/Up/Cancel` on `stage.events`; the primary stage's events
+ * are also forwarded to `engine.events` by the `Engine` constructor, but
+ * secondaries stay isolated.
  *
- * - Attach `PointerEvent` listeners on the stage's canvas element with DOM-level
- *   `setPointerCapture` so a finger sliding off the physical bezel keeps
- *   producing events.
- * - Maintain a `Map<pointerId, PointerRecord>` of every currently-down pointer;
- *   each record's `world` is derived from `screen` via that stage's active
- *   camera (game camera, or debug camera when the debug HUD has selected this
- *   stage AND the debug camera is toggled on).
- * - Hit-walk THIS stage's scene on `down` and capture the topmost `hitEnabled`
- *   node; dispatch subsequent `move`/`up`/`cancel` to it.
- * - Re-project every active pointer's `world` at the start of each frame and emit
- *   synthetic `pointerMove` events when a camera animation has drifted the
- *   world coord under a still finger.
- * - Emit `pointerDown/Move/Up/Cancel` events on `stage.events`. Primary's events
- *   are forwarded to `engine.events` by the Engine constructor for backwards
- *   compat; secondaries stay isolated.
+ * @category Input
+ * @example
+ *   for (const p of engine.input.pointers.values()) {
+ *     if (p.capturedBy === shape) drawDebugDot(p.world)
+ *   }
  */
 export class InputSystem {
   /** All currently-down pointers, keyed by browser pointerId. */
   readonly pointers: ReadonlyMap<number, PointerStateSnapshot>
 
-  private readonly recordsMap = new Map<number, PointerRecord>()
-  private readonly stage: Stage
-  private readonly canvas: HTMLCanvasElement
-  private readonly engine: Engine
-  private readonly disposeCallbacks: Array<() => void> = []
-  private disposed = false
-  private touchSlopScreenPx = DEFAULT_TOUCH_SLOP_SCREEN_PX
+  readonly #recordsMap = new Map<number, PointerRecord>()
+  readonly #stage: Stage
+  readonly #canvas: HTMLCanvasElement
+  readonly #engine: Engine
+  readonly #disposeCallbacks: Array<() => void> = []
+  #disposed = false
+  #touchSlopScreenPx = DEFAULT_TOUCH_SLOP_SCREEN_PX
 
   constructor(stage: Stage, engine: Engine) {
-    this.stage = stage
-    this.canvas = stage.canvas
-    this.engine = engine
-    this.pointers = this.recordsMap as ReadonlyMap<number, PointerStateSnapshot>
-    this.attachListeners()
+    this.#stage = stage
+    this.#canvas = stage.canvas
+    this.#engine = engine
+    this.pointers = this.#recordsMap as ReadonlyMap<
+      number,
+      PointerStateSnapshot
+    >
+    this.#attachListeners()
   }
 
   /** Screen-space slop in CSS px. Default 30 (roughly a fingertip). */
   get touchSlopScreen(): number {
-    return this.touchSlopScreenPx
+    return this.#touchSlopScreenPx
   }
   setTouchSlopScreen(cssPx: number): void {
-    this.touchSlopScreenPx = Math.max(0, cssPx)
+    this.#touchSlopScreenPx = Math.max(0, cssPx)
   }
 
   /** Slop converted to world units using the ACTIVE camera's uniform scale. */
   get touchSlopWorld(): number {
-    const scale = this.getActiveCamera().screenPxPerWorldUnit()
-    return scale > 0 ? this.touchSlopScreenPx / scale : 0
+    const scale = this.#getActiveCamera().screenPxPerWorldUnit()
+    return scale > 0 ? this.#touchSlopScreenPx / scale : 0
   }
 
   /**
@@ -88,8 +93,10 @@ export class InputSystem {
    * stage's own game camera. Recomputed on every access so pan-under-
    * a-still-finger stays glued during debug camera motion.
    */
-  private getActiveCamera(): Camera {
-    return this.engine.debug?.activeCameraFor(this.stage) ?? this.stage.camera
+  #getActiveCamera(): Camera {
+    return (
+      this.#engine.debug?.activeCameraFor(this.#stage) ?? this.#stage.camera
+    )
   }
 
   /**
@@ -99,10 +106,10 @@ export class InputSystem {
    * whose world coord drifted without a native event this frame.
    */
   beforeFrame(): void {
-    if (this.disposed || this.recordsMap.size === 0) return
-    const cam = this.getActiveCamera()
+    if (this.#disposed || this.#recordsMap.size === 0) return
+    const cam = this.#getActiveCamera()
     const scratch = { x: 0, y: 0 }
-    for (const record of this.recordsMap.values()) {
+    for (const record of this.#recordsMap.values()) {
       cam.screenToWorld(record.screen.x, record.screen.y, scratch)
       const dx = scratch.x - record.world.x
       const dy = scratch.y - record.world.y
@@ -110,7 +117,7 @@ export class InputSystem {
       record.world.x = scratch.x
       record.world.y = scratch.y
       if (drifted && !record.nativeMoveThisFrame) {
-        this.dispatchMove(record, dx, dy, 'synthetic')
+        this.#dispatchMove(record, dx, dy, 'synthetic')
       }
       record.nativeMoveThisFrame = false
     }
@@ -118,7 +125,7 @@ export class InputSystem {
 
   /** Force-release a pointer's node capture (does NOT dispatch cancel). */
   releaseCapture(pointerId: number): void {
-    const record = this.recordsMap.get(pointerId)
+    const record = this.#recordsMap.get(pointerId)
     if (!record) return
     if (record.destroyUnsub) {
       record.destroyUnsub()
@@ -128,23 +135,23 @@ export class InputSystem {
   }
 
   destroy(): void {
-    if (this.disposed) return
-    this.disposed = true
-    for (const record of this.recordsMap.values()) {
+    if (this.#disposed) return
+    this.#disposed = true
+    for (const record of this.#recordsMap.values()) {
       if (record.destroyUnsub) record.destroyUnsub()
     }
-    this.recordsMap.clear()
-    for (const fn of this.disposeCallbacks) fn()
-    this.disposeCallbacks.length = 0
+    this.#recordsMap.clear()
+    for (const fn of this.#disposeCallbacks) fn()
+    this.#disposeCallbacks.length = 0
   }
 
-  private attachListeners(): void {
-    const canvas = this.canvas
-    const onDown = (e: PointerEvent): void => this.handleDown(e)
-    const onMove = (e: PointerEvent): void => this.handleMove(e)
-    const onUp = (e: PointerEvent): void => this.handleUp(e)
-    const onCancel = (e: PointerEvent): void => this.handleCancel(e)
-    const onLost = (e: PointerEvent): void => this.handleLostCapture(e)
+  #attachListeners(): void {
+    const canvas = this.#canvas
+    const onDown = (e: PointerEvent): void => this.#handleDown(e)
+    const onMove = (e: PointerEvent): void => this.#handleMove(e)
+    const onUp = (e: PointerEvent): void => this.#handleUp(e)
+    const onCancel = (e: PointerEvent): void => this.#handleCancel(e)
+    const onLost = (e: PointerEvent): void => this.#handleLostCapture(e)
     // `pointerleave` on the canvas fires when a finger drifts off the
     // element without a `up`. Because we call setPointerCapture on down, the
     // browser should keep routing events back to us and this listener won't
@@ -159,7 +166,7 @@ export class InputSystem {
     // kiosk can't be interrupted by a system menu appearing over the game.
     const onContextMenu = (e: MouseEvent): void => e.preventDefault()
     canvas.addEventListener('contextmenu', onContextMenu)
-    this.disposeCallbacks.push(() => {
+    this.#disposeCallbacks.push(() => {
       canvas.removeEventListener('pointerdown', onDown)
       canvas.removeEventListener('pointermove', onMove)
       canvas.removeEventListener('pointerup', onUp)
@@ -169,30 +176,30 @@ export class InputSystem {
     })
   }
 
-  private toCanvasCss(e: PointerEvent): Vec2 {
-    const rect = this.canvas.getBoundingClientRect()
+  #toCanvasCss(e: PointerEvent): Vec2 {
+    const rect = this.#canvas.getBoundingClientRect()
     return {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     }
   }
 
-  private pointerKind(e: PointerEvent): 'touch' | 'mouse' | 'pen' {
+  #pointerKind(e: PointerEvent): 'touch' | 'mouse' | 'pen' {
     if (e.pointerType === 'touch') return 'touch'
     if (e.pointerType === 'pen') return 'pen'
     return 'mouse'
   }
 
-  private handleDown(e: PointerEvent): void {
-    if (this.disposed) return
+  #handleDown(e: PointerEvent): void {
+    if (this.#disposed) return
     // Prevent focus stealing / accidental text selection outside the canvas.
     e.preventDefault()
 
-    const screen = this.toCanvasCss(e)
-    const world = this.getActiveCamera().screenToWorld(screen.x, screen.y)
+    const screen = this.#toCanvasCss(e)
+    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
     const record: PointerRecord = {
       id: e.pointerId,
-      kind: this.pointerKind(e),
+      kind: this.#pointerKind(e),
       screen: { ...screen },
       world: { ...world },
       startedAtMs: performance.now(),
@@ -200,12 +207,12 @@ export class InputSystem {
       destroyUnsub: null,
       nativeMoveThisFrame: false,
     }
-    this.recordsMap.set(e.pointerId, record)
+    this.#recordsMap.set(e.pointerId, record)
 
     // DOM-level capture, browser routes all subsequent events for this
     // pointerId to the canvas until we (or the browser) release it.
     try {
-      this.canvas.setPointerCapture(e.pointerId)
+      this.#canvas.setPointerCapture(e.pointerId)
     } catch {
       // Some browsers throw for touch pointers under specific conditions;
       // we fall back gracefully, global window listeners aren't wired
@@ -216,7 +223,7 @@ export class InputSystem {
     // Node-level hit-test in world coords through the ACTIVE camera on the
     // owning stage's scene.
     const hit = findHitNode(
-      this.stage.scene.root,
+      this.#stage.scene.root,
       world.x,
       world.y,
       this.touchSlopWorld,
@@ -225,108 +232,105 @@ export class InputSystem {
       record.capturedBy = hit
       // If the node dies while capturing, synthesise cancel + release.
       record.destroyUnsub = hit.events.on('destroy', () => {
-        this.dispatchCancel(record.id, 'synthetic')
+        this.#dispatchCancel(record.id, 'synthetic')
       })
-      hit.onPointerDown?.(this.makeEvent(record, 0, 0, 'down', 'native'))
+      hit.onPointerDown?.(this.#makeEvent(record, 0, 0, 'down', 'native'))
     }
-    this.stage.events.emit(
+    this.#stage.events.emit(
       'pointerDown',
-      this.makeEvent(record, 0, 0, 'down', 'native'),
+      this.#makeEvent(record, 0, 0, 'down', 'native'),
     )
   }
 
-  private handleMove(e: PointerEvent): void {
-    if (this.disposed) return
-    const record = this.recordsMap.get(e.pointerId)
+  #handleMove(e: PointerEvent): void {
+    if (this.#disposed) return
+    const record = this.#recordsMap.get(e.pointerId)
     if (!record) return
-    const screen = this.toCanvasCss(e)
+    const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
     const dx = world.x - record.world.x
     const dy = world.y - record.world.y
     record.world.x = world.x
     record.world.y = world.y
     record.nativeMoveThisFrame = true
-    this.dispatchMove(record, dx, dy, 'native')
+    this.#dispatchMove(record, dx, dy, 'native')
   }
 
-  private dispatchMove(
+  #dispatchMove(
     record: PointerRecord,
     dx: number,
     dy: number,
     source: 'native' | 'synthetic',
   ): void {
-    const ev = this.makeEvent(record, dx, dy, 'move', source)
+    const ev = this.#makeEvent(record, dx, dy, 'move', source)
     if (record.capturedBy && !record.capturedBy.isDestroyed) {
       record.capturedBy.onPointerMove?.(ev)
     }
-    this.stage.events.emit('pointerMove', ev)
+    this.#stage.events.emit('pointerMove', ev)
   }
 
-  private handleUp(e: PointerEvent): void {
-    if (this.disposed) return
-    const record = this.recordsMap.get(e.pointerId)
+  #handleUp(e: PointerEvent): void {
+    if (this.#disposed) return
+    const record = this.#recordsMap.get(e.pointerId)
     if (!record) return
-    const screen = this.toCanvasCss(e)
+    const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
     const dx = world.x - record.world.x
     const dy = world.y - record.world.y
     record.world.x = world.x
     record.world.y = world.y
 
-    const ev = this.makeEvent(record, dx, dy, 'up', 'native')
+    const ev = this.#makeEvent(record, dx, dy, 'up', 'native')
     if (record.capturedBy && !record.capturedBy.isDestroyed) {
       record.capturedBy.onPointerUp?.(ev)
     }
-    this.stage.events.emit('pointerUp', ev)
+    this.#stage.events.emit('pointerUp', ev)
 
-    this.cleanupRecord(e.pointerId)
+    this.#cleanupRecord(e.pointerId)
   }
 
-  private handleCancel(e: PointerEvent): void {
-    if (this.disposed) return
-    this.dispatchCancel(e.pointerId, 'native')
+  #handleCancel(e: PointerEvent): void {
+    if (this.#disposed) return
+    this.#dispatchCancel(e.pointerId, 'native')
   }
 
-  private handleLostCapture(e: PointerEvent): void {
-    if (this.disposed) return
-    if (!this.recordsMap.has(e.pointerId)) return
+  #handleLostCapture(e: PointerEvent): void {
+    if (this.#disposed) return
+    if (!this.#recordsMap.has(e.pointerId)) return
     // Browser released capture unexpectedly, treat as cancel.
-    this.dispatchCancel(e.pointerId, 'native')
+    this.#dispatchCancel(e.pointerId, 'native')
   }
 
-  private dispatchCancel(
-    pointerId: number,
-    source: 'native' | 'synthetic',
-  ): void {
-    const record = this.recordsMap.get(pointerId)
+  #dispatchCancel(pointerId: number, source: 'native' | 'synthetic'): void {
+    const record = this.#recordsMap.get(pointerId)
     if (!record) return
-    const ev = this.makeEvent(record, 0, 0, 'cancel', source)
+    const ev = this.#makeEvent(record, 0, 0, 'cancel', source)
     if (record.capturedBy && !record.capturedBy.isDestroyed) {
       record.capturedBy.onPointerCancel?.(ev)
     }
-    this.stage.events.emit('pointerCancel', ev)
-    this.cleanupRecord(pointerId)
+    this.#stage.events.emit('pointerCancel', ev)
+    this.#cleanupRecord(pointerId)
   }
 
-  private cleanupRecord(pointerId: number): void {
-    const record = this.recordsMap.get(pointerId)
+  #cleanupRecord(pointerId: number): void {
+    const record = this.#recordsMap.get(pointerId)
     if (!record) return
     if (record.destroyUnsub) record.destroyUnsub()
-    if (this.canvas.hasPointerCapture?.(pointerId)) {
+    if (this.#canvas.hasPointerCapture?.(pointerId)) {
       try {
-        this.canvas.releasePointerCapture(pointerId)
+        this.#canvas.releasePointerCapture(pointerId)
       } catch {
         // ignore, pointer may already be released by the browser
       }
     }
-    this.recordsMap.delete(pointerId)
+    this.#recordsMap.delete(pointerId)
   }
 
-  private makeEvent(
+  #makeEvent(
     record: PointerRecord,
     dx: number,
     dy: number,
@@ -345,7 +349,7 @@ export class InputSystem {
       delta: { x: dx, y: dy },
       phase,
       source,
-      stage: this.stage,
+      stage: this.#stage,
     }
   }
 }

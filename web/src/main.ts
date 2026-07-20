@@ -2,10 +2,15 @@ import { mount } from 'svelte'
 import '@src/styles/global.sass'
 import App from './App.svelte'
 import { applyTheme } from '@src/core/theme'
+import { startUiScale } from '@src/core/ui/uiScale'
 import { setActiveDisplay } from '@src/core/display'
 import { registerDisplayLocales } from '@src/i18n'
 import { displayRegistry } from '@src/displayRegistry'
-import { renderFatalError, renderLanding, type DisplayLink } from '@src/fatalError'
+import {
+  renderFatalError,
+  renderLanding,
+  type DisplayLink,
+} from '@src/fatalError'
 
 const target = document.getElementById('app')
 if (!target) {
@@ -40,15 +45,12 @@ async function boot(): Promise<void> {
   }
   const factory = displayRegistry[id]
   if (!factory) {
-    renderFatalError(
-      target!,
-      `Unknown display "${id}".`,
-      knownDisplayLinks(),
-    )
+    renderFatalError(target!, `Unknown display "${id}".`, knownDisplayLinks())
     return
   }
   const manifest = await factory()
   applyTheme(manifest.theme)
+  startUiScale()
   registerDisplayLocales(manifest.locales, manifest.defaultLanguage)
   setActiveDisplay(manifest)
   mount(App, { target: target!, props: { display: manifest } })

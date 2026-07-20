@@ -1,10 +1,12 @@
+@use "./scale"
 @use "./tokens"
 @use "./typography"
 @use "./fonts"
 
-// The `--tint-*` palette is written to `:root` at runtime by
-// `core/theme.applyTheme(...)` — main.ts calls it with the active display's
-// theme before mounting the app. Colors are no longer emitted from SCSS.
+// `scale.sass` emits the static token layer at :root (spacing, radii, z-index,
+// and neutral `--color-*` defaults). The active display's theme then overrides
+// the `--color-*` roles at runtime via `core/theme.applyTheme(...)` (main.ts,
+// before mount); a per-game theme scopes further overrides onto its container.
 
 // Layer order keeps app-authored styles above the reset and type utilities.
 @layer app-reset, app-typography, app-global
@@ -20,22 +22,24 @@
   @include typography.generate-type-classes
 
 @layer app-global
-  // Fluid root font-size: 1080h → ~16px (default), 2160h → 32px (kiosk 4K),
-  // clamped so tokens don't collapse on small dev windows.
+  // Fluid root font-size (1080h → ~16px, 2160h → 32px, clamped for dev windows)
+  // times the runtime `--ui-scale` knob (default 1, set from storage before
+  // paint and tuned in the booth menu). Every token is rem, so one knob scales
+  // the whole DOM UI.
   html
-    font-size: clamp(12px, 1.48vh, 32px)
+    font-size: calc(clamp(12px, 1.48vh, 32px) * var(--ui-scale, 1))
   body
     margin: 0
-    color: var(--tint-text)
+    color: var(--color-text)
     font-family: "Mozilla Text", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
     font-weight: 500
   a, button
     color: inherit
   .card
-    border-radius: tokens.$card-radius
-    border: 1px solid var(--tint-card-border)
-    box-shadow: var(--tint-card-shadow)
-    background: var(--tint-bg)
+    border-radius: var(--radius-card)
+    border: 1px solid var(--color-border)
+    box-shadow: var(--color-shadow-card)
+    background: var(--color-surface)
   .visually-hidden
     width: 0.001px
     height: 0.001px

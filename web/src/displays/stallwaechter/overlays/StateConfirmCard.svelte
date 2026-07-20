@@ -24,7 +24,11 @@
   // Refetched every time this card mounts (or `stateId` changes) so the
   // numbers reflect any recent attendant-side deletes / wipes without the
   // player having to reload. Same-origin fetch; typically <10 ms.
-  let highScores = $state<HighScores>({ display: 'stallwaechter', overall: 0, byState: {} })
+  let highScores = $state<HighScores>({
+    display: 'stallwaechter',
+    overall: 0,
+    byState: {},
+  })
   $effect(() => {
     void stateId
     let alive = true
@@ -106,34 +110,33 @@
 <style lang="sass">
   .confirm-card__mount
     position: absolute
-    left: 0
-    right: 0
-    bottom: 0
+    inset-inline: 0
+    inset-block-end: 0
     display: flex
     flex-direction: column
     align-items: center
-    gap: tint.$size-16
-    padding: tint.$size-24
-    padding-block-start: 0
-    max-width: min(1060px, 88vw)
-    margin: 0 auto
+    gap: var(--space-16)
+    padding-block: 0 var(--space-24)
+    padding-inline: var(--space-24)
+    max-width: min(66.25rem, 88vw)
+    margin-inline: auto
     // The cards own pointer events so touches inside don't leak to the map.
     pointer-events: auto
-    z-index: 20
+    z-index: var(--z-overlay)
 
   .confirm-card__row
     display: flex
     align-items: stretch
-    gap: tint.$size-8
+    gap: var(--space-8)
     width: 100%
 
   .confirm-card
     display: flex
     align-items: center
-    padding: tint.$size-32
-    padding-block-start: tint.$size-48
+    padding-block: var(--space-48) var(--space-32)
+    padding-inline: var(--space-32)
     background: linear-gradient(299deg, #F6CCE1 28.39%, rgba(241, 201, 231, 0.62) 44.13%, rgba(237, 199, 237, 0.28) 58.81%, rgba(234, 198, 240, 0.08) 69.07%, rgba(234, 198, 242, 0.00) 74.11%), linear-gradient(0deg, #EAC6F2 0%, #EAC6F2 100%)
-    box-shadow: 0 20px 60px rgba(9, 22, 44, 0.35)
+    box-shadow: var(--color-shadow-panel)
     color: #1b1035
 
   .confirm-card--tutorial
@@ -143,9 +146,9 @@
     // dark box the placeholder used have been removed.
     padding: 0
     overflow: hidden
-    background: #0d0d10
-    border-radius: tint.$size-48 tint.$size-16 tint.$size-16 tint.$size-48
-    min-height: 200px
+    background: var(--color-surface-inverse)
+    border-radius: var(--space-48) var(--space-16) var(--space-16) var(--space-48)
+    min-height: 12.5rem
 
   .confirm-card--main
     flex: 1 1 auto
@@ -162,8 +165,8 @@
 
   .confirm-card__wave
     position: absolute
-    left: 0
-    top: 0
+    inset-inline-start: 0
+    inset-block-start: 0
     height: 100%
     width: auto
     pointer-events: none
@@ -214,9 +217,8 @@
     justify-content: space-between
     // Reserve the top-right corner for the absolutely-positioned start
     // button so long state names ("Nordrhein-Westfalen") don't collide
-    // with it. `9rem` covers the widest `type-class(action)` button
-    // label plus its 16 px edge margin.
-    padding-right: 9rem
+    // with it. `9rem` covers the widest button label plus its edge margin.
+    padding-inline-end: 9rem
 
   .confirm-card__state
     @include tint.type-class(title-1)
@@ -256,8 +258,8 @@
     // positioned elements) and above the body (which is `position:
     // relative` but earlier in DOM); no explicit z-index needed.
     position: absolute
-    top: tint.$size-16
-    right: tint.$size-16
+    inset-block-start: var(--space-16)
+    inset-inline-end: var(--space-16)
     display: flex
-    gap: tint.$size-16
+    gap: var(--space-16)
 </style>

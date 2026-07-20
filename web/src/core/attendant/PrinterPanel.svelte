@@ -20,7 +20,10 @@
     resetLabelUrlOverride,
   } from '@src/core/print/printerClient'
   import { activeDisplay } from '@src/core/display'
-  import { printerPanelVisible, togglePrinterPanel } from '@src/core/attendant/boothMenuToggle'
+  import {
+    printerPanelVisible,
+    togglePrinterPanel,
+  } from '@src/core/attendant/boothMenuToggle'
   import { daemonConfig } from '@src/stores/daemonConfig'
   import type { PrintJob, PrinterStatus } from '@src/core/print/types'
 

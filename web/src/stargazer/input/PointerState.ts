@@ -6,6 +6,8 @@ import type { Vec2 } from '../math/Vec2'
  * Snapshot of a single active pointer's state. `world` is re-projected each
  * frame from `screen` via the currently-active camera, so it stays fresh even
  * during a camera animation while a finger is held still.
+ *
+ * @category Input
  */
 export interface PointerStateSnapshot {
   readonly id: number
@@ -19,8 +21,18 @@ export interface PointerStateSnapshot {
   readonly capturedBy: SceneNode | null
 }
 
+/**
+ * Lifecycle phase of a pointer event.
+ *
+ * @category Input
+ */
 export type PointerPhase = 'down' | 'move' | 'up' | 'cancel'
 
+/**
+ * A single pointer event dispatched to node behaviors and stage emitters.
+ *
+ * @category Input
+ */
 export interface PointerEvent2D {
   readonly pointer: PointerStateSnapshot
   /** World-coord delta from the previously-dispatched event for this pointer. */
@@ -33,7 +45,7 @@ export interface PointerEvent2D {
    */
   readonly source: 'native' | 'synthetic'
   /**
-   * The stage whose canvas + scene this event belongs to. Node behaviours can
+   * The stage whose canvas + scene this event belongs to. Node behaviors can
    * infer this from `this.node`, but exposing it on the event lets emitter
    * consumers filter by canvas of origin.
    */

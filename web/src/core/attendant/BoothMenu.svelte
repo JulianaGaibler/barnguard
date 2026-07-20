@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { locale, setLocale, supportedLanguages, t } from '@src/i18n'
+  import { locale, setLocale, supportedLanguages } from '@src/i18n'
   import { printerLive, reloadConfig } from '@src/core/print/printerClient'
   import { stopGameHandle } from '@src/stores/gameSelection'
   import { activeDisplay } from '@src/core/display'
   import ConfirmButton from '@src/core/ui/ConfirmButton.svelte'
+  import DisplaySettings from '@src/core/attendant/DisplaySettings.svelte'
   import { theme } from '@src/core/theme'
   import {
     coverScreen,
@@ -203,6 +204,8 @@
       ></textarea>
     {/if}
   </DebugSection>
+
+  <DisplaySettings />
 
   {#if SelectionPreview}
     <SelectionPreview />

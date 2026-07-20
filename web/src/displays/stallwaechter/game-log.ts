@@ -1,9 +1,9 @@
 /**
  * Stallwächter-specific game-log types + typed wrappers over the core
- * envelope-only client. This module owns the wire-level shape of records
- * that carry the `display: 'stallwaechter'` discriminator, so consumers
- * inside the display can read fields with real types (rather than the
- * `unknown` bag core exposes).
+ * envelope-only client. This module owns the wire-level shape of records that
+ * carry the `display: 'stallwaechter'` discriminator, so consumers inside the
+ * display can read fields with real types (rather than the `unknown` bag core
+ * exposes).
  */
 
 import {
@@ -25,9 +25,15 @@ export interface StallwaechterDetails {
   stateId: string
   reason: GameEndReason
   escapeHeadingRad?: number
-  /** Snapshotted server-side; true iff the score was the overall best when recorded. */
+  /**
+   * Snapshotted server-side; true iff the score was the overall best when
+   * recorded.
+   */
   wasOverallHigh: boolean
-  /** Snapshotted server-side; true iff the score was the best for its state when recorded. */
+  /**
+   * Snapshotted server-side; true iff the score was the best for its state when
+   * recorded.
+   */
   wasStateHigh: boolean
 }
 

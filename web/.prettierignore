@@ -1,6 +1,7 @@
 node_modules
 dist
 build
+src/stargazer/site
 .DS_Store
 *.svg
 *.sass
@@ -12,3 +13,4 @@ build
 *.png
 *.mp4
 *.ico
+*.glsl

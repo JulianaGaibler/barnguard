@@ -7,18 +7,43 @@ import {
 } from '../particles/ParticleEmitter'
 import { getParticleSprite } from '../particles/draw'
 
+/**
+ * Constructor options for {@link ParticleEmitterNode}.
+ *
+ * @category Nodes
+ */
 export interface ParticleEmitterNodeOptions {
   id?: string
+  /** Emitter behavior and appearance. See {@link ParticleEmitterConfig}. */
   config: ParticleEmitterConfig
 }
 
 /**
- * Scene-graph wrapper around a `ParticleEmitter`. Advances the emitter in
- * `onUpdate` and renders sprites in `draw`. Particles are stored in the node's
- * LOCAL coord space, `setOrigin(x, y)` positions the emission point in
- * node-local coords, so parenting the node under a moving object makes
- * particles follow that object, while parenting it to `scene.root` (identity
- * transform) lets you emit at world coords by setting origin to world coords.
+ * Scene-graph wrapper around a {@link ParticleEmitter}. Advances the emitter in
+ * {@link SceneNode.onUpdate} and draws its sprites in {@link SceneNode.draw}.
+ * Reach the emitter through {@link ParticleEmitterNode.emitter} to emit, burst,
+ * or move the origin.
+ *
+ * Particles live in the node's local coordinate space. `emitter.setOrigin(x,
+ * y)` is a node-local point, so parenting this node under a moving object makes
+ * the particles follow it; parenting it to `scene.root` (identity transform)
+ * means the origin is world coordinates.
+ *
+ * @category Nodes
+ * @example
+ *   const trail = new ParticleEmitterNode({
+ *     config: {
+ *       capacity: 500,
+ *       ratePerSec: 90,
+ *       lifetimeSec: [0.5, 1.1],
+ *       speedWorld: [10, 40],
+ *       spreadRad: Math.PI,
+ *       sizeWorld: [12, 24],
+ *       palette: ['#ffd34d', '#ff8f6b'],
+ *     },
+ *   })
+ *   scene.root.add(trail)
+ *   trail.emitter.setOrigin(worldX, worldY) // update the emission point each frame
  */
 export class ParticleEmitterNode extends SceneNode {
   readonly emitter: ParticleEmitter

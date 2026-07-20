@@ -47,10 +47,10 @@
     display: flex
     align-items: center
     justify-content: center
-    background: rgba(1, 6, 18, 0.55)
+    background: var(--color-scrim)
     // Full-surface tap target; anywhere outside the card dismisses.
     pointer-events: auto
-    z-index: 35
+    z-index: var(--z-overlay)
 
   .pause-overlay__card
     // Shared dark-card visual; see `src/styles/tokens.sass`. Matches
@@ -58,36 +58,33 @@
     // same family of dialogs.
     @include tint.dark-card
     box-sizing: border-box
-    // Sized proportionally to the game-over score card (~490 × 645
-    // world design), scaled to a smaller footprint since the pause
-    // card carries only a title + button.
-    width: min(28vw, 340px)
-    padding: tint.$size-48 tint.$size-32
+    // Sized proportionally to the game-over score card, scaled to a smaller
+    // footprint since the pause card carries only a title + button.
+    width: min(28vw, 21.25rem)
+    padding-block: var(--space-48)
+    padding-inline: var(--space-32)
     display: flex
     flex-direction: column
     align-items: center
-    gap: tint.$size-24
+    gap: var(--space-24)
     text-align: center
-    box-shadow: 0 20px 60px rgba(9, 22, 44, 0.45)
+    box-shadow: var(--color-shadow-panel)
 
   .pause-overlay__title
-    font-family: tint.$mozilla-headline-extended
-    font-weight: 700
-    font-size: 1.667rem
+    @include tint.type-class(headline-sm)
     line-height: 1.05
     margin: 0
 
   .pause-overlay__hint
-    font-family: tint.$mozilla-text
-    font-weight: 500
-    font-size: 0.875rem
+    @include tint.type-class(ui)
     line-height: 1.4
     margin: 0
-    color: rgba(255, 255, 255, 0.7)
+    color: var(--color-text-inverse)
+    opacity: 0.7
     max-width: 22ch
 
   .pause-overlay__actions
     display: flex
     justify-content: center
-    margin-top: tint.$size-8
+    margin-block-start: var(--space-8)
 </style>

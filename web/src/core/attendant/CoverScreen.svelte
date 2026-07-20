@@ -75,7 +75,7 @@
   .cover
     position: fixed
     inset: 0
-    z-index: 120
+    z-index: var(--z-cover)
     overflow: hidden
     // Catch every pointer event so the game underneath is unreachable.
     pointer-events: auto
@@ -135,7 +135,9 @@
     margin-block-end: tint.$size-48
     font-family: 'Mozilla Headline Extended', tint.$mozilla-headline, sans-serif
     font-weight: 700
-    color: #ffffff
+    color: var(--color-text-inverse)
+    // Bespoke fluid brand headline (viewport-driven), intentionally not a type
+    // token; it scales with the cover, not the UI-scale knob.
     font-size: clamp(3rem, 6vw, 6rem)
     line-height: 1.05
     // `pre-wrap` honours explicit `\n`s from the custom-text textarea while

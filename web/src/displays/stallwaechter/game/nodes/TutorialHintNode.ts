@@ -1,6 +1,7 @@
 import {
   SceneNode,
   easings,
+  lerp,
   type Camera,
   type Gfx2D,
   type Vec2,
@@ -95,31 +96,31 @@ function resolvePhase(elapsed: number): {
  * even if the world viewport reshapes.
  */
 export class TutorialHintNode extends SceneNode {
-  private readonly pathBlack: Path2D
-  private readonly pathWhite: Path2D
+  readonly #pathBlack: Path2D
+  readonly #pathWhite: Path2D
   /** Dashed bezier arch, rebuilt whenever `setGeometry` runs. */
-  private archPath: Path2D | null = null
+  #archPath: Path2D | null = null
 
-  private readonly p0: Vec2 = { x: 0, y: 0 }
-  private readonly p1: Vec2 = { x: 0, y: 0 }
-  private readonly p2: Vec2 = { x: 0, y: 0 }
-  private readonly p3: Vec2 = { x: 0, y: 0 }
-  private handOffscreenY = 0
-  private geometryReady = false
+  readonly #p0: Vec2 = { x: 0, y: 0 }
+  readonly #p1: Vec2 = { x: 0, y: 0 }
+  readonly #p2: Vec2 = { x: 0, y: 0 }
+  readonly #p3: Vec2 = { x: 0, y: 0 }
+  #handOffscreenY = 0
+  #geometryReady = false
 
-  private elapsed = 0
+  #elapsed = 0
   /**
    * Countdown before the first cycle starts (seconds). Decrements in `onUpdate`
    * until it hits zero, then the phase clock advances. `alpha` stays 0 during
    * this window so nothing renders.
    */
-  private preDelay = INITIAL_DELAY_SEC
-  private stopped = false
-  private handX = 0
-  private handY = 0
-  private alpha = 0
+  #preDelay = INITIAL_DELAY_SEC
+  #stopped = false
+  #handX = 0
+  #handY = 0
+  #alpha = 0
 
-  private readonly scratch: Vec2 = { x: 0, y: 0 }
+  readonly #scratch: Vec2 = { x: 0, y: 0 }
 
   /**
    * @param rawBlack, The SVG's first `<path>` (fill=black, hand shape).
@@ -134,8 +135,8 @@ export class TutorialHintNode extends SceneNode {
     // draw time via `gfx.translate(-fingertipX, -fingertipY)` (see below),
     // so `pathBlack`/`pathWhite` stay directly renderable on both
     // backends without re-registering shifted geometries.
-    this.pathBlack = rawBlack
-    this.pathWhite = rawWhite
+    this.#pathBlack = rawBlack
+    this.#pathWhite = rawWhite
   }
 
   /**
@@ -143,44 +144,44 @@ export class TutorialHintNode extends SceneNode {
    * construction and again from `TutorialSession.handleResize`.
    */
   setGeometry(packet: Vec2, epicenter: Vec2, viewportHeight: number): void {
-    this.p0.x = packet.x
-    this.p0.y = packet.y
-    this.p3.x = epicenter.x
-    this.p3.y = epicenter.y
+    this.#p0.x = packet.x
+    this.#p0.y = packet.y
+    this.#p3.x = epicenter.x
+    this.#p3.y = epicenter.y
     const dx = epicenter.x - packet.x
     const arch = viewportHeight * ARCH_FRAC
-    this.p1.x = packet.x + 0.25 * dx
-    this.p1.y = packet.y - arch
-    this.p2.x = packet.x + 0.75 * dx
-    this.p2.y = packet.y - arch
-    this.handOffscreenY = viewportHeight * HAND_OFFSCREEN_FRAC
+    this.#p1.x = packet.x + 0.25 * dx
+    this.#p1.y = packet.y - arch
+    this.#p2.x = packet.x + 0.75 * dx
+    this.#p2.y = packet.y - arch
+    this.#handOffscreenY = viewportHeight * HAND_OFFSCREEN_FRAC
     // Pre-build the (now fixed) dashed arch so draw only sets the dash scale.
     const archPath = new Path2D()
-    archPath.moveTo(this.p0.x, this.p0.y)
+    archPath.moveTo(this.#p0.x, this.#p0.y)
     archPath.bezierCurveTo(
-      this.p1.x,
-      this.p1.y,
-      this.p2.x,
-      this.p2.y,
-      this.p3.x,
-      this.p3.y,
+      this.#p1.x,
+      this.#p1.y,
+      this.#p2.x,
+      this.#p2.y,
+      this.#p3.x,
+      this.#p3.y,
     )
-    this.archPath = archPath
+    this.#archPath = archPath
     // Also register a flattened polyline so the GPU backend's
     // `strokePath2D(archPath, …)` finds contours to stroke. Empty
     // geometry (triangles), the arch is stroke-only, never filled.
     const flat = new Float32Array(1024)
-    flat[0] = this.p0.x
-    flat[1] = this.p0.y
+    flat[0] = this.#p0.x
+    flat[1] = this.#p0.y
     const cursor = flattenCubic(
-      this.p0.x,
-      this.p0.y,
-      this.p1.x,
-      this.p1.y,
-      this.p2.x,
-      this.p2.y,
-      this.p3.x,
-      this.p3.y,
+      this.#p0.x,
+      this.#p0.y,
+      this.#p1.x,
+      this.#p1.y,
+      this.#p2.x,
+      this.#p2.y,
+      this.#p3.x,
+      this.#p3.y,
       0.5,
       flat,
       2,
@@ -196,57 +197,57 @@ export class TutorialHintNode extends SceneNode {
       [contour],
       [false],
     )
-    this.geometryReady = true
+    this.#geometryReady = true
   }
 
   /** Halt the loop and hide the node permanently. */
   stop(): void {
-    this.stopped = true
-    this.alpha = 0
+    this.#stopped = true
+    this.#alpha = 0
   }
 
   override onUpdate(dt: number): void {
-    if (this.stopped || !this.geometryReady || dt <= 0) return
-    if (this.preDelay > 0) {
-      this.preDelay -= dt
+    if (this.#stopped || !this.#geometryReady || dt <= 0) return
+    if (this.#preDelay > 0) {
+      this.#preDelay -= dt
       return
     }
-    this.elapsed = (this.elapsed + dt) % CYCLE_SEC
-    const { phase, t } = resolvePhase(this.elapsed)
+    this.#elapsed = (this.#elapsed + dt) % CYCLE_SEC
+    const { phase, t } = resolvePhase(this.#elapsed)
 
     switch (phase) {
       case 'enter': {
         const e = easings.outCubic(t)
-        this.alpha = e
-        this.handX = this.p0.x
-        this.handY = lerp(this.p0.y + this.handOffscreenY, this.p0.y, e)
+        this.#alpha = e
+        this.#handX = this.#p0.x
+        this.#handY = lerp(this.#p0.y + this.#handOffscreenY, this.#p0.y, e)
         break
       }
       case 'trace': {
-        this.alpha = 1
-        cubicBezier(t, this.p0, this.p1, this.p2, this.p3, this.scratch)
-        this.handX = this.scratch.x
-        this.handY = this.scratch.y
+        this.#alpha = 1
+        cubicBezier(t, this.#p0, this.#p1, this.#p2, this.#p3, this.#scratch)
+        this.#handX = this.#scratch.x
+        this.#handY = this.#scratch.y
         break
       }
       case 'exit': {
         const e = easings.inCubic(t)
-        this.alpha = 1 - e
-        this.handX = this.p3.x
-        this.handY = lerp(this.p3.y, this.p3.y + this.handOffscreenY, e)
+        this.#alpha = 1 - e
+        this.#handX = this.#p3.x
+        this.#handY = lerp(this.#p3.y, this.#p3.y + this.#handOffscreenY, e)
         break
       }
       case 'gap':
-        this.alpha = 0
+        this.#alpha = 0
         break
     }
   }
 
   override draw(gfx: Gfx2D, camera: Camera): void {
-    const archPath = this.archPath
-    if (this.stopped || !this.geometryReady || !archPath) return
-    if (this.alpha < MIN_DRAW_ALPHA) return
-    const a = this.alpha
+    const archPath = this.#archPath
+    if (this.#stopped || !this.#geometryReady || !archPath) return
+    if (this.#alpha < MIN_DRAW_ALPHA) return
+    const a = this.#alpha
     const strokeScale = camera.strokeSpaceScale()
 
     // Dashed bezier arch, behind the hand, alpha follows the same
@@ -270,11 +271,11 @@ export class TutorialHintNode extends SceneNode {
     // shape, then white outline).
     gfx.save()
     gfx.setAlpha(a)
-    gfx.translate(this.handX, this.handY)
+    gfx.translate(this.#handX, this.#handY)
     gfx.scale(HAND_SCALE, HAND_SCALE)
     gfx.translate(-HAND_FINGERTIP_OFFSET.x, -HAND_FINGERTIP_OFFSET.y)
-    gfx.fillPath2D(this.pathBlack, '#000000')
-    gfx.fillPath2D(this.pathWhite, '#ffffff')
+    gfx.fillPath2D(this.#pathBlack, '#000000')
+    gfx.fillPath2D(this.#pathWhite, '#ffffff')
     gfx.restore()
   }
 }
@@ -294,8 +295,4 @@ function cubicBezier(
   const ttt = tt * t
   out.x = uuu * p0.x + 3 * uu * t * p1.x + 3 * u * tt * p2.x + ttt * p3.x
   out.y = uuu * p0.y + 3 * uu * t * p1.y + 3 * u * tt * p2.y + ttt * p3.y
-}
-
-function lerp(a: number, b: number, t: number): number {
-  return a + (b - a) * t
 }

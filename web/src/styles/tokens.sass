@@ -1,28 +1,30 @@
-// Spacing scale and shared visual constants. Mirrors the tint token names so
-// existing components can keep using `tint.$size-*` after tint itself is gone.
+// Bridge: the historical `tint.$size-*` names now forward to the relative CSS
+// spacing tokens defined in scale.sass, so every existing `padding: tint.$size-16`
+// call site becomes relative (scales with the adjustable base) with no churn.
+// New code can use `var(--space-16)` directly instead.
 
-$size-2: 2px
-$size-4: 4px
-$size-8: 8px
-$size-12: 12px
-$size-16: 16px
-$size-24: 24px
-$size-32: 32px
-$size-40: 40px
-$size-48: 48px
-$size-64: 64px
-$size-80: 80px
+$size-2: var(--space-2)
+$size-4: var(--space-4)
+$size-8: var(--space-8)
+$size-12: var(--space-12)
+$size-16: var(--space-16)
+$size-24: var(--space-24)
+$size-32: var(--space-32)
+$size-40: var(--space-40)
+$size-48: var(--space-48)
+$size-64: var(--space-64)
+$size-80: var(--space-80)
 
-$button-radius-large: $size-12
-$button-radius-small: $size-80
-$input-radius: $size-8
-$card-radius: $size-12
+$button-radius-large: var(--radius-card)
+$button-radius-small: var(--radius-pill)
+$input-radius: var(--radius-input)
+$card-radius: var(--radius-card)
 
-$button-border-width: $size-2
+$button-border-width: var(--space-2)
 
-// Accessible focus ring — same shape tint used, but pointed at our own vars.
+// Accessible focus ring, pointed at the themed action color.
 @mixin effect-focus-base
-  outline: 2px solid var(--tint-action-primary)
+  outline: 2px solid var(--color-action-primary)
   outline-offset: 2px
   @media (forced-colors: active)
     outline-color: CanvasText
@@ -31,12 +33,11 @@ $button-border-width: $size-2
   &:focus-visible
     @include effect-focus-base
 
-// Shared dark-card visual base. Used by both the game-over "data lost"
-// card and the pause overlay so tweaks to one flow to the other. Only
-// the colour + rounding + clipping — layout (padding, gap, flex) stays
-// with each consumer because they compose the card differently.
+// Shared dark-panel base (game-over "data lost" card, pause overlay). Colour +
+// rounding + clipping only; layout stays with each consumer. Token-driven so a
+// theme can restyle it.
 @mixin dark-card
-  background: #010612
-  color: #ffffff
-  border-radius: $size-32
+  background: var(--color-surface-inverse)
+  color: var(--color-text-inverse)
+  border-radius: var(--radius-panel)
   overflow: hidden

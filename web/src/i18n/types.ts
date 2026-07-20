@@ -7,15 +7,18 @@
  * before any component reads a string.
  */
 
-/** Any BCP-47-ish tag. Concrete values come from the active display's `locales` list. */
+/**
+ * Any BCP-47-ish tag. Concrete values come from the active display's `locales`
+ * list.
+ */
 export type LanguageCode = string
 
 /**
  * Shell strings the CORE ships default translations for (see
- * `@src/i18n/coreLocales`). A display can override or ignore any of these.
- * Kept separate from the display-owned message sections so it's obvious what
- * a new display MUST re-translate (`game`, `states`, …) versus what it can
- * fall back to core defaults for.
+ * `@src/i18n/coreLocales`). A display can override or ignore any of these. Kept
+ * separate from the display-owned message sections so it's obvious what a new
+ * display MUST re-translate (`game`, `states`, …) versus what it can fall back
+ * to core defaults for.
  */
 export interface CoreMessages {
   app: {
@@ -41,9 +44,9 @@ export interface CoreMessages {
 
 /**
  * The runtime shape components read from the `$t` store. Core code sees only
- * the shell keys defined by `CoreMessages`; a display's own components import
- * a strongly-typed `t` from its i18n module (which casts this store) so they
- * can access whatever additional sections they define. Display bundles are
- * still assignable to `Messages` because they extend `CoreMessages`.
+ * the shell keys defined by `CoreMessages`; a display's own components import a
+ * strongly-typed `t` from its i18n module (which casts this store) so they can
+ * access whatever additional sections they define. Display bundles are still
+ * assignable to `Messages` because they extend `CoreMessages`.
  */
 export type Messages = CoreMessages

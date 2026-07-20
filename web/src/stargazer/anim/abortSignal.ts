@@ -1,12 +1,18 @@
 /**
  * Standard AbortError construction, matches what `AbortSignal.throwIfAborted()`
  * and `fetch` throw so `err.name === 'AbortError'` checks stay consistent.
+ *
+ * @category Animation
  */
 export function abortError(): DOMException {
   return new DOMException('Aborted', 'AbortError')
 }
 
-/** True when `err` is an AbortError produced by the engine or the platform. */
+/**
+ * True when `err` is an AbortError produced by the engine or the platform.
+ *
+ * @category Animation
+ */
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }
@@ -15,13 +21,19 @@ export function isAbortError(err: unknown): boolean {
  * Swallow an AbortError, rethrow anything else. Idiomatic use:
  *
  * Await node.tween({ alpha: 0 }, { duration: 0.3 }).catch(ignoreAbort)
+ *
+ * @category Animation
  */
 export function ignoreAbort(err: unknown): void {
   if (isAbortError(err)) return
   throw err
 }
 
-/** Result of `combineAbortSignals`, the caller MUST `dispose()` on completion. */
+/**
+ * Result of `combineAbortSignals`, the caller MUST `dispose()` on completion.
+ *
+ * @category Animation
+ */
 export interface CombinedAbort {
   readonly signal: AbortSignal
   dispose(): void
@@ -33,6 +45,8 @@ export interface CombinedAbort {
  * explicit `dispose()`, call it on natural completion to remove the listeners
  * we attached to the sources. This is the piece that keeps hours-of-play tween
  * loops from leaking listeners on long-lived node abort signals.
+ *
+ * @category Animation
  */
 export function combineAbortSignals(
   ...signals: Array<AbortSignal | undefined | null>

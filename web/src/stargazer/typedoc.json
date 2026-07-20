@@ -1,0 +1,41 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "modules/engine.ts",
+    "modules/scene.ts",
+    "modules/nodes.ts",
+    "modules/camera.ts",
+    "modules/anim.ts",
+    "modules/particles.ts",
+    "modules/physics.ts",
+    "modules/input.ts",
+    "modules/events.ts",
+    "modules/assets.ts",
+    "modules/render.ts",
+    "modules/math.ts",
+    "modules/ai.ts",
+    "modules/dom.ts",
+    "modules/debug.ts",
+    "modules/svelte.ts"
+  ],
+  "entryPointStrategy": "resolve",
+  "exclude": ["**/*.test.ts", "**/debug/ui/**", "**/webgl2/**", "**/*.svelte"],
+  "tsconfig": "../../tsconfig.json",
+  "readme": "README.md",
+  "plugin": ["@clean-jsdoc-theme/typedoc"],
+  "outputs": [{ "name": "clean-jsdoc-theme", "path": "site" }],
+  "categorizeByGroup": false,
+  "sort": ["source-order"],
+  "skipErrorChecking": true,
+  "cleanJsdocTheme": {
+    "siteName": "Stargazer",
+    "docs": "src/stargazer/docs",
+    "docGroups": ["Guides"],
+    "copyPage": true
+  },
+  "validation": {
+    "notExported": true,
+    "invalidLink": true,
+    "notDocumented": false
+  }
+}

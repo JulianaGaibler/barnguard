@@ -1,11 +1,11 @@
 import { createEngineHost } from '../engine/EngineHost'
-import { GroupNode } from '../nodes/GroupNode'
+import { SceneNode } from '../scene/SceneNode'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { PolylineNode } from '../nodes/PolylineNode'
-import { Behaviour } from '../scene/Behaviour'
+import { Behavior } from '../scene/Behavior'
 import type { DemoFn } from './types'
 
-class SpinBehaviour extends Behaviour {
+class SpinBehavior extends Behavior {
   radPerSec: number
   constructor(radPerSec: number) {
     super()
@@ -16,8 +16,8 @@ class SpinBehaviour extends Behaviour {
   }
 }
 
-class OrbitBehaviour extends Behaviour {
-  private t = 0
+class OrbitBehavior extends Behavior {
+  #t = 0
   radPerSec: number
   radiusWorld: number
   centerX: number
@@ -30,35 +30,35 @@ class OrbitBehaviour extends Behaviour {
     this.centerY = cy
   }
   override onUpdate(dt: number): void {
-    this.t += dt * this.radPerSec
-    this.node.transform.x = this.centerX + Math.cos(this.t) * this.radiusWorld
-    this.node.transform.y = this.centerY + Math.sin(this.t) * this.radiusWorld
+    this.#t += dt * this.radPerSec
+    this.node.transform.x = this.centerX + Math.cos(this.#t) * this.radiusWorld
+    this.node.transform.y = this.centerY + Math.sin(this.#t) * this.radiusWorld
   }
 }
 
-class SpiralPolylineBehaviour extends Behaviour {
-  private t = 0
-  private line: PolylineNode
-  private readonly maxT = Math.PI * 8
-  private readonly cx: number
-  private readonly cy: number
+class SpiralPolylineBehavior extends Behavior {
+  #t = 0
+  #line: PolylineNode
+  readonly #maxT = Math.PI * 8
+  readonly #cx: number
+  readonly #cy: number
   constructor(line: PolylineNode, cx: number, cy: number) {
     super()
-    this.line = line
-    this.cx = cx
-    this.cy = cy
+    this.#line = line
+    this.#cx = cx
+    this.#cy = cy
   }
   override onUpdate(dt: number): void {
-    if (this.t > this.maxT) return
+    if (this.#t > this.#maxT) return
     const stepsPerSec = 30
     const stepDt = 1 / stepsPerSec
     let acc = dt
-    while (acc > 0 && this.t <= this.maxT) {
-      const r = 5 + this.t * 12
-      const x = this.cx + Math.cos(this.t) * r
-      const y = this.cy + Math.sin(this.t) * r
-      this.line.push(x, y)
-      this.t += stepDt
+    while (acc > 0 && this.#t <= this.#maxT) {
+      const r = 5 + this.#t * 12
+      const x = this.#cx + Math.cos(this.#t) * r
+      const y = this.#cy + Math.sin(this.#t) * r
+      this.#line.push(x, y)
+      this.#t += stepDt
       acc -= stepDt
     }
   }
@@ -86,10 +86,10 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   attach?.(host)
 
   await host.loadScene((scene) => {
-    const group = new GroupNode('group')
+    const group = new SceneNode('group')
     group.transform.x = 700
     group.transform.y = 640
-    group.addBehaviour(new SpinBehaviour(0.6))
+    group.addBehavior(new SpinBehavior(0.6))
 
     const box = new ShapeNode({
       geometry: { kind: 'rect', width: 100, height: 60 },
@@ -100,8 +100,8 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     box.transform.x = 90
     group.add(box)
 
-    const nestedGroup = new GroupNode('nested')
-    nestedGroup.addBehaviour(new SpinBehaviour(2.0))
+    const nestedGroup = new SceneNode('nested')
+    nestedGroup.addBehavior(new SpinBehavior(2.0))
     const nestedShape = new ShapeNode({
       geometry: { kind: 'circle', radius: 18 },
       fill: '#a066ff',
@@ -118,7 +118,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       geometry: { kind: 'circle', radius: 14 },
       fill: '#41a8ff',
     })
-    orbiter.addBehaviour(new OrbitBehaviour(1.2, 260, 700, 300))
+    orbiter.addBehavior(new OrbitBehavior(1.2, 260, 700, 300))
     scene.root.add(orbiter)
 
     const spiral = new PolylineNode({
@@ -127,7 +127,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       lineWidth: 2,
       smoothing: 'quadratic',
     })
-    spiral.addBehaviour(new SpiralPolylineBehaviour(spiral, 1350, 540))
+    spiral.addBehavior(new SpiralPolylineBehavior(spiral, 1350, 540))
     scene.root.add(spiral)
   })
 

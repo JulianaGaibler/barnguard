@@ -1,8 +1,7 @@
 /**
- * Typed client for the server-side game log (`/api/games`), plus a Svelte
- * store (`gamesLive`) that mirrors the log via SSE. The server is the source
- * of truth; high scores are re-derived on demand from the log rather than
- * stored.
+ * Typed client for the server-side game log (`/api/games`), plus a Svelte store
+ * (`gamesLive`) that mirrors the log via SSE. The server is the source of
+ * truth; high scores are re-derived on demand from the log rather than stored.
  *
  * Wire format: newest-first when returned by `GET /api/games`; SSE emits
  * `game.created` and `game.deleted` incrementally. Every record carries a
@@ -40,7 +39,10 @@ export interface GameRecordEnvelope {
  */
 export type GameRecord = GameRecordEnvelope & Record<string, unknown>
 
-/** Payload for `POST /api/games`. Server fills in id/tsMs and any high-score flags. */
+/**
+ * Payload for `POST /api/games`. Server fills in id/tsMs and any high-score
+ * flags.
+ */
 export interface NewGameEnvelope {
   score: number
   durationMs: number
@@ -49,8 +51,8 @@ export interface NewGameEnvelope {
 export type NewGame = NewGameEnvelope & Record<string, unknown>
 
 /**
- * Envelope for per-display high-score responses. Concrete shape (e.g.
- * `{ overall, byState }`) is defined by each display's own game-log module.
+ * Envelope for per-display high-score responses. Concrete shape (e.g. `{
+ * overall, byState }`) is defined by each display's own game-log module.
  */
 export interface HighScoresEnvelope {
   display: string
