@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   measureLabel,
+  measureText,
   clampLabelScale,
   MAX_LABEL_TEXTURE_PX,
   type LabelMeasureCtx,
@@ -100,6 +101,22 @@ describe('measureLabel', () => {
     )
     expect(m.anchorOffsetY).toBe(7) // 5 + pad
     expect(m.localH).toBe(14) // 5 + 5 + 4
+  })
+})
+
+describe('measureText', () => {
+  // The test environment (happy-dom) has no real Canvas2D text engine, so
+  // `getSharedCtx()` can't rasterize; these just pin the shape/null-safety of
+  // the public entry point. `measureLabel`'s own describe block above covers
+  // the actual metrics math against a stub ctx.
+  it('returns a well-formed LabelMetrics box without throwing', () => {
+    const m = measureText('hello', style())
+    expect(m).toEqual({
+      localW: expect.any(Number),
+      localH: expect.any(Number),
+      anchorOffsetX: expect.any(Number),
+      anchorOffsetY: expect.any(Number),
+    })
   })
 })
 

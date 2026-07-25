@@ -12,6 +12,8 @@
   import { onMount } from 'svelte'
   import { t } from './i18n'
   import RobotIcon from './RobotIcon.svelte'
+  import checkmarkIconRaw from '@src/assets/icons/checkmark-16.svg?raw'
+  import closeIconRaw from '@src/assets/icons/close-16.svg?raw'
 
   interface Props {
     /** True while a game is mounted; gates the gesture + rendering. */
@@ -113,24 +115,14 @@
             onConfirm()
           }}
         >
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-            <path
-              fill="currentColor"
-              d="M13.72 4.443a.75.75 0 1 1 1.06 1.06l-6.43 6.43a2.75 2.75 0 0 1-3.888 0L1.22 8.693A.751.751 0 0 1 2.28 7.63l3.241 3.241a1.25 1.25 0 0 0 1.768 0z"
-            />
-          </svg>
+          <span class="rtl__circle-icon">{@html checkmarkIconRaw}</span>
         </button>
         <button
           class="rtl__circle rtl__circle--no"
           aria-label={$t.arcade.cancel}
           onclick={reset}
         >
-          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-            <path
-              fill="currentColor"
-              d="M12.72 3.22a.75.75 0 1 1 1.06 1.06L9.56 8.5l4.22 4.22a.75.75 0 1 1-1.06 1.06L8.5 9.56l-4.22 4.22a.75.75 0 1 1-1.06-1.06L7.44 8.5 3.22 4.28a.75.75 0 1 1 1.06-1.06L8.5 7.44z"
-            />
-          </svg>
+          <span class="rtl__circle-icon">{@html closeIconRaw}</span>
         </button>
       </div>
 
@@ -239,6 +231,14 @@
 
     &:active
       filter: brightness(1.35)
+
+  .rtl__circle-icon
+    display: inline-flex
+    :global(svg)
+      width: 18px
+      height: 18px
+      fill: currentColor
+      display: block
 
   @media (forced-colors: active)
     .rtl__pill, .rtl__circle

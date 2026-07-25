@@ -24,6 +24,8 @@ export interface ThemePalette {
   textLink?: string
   /** Text on `surfaceInverse` / dark panels. */
   textInverse?: string
+  /** Menu/heading title color. Falls back to `text` when unset. */
+  title?: string
 
   border?: string
   accent?: string

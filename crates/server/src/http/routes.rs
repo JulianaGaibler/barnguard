@@ -4,7 +4,8 @@ use super::AppState;
 use crate::config::Config;
 use crate::queue::{CancelOutcome, ReprintError};
 use crate::types::{
-    JobMeta, NewGame, PrintJob, PrinterStatus, ServerEvent, DISPLAY_STALLWAECHTER,
+    JobMeta, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus, ServerEvent,
+    DISPLAY_STALLWAECHTER,
 };
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -343,6 +344,58 @@ pub async fn games_high_scores(
 ) -> impl IntoResponse {
     let display = q.display.as_deref().unwrap_or(DISPLAY_STALLWAECHTER);
     Json(st.games.high_scores(display))
+}
+
+// ---------------------------------------------------------------------------
+// /api/leaderboard — generic, per-display top scores by name
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaderboardQuery {
+    /// Which arcade game to list. Required — there's no cross-game default.
+    pub display: String,
+    pub limit: Option<usize>,
+}
+
+/// `GET /api/leaderboard?display=<id>&limit=N`. Best-first.
+pub async fn leaderboard_list(
+    State(st): State<AppState>,
+    Query(q): Query<LeaderboardQuery>,
+) -> impl IntoResponse {
+    Json(st.leaderboard.list(&q.display, q.limit))
+}
+
+/// `POST /api/leaderboard`. Upserts the best score for the (display, name)
+/// pair and returns the current record.
+pub async fn leaderboard_submit(
+    State(st): State<AppState>,
+    Json(body): Json<NewLeaderboardEntry>,
+) -> Response {
+    match st.leaderboard.submit(body) {
+        Ok(record) => (StatusCode::CREATED, Json(record)).into_response(),
+        Err(e) => write_error(&st, "leaderboard", e),
+    }
+}
+
+/// `DELETE /api/leaderboard`. Attendant-only: wipes every display's board.
+pub async fn leaderboard_clear(State(st): State<AppState>) -> Response {
+    match st.leaderboard.clear() {
+        Ok(n) => Json(json!({ "cleared": n })).into_response(),
+        Err(e) => write_error(&st, "leaderboard", e),
+    }
+}
+
+/// `DELETE /api/leaderboard/{id}`. 204 on success, 404 if unknown.
+pub async fn leaderboard_delete(State(st): State<AppState>, Path(id): Path<String>) -> Response {
+    let Ok(uuid) = Uuid::parse_str(&id) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "bad_id"}))).into_response();
+    };
+    match st.leaderboard.delete(uuid) {
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
+        Ok(false) => (StatusCode::NOT_FOUND, Json(json!({"error": "not_found"}))).into_response(),
+        Err(e) => write_error(&st, "leaderboard", e),
+    }
 }
 
 /// Surface a persistence I/O error as a 500, and log it loudly. Persistence

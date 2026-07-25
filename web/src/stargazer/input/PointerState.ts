@@ -50,4 +50,12 @@ export interface PointerEvent2D {
    * consumers filter by canvas of origin.
    */
   readonly stage: Stage
+  /**
+   * The pointer's `world` position converted into `node`'s local space via
+   * {@link SceneNode.worldToLocal}. Convenience for drag handlers whose target
+   * sits under a scaled/translated ancestor, so they read local coords directly
+   * instead of threading a bespoke world→local closure. Pass `out` to reuse a
+   * scratch {@link Vec2}.
+   */
+  localTo(node: SceneNode, out?: Vec2): Vec2
 }

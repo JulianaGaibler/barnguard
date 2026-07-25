@@ -51,6 +51,10 @@ export class ParticleEmitterNode extends SceneNode {
   constructor(opts: ParticleEmitterNodeOptions) {
     super(opts.id)
     this.emitter = new ParticleEmitter(opts.config)
+    // Drains any pending `waitUntilEmpty()` resolver on destroy, so a caller
+    // `await`ing it never hangs if the node is destroyed some other way
+    // before the emitter naturally empties.
+    this.abortSignal.addEventListener('abort', () => this.emitter.clear())
   }
 
   override get particleCount(): number {
@@ -73,6 +77,13 @@ export class ParticleEmitterNode extends SceneNode {
     const scaleEnd = cfg.scaleOverLife?.[1] ?? 1
     const alphaStart = cfg.alphaOverLife?.[0] ?? 1
     const alphaEnd = cfg.alphaOverLife?.[1] ?? 0
+    const scaleBySpeed = cfg.scaleBy === 'speed'
+    // No spin range configured -> every particle's angle stays 0 -> always
+    // take the bare-drawImage path below. Non-rotating emitters pay nothing
+    // extra for this feature.
+    const mayRotate =
+      cfg.spinRadPerSec !== undefined &&
+      (cfg.spinRadPerSec[0] !== 0 || cfg.spinRadPerSec[1] !== 0)
 
     // save/restore snapshots blend + alpha (and transform); the emitter sets an
     // additive blend and per-particle alpha, then restores the Stage-installed
@@ -83,22 +94,34 @@ export class ParticleEmitterNode extends SceneNode {
     for (let i = 0; i < hi; i++) {
       if (f.alive[i] === 0) continue
       const maxLife = f.maxLife[i]
-      const t = maxLife > 0 ? 1 - f.life[i] / maxLife : 1
-      const alpha = alphaStart + (alphaEnd - alphaStart) * t
+      const lifeT = maxLife > 0 ? 1 - f.life[i] / maxLife : 1
+      let t = lifeT
+      if (scaleBySpeed) {
+        const speed0 = f.speed0[i]
+        const speedRatio =
+          speed0 > 0 ? Math.min(1, Math.hypot(f.vx[i], f.vy[i]) / speed0) : 0
+        t = 1 - speedRatio
+      }
+      // Alpha always fades on the lifetime clock, even when scale is
+      // speed-driven — matches every hand-rolled burst this replaces, which
+      // shrinks to near-zero scale and stops drawing rather than fading out.
+      const alpha = alphaStart + (alphaEnd - alphaStart) * lifeT
       if (alpha <= 0) continue
       const scale = scaleStart + (scaleEnd - scaleStart) * t
       const size = f.size[i] * scale
       if (size <= 0) continue
       const half = size * 0.5
-      const color = palette[f.colorIdx[i]]
+      const sprite = getParticleSprite(palette[f.colorIdx[i]], cfg.spriteStyle)
       gfx.setAlpha(alpha)
-      gfx.drawImage(
-        getParticleSprite(color, cfg.spriteStyle),
-        f.x[i] - half,
-        f.y[i] - half,
-        size,
-        size,
-      )
+      if (mayRotate && f.angle[i] !== 0) {
+        gfx.save()
+        gfx.translate(f.x[i], f.y[i])
+        gfx.rotate(f.angle[i])
+        gfx.drawImage(sprite, -half, -half, size, size)
+        gfx.restore()
+      } else {
+        gfx.drawImage(sprite, f.x[i] - half, f.y[i] - half, size, size)
+      }
     }
 
     gfx.restore()

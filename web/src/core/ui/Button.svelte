@@ -4,7 +4,7 @@
 
   type Props = HTMLButtonAttributes & {
     /** Visual role. `surface` is the elevated white/surface pill (return pills). */
-    variant?: 'primary' | 'secondary' | 'ghost' | 'surface'
+    variant?: 'primary' | 'secondary' | 'ghost' | 'surface' | 'outline'
     /** Corner style. Default is a full pill. */
     shape?: 'pill' | 'rounded'
     small?: boolean
@@ -122,6 +122,17 @@
 
   .btn.ghost
     border-color: transparent
+
+  // Outlined in the PRIMARY action color (not the separate `secondary` token)
+  // — for pairing with a `primary` button as two shades of the same color.
+  .btn.outline
+    background-color: transparent
+    border-color: var(--color-action-primary)
+    color: var(--color-action-primary)
+    &:not(:disabled):hover
+      background-color: color-mix(in srgb, var(--color-action-primary) 8%, transparent)
+    &:not(:disabled):active
+      background-color: color-mix(in srgb, var(--color-action-primary) 16%, transparent)
 
   @media (forced-colors: active)
     .btn

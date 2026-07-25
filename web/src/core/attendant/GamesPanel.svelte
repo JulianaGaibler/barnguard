@@ -2,7 +2,6 @@
   import { get } from 'svelte/store'
   import { t } from '@src/i18n'
   import {
-    clearGames,
     deleteGame,
     gamesLive,
     type GameRecord,
@@ -18,9 +17,34 @@
     toggleGamesPanel,
   } from '@src/core/attendant/boothMenuToggle'
 
-  const RECENT_MAX = 10
+  const PAGE_SIZE = 20
   let nowTick = $state(Date.now())
-  const recent = $derived($gamesLive.games.slice(0, RECENT_MAX))
+  let page = $state(0) // 0-indexed
+
+  // The log holds every display's games; only show the currently active
+  // display's own games here (arcade sees only arcade games, stallwaechter
+  // only stallwaechter games, etc).
+  const displayGames = $derived(
+    $gamesLive.games.filter((g) => g.display === $activeDisplay?.id),
+  )
+  const totalPages = $derived(
+    Math.max(1, Math.ceil(displayGames.length / PAGE_SIZE)),
+  )
+  // Clamp back onto the last page if it disappears out from under us (e.g. a
+  // delete/wipe shrinks the list while viewing a later page).
+  $effect(() => {
+    if (page > totalPages - 1) page = totalPages - 1
+  })
+  const paged = $derived(
+    displayGames.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+  )
+
+  function prevPage(): void {
+    page = Math.max(0, page - 1)
+  }
+  function nextPage(): void {
+    page = Math.min(totalPages - 1, page + 1)
+  }
 
   function timeAgo(tsMs: number, nowMs: number): string {
     const seconds = Math.max(0, Math.floor((nowMs - tsMs) / 1000))
@@ -41,16 +65,10 @@
     return () => clearInterval(id)
   })
 
-  // Cross-button exclusive arming: arming any print / delete / wipe button
-  // disarms whichever other confirm button was previously armed. Every
+  // Cross-button exclusive arming: arming any print / delete button disarms
+  // whichever other confirm button was previously armed. Every
   // `<ConfirmButton>` below opts in by passing the same coordinator.
   const confirmGroup = createConfirmCoordinator()
-
-  function handleWipe(): void {
-    clearGames().catch((e: unknown) => {
-      console.warn('[games-panel] failed to clear games', e)
-    })
-  }
 
   function handleDelete(g: GameRecord): void {
     deleteGame(g.id).catch((e: unknown) => {
@@ -60,7 +78,7 @@
 
   async function handleReprint(g: GameRecord): Promise<void> {
     const display = get(activeDisplay)
-    if (!display) return
+    if (!display?.renderLabelForRecord) return
     try {
       const tapeWidthMm = get(printerLive).printer?.tapeWidthMm
       const blob = await display.renderLabelForRecord(g, {
@@ -81,17 +99,22 @@
   storageId="barnguard-window-games-panel"
   spawnedBy="barnguard-window-booth-menu"
   side="left"
-  width={280}
+  width={400}
   onClose={toggleGamesPanel}
 >
-  <DebugSection title={`Recent games (${recent.length})`} open>
+  <DebugSection title={`Recent games (${displayGames.length})`} open>
     <div class="debug-list">
-      {#each recent as g (g.id)}
+      {#each paged as g (g.id)}
         {@const summary = $activeDisplay?.formatGameRecord(g)}
         <div class="debug-list-item">
           <span class="game-line">
             {#if summary}
               <span class="game-state">{summary.label}</span>
+            {/if}
+            {#if summary?.playerName}
+              <span class="game-player" title="Saved to the leaderboard as">
+                {summary.playerName.toUpperCase()}
+              </span>
             {/if}
             <span class="game-score">
               {g.score}
@@ -106,13 +129,15 @@
             >
           </span>
           <span class="game-actions">
-            <ConfirmButton
-              label="Print"
-              armedLabel="Confirm"
-              title="Reprint badge"
-              coordinator={confirmGroup}
-              onConfirm={() => handleReprint(g)}
-            />
+            {#if summary?.printable}
+              <ConfirmButton
+                label="Print"
+                armedLabel="Confirm"
+                title="Reprint badge"
+                coordinator={confirmGroup}
+                onConfirm={() => handleReprint(g)}
+              />
+            {/if}
             <ConfirmButton
               label="Del"
               armedLabel="Confirm"
@@ -129,14 +154,24 @@
       {/each}
     </div>
 
-    <div class="debug-row">
-      <span class="label">High scores</span>
-      <ConfirmButton
-        label="Wipe all"
-        armedLabel="Tap again to wipe"
-        coordinator={confirmGroup}
-        onConfirm={handleWipe}
-      />
+    <div class="debug-row pagination-row">
+      <button
+        type="button"
+        class="debug-btn"
+        disabled={page === 0}
+        onclick={prevPage}
+      >
+        ‹ Prev
+      </button>
+      <span class="label">Page {page + 1} of {totalPages}</span>
+      <button
+        type="button"
+        class="debug-btn"
+        disabled={page >= totalPages - 1}
+        onclick={nextPage}
+      >
+        Next ›
+      </button>
     </div>
   </DebugSection>
 </DraggableWindow>
@@ -144,6 +179,14 @@
 <style lang="sass">
   // Row internals for a recent-games entry. Container chrome (list, item,
   // empty-state, buttons) comes from debug-ui.sass.
+
+  .pagination-row
+    justify-content: center
+    gap: 10px
+
+    .debug-btn:disabled
+      opacity: 0.4
+      cursor: default
 
   .game-line
     display: flex
@@ -155,6 +198,11 @@
   .game-state
     font-weight: 600
     letter-spacing: 0.04em
+
+  .game-player
+    font-weight: 600
+    letter-spacing: 0.06em
+    opacity: 0.75
 
   .game-score
     font-weight: 700

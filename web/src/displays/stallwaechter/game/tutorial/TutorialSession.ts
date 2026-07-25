@@ -118,16 +118,12 @@ export class TutorialSession {
     // has to fly cleanly off-frame before `onExitedGermany` fires.
     this.#rectMask = new RectMask(this.#exitRect())
 
-    // Force Canvas 2D. A fresh WebGL2 context on a new canvas blocks the
-    // main thread on GPU-process IPC (~20 ms) at the exact moment of tap.
-    // Tutorial is small and simple, Canvas 2D starts instantly.
     this.#stage = host.engine.attachStage(canvas, {
       name: 'Tutorial',
       interactive: true,
       transparent: false,
       clearColor: '#0d0d10',
       initialViewport: this.#viewport,
-      renderer: 'canvas2d',
       onResize: (info) => this.#handleResize(info),
     })
 

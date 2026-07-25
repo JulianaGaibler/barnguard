@@ -35,7 +35,7 @@ export class IndicatorNode extends SceneNode {
   }
 
   update(orbs: QueuedOrbView[]): void {
-    const nextIds = new Set(orbs.map((o) => o.id))
+    const nextIds = new Set(orbs.map((orb) => orb.id))
 
     // Removed (spawned from the front): fade out + slide left, then destroy.
     for (const [id, node] of this.#dots) {
@@ -52,17 +52,17 @@ export class IndicatorNode extends SceneNode {
     // Added (returned to the end): created hidden to the right of their slot;
     // the fade-in + slide is kicked off in `relayout` once positions are known.
     const fresh = new Set<string>()
-    for (const o of orbs) {
-      if (this.#dots.has(o.id)) continue
+    for (const orb of orbs) {
+      if (this.#dots.has(orb.id)) continue
       const node = new ShapeNode({
-        id: `ind-${o.id}`,
-        geometry: { kind: 'circle', radius: this.#radiusFor(o.size) },
+        id: `ind-${orb.id}`,
+        geometry: { kind: 'circle', radius: this.#radiusFor(orb.size) },
         fill: this.#color,
       })
       node.transform.alpha = 0
       this.add(node)
-      this.#dots.set(o.id, node)
-      fresh.add(o.id)
+      this.#dots.set(orb.id, node)
+      fresh.add(orb.id)
     }
 
     this.#relayout(orbs, fresh)
@@ -77,13 +77,13 @@ export class IndicatorNode extends SceneNode {
     }
 
     let cursor = this.#cx - total / 2
-    for (const o of orbs) {
-      const r = this.#radiusFor(o.size)
+    for (const orb of orbs) {
+      const r = this.#radiusFor(orb.size)
       const tx = cursor + r
       cursor += 2 * r + gap
-      const node = this.#dots.get(o.id)
+      const node = this.#dots.get(orb.id)
       if (!node) continue
-      if (fresh.has(o.id)) {
+      if (fresh.has(orb.id)) {
         // Start to the right of the slot + transparent, then fade in + slide left.
         node.transform.x = tx + INDICATOR.driftWorld
         node.transform.y = this.#cy

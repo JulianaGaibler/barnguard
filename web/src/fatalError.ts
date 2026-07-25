@@ -10,6 +10,11 @@ export interface DisplayLink {
   href: string
 }
 
+// Rendered before any display theme is applied, so only the neutral defaults
+// from scale.sass are live — the same tokens every display then overrides.
+// `--color-app-backdrop` is the token reserved for chrome behind the
+// canvas-less DOM (see BackgroundLayer.svelte), which is exactly this screen.
+
 function baseWrap(): HTMLDivElement {
   const wrap = document.createElement('div')
   wrap.setAttribute('role', 'alert')
@@ -20,10 +25,9 @@ function baseWrap(): HTMLDivElement {
     'flex-direction: column',
     'align-items: center',
     'justify-content: center',
-    'background: #1c1c1c',
-    'color: #ffd34d',
-    'font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif',
-    'padding: 2rem',
+    'background: var(--color-app-backdrop)',
+    'color: var(--color-text-inverse)',
+    'padding: var(--space-32)',
     'text-align: center',
   ].join(';')
   return wrap
@@ -32,35 +36,36 @@ function baseWrap(): HTMLDivElement {
 function heading(text: string): HTMLHeadingElement {
   const h1 = document.createElement('h1')
   h1.textContent = text
-  h1.style.cssText = 'font-size: 2rem; margin-bottom: 1rem; font-weight: 700'
+  h1.className = 'type-headline'
+  h1.style.cssText = 'margin-bottom: var(--space-16)'
   return h1
 }
 
 function paragraph(text: string): HTMLParagraphElement {
   const p = document.createElement('p')
   p.textContent = text
-  p.style.cssText =
-    'font-size: 1rem; max-width: 40rem; line-height: 1.5; margin-bottom: 1.5rem'
+  p.className = 'type-body-large'
+  p.style.cssText = 'max-width: 40rem; margin-bottom: var(--space-24)'
   return p
 }
 
 function displayList(displays: DisplayLink[]): HTMLUListElement {
   const ul = document.createElement('ul')
   ul.style.cssText =
-    'list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem'
+    'list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-8)'
   for (const d of displays) {
     const li = document.createElement('li')
     const a = document.createElement('a')
     a.href = d.href
     a.textContent = d.id
+    a.className = 'type-button'
     a.style.cssText = [
-      'color: #ffd34d',
-      'background: rgba(255, 211, 77, 0.08)',
-      'padding: 0.75rem 1.5rem',
-      'border-radius: 6px',
+      'color: var(--color-text)',
+      'background: var(--color-surface)',
+      'box-shadow: var(--color-shadow-card)',
+      'padding: var(--space-12) var(--space-24)',
+      'border-radius: var(--radius-card)',
       'text-decoration: none',
-      'font-size: 1.125rem',
-      'font-weight: 600',
       'display: inline-block',
       'min-width: 16rem',
     ].join(';')

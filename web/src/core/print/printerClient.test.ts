@@ -1,5 +1,11 @@
+import { get } from 'svelte/store'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { enqueuePrint } from './printerClient'
+import {
+  enqueuePrint,
+  lastMockPrint,
+  mockPrintEnabled,
+  setMockPrintEnabled,
+} from './printerClient'
 
 describe('enqueuePrint', () => {
   beforeEach(() => {
@@ -45,5 +51,47 @@ describe('enqueuePrint', () => {
     )
     const blob = new Blob(['x'], { type: 'image/jpeg' })
     await expect(enqueuePrint(blob, {})).rejects.toThrow()
+  })
+})
+
+describe('mock printing', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn())
+  })
+  afterEach(() => {
+    setMockPrintEnabled(false)
+    vi.unstubAllGlobals()
+  })
+
+  it('skips the daemon and publishes to lastMockPrint when enabled', async () => {
+    setMockPrintEnabled(true)
+    expect(get(mockPrintEnabled)).toBe(true)
+
+    const blob = new Blob(['x'], { type: 'image/jpeg' })
+    const res = await enqueuePrint(blob, { source: 'game', score: 7 })
+
+    expect(res.jobId).toBe('mock')
+    expect(fetch).not.toHaveBeenCalled()
+
+    const mock = get(lastMockPrint)
+    expect(mock?.jpeg).toBe(blob)
+    expect(mock?.meta).toEqual({ source: 'game', score: 7 })
+  })
+
+  it('leaves the real print path untouched when disabled', async () => {
+    setMockPrintEnabled(false)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: async () => ({ jobId: 'real' }),
+      })),
+    )
+    const blob = new Blob(['x'], { type: 'image/jpeg' })
+    const res = await enqueuePrint(blob, {})
+    expect(res.jobId).toBe('real')
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

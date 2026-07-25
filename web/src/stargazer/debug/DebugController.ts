@@ -9,6 +9,7 @@ import { FrameStats } from './FrameStats'
 import { walkTree } from '../scene/traverse'
 import { drawGrid } from './DebugGridRenderer'
 import { drawNodeOutlines } from './DebugOutlineRenderer'
+import { drawLayoutOutlines } from './DebugLayoutRenderer'
 import { drawPointerOverlay } from './DebugPointerRenderer'
 import {
   drawPhysicsOverlay,
@@ -36,6 +37,7 @@ export interface DebugToggleState {
   hud: boolean
   camera: boolean
   outlines: boolean
+  layoutOutlines: boolean
   follow: boolean
   grid: boolean
   paused: boolean
@@ -83,6 +85,7 @@ export interface DebugGpuStatsReadout {
   overflowWarns: number
   sdfInstances: number
   strokeInstances: number
+  roundRectInstances: number
   /** Effective MSAA sample count on the offscreen render target. `1` = off. */
   msaaSamples: number
 }
@@ -111,11 +114,8 @@ export interface DebugStatsSnapshot {
     dynamic: number
     total: number
   }
-  /**
-   * Per-frame GPU pipeline stats. Populated only when the active stage is
-   * running the WebGL2 backend (`?renderer=gpu`); `null` under Canvas mode.
-   */
-  gpu: DebugGpuStatsReadout | null
+  /** Per-frame GPU pipeline stats for the active stage. */
+  gpu: DebugGpuStatsReadout
   cameraMode: 'game' | 'debug'
   cameraFollowing: boolean
   viewport: { x: number; y: number; width: number; height: number }
@@ -129,12 +129,6 @@ export interface DebugStatsSnapshot {
   touchSlopScreen: number
   touchSlopWorld: number
   aliveParticles: number
-  staticBakesTotal: number
-  staticBakesPerSecond: number
-  /** Current dynamic-resolution scale in `(0, 1]` (1 = native). */
-  renderScale: number
-  /** Live (unclosed) static-bake `ImageBitmap`s, a leak guard (should be ≤2). */
-  activeBitmaps: number
   /** All currently-attached stages, in order (primary first). */
   stages: StageChip[]
   /** Id of the currently-active stage, matches one entry in `stages`. */
@@ -235,11 +229,6 @@ export interface DebugPanelSpec {
   props?: Record<string, unknown>
 }
 
-interface StageMetrics {
-  bakeStamps: number[]
-  lastSeenTotalBakes: number
-}
-
 /**
  * Central controller for engine debug tooling. Constructed only when `?debug=1`
  * or `?debug=hud` is present in the URL, the entire object graph (hotkeys, ring
@@ -276,6 +265,7 @@ export class DebugController {
   readonly hudVisible$: Readable<boolean> = this.#hudVisibleStore
   #_cameraActive = false
   #_outlinesVisible = false
+  #_layoutOutlinesVisible = false
   #_followGameCamera = false
   #_gridVisible = false
   #_pointerOverlayVisible = false
@@ -306,9 +296,6 @@ export class DebugController {
    * when nothing is registered.
    */
   #_inspectedMask: BitmapMask | null = null
-
-  /** Per-stage sliding window for the "static bakes/s" HUD row. */
-  readonly #stageMetrics = new WeakMap<Stage, StageMetrics>()
 
   readonly #disposeCallbacks: Array<() => void> = []
 
@@ -385,11 +372,13 @@ export class DebugController {
     // `engine.lastFrameWorkSec` for the derivation. This is the value
     // that answers "did this frame have headroom or is it right at
     // budget?", the vsync-locked dt can't distinguish the two.
-    const offFrame = engine.ticker.onFrame((dt) => {
+    const offFrame = engine.ticker.onFrame(() => {
       this.frameStats.push(engine.lastFrameWorkSec)
-      // The real post-cap frame interval (only processed frames reach this
-      // callback), the actual FPS readout, which reflects the FPS cap.
-      this.#frameIntervalStats.push(dt)
+      // Actual FPS comes from the true frame interval (`ticker.rawDt`):
+      // unsmoothed and unclamped, so a genuinely slow frame reads as a low rate.
+      // The callback's `dt` argument is the smoothed + `maxDt`-clamped
+      // simulation delta and would floor the readout at `1 / maxDt` (30 FPS).
+      this.#frameIntervalStats.push(engine.ticker.rawDt)
     })
     this.#disposeCallbacks.push(offBefore, offFrame)
   }
@@ -425,6 +414,9 @@ export class DebugController {
   }
   get outlinesVisible(): boolean {
     return this.#_outlinesVisible
+  }
+  get layoutOutlinesVisible(): boolean {
+    return this.#_layoutOutlinesVisible
   }
   get followGameCamera(): boolean {
     return this.#_followGameCamera
@@ -556,6 +548,11 @@ export class DebugController {
     this.#emitToggle()
   }
 
+  toggleLayoutOutlines(): void {
+    this.#_layoutOutlinesVisible = !this.#_layoutOutlinesVisible
+    this.#emitToggle()
+  }
+
   toggleFollow(): void {
     this.#_followGameCamera = !this.#_followGameCamera
     this.camera.setFollow(this.#_followGameCamera)
@@ -681,8 +678,7 @@ export class DebugController {
         })
       }
     }
-    // `stage.gpuStats` is a public getter, returns null under Canvas.
-    const gpu = active.gpuStats ? { ...active.gpuStats } : null
+    const gpu = { ...active.gpuStats }
     const physics = this.#snapshotPhysics(active)
     return {
       p50: p.p50,
@@ -706,10 +702,6 @@ export class DebugController {
       touchSlopScreen: stageInput?.touchSlopScreen ?? 0,
       touchSlopWorld: stageInput?.touchSlopWorld ?? 0,
       aliveParticles,
-      staticBakesTotal: active.layers.totalBakes,
-      staticBakesPerSecond: this.#sampleBakeRate(active),
-      renderScale: active.renderScale,
-      activeBitmaps: active.layers.activeBitmaps,
       stages: this.#snapshotStageChips(),
       activeStageId: this.#stageIdOf(active),
       activeIsPrimary: this.activeIsPrimary,
@@ -749,25 +741,6 @@ export class DebugController {
       })
     }
     return out
-  }
-
-  /** Per-stage sliding window, bake stamps age out of a 1-second window. */
-  #sampleBakeRate(stage: Stage): number {
-    let m = this.#stageMetrics.get(stage)
-    if (!m) {
-      m = { bakeStamps: [], lastSeenTotalBakes: 0 }
-      this.#stageMetrics.set(stage, m)
-    }
-    const total = stage.layers.totalBakes
-    const delta = total - m.lastSeenTotalBakes
-    m.lastSeenTotalBakes = total
-    const now = performance.now()
-    for (let i = 0; i < delta; i++) m.bakeStamps.push(now)
-    const cutoff = now - 1000
-    while (m.bakeStamps.length > 0 && m.bakeStamps[0] < cutoff) {
-      m.bakeStamps.shift()
-    }
-    return m.bakeStamps.length
   }
 
   #snapshotStageChips(): StageChip[] {
@@ -852,6 +825,10 @@ export class DebugController {
       drawNodeOutlines(gfx, stage, activeCamera)
     }
 
+    if (this.#_layoutOutlinesVisible) {
+      drawLayoutOutlines(gfx, stage, activeCamera)
+    }
+
     if (this.#_physicsAny) {
       const alpha = this.engine.ticker.fixedAlpha
       for (const entry of this.#worldsForStage(stage)) {
@@ -927,6 +904,7 @@ export class DebugController {
       hud: this.hudVisible,
       camera: this.#_cameraActive,
       outlines: this.#_outlinesVisible,
+      layoutOutlines: this.#_layoutOutlinesVisible,
       follow: this.#_followGameCamera,
       grid: this.#_gridVisible,
       paused: this.engine.paused,
@@ -962,6 +940,10 @@ export class DebugController {
         return
       case 'KeyO':
         this.toggleOutlines()
+        e.preventDefault()
+        return
+      case 'KeyL':
+        this.toggleLayoutOutlines()
         e.preventDefault()
         return
       case 'KeyG':

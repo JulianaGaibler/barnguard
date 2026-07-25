@@ -8,8 +8,17 @@ import type { Camera } from '../camera/Camera'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { PointerEvent2D } from '../input/PointerState'
 import type { TweenOptions } from '../anim/Animator'
-import { combineAbortSignals, isAbortError } from '../anim/abortSignal'
+import {
+  combineAbortSignals,
+  ignoreAbort,
+  isAbortError,
+} from '../anim/abortSignal'
+import { AbortScope } from '../anim/AbortScope'
 import { Timeline } from '../anim/Timeline'
+import type { Semantics, SemanticsHandle } from '../a11y/types'
+
+// Reused across calls; hit-testing is synchronous, so there's no reentrancy.
+const HIT_TEST_SCRATCH: Vec2 = { x: 0, y: 0 }
 
 /**
  * Which pass a node draws in. `static` nodes are baked once and cached until
@@ -28,6 +37,28 @@ export type RenderLayer = 'static' | 'above-static' | 'dynamic'
  */
 export interface NodeEvents {
   destroy: void
+}
+
+/**
+ * Pointer callbacks for {@link SceneNode.bindPointer} (and reused by
+ * {@link PointerBehavior}).
+ *
+ * @category Input
+ */
+export interface PointerHandlers {
+  down?: (e: PointerEvent2D) => void
+  move?: (e: PointerEvent2D) => void
+  up?: (e: PointerEvent2D) => void
+  cancel?: (e: PointerEvent2D) => void
+  /** Force hit-testing on/off. Defaults to `true` when `down` is present. */
+  hitEnabled?: boolean
+  /**
+   * Track only the first pointer to press: while it's held, other pointers'
+   * down/move/up/cancel are ignored, and the slot frees on its up/cancel. Turns
+   * a multi-touch-capable node into a single-drag target without the caller
+   * tracking an active pointer id.
+   */
+  singlePointer?: boolean
 }
 
 let nextNodeId = 0
@@ -115,6 +146,13 @@ export class SceneNode {
    * `subtreeHasStaticLayer` stays O(1). Cross-checked by `_verifyStaticCount`.
    */
   #_staticDescendantCount = 0
+  /**
+   * Semantics accumulated before the node joins a scene; see
+   * {@link SceneNode.a11y}.
+   */
+  #pendingSemantics: Partial<Semantics> | null = null
+  /** Live accessibility registration once attached; see {@link SceneNode.a11y}. */
+  #a11yHandle: SemanticsHandle | null = null
 
   /**
    * Cached "does this node or any behavior implement `onUpdate`?".
@@ -199,6 +237,14 @@ export class SceneNode {
   get worldDirty(): boolean {
     return this.#_worldDirty
   }
+  /**
+   * Whether this node or any descendant draws on the `'static'` layer. O(1): it
+   * reads the incrementally-maintained descendant count. The layout pass uses
+   * it to decide whether moving a subtree must invalidate the static bake.
+   */
+  get subtreeHasStaticLayer(): boolean {
+    return this.#_renderLayer === 'static' || this.#_staticDescendantCount > 0
+  }
   get isDestroyed(): boolean {
     return this.#_destroyed
   }
@@ -206,12 +252,24 @@ export class SceneNode {
     return this.#_scene
   }
 
+  /**
+   * Mark this node's cached `transform.world` stale and cascade the flag to all
+   * descendants, so the next transform pass (or
+   * {@link SceneNode.ensureWorldTransform}) recomputes them. Called
+   * automatically when the local `transform` changes or the node is
+   * re-parented; game code rarely calls it directly.
+   */
   markWorldDirty(): void {
     if (this.#_worldDirty) return
     this.#_worldDirty = true
     for (const c of this._children) c.markWorldDirty()
   }
 
+  /**
+   * Clear this node's world-transform dirty flag. Engine-internal: the
+   * transform pass calls it after writing `transform.world`. Does not touch
+   * descendants.
+   */
   markWorldClean(): void {
     this.#_worldDirty = false
   }
@@ -303,6 +361,9 @@ export class SceneNode {
   /** Internal: called by Scene / parent when this subtree is attached. */
   onAttachedToScene(scene: Scene): void {
     this.#_scene = scene
+    // A node configured with `.a11y(...)` before it joined a scene registers
+    // now that an engine is reachable.
+    this.#tryRegisterA11y()
     // Fire `onSceneReady` for any behaviors that hadn't seen a scene yet.
     // Behaviors added AFTER the node is scene-attached fire from
     // `addBehavior` directly; this loop covers the "behavior added on a
@@ -325,11 +386,17 @@ export class SceneNode {
   }
 
   /**
-   * Add `child` to this node and return `this` for chaining. Re-parents `child`
-   * if it already had a parent. Once this node belongs to a scene, the child
-   * subtree attaches too and its behaviors' `onSceneReady` hooks fire.
+   * Add one or more `children` to this node and return `this` for chaining.
+   * Re-parents a child that already had a parent. Once this node belongs to a
+   * scene, each child subtree attaches too and its behaviors' `onSceneReady`
+   * hooks fire. Children are added in argument order.
    */
-  add(child: SceneNode): this {
+  add(...children: SceneNode[]): this {
+    for (const child of children) this.#addOne(child)
+    return this
+  }
+
+  #addOne(child: SceneNode): void {
     if (child === this) throw new Error('Cannot add a node to itself')
     if (child.#_destroyed) throw new Error('Cannot add a destroyed node')
     if (child.parent) child.parent.remove(child)
@@ -351,11 +418,20 @@ export class SceneNode {
       this.#_scene.invalidatePainterOrder()
       child.onAttachedToScene(this.#_scene)
     }
+  }
+
+  /**
+   * Detach one or more `children` from this node and their scene, and return
+   * `this` for chaining. A node that isn't a child of this one is skipped. Each
+   * removed subtree is detached from the scene (firing `onDetachedFromScene`)
+   * and the static-layer bookkeeping is updated.
+   */
+  remove(...children: SceneNode[]): this {
+    for (const child of children) this.#removeOne(child)
     return this
   }
 
-  /** Detach `child` from this node and its scene. No-op if it isn't a child. */
-  remove(child: SceneNode): void {
+  #removeOne(child: SceneNode): void {
     const idx = this._children.indexOf(child)
     if (idx < 0) return
     this._children.splice(idx, 1)
@@ -431,9 +507,15 @@ export class SceneNode {
     return behavior
   }
 
-  removeBehavior(behavior: Behavior): void {
+  /**
+   * Detach `behavior` (firing its `onDetach`) and return `this` for chaining. A
+   * no-op if the behavior isn't attached. Recomputes the node's update /
+   * fixed-step work flags, since this behavior may have been their only
+   * source.
+   */
+  removeBehavior(behavior: Behavior): this {
     const idx = this._behaviors.indexOf(behavior)
-    if (idx < 0) return
+    if (idx < 0) return this
     behavior.onDetach?.()
     // Reset the flag so a subsequent addBehavior of the same instance
     // fires `onSceneReady` again on the next scene attach.
@@ -442,6 +524,7 @@ export class SceneNode {
     // Recompute, this behavior may have been the sole source of update
     // work, or another behavior may still provide it.
     this._recomputeHasWork()
+    return this
   }
 
   getBehavior<T extends Behavior>(ctor: BehaviorCtor<T>): T | null {
@@ -460,18 +543,81 @@ export class SceneNode {
   }
 
   /**
-   * Hit-test in world coords. Default: rectangular AABB test using
-   * `debugBounds` (inflated by `touchSlopWorld`). Subclasses override for exact
-   * shapes (Path2DNode uses `isPointInPath`, ShapeNode uses circle, etc.).
+   * Attach or update accessibility {@link Semantics} on this node and return
+   * `this` for chaining. The first call needs a `role`; later calls take a
+   * partial and merge into the current semantics, patching the hidden proxy in
+   * place (focus preserved). Sugar over `engine.a11y.attach` / `handle.update`:
+   * if the node isn't in a scene yet, the semantics are held and registered
+   * when it attaches. Zero cost until used.
+   *
+   * @example
+   *   new ShapeNode({ geometry: { kind: 'rect', width: 240, height: 64 } })
+   *     .setHitEnabled(true)
+   *     .a11y({ role: 'button', label: 'Start game', onActivate: startGame })
+   *   // later, toggling state — merges and patches in place:
+   *   node.a11y({ label: 'Pause', states: { pressed: true } })
+   */
+  a11y(semantics: Semantics): this
+  a11y(patch: Partial<Semantics>): this
+  a11y(sem: Semantics | Partial<Semantics>): this {
+    if (this.#a11yHandle) {
+      this.#a11yHandle.update(sem)
+      return this
+    }
+    this.#pendingSemantics = { ...(this.#pendingSemantics ?? {}), ...sem }
+    this.#tryRegisterA11y()
+    return this
+  }
+
+  /**
+   * Register held semantics with the engine's accessibility tree once the node
+   * is in a scene and a `role` is known. Idempotent; a no-op otherwise.
+   */
+  #tryRegisterA11y(): void {
+    if (this.#a11yHandle) return
+    const engine = this.#_scene?.engine
+    const sem = this.#pendingSemantics
+    if (engine && sem?.role) {
+      this.#a11yHandle = engine.a11y.attach(this, sem as Semantics)
+      this.#pendingSemantics = null
+    }
+  }
+
+  /** Set {@link SceneNode.visible} and return `this` for chaining. */
+  setVisible(visible: boolean): this {
+    this.visible = visible
+    return this
+  }
+
+  /** Set {@link SceneNode.hitEnabled} and return `this` for chaining. */
+  setHitEnabled(hitEnabled: boolean): this {
+    this.hitEnabled = hitEnabled
+    return this
+  }
+
+  /** Set {@link SceneNode.renderLayer} and return `this` for chaining. */
+  setRenderLayer(layer: RenderLayer): this {
+    this.renderLayer = layer
+    return this
+  }
+
+  /**
+   * Hit-test in world coords. Default: rectangular AABB test against
+   * `debugBounds` (inflated by `touchSlopWorld`), which is LOCAL-space — the
+   * world point is mapped through {@link worldToLocal} first, so this works
+   * for a node anywhere in the tree, not just one sitting at world origin
+   * with an identity transform. Subclasses override for exact shapes
+   * (Path2DNode uses `isPointInPath`, ShapeNode uses circle, etc.).
    */
   hitTest(worldX: number, worldY: number, touchSlopWorld: number): boolean {
     const b = this.debugBounds
     if (!b) return false
+    const p = this.worldToLocal(worldX, worldY, HIT_TEST_SCRATCH)
     return (
-      worldX >= b.x - touchSlopWorld &&
-      worldX <= b.x + b.width + touchSlopWorld &&
-      worldY >= b.y - touchSlopWorld &&
-      worldY <= b.y + b.height + touchSlopWorld
+      p.x >= b.x - touchSlopWorld &&
+      p.x <= b.x + b.width + touchSlopWorld &&
+      p.y >= b.y - touchSlopWorld &&
+      p.y <= b.y + b.height + touchSlopWorld
     )
   }
 
@@ -581,6 +727,41 @@ export class SceneNode {
   }
 
   /**
+   * Fire-and-forget {@link tween}: animate the node's transform without
+   * awaiting, swallowing the `AbortError` when the node dies mid-flight. For
+   * the common "kick off a pop/fade and move on" case, so callers stop
+   * appending `.catch(ignoreAbort)` to every un-awaited tween. Pass `opts.key`
+   * to make it replace a prior same-key tween on this node's transform.
+   */
+  play(to: Partial<Transform2D>, opts: TweenOptions): void {
+    this.tween(to, opts).catch(ignoreAbort)
+  }
+
+  /**
+   * Fire-and-forget {@link tweenTo}: animate arbitrary numeric fields on
+   * `target` without awaiting, swallowing the abort on node death. Pair with
+   * `opts.key` for self-cancelling restarts (a scoring ring, a glow pulse).
+   */
+  playTo<T extends object>(
+    target: T,
+    to: Partial<T>,
+    opts: TweenOptions,
+  ): void {
+    this.tweenTo(target, to, opts).catch(ignoreAbort)
+  }
+
+  /**
+   * Create a re-abortable {@link AbortScope} tied to this node's lifetime:
+   * destroying the node aborts the scope's current epoch. Keep one per session
+   * and call `scope.reset()` at the top of each restartable async sequence,
+   * then pass `scope.signal` into the tweens/waits inside; the next `reset()`
+   * aborts the previous run so it unwinds without generation-counter guards.
+   */
+  scope(): AbortScope {
+    return new AbortScope(this.abortSignal)
+  }
+
+  /**
    * Destroy this node when `p` settles (resolve or reject). AbortError is
    * silent, the destroy is the cleanup. Other rejections log via `console.warn`
    * so tween-key typos don't become silent no-ops.
@@ -602,12 +783,17 @@ export class SceneNode {
       })
   }
 
-  /** Cascade destroy every child. Iterates a snapshot so re-entry is safe. */
-  destroyChildren(): void {
+  /**
+   * Destroy every child (recursively), leaving this node alive and empty, and
+   * return `this` for chaining. Iterates a snapshot of the child list, so a
+   * child whose destruction re-enters and mutates the list is handled safely.
+   */
+  destroyChildren(): this {
     const snapshot = this._children.slice()
     for (const c of snapshot) {
       if (!c.#_destroyed) c.destroy()
     }
+    return this
   }
 
   /**
@@ -615,15 +801,40 @@ export class SceneNode {
    * the handlers assigned. On destroy or `unbind` while a capture is live, the
    * `cancel` handler fires with a synthetic event so drag state doesn't get
    * stuck open. `hitEnabled` defaults to `true` when `down` is present, opt out
-   * with `hitEnabled: false` for stage-level listeners.
+   * with `hitEnabled: false` for stage-level listeners. Set `singlePointer` to
+   * track only the first press and ignore concurrent pointers.
    */
-  bindPointer(handlers: {
-    down?: (e: PointerEvent2D) => void
-    move?: (e: PointerEvent2D) => void
-    up?: (e: PointerEvent2D) => void
-    cancel?: (e: PointerEvent2D) => void
-    hitEnabled?: boolean
-  }): () => void {
+  bindPointer(handlers: PointerHandlers): () => void {
+    // With `singlePointer`, wrap the callbacks to track the first pressed
+    // pointer and drop events from any other until it releases, so a node stays
+    // a single-drag target without the caller tracking an active id.
+    if (handlers.singlePointer) {
+      let activeId: number | null = null
+      const { down, move, up, cancel } = handlers
+      handlers = {
+        ...handlers,
+        singlePointer: false,
+        down: (e) => {
+          if (activeId !== null) return
+          activeId = e.pointer.id
+          down?.(e)
+        },
+        move: (e) => {
+          if (e.pointer.id !== activeId) return
+          move?.(e)
+        },
+        up: (e) => {
+          if (e.pointer.id !== activeId) return
+          activeId = null
+          up?.(e)
+        },
+        cancel: (e) => {
+          if (e.pointer.id !== activeId) return
+          activeId = null
+          cancel?.(e)
+        },
+      }
+    }
     if (handlers.down) this.onPointerDown = handlers.down
     if (handlers.move) this.onPointerMove = handlers.move
     if (handlers.up) this.onPointerUp = handlers.up

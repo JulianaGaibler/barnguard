@@ -257,4 +257,63 @@ describe('Animator', () => {
       await expect(p2).rejects.toMatchObject({ name: 'AbortError' })
     })
   })
+
+  describe('keyed tweens (self-cancelling restart)', () => {
+    it('a second tween with the same key on the same target aborts the first', async () => {
+      const a = new Animator()
+      const target = { x: 0 }
+      const first = a.tween(
+        target,
+        { x: 100 },
+        { duration: 1, easing: linear, key: 'move' },
+      )
+      a.tick(0.5)
+      expect(target.x).toBeCloseTo(50, 5)
+      // Restart mid-flight: the first must reject, the second takes over.
+      const second = a.tween(
+        target,
+        { x: 200 },
+        { duration: 1, easing: linear, key: 'move' },
+      )
+      await expect(first).rejects.toMatchObject({ name: 'AbortError' })
+      // Second tween snapshots from the current value (50) toward 200.
+      a.tick(0.5)
+      expect(target.x).toBeCloseTo(125, 5)
+      a.tick(0.5)
+      await second
+      expect(target.x).toBe(200)
+    })
+
+    it('does not cancel a same-key tween on a different target', async () => {
+      const a = new Animator()
+      const t1 = { x: 0 }
+      const t2 = { x: 0 }
+      const p1 = a.tween(t1, { x: 100 }, { duration: 1, key: 'k' })
+      const p2 = a.tween(t2, { x: 100 }, { duration: 1, key: 'k' })
+      a.tick(1)
+      await Promise.all([p1, p2])
+      expect(t1.x).toBe(100)
+      expect(t2.x).toBe(100)
+    })
+
+    it('keyed restart does not emit the overlap warning', () => {
+      const a = new Animator()
+      const target = { x: 0 }
+      const warnings: string[] = []
+      const origWarn = console.warn
+      console.warn = (...args: unknown[]): void => {
+        warnings.push(args.join(' '))
+      }
+      try {
+        // The first is aborted by the keyed restart; swallow its rejection.
+        a.tween(target, { x: 100 }, { duration: 1, key: 'move' }).catch(
+          () => {},
+        )
+        void a.tween(target, { x: 200 }, { duration: 1, key: 'move' })
+      } finally {
+        console.warn = origWarn
+      }
+      expect(warnings.some((w) => /overlapping tween/i.test(w))).toBe(false)
+    })
+  })
 })

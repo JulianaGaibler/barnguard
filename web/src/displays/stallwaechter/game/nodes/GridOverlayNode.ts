@@ -73,9 +73,8 @@ export class GridOverlayNode extends SceneNode {
   readonly #cellSize: number
   readonly #cellHalf: number
   /**
-   * Country outline. `draw` wraps its passes in `gfx.setClipMask(this.mask)` so
-   * coastal cells clip to the outline on GPU. Canvas2D `setClipMask` is a
-   * no-op, coastal cells overhang there (fallback path, not the kiosk).
+   * Country outline. `draw` wraps its passes in `gfx.setClipMask(this.mask)`
+   * so coastal cells clip to the outline.
    */
   readonly #mask: BitmapMask
   /** Interleaved (x, y) cell centres, length `2 × count`. */

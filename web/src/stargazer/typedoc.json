@@ -3,6 +3,7 @@
   "entryPoints": [
     "modules/engine.ts",
     "modules/scene.ts",
+    "modules/layout.ts",
     "modules/nodes.ts",
     "modules/camera.ts",
     "modules/anim.ts",
@@ -15,6 +16,7 @@
     "modules/math.ts",
     "modules/ai.ts",
     "modules/dom.ts",
+    "modules/a11y.ts",
     "modules/debug.ts",
     "modules/svelte.ts"
   ],

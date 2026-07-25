@@ -3,12 +3,15 @@ import { ParticleEmitterNode } from '../nodes/ParticleEmitterNode'
 import type { DemoFn } from './types'
 
 /**
- * M7 demo, two live emitters exercise the pool + kinematics + sprite path.
+ * M7 demo, three live emitters exercise the pool + kinematics + sprite path.
  *
  * - **Trail**: continuous stream anchored to the pointer world position. Moderate
  *   damping + alpha decay so the tail shrinks behind the mouse.
  * - **Burst**: on pointer-down, 500 particles from the tap point spray radially
  *   with strong damping, expand, slow, fade.
+ * - **Spin burst**: fires alongside `burst`, showcasing `spinRadPerSec` +
+ *   `scaleBy: 'speed'` + `minSpeedFrac` + the `'triangle'` sprite style —
+ *   tumbling triangles that shrink as they decelerate and vanish once settled.
  * - `?demo=particles&debug=hud` reports total alive particles in the "Scene"
  *   section, the perf gate is two 500-particle emitters + the trail staying
  *   under 16.6 ms p95 at 4K aspect.
@@ -23,6 +26,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
 
   let trail: ParticleEmitterNode | null = null
   let burst: ParticleEmitterNode | null = null
+  let spinBurst: ParticleEmitterNode | null = null
   await host.loadScene((scene) => {
     trail = new ParticleEmitterNode({
       id: 'trail',
@@ -65,10 +69,38 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       },
     })
     scene.root.add(burst)
+
+    // Tumbling, shrinking triangles: `spinRadPerSec` + `scaleBy: 'speed'` +
+    // `minSpeedFrac`, fired at the same point as `burst` so both are visible
+    // in one click.
+    spinBurst = new ParticleEmitterNode({
+      id: 'spin-burst',
+      config: {
+        capacity: 120,
+        ratePerSec: 0,
+        lifetimeSec: [3, 3],
+        speedWorld: [80, 220],
+        spreadRad: 0,
+        emitDirectionRad: undefined,
+        sizeWorld: [14, 14],
+        palette: ['#ff6bd6', '#ffffff'],
+        spriteStyle: 'triangle',
+        blend: 'source-over',
+        dampingPerSec: 2.4,
+        spinRadPerSec: [-9, 9],
+        scaleBy: 'speed',
+        scaleOverLife: [1, 0],
+        minSpeedFrac: 0.02,
+      },
+    })
+    scene.root.add(spinBurst)
   })
-  if (!trail || !burst) throw new Error('demo-particles: emitters not created')
+  if (!trail || !burst || !spinBurst) {
+    throw new Error('demo-particles: emitters not created')
+  }
   const trailRef: ParticleEmitterNode = trail
   const burstRef: ParticleEmitterNode = burst
+  const spinBurstRef: ParticleEmitterNode = spinBurst
   host.start()
 
   // Track pointer position → trail origin.
@@ -88,6 +120,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       e.clientY - rect.top,
     )
     burstRef.emitter.burst(500, w.x, w.y)
+    spinBurstRef.emitter.burst(24, w.x, w.y)
   }
   const onLeave = (): void => {
     // Send origin off-screen so the trail stops trailing into the last known

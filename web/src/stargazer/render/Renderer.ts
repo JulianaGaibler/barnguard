@@ -15,12 +15,10 @@ export interface RendererOptions {
 }
 
 /**
- * Owns the canvas element, DPR bookkeeping, and CSS/pixel sizing. Under
- * `?renderer=canvas2d` a `Canvas2DGfx` facade takes ownership of the 2D
- * context; under `?renderer=gpu` a `GpuGfx` (backed by a `WebGL2Device`) takes
- * ownership of the WebGL2 context. Renderer itself is renderer-agnostic , every
- * drawing operation and every context acquisition goes through the facade layer
- * above.
+ * Owns the canvas element, DPR bookkeeping, and CSS/pixel sizing. A `GpuGfx`
+ * (backed by a `WebGL2Device`) takes ownership of the WebGL2 context.
+ * Renderer itself is backend-agnostic, every drawing operation and every
+ * context acquisition goes through the facade layer above.
  *
  * The clear color + transparent flag are carried through as configuration for
  * the facade to consume on `beginFrame`.

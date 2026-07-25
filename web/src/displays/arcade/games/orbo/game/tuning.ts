@@ -109,6 +109,8 @@ export const ANIM = {
   spawnSlideIn: 0.45,
   snapBack: 0.25,
   removeShrink: 0.3,
+  /** Reclaimed orb slides off the near screen edge before joining a queue. */
+  reclaimSlideOff: 0.4,
   /** Game-over: shrink out orbs that don't contribute to the score. */
   gameOverShrink: 0.25,
   /** Game-over "counting": each scoring orb bounces big → back. */
@@ -162,11 +164,20 @@ export const RING = {
   overshoot: 2.6,
 } as const
 
-/** Low-lifetime pulse (alpha oscillation while `lifetimeRemaining === 1`). */
-export const PULSE = {
-  periodSec: 1.2,
-  minAlpha: 0.55,
-  maxAlpha: 1,
+/**
+ * Low-lifetime glow: while an orb's `lifetimeRemaining` is down to its last
+ * life, its fill oscillates between its current color and black — a warning
+ * that the next zone return destroys the orb instead of handing it to the other
+ * team. Unlike the symmetric capture glow, this pulse dwells in the orb's color
+ * and dips only briefly to black: `blackFraction` of the period is spent on the
+ * excursion to black and back, the rest resting on the color.
+ */
+export const LOW_LIFE_GLOW = {
+  periodSec: 2.4,
+  maxMix: 0.5,
+  color: '#000000',
+  /** Portion of the period spent dipping to black (the rest rests on color). */
+  blackFraction: 0.25,
 } as const
 
 /**

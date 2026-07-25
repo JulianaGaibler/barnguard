@@ -17,6 +17,15 @@ export interface Ticker {
   readonly time: number
   /** Seconds elapsed in the last render frame, clamped to `maxDt`. */
   readonly dt: number
+  /**
+   * Wall-clock seconds between this processed frame and the previous one —
+   * unsmoothed and unclamped, unlike {@link dt}. This is the true post-cap frame
+   * interval (only processed frames advance it, so it already reflects the FPS
+   * cap); measure actual FPS as `1 / rawDt`. `dt` is smoothed + clamped for
+   * stable simulation stepping and must NOT be used for a frame-rate readout —
+   * its `maxDt` clamp would floor the reported rate at `1 / maxDt`.
+   */
+  readonly rawDt: number
   /** Monotonic render-frame counter. Increments before frame callbacks fire. */
   readonly frameNum: number
   /** Remaining fraction of an unconsumed fixed step: `accumulator / fixedDt`. */
@@ -74,6 +83,7 @@ export interface TickerOptions {
 class TickerImpl implements Ticker {
   time = 0
   dt = 0
+  rawDt = 0
   frameNum = 0
   fixedAlpha = 0
   readonly fixedDt: number
@@ -170,6 +180,8 @@ class TickerImpl implements Ticker {
 
     const rawDt = (nowMs - this.#lastMs) / 1000
     this.#lastMs = nowMs
+    // True frame interval (post-cap, unsmoothed, unclamped) for FPS readouts.
+    this.rawDt = Math.max(0, rawDt)
     let dt = Math.max(0, Math.min(rawDt, this.#maxDt))
     // Delta smoothing: EMA-filter the frame time so coarse timer precision
     // (Firefox rounds performance.now() to ~1ms) doesn't jitter interpolation.

@@ -51,11 +51,11 @@ export interface Path2DNodeOptions {
 
 /**
  * Draws a `Path2D` (filled and/or stroked) and hit-tests points against it.
- * Build the path by hand, or get one from `parseSvgPaths` for SVG artwork. On
- * the GPU backend a path needs a registered tessellation before it renders;
- * `parseSvgPaths` registers one for each path it returns, so paths from there
- * draw with no extra setup. A path with no tessellation is skipped and counted
- * in the debug HUD.
+ * Build the path by hand, or get one from `parseSvgPaths` for SVG artwork. A
+ * path needs a registered tessellation before it renders; `parseSvgPaths`
+ * registers one for each path it returns, so paths from there draw with no
+ * extra setup. A path with no tessellation is skipped and counted in the
+ * debug HUD.
  *
  * Hit-testing walks in world coords (what the input pipeline delivers) while
  * the path data is in the node's local coords, so the node inverts its `world`

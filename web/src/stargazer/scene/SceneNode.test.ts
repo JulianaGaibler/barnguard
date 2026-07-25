@@ -576,4 +576,124 @@ describe('SceneNode', () => {
       unbind()
     })
   })
+
+  describe('bindPointer singlePointer', () => {
+    const evt = (id: number): PointerEvent2D =>
+      ({ pointer: { id } }) as unknown as PointerEvent2D
+
+    it('ignores a second pointer until the first releases', () => {
+      const node = new SceneNode('n')
+      const downs: number[] = []
+      const moves: number[] = []
+      const ups: number[] = []
+      node.bindPointer({
+        singlePointer: true,
+        down: (e) => downs.push(e.pointer.id),
+        move: (e) => moves.push(e.pointer.id),
+        up: (e) => ups.push(e.pointer.id),
+      })
+
+      node.onPointerDown?.(evt(1)) // first press → tracked
+      node.onPointerDown?.(evt(2)) // second finger → ignored
+      node.onPointerMove?.(evt(2)) // move from the ignored finger → dropped
+      node.onPointerMove?.(evt(1)) // move from the tracked finger → delivered
+      node.onPointerUp?.(evt(2)) // up from the ignored finger → dropped
+      node.onPointerUp?.(evt(1)) // up from the tracked finger → frees the slot
+
+      expect(downs).toEqual([1])
+      expect(moves).toEqual([1])
+      expect(ups).toEqual([1])
+    })
+
+    it('accepts a new pointer once the tracked one has released', () => {
+      const node = new SceneNode('n')
+      const downs: number[] = []
+      node.bindPointer({
+        singlePointer: true,
+        down: (e) => downs.push(e.pointer.id),
+      })
+      node.onPointerDown?.(evt(1))
+      node.onPointerUp?.(evt(1))
+      node.onPointerDown?.(evt(2)) // slot free → tracked
+      expect(downs).toEqual([1, 2])
+    })
+
+    it('frees the slot on cancel', () => {
+      const node = new SceneNode('n')
+      const downs: number[] = []
+      node.bindPointer({
+        singlePointer: true,
+        down: (e) => downs.push(e.pointer.id),
+        cancel: () => {},
+      })
+      node.onPointerDown?.(evt(1))
+      node.onPointerCancel?.(evt(1))
+      node.onPointerDown?.(evt(3))
+      expect(downs).toEqual([1, 3])
+    })
+  })
+
+  describe('fluent API', () => {
+    it('add is variadic and preserves order, returning this', () => {
+      const parent = new SceneNode('p')
+      const a = new SceneNode('a')
+      const b = new SceneNode('b')
+      const c = new SceneNode('c')
+      const ret = parent.add(a, b, c)
+      expect(ret).toBe(parent)
+      expect(parent.children.map((n) => n.id)).toEqual(['a', 'b', 'c'])
+    })
+
+    it('add still accepts a single child', () => {
+      const parent = new SceneNode('p')
+      const a = new SceneNode('a')
+      expect(parent.add(a)).toBe(parent)
+      expect(parent.children).toEqual([a])
+    })
+
+    it('remove is variadic and returns this', () => {
+      const parent = new SceneNode('p')
+      const a = new SceneNode('a')
+      const b = new SceneNode('b')
+      const c = new SceneNode('c')
+      parent.add(a, b, c)
+      const ret = parent.remove(a, c)
+      expect(ret).toBe(parent)
+      expect(parent.children).toEqual([b])
+      expect(a.parent).toBeNull()
+      expect(c.parent).toBeNull()
+    })
+
+    it('setVisible / setHitEnabled / setRenderLayer mutate and chain', () => {
+      const node = new SceneNode('n')
+      const ret = node
+        .setVisible(false)
+        .setHitEnabled(true)
+        .setRenderLayer('static')
+      expect(ret).toBe(node)
+      expect(node.visible).toBe(false)
+      expect(node.hitEnabled).toBe(true)
+      expect(node.renderLayer).toBe('static')
+    })
+
+    it('removeBehavior and destroyChildren return this', () => {
+      const node = new SceneNode('n')
+      const behavior = new BehaviorA()
+      node.addBehavior(behavior)
+      expect(node.removeBehavior(behavior)).toBe(node)
+
+      const child = new SceneNode('c')
+      node.add(child)
+      expect(node.destroyChildren()).toBe(node)
+      expect(child.isDestroyed).toBe(true)
+      expect(node.children).toEqual([])
+    })
+
+    it('a11y() returns the node and is inert on a detached node', () => {
+      const node = new SceneNode('n')
+      // No scene/engine yet: semantics are held, nothing throws.
+      const ret = node.a11y({ role: 'button', label: 'Go' })
+      expect(ret).toBe(node)
+    })
+  })
 })

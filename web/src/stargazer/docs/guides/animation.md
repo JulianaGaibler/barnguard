@@ -37,31 +37,75 @@ await node.wait(0.5)
 
 Non-number properties in `to` are silently ignored at runtime. TypeScript accepts `Partial<T>` for the `to` argument.
 
+`tween` animates the node's own `transform`; `tweenTo(target, to, opts)` animates numeric fields on any object (a `{ frac: 0 }` reveal knob, a physics body's position, a custom `{ width }` used by a `draw`), while still scoping to the node's signal. Reach for `tweenTo` whenever the thing you're animating isn't a transform property.
+
+## Fire-and-forget: play / playTo
+
+Awaiting a tween means you care when it ends and want the `AbortError` to unwind your sequence. Many tweens are the opposite: kick off a pop or a fade and move on, and if the node dies mid-flight that's fine. For those, `node.play` / `node.playTo` are the un-awaited forms of `tween` / `tweenTo`: they return `void` and swallow the abort internally, so you stop writing `.catch(ignoreAbort)` on every un-awaited call.
+
+```ts
+node.play({ scaleX: 1.1, scaleY: 1.1 }, { duration: 0.15 })
+node.playTo(ring, { width: 12 }, { duration: 0.2, easing: easings.outBack })
+```
+
+## Self-cancelling restarts: the tween key
+
+A re-triggerable animation (a scoring ring that pops on band-enter, a glow that restarts each hit) needs to cancel its previous run before starting the next, or the two fight last-writer-wins. Instead of tracking an `AbortController` by hand, give the tween a `key`: starting a keyed tween aborts any running tween with the same `key` on the same target first.
+
+```ts
+// Each call cleanly replaces the previous ring animation on this node.
+node.playTo(ring, { width }, { duration: 0.2, key: 'ring' })
+```
+
+Keyed starts also skip the dev-time overlap warning, since the replacement is intentional.
+
+## Re-abortable scopes
+
+`AbortScope` is a cancellation handle that hands out a fresh signal per "epoch" and aborts the previous one when the next begins. It replaces the generation-counter pattern — a `moveGen` you bump and then check with `if (gen !== moveGen) return` after every `await`. Get one scoped to a node with `node.scope()` (destroying the node aborts it):
+
+```ts
+const scope = node.scope()
+
+function startMatch(): void {
+  const signal = scope.reset() // aborts the previous match's in-flight awaits
+  void (async () => {
+    await revealOpen(signal)
+    await playMatch(signal)
+    await returnToMenu(signal)
+  })().catch(ignoreAbort) // catch once, at the boundary
+}
+```
+
+Capture `scope.reset()`'s return value at the top of the sequence and thread it into the inner tweens/waits (`{ signal }`). When the next `reset()` fires, those awaits reject with `AbortError`, the async function unwinds on its own, and the single `.catch(ignoreAbort)` at the boundary keeps it quiet — no per-await guard, no per-tween catch. `reset()` opens a new epoch; `abort()` cancels without opening one; `dispose()` cancels and retires the scope.
+
 ## Timeline
 
-`Timeline` chains steps sequentially, with `parallel(...)` batches for concurrent steps:
+`Timeline` chains steps sequentially, with `parallel(...)` batches for concurrent steps. It's for linear choreography — a fixed sequence of tweens. Branching control flow, loops, and state changes between steps read better as a plain `async` function with `scope.signal` threaded through (see below).
 
 ```ts
 import { Timeline } from '@src/stargazer'
 
 await new Timeline()
-  .add(() =>
+  .add((s) =>
     node.tween(
       { scaleX: 1, scaleY: 1 },
-      { duration: 0.35, easing: easings.outBack },
+      { duration: 0.35, easing: easings.outBack, signal: s },
     ),
   )
-  .add(() =>
-    node.tween({ x: 400 }, { duration: 0.5, easing: easings.inOutQuad }),
+  .add((s) =>
+    node.tween(
+      { x: 400 },
+      { duration: 0.5, easing: easings.inOutQuad, signal: s },
+    ),
   )
   .parallel(
-    () => node.tween({ alpha: 0 }, { duration: 0.4 }),
-    () => node.tween({ y: 100 }, { duration: 0.4 }),
+    (s) => node.tween({ alpha: 0 }, { duration: 0.4, signal: s }),
+    (s) => node.tween({ y: 100 }, { duration: 0.4, signal: s }),
   )
-  .run(node.abortSignal)
+  .run(scope.signal)
 ```
 
-Steps are `() => Promise<void>`. Timeline doesn't thread its own signal into inner tweens; the inner tweens are expected to be pre-scoped (via `node.tween`, or by closing over an outer signal). `Timeline.run(signal)` only checks the outer signal between steps; when it aborts, the currently-running inner tween rejects on its own scope and the outer `await` throws.
+Steps are `(signal?) => Promise<void>`. `run(signal)` checks the signal between steps and forwards it into each step, so a step can scope its tween to it (`{ signal: s }`) — cancelling `run`'s signal aborts the running step too. Steps that are already node-scoped can ignore the argument. Use `node.tween` / `node.tweenTo` for steps (they return the Promise `Timeline` awaits); the fire-and-forget `node.play` / `node.playTo` return `void` and aren't valid steps.
 
 ## Easings
 

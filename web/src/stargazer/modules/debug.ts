@@ -22,6 +22,6 @@ export type {
   PhysicsWorldReadout,
 } from '../debug/DebugController'
 export type { PhysicsOverlayFlags } from '../debug/DebugPhysicsRenderer'
-export type { DebugRenderMode } from '../render/gfx/gpu/GpuGfx'
+export type { DebugRenderMode } from '../render/gfx/GpuGfx'
 export { DebugCamera } from '../debug/DebugCamera'
 export { FrameStats } from '../debug/FrameStats'

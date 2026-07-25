@@ -48,6 +48,7 @@ export const stallwaechter: DisplayManifest = {
     return {
       label: g.stateId.toUpperCase(),
       highScore,
+      printable: true,
       reprintMeta: {
         stateId: g.stateId,
         score: g.score,

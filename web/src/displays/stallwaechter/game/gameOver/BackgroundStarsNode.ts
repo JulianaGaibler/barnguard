@@ -14,7 +14,7 @@ export interface BackgroundStarsOptions {
   sizeWorld: readonly [number, number]
   /** Random per-star fill alpha range. */
   alphaRange: readonly [number, number]
-  /** Fill colour. */
+  /** Fill color. */
   color: string
 }
 

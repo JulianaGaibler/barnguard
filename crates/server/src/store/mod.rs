@@ -14,7 +14,8 @@
 use crate::events::EventHub;
 use crate::log::LogHub;
 use crate::types::{
-    now_ms, DisplayHighScores, GameRecord, NewGame, ServerEvent, DISPLAY_STALLWAECHTER,
+    now_ms, DisplayHighScores, GameRecord, LeaderboardEntry, NewGame, NewLeaderboardEntry,
+    ServerEvent, DISPLAY_ARCADE, DISPLAY_STALLWAECHTER,
 };
 use serde_json::Value as JsonValue;
 use std::fs::{self, File};
@@ -108,6 +109,7 @@ impl GameLogController {
         // compare against — snapshot only those before inserting.
         let display = match &new.details {
             crate::types::NewGameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+            crate::types::NewGameDetails::Arcade(_) => DISPLAY_ARCADE,
         };
         let prev = DisplayHighScores::from_games(display, &guard);
         let record = new.into_record(&prev);
@@ -155,6 +157,125 @@ impl GameLogController {
 }
 
 // ---------------------------------------------------------------------------
+// LeaderboardController — generic, per-`display` (arcade game id) top scores
+// keyed by name. Unlike `GameLogController`, `display` is an open string, not
+// a closed enum, so a new arcade game needs no backend change to start
+// submitting. No SSE event on change — the UI fetches on open/submit, there's
+// no live multi-kiosk sync need for this feature.
+// ---------------------------------------------------------------------------
+
+const LEADERBOARD_FILE: &str = "leaderboard.json";
+
+#[derive(Clone)]
+pub struct LeaderboardController {
+    inner: Arc<Mutex<Vec<LeaderboardEntry>>>,
+    path: Arc<PathBuf>,
+}
+
+impl LeaderboardController {
+    pub fn load(data_dir: &Path, log: &LogHub) -> Self {
+        ensure_dir(data_dir, log);
+        let path = data_dir.join(LEADERBOARD_FILE);
+        let entries = match read_json::<Vec<LeaderboardEntry>>(&path) {
+            LoadResult::Loaded(v) => v,
+            LoadResult::Missing => Vec::new(),
+            LoadResult::Corrupt(err) => {
+                quarantine(&path, log, "leaderboard.json", &err);
+                Vec::new()
+            }
+        };
+        log.info(
+            "store",
+            format!(
+                "loaded {} leaderboard entry(ies) from {}",
+                entries.len(),
+                path.display()
+            ),
+        );
+        Self {
+            inner: Arc::new(Mutex::new(entries)),
+            path: Arc::new(path),
+        }
+    }
+
+    /// Entries for `display`, best-first (ties broken by earliest
+    /// achievement), capped to `limit` (or unbounded when `None`).
+    pub fn list(&self, display: &str, limit: Option<usize>) -> Vec<LeaderboardEntry> {
+        let guard = self.inner.lock().unwrap();
+        let mut entries: Vec<LeaderboardEntry> = guard
+            .iter()
+            .filter(|e| e.display == display)
+            .cloned()
+            .collect();
+        entries.sort_by(|a, b| b.score.cmp(&a.score).then(a.ts_ms.cmp(&b.ts_ms)));
+        match limit {
+            Some(n) => entries.into_iter().take(n).collect(),
+            None => entries,
+        }
+    }
+
+    /// Upsert the best score for `(display, normalized name)`. Returns the
+    /// record for that name after the call: updated if this score improved
+    /// it, unchanged (and not persisted again) if it didn't — either way is
+    /// success, never an error.
+    pub fn submit(&self, new: NewLeaderboardEntry) -> io::Result<LeaderboardEntry> {
+        let name = new.normalized_name();
+        let mut guard = self.inner.lock().unwrap();
+        let existing_idx = guard
+            .iter()
+            .position(|e| e.display == new.display && e.name == name);
+
+        let record = if let Some(idx) = existing_idx {
+            if new.score <= guard[idx].score {
+                return Ok(guard[idx].clone());
+            }
+            guard[idx].score = new.score;
+            guard[idx].ts_ms = now_ms();
+            guard[idx].clone()
+        } else {
+            let entry = LeaderboardEntry {
+                id: Uuid::new_v4(),
+                ts_ms: now_ms(),
+                display: new.display,
+                name,
+                score: new.score,
+            };
+            guard.push(entry.clone());
+            entry
+        };
+        atomic_write_json(&self.path, &*guard)?;
+        Ok(record)
+    }
+
+    /// Remove a single entry by id. Returns `true` if something was removed.
+    /// Attendant-only, mirrors `GameLogController::delete` (no SSE event here
+    /// either, matching the rest of this controller).
+    pub fn delete(&self, id: Uuid) -> io::Result<bool> {
+        let mut guard = self.inner.lock().unwrap();
+        let before = guard.len();
+        guard.retain(|e| e.id != id);
+        let removed = guard.len() != before;
+        if removed {
+            atomic_write_json(&self.path, &*guard)?;
+        }
+        Ok(removed)
+    }
+
+    /// Remove every leaderboard entry (every display). Returns the number
+    /// dropped. Attendant-only, mirrors `GameLogController::clear`.
+    pub fn clear(&self) -> io::Result<usize> {
+        let mut guard = self.inner.lock().unwrap();
+        if guard.is_empty() {
+            return Ok(0);
+        }
+        let count = guard.len();
+        guard.clear();
+        atomic_write_json(&self.path, &*guard)?;
+        Ok(count)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CLI-facing helpers (synchronous, read-only, no LogHub side-effects)
 // ---------------------------------------------------------------------------
 
@@ -185,7 +306,6 @@ enum LoadResult<T> {
     Corrupt(String),
 }
 
-#[allow(dead_code)]
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult<T> {
     match fs::read(path) {
         Ok(bytes) => match serde_json::from_slice::<T>(&bytes) {
@@ -288,7 +408,8 @@ mod tests {
     use super::*;
     use crate::events::EventHub;
     use crate::types::{
-        GameDetails, GameEndReason, NewGameDetails, NewStallwaechterDetails,
+        GameDetails, GameEndReason, NewArcadeDetails, NewGameDetails, NewStallwaechterDetails,
+        DISPLAY_ARCADE,
     };
     use tempfile::TempDir;
 
@@ -300,6 +421,19 @@ mod tests {
                 state_id: state.into(),
                 reason,
                 escape_heading_rad: None,
+            }),
+        }
+    }
+
+    fn arcade_new(game_id: &str, score: u32) -> NewGame {
+        NewGame {
+            score,
+            duration_ms: 1000,
+            details: NewGameDetails::Arcade(NewArcadeDetails {
+                game_id: game_id.into(),
+                mode: "solo".into(),
+                winner: None,
+                player_name: None,
             }),
         }
     }
@@ -319,28 +453,58 @@ mod tests {
         let first = store
             .push(stall_new("bayern", GameEndReason::Collision, 100, 5000))
             .unwrap();
-        let GameDetails::Stallwaechter(fd) = &first.details;
+        let GameDetails::Stallwaechter(fd) = &first.details else {
+            panic!("expected Stallwaechter details")
+        };
         assert!(fd.was_overall_high);
         assert!(fd.was_state_high);
 
         let second = store
             .push(stall_new("bayern", GameEndReason::Collision, 50, 3000))
             .unwrap();
-        let GameDetails::Stallwaechter(sd) = &second.details;
+        let GameDetails::Stallwaechter(sd) = &second.details else {
+            panic!("expected Stallwaechter details")
+        };
         assert!(!sd.was_overall_high);
         assert!(!sd.was_state_high);
 
         let third = store
             .push(stall_new("hessen", GameEndReason::ExitedGermany, 75, 4000))
             .unwrap();
-        let GameDetails::Stallwaechter(td) = &third.details;
+        let GameDetails::Stallwaechter(td) = &third.details else {
+            panic!("expected Stallwaechter details")
+        };
         assert!(!td.was_overall_high); // 75 < 100
         assert!(td.was_state_high); // new state, > 0
 
-        let DisplayHighScores::Stallwaechter(hs) = store.high_scores(DISPLAY_STALLWAECHTER);
+        let DisplayHighScores::Stallwaechter(hs) = store.high_scores(DISPLAY_STALLWAECHTER)
+        else {
+            panic!("expected Stallwaechter high scores")
+        };
         assert_eq!(hs.overall, 100);
         assert_eq!(hs.by_state.get("bayern").copied(), Some(100));
         assert_eq!(hs.by_state.get("hessen").copied(), Some(75));
+    }
+
+    #[test]
+    fn game_log_push_scopes_arcade_high_scores_per_game() {
+        let dir = TempDir::new().unwrap();
+        let (log, events) = hub();
+        let store = GameLogController::load(dir.path(), &log, events);
+
+        store.push(arcade_new("jezzball", 500)).unwrap();
+        let cf = store.push(arcade_new("connect-four", 1)).unwrap();
+        let GameDetails::Arcade(cfd) = &cf.details else {
+            panic!("expected Arcade details")
+        };
+        // connect-four's 1 doesn't collide with jezzball's 500.
+        assert!(cfd.was_game_high);
+
+        let DisplayHighScores::Arcade(hs) = store.high_scores(DISPLAY_ARCADE) else {
+            panic!("expected Arcade high scores")
+        };
+        assert_eq!(hs.by_game.get("jezzball").copied(), Some(500));
+        assert_eq!(hs.by_game.get("connect-four").copied(), Some(1));
     }
 
     #[test]
@@ -401,5 +565,118 @@ mod tests {
 
         let page = store.list(Some(2), 1);
         assert_eq!(page.iter().map(|g| g.score).collect::<Vec<_>>(), vec![3, 2]);
+    }
+
+    fn new_score(display: &str, name: &str, score: u32) -> NewLeaderboardEntry {
+        NewLeaderboardEntry {
+            display: display.into(),
+            name: name.into(),
+            score,
+        }
+    }
+
+    #[test]
+    fn leaderboard_submit_inserts_new_name() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        let rec = store.submit(new_score("jezzball", "abc", 100)).unwrap();
+        assert_eq!(rec.name, "abc");
+        assert_eq!(rec.score, 100);
+        assert_eq!(store.list("jezzball", None).len(), 1);
+    }
+
+    #[test]
+    fn leaderboard_submit_keeps_only_the_top_score_per_name() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        store.submit(new_score("jezzball", "abc", 100)).unwrap();
+
+        // A lower score under the same name is a no-op: unchanged, not an error.
+        let unchanged = store.submit(new_score("jezzball", "abc", 50)).unwrap();
+        assert_eq!(unchanged.score, 100);
+        assert_eq!(store.list("jezzball", None).len(), 1);
+
+        // A higher score under the same name overwrites it in place.
+        let improved = store.submit(new_score("jezzball", "abc", 150)).unwrap();
+        assert_eq!(improved.score, 150);
+        assert_eq!(improved.id, unchanged.id);
+        assert_eq!(store.list("jezzball", None).len(), 1);
+    }
+
+    #[test]
+    fn leaderboard_submit_normalizes_name_before_matching() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        store.submit(new_score("jezzball", "ABC", 100)).unwrap();
+        // Different case/whitespace, same normalized name: still one entry.
+        store.submit(new_score("jezzball", "  abc  ", 200)).unwrap();
+        let entries = store.list("jezzball", None);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].score, 200);
+    }
+
+    #[test]
+    fn leaderboard_list_sorts_by_score_then_earliest_and_filters_by_display() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        store.submit(new_score("jezzball", "low", 10)).unwrap();
+        store.submit(new_score("jezzball", "high", 90)).unwrap();
+        store.submit(new_score("orbo", "other", 999)).unwrap();
+
+        let entries = store.list("jezzball", None);
+        assert_eq!(
+            entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(),
+            vec!["high", "low"]
+        );
+
+        let capped = store.list("jezzball", Some(1));
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].name, "high");
+    }
+
+    #[test]
+    fn leaderboard_survives_reload() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        store.submit(new_score("jezzball", "abc", 100)).unwrap();
+
+        let reopened = LeaderboardController::load(dir.path(), &log);
+        assert_eq!(reopened.list("jezzball", None).len(), 1);
+    }
+
+    #[test]
+    fn leaderboard_delete_removes_one_entry_and_survives_reload() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        let rec = store.submit(new_score("jezzball", "abc", 100)).unwrap();
+        store.submit(new_score("jezzball", "xyz", 50)).unwrap();
+
+        assert!(store.delete(rec.id).unwrap());
+        assert!(!store.delete(rec.id).unwrap(), "deleting twice is a no-op");
+
+        let entries = store.list("jezzball", None);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "xyz");
+
+        let reopened = LeaderboardController::load(dir.path(), &log);
+        assert_eq!(reopened.list("jezzball", None).len(), 1);
+    }
+
+    #[test]
+    fn leaderboard_clear_wipes_every_display() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        store.submit(new_score("jezzball", "abc", 100)).unwrap();
+        store.submit(new_score("orbo", "xyz", 50)).unwrap();
+        assert_eq!(store.clear().unwrap(), 2);
+        assert!(store.list("jezzball", None).is_empty());
+        assert!(store.list("orbo", None).is_empty());
     }
 }

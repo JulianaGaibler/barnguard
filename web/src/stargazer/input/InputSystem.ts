@@ -337,12 +337,14 @@ export class InputSystem {
     phase: PointerPhase,
     source: 'native' | 'synthetic',
   ): PointerEvent2D {
+    const wx = record.world.x
+    const wy = record.world.y
     return {
       pointer: {
         id: record.id,
         kind: record.kind,
         screen: { x: record.screen.x, y: record.screen.y },
-        world: { x: record.world.x, y: record.world.y },
+        world: { x: wx, y: wy },
         startedAtMs: record.startedAtMs,
         capturedBy: record.capturedBy,
       },
@@ -350,6 +352,7 @@ export class InputSystem {
       phase,
       source,
       stage: this.#stage,
+      localTo: (node, out) => node.worldToLocal(wx, wy, out),
     }
   }
 }

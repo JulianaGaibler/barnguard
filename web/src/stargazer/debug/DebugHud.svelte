@@ -66,17 +66,23 @@
     touchSlopScreen: 0,
     touchSlopWorld: 0,
     aliveParticles: 0,
-    staticBakesTotal: 0,
-    staticBakesPerSecond: 0,
-    renderScale: 1,
-    activeBitmaps: 0,
     stages: [
       { id: 'primary', label: 'Primary', isActive: true, isPrimary: true },
     ],
     activeStageId: 'primary',
     activeIsPrimary: true,
     activeHasInput: true,
-    gpu: null,
+    gpu: {
+      drawCalls: 0,
+      programSwitches: 0,
+      textureBinds: 0,
+      blendSwitches: 0,
+      overflowWarns: 0,
+      sdfInstances: 0,
+      strokeInstances: 0,
+      roundRectInstances: 0,
+      msaaSamples: 1,
+    },
     physics: [],
   }
 
@@ -89,6 +95,7 @@
     hud: false,
     camera: false,
     outlines: false,
+    layoutOutlines: false,
     follow: false,
     grid: false,
     paused: false,
@@ -169,6 +176,7 @@
       hud: debug.hudVisible,
       camera: debug.cameraActive,
       outlines: debug.outlinesVisible,
+      layoutOutlines: debug.layoutOutlinesVisible,
       follow: debug.followGameCamera,
       grid: debug.gridVisible,
       paused: debug.paused,
@@ -352,6 +360,12 @@
         onToggle={() => debug.toggleOutlines()}
         label="Node outlines"
         hint="O"
+      />
+      <ToggleButton
+        active={toggleState.layoutOutlines}
+        onToggle={() => debug.toggleLayoutOutlines()}
+        label="Layout outlines"
+        hint="L"
       />
       <ToggleButton
         active={toggleState.grid}

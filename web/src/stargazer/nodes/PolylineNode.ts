@@ -104,13 +104,15 @@ export class PolylineNode extends SceneNode {
     return this.#cachedEnd
   }
 
-  push(x: number, y: number): void {
+  /** Append a point to the end of the polyline. Returns `this` for chaining. */
+  push(x: number, y: number): this {
     if (this.#count * 2 >= this.#data.length) this.#grow()
     const i = this.#count * 2
     this.#data[i] = x
     this.#data[i + 1] = y
     this.#count++
     this.#expandDebugBounds(x, y)
+    return this
   }
 
   /** Push only if the new point is farther than `minWorldDist` from the last. */
@@ -125,9 +127,11 @@ export class PolylineNode extends SceneNode {
     return true
   }
 
-  clear(): void {
+  /** Remove all points. Returns `this` for chaining. */
+  clear(): this {
     this.#count = 0
     this.debugBounds = null
+    return this
   }
 
   /**
@@ -138,10 +142,10 @@ export class PolylineNode extends SceneNode {
    * (recomputed lazily by the next draw or hit test).
    *
    * Clamps to `[0, pointCount]`, a caller can safely pass any non-negative
-   * integer without bounds-checking.
+   * integer without bounds-checking. Returns `this` for chaining.
    */
-  dropHead(count: number): void {
-    if (count <= 0) return
+  dropHead(count: number): this {
+    if (count <= 0) return this
     const clamped = Math.min(count, this.#count)
     const remaining = this.#count - clamped
     if (remaining > 0) {
@@ -150,6 +154,7 @@ export class PolylineNode extends SceneNode {
     }
     this.#count = remaining
     this.debugBounds = null
+    return this
   }
 
   pointAt(i: number, out?: Vec2): Vec2 {
@@ -168,14 +173,16 @@ export class PolylineNode extends SceneNode {
    * In-place update of the point at index `i`. Used by subclasses that
    * post-process pushed points (e.g., corner-smoothing an incoming finger
    * path). Invalidates `debugBounds`, the next debug pass will recompute.
+   * Returns `this` for chaining.
    */
-  setPoint(i: number, x: number, y: number): void {
+  setPoint(i: number, x: number, y: number): this {
     if (i < 0 || i >= this.#count)
       throw new RangeError(`Polyline index out of range: ${i}`)
     const base = i * 2
     this.#data[base] = x
     this.#data[base + 1] = y
     this.debugBounds = null
+    return this
   }
 
   /** Copy a range of points as a new Float32Array (`[x0, y0, x1, y1, …]`). */
@@ -189,10 +196,10 @@ export class PolylineNode extends SceneNode {
   /**
    * Ramer-Douglas-Peucker simplification. Reduces jitter without changing the
    * overall shape. Rarely needed at runtime; useful for saving a completed
-   * drawing.
+   * drawing. Returns `this` for chaining.
    */
-  simplify(toleranceWorld: number): void {
-    if (this.#count < 3) return
+  simplify(toleranceWorld: number): this {
+    if (this.#count < 3) return this
     const kept = rdp(this.#data, this.#count, toleranceWorld)
     for (let i = 0; i < kept.length; i++) {
       const src = kept[i] * 2
@@ -207,13 +214,13 @@ export class PolylineNode extends SceneNode {
     for (let i = 0; i < this.#count; i++) {
       this.#expandDebugBounds(this.#data[i * 2], this.#data[i * 2 + 1])
     }
+    return this
   }
 
   override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
     if (this.#count < 2) return
     const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
-    // Midpoint smoothing now lives in the gfx backend (Canvas2DGfx reproduces
-    // the original quadratic construction exactly; the GPU backend flattens).
+    // Midpoint smoothing lives in the gfx backend's stroke program.
     gfx.strokePolyline(this.#data, this.#count, {
       color: this.strokeStyle,
       width: this.lineWidth * s,

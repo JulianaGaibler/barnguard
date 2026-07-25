@@ -18,6 +18,9 @@
     reconnect,
     setLabelUrlOverride,
     resetLabelUrlOverride,
+    mockPrintEnabled,
+    setMockPrintEnabled,
+    lastMockPrint,
   } from '@src/core/print/printerClient'
   import { activeDisplay } from '@src/core/display'
   import {
@@ -159,7 +162,7 @@
     // The renderer reads the live value itself; this read just tracks the dep.
     const _labelUrl = $daemonConfig.labelUrl
     const display = $activeDisplay
-    if (!display) return
+    if (!display?.renderPreviewLabel) return
     let cancelled = false
     let localUrl: string | null = null
 
@@ -185,6 +188,26 @@
         URL.revokeObjectURL(localUrl)
       }
     }
+  })
+
+  // Mock printing: with the toggle on, `enqueuePrint` (anywhere in the app —
+  // attendant reprint or an actual game-over print) never reaches the daemon;
+  // it publishes here instead. Show whatever most recently "printed" in place
+  // of the design preview above, so the toggle turns the preview slot into an
+  // actual mock print output. Reverts to the design preview when the toggle
+  // turns off (not when a mock print merely gets old).
+  let mockPrintUrl = $state<string | null>(null)
+  $effect(() => {
+    const mock = $lastMockPrint
+    if (!mock) return
+    const url = URL.createObjectURL(mock.jpeg)
+    if (mockPrintUrl !== null) URL.revokeObjectURL(mockPrintUrl)
+    mockPrintUrl = url
+  })
+  $effect(() => {
+    if ($mockPrintEnabled) return
+    if (mockPrintUrl !== null) URL.revokeObjectURL(mockPrintUrl)
+    mockPrintUrl = null
   })
 </script>
 
@@ -382,25 +405,44 @@
     </div>
   </DebugSection>
 
-  <DebugSection title="Preview">
-    <div class="preview">
-      {#if previewUrl}
-        <img class="preview-img" src={previewUrl} alt="Print label preview" />
-      {:else if previewError}
-        <div class="empty-state">preview failed: {previewError}</div>
-      {:else}
-        <div class="empty-state">rendering…</div>
-      {/if}
-      <div class="preview-caption">
-        Placeholder values · shown at 1:1 aspect
+  {#if $activeDisplay?.renderPreviewLabel || $mockPrintEnabled}
+    <DebugSection title="Preview">
+      <div class="preview">
+        {#if mockPrintUrl}
+          <img
+            class="preview-img"
+            src={mockPrintUrl}
+            alt="Last mock-printed label"
+          />
+        {:else if previewUrl}
+          <img class="preview-img" src={previewUrl} alt="Print label preview" />
+        {:else if previewError}
+          <div class="empty-state">preview failed: {previewError}</div>
+        {:else}
+          <div class="empty-state">rendering…</div>
+        {/if}
+        <div class="preview-caption">
+          {#if mockPrintUrl}
+            Mock print · {$lastMockPrint?.meta.source ?? 'unknown source'}
+          {:else}
+            Placeholder values · shown at 1:1 aspect
+          {/if}
+        </div>
+        {#if $activeDisplay?.renderPreviewLabel}
+          <ToggleButton
+            active={previewHighScore}
+            onToggle={() => (previewHighScore = !previewHighScore)}
+            label="New high score"
+          />
+        {/if}
+        <ToggleButton
+          active={$mockPrintEnabled}
+          onToggle={() => setMockPrintEnabled(!$mockPrintEnabled)}
+          label="Mock prints (skip daemon)"
+        />
       </div>
-      <ToggleButton
-        active={previewHighScore}
-        onToggle={() => (previewHighScore = !previewHighScore)}
-        label="New high score"
-      />
-    </div>
-  </DebugSection>
+    </DebugSection>
+  {/if}
 </DraggableWindow>
 
 <style lang="sass">

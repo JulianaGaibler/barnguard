@@ -32,7 +32,9 @@ export interface ParticleEmitterConfig {
    * Sprite shape: `'gradient'` (default), soft radial fade; pair with `blend:
    * 'lighter'` for classic bloom, or `blend: 'source-over'` for a softer glow.
    * `'disc'`, solid disc with an AA edge; pair with `blend: 'source-over'` for
-   * sharp, non-bloomed particles (sparks, projectiles).
+   * sharp, non-bloomed particles (sparks, projectiles). `'hexagon'` and
+   * `'square'`, solid flat shapes with the same AA margin, for crisp debris or
+   * data-style trails under `blend: 'source-over'`.
    */
   spriteStyle?: ParticleSpriteStyle
   /** Canvas composite mode. Default `'lighter'`, additive bloom. */
@@ -45,6 +47,35 @@ export interface ParticleEmitterConfig {
   scaleOverLife?: readonly [number, number]
   /** Alpha over life (spawn → death). Default [1, 0]. */
   alphaOverLife?: readonly [number, number]
+  /**
+   * Random per-particle constant angular velocity range, rad/s, e.g.
+   * `[-6, 6]` for a symmetric tumble (like every other `[min, max]` range in
+   * this config, pass a negative min for a range that straddles zero — this
+   * one is sampled with its sign, not folded to a magnitude). Sampled once at
+   * spawn, integrated every frame (`angle += spin * dt`), applied at draw
+   * time as a sprite rotation. Omit (default) for no rotation —
+   * `ParticleEmitterNode.draw` then skips the rotate transform entirely, so
+   * non-rotating emitters pay nothing extra.
+   */
+  spinRadPerSec?: readonly [number, number]
+  /**
+   * What drives the `scaleOverLife` interpolation. `'life'` (default): the
+   * usual `t = 1 - life/maxLife`. `'speed'`: drives the SAME curve by
+   * `1 - clamp(currentSpeed / speed0, 0, 1)` instead, so a particle still
+   * moving fast reads at `scaleOverLife[0]` and one that's nearly stopped
+   * reads at `scaleOverLife[1]`, regardless of remaining lifetime — use this
+   * for a burst that should visually dissolve as it decelerates rather than
+   * on a fixed clock. `alphaOverLife` always stays life-driven.
+   */
+  scaleBy?: 'life' | 'speed'
+  /**
+   * Opt-in early despawn: once a particle's current speed drops below
+   * `minSpeedFrac * speed0` (its own launch speed), it's killed even if
+   * `life` hasn't run out. Unset (default) disables this — particles only
+   * die from `life <= 0`. `lifetimeSec`'s upper bound remains the safety
+   * backstop either way.
+   */
+  minSpeedFrac?: number
 }
 
 /**
@@ -76,6 +107,10 @@ export class ParticleEmitter {
   readonly #accelX: number
   readonly #accelY: number
   readonly #damping: number
+  readonly #spinMin: number
+  readonly #spinMax: number
+  readonly #minSpeedFrac: number
+  #emptyResolvers: Array<() => void> = []
 
   constructor(config: ParticleEmitterConfig) {
     this.config = { ...config }
@@ -83,6 +118,9 @@ export class ParticleEmitter {
     this.#accelX = config.accelerationWorld?.x ?? 0
     this.#accelY = config.accelerationWorld?.y ?? 0
     this.#damping = config.dampingPerSec ?? 0
+    this.#spinMin = config.spinRadPerSec?.[0] ?? 0
+    this.#spinMax = config.spinRadPerSec?.[1] ?? 0
+    this.#minSpeedFrac = config.minSpeedFrac ?? 0
   }
 
   get aliveCount(): number {
@@ -106,6 +144,34 @@ export class ParticleEmitter {
   clear(): void {
     this.pool.clear()
     this.#emitAccumulator = 0
+    this.#drainEmptyResolvers()
+  }
+
+  /**
+   * Resolves once `aliveCount` is 0 — immediately if it already is at call
+   * time, else the next time it reaches 0 (checked at the tail of every
+   * `update(dt)` and `clear()`, so it fires the same frame the last particle
+   * dies — no polling). Call this RIGHT AFTER the `burst()` you want to wait
+   * for, in the same synchronous span (no `await` between them): JS's
+   * single-threaded execution then guarantees no `update()` tick runs in
+   * between, so `aliveCount` still reflects the burst you just triggered.
+   * Typical one-shot-burst idiom: `node.autoDestroy(node.emitter.waitUntilEmpty())`.
+   * This method has no per-burst identity — pair it with the specific burst
+   * it should track, not with reuse across unrelated later bursts, or it may
+   * observe a stale "already empty" left over from a previous cycle.
+   */
+  waitUntilEmpty(): Promise<void> {
+    if (this.pool.aliveCount === 0) return Promise.resolve()
+    return new Promise((resolve) => {
+      this.#emptyResolvers.push(resolve)
+    })
+  }
+
+  #drainEmptyResolvers(): void {
+    if (this.#emptyResolvers.length === 0 || this.pool.aliveCount !== 0) return
+    const resolvers = this.#emptyResolvers
+    this.#emptyResolvers = []
+    for (const resolve of resolvers) resolve()
   }
 
   /**
@@ -127,10 +193,11 @@ export class ParticleEmitter {
     }
 
     // Physics + life countdown.
-    const { x, y, vx, vy, life, alive } = this.pool.field
+    const { x, y, vx, vy, life, alive, angle, spin, speed0 } = this.pool.field
     const dampFactor = this.#damping === 0 ? 1 : Math.exp(-this.#damping * dt)
     const ax = this.#accelX
     const ay = this.#accelY
+    const minSpeedFrac = this.#minSpeedFrac
     const hi = this.pool.highWaterIndex
     for (let i = 0; i < hi; i++) {
       if (alive[i] === 0) continue
@@ -143,12 +210,23 @@ export class ParticleEmitter {
       // p += v*dt
       x[i] += vx[i] * dt
       y[i] += vy[i] * dt
+      // rotation
+      angle[i] += spin[i] * dt
+      // opt-in early despawn once this particle's own speed ratio has decayed
+      if (minSpeedFrac > 0 && speed0[i] > 0) {
+        const curSpeed = Math.hypot(vx[i], vy[i])
+        if (curSpeed < minSpeedFrac * speed0[i]) {
+          this.pool.kill(i)
+          continue
+        }
+      }
       // life
       life[i] -= dt
       if (life[i] <= 0) {
         this.pool.kill(i)
       }
     }
+    this.#drainEmptyResolvers()
   }
 
   /**
@@ -183,6 +261,9 @@ export class ParticleEmitter {
     f.maxLife[idx] = life
     f.size[idx] = size
     f.colorIdx[idx] = Math.floor(Math.random() * cfg.palette.length)
+    f.angle[idx] = 0
+    f.spin[idx] = this.#spinMin + Math.random() * (this.#spinMax - this.#spinMin)
+    f.speed0[idx] = speed
     return true
   }
 }

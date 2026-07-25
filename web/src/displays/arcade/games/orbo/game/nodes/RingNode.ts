@@ -21,21 +21,21 @@ export class RingNode extends SceneNode {
   override onUpdate(): void {
     // Track the orb: position from the physics body (source of truth), scale
     // from the orb node's transform so the count-bounce grows the ring too.
-    const t = this.#orb.transform
+    const orbTransform = this.#orb.transform
     this.transform.x = this.#orb.body.x
     this.transform.y = this.#orb.body.y
-    this.transform.scaleX = t.scaleX
-    this.transform.scaleY = t.scaleY
-    this.transform.rotation = t.rotation
+    this.transform.scaleX = orbTransform.scaleX
+    this.transform.scaleY = orbTransform.scaleY
+    this.transform.rotation = orbTransform.rotation
     this.visible = this.#orb.visible && !this.#orb.isDestroyed
   }
 
   override draw(gfx: Gfx2D): void {
-    const w = this.#orb.ringWidth
-    if (w <= 0.01) return
-    // Inner edge pinned to the orb radius: a stroke of width `w` centered at
-    // `r + w/2` spans exactly [r, r + w].
+    const width = this.#orb.ringWidth
+    if (width <= 0.01) return
+    // Inner edge pinned to the orb radius: a stroke of width `width` centered
+    // at `r + width/2` spans exactly [r, r + width].
     const r = this.#orb.body.radius
-    gfx.strokeCircle(0, 0, r + w / 2, { color: RING.color, width: w })
+    gfx.strokeCircle(0, 0, r + width / 2, { color: RING.color, width })
   }
 }

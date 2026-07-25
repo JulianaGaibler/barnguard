@@ -11,7 +11,7 @@ export interface PacketMotionTrailOptions {
    * dropped so a stationary packet doesn't fill the buffer with duplicates.
    */
   minSampleDistWorld?: number
-  /** Trail fill colour, opaque near the head, fades to transparent tail. */
+  /** Trail fill color, opaque near the head, fades to transparent tail. */
   color?: string
 }
 

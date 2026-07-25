@@ -72,6 +72,22 @@ describe('ParticlePool', () => {
     }
   })
 
+  it('double-kill through ParticlePool is safe (SlotPool self-guards)', () => {
+    const p = new ParticlePool(4)
+    const a = p.spawn()
+    const b = p.spawn()
+    p.kill(a)
+    const availBefore = p.availableCount
+    const aliveBefore = p.aliveCount
+    p.kill(a)
+    p.kill(a)
+    expect(p.availableCount).toBe(availBefore)
+    expect(p.aliveCount).toBe(aliveBefore)
+    expect(p.field.alive[a]).toBe(0)
+    // b is unaffected by a's double-kill.
+    expect(p.field.alive[b]).toBe(1)
+  })
+
   it('clear wipes alive slots and resets the freelist', () => {
     const p = new ParticlePool(4)
     for (let i = 0; i < 4; i++) p.spawn()

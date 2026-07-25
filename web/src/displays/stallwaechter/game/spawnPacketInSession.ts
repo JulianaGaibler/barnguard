@@ -184,7 +184,7 @@ export function spawnPacketInSession(
       // Emergence pulse, big translucent hex that scales up and fades out
       // from the packet's spawn position, marking the transition into
       // travel mode. Same visual grammar as `lossAnim.impactFlash` but at
-      // spawn instead of collision, and in the trail colour so the packet
+      // spawn instead of collision, and in the trail color so the packet
       // reads as "arriving" from its own ribbon.
       spawnEmergencePulse(packetLayer, worldPos, packetId)
       // Attach the path-draw behavior only after travel starts, before
@@ -251,8 +251,7 @@ function buildHexagonPath(radius: number): Path2D {
     else p.lineTo(x, y)
   }
   p.closePath()
-  // Register a tessellation so `fillPath2D` renders under the GPU backend.
-  // Canvas2D ignores the registry, so this is a no-op there.
+  // Register a tessellation so `fillPath2D` has geometry to draw.
   const contours = [verts]
   registerPathTessellation(p, tessellateContours(contours), contours)
   return p

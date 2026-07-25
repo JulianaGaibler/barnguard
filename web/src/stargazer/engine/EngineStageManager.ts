@@ -45,8 +45,8 @@ export class EngineStageManager {
       transparent: opts.transparent ?? true,
       interactive: opts.interactive,
       name: opts.name,
-      renderer: opts.renderer ?? engine.rendererMode,
       msaaSamples: opts.msaaSamples ?? engine.msaaSamples,
+      gpuDevice: opts.gpuDevice,
       onResize: opts.onResize,
     })
     this.#_stages.add(stage)

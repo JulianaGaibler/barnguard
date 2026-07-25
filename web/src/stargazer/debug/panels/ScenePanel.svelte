@@ -6,6 +6,7 @@
   import { PhysicsWorldBehavior } from '../../physics/PhysicsWorldBehavior'
   import { RigidBodyBehavior } from '../../physics/RigidBodyBehavior'
   import { DebugSection, DebugRow, DebugTree, type TreeNode } from '../ui'
+  import { isMeasurable } from '../../layout/LayoutNode'
   import { fmtCoord } from './format'
 
   interface Props {
@@ -46,6 +47,21 @@
     PolylineNode: '#34d399',
     TextNode: '#fbbf24',
     ParticleEmitterNode: '#fb7185',
+    // Layout containers read as a teal/green family, apart from the primitives.
+    LayoutRoot: '#059669',
+    Box: '#10b981',
+    SizedBox: '#10b981',
+    Padding: '#14b8a6',
+    Align: '#2dd4bf',
+    Center: '#2dd4bf',
+    Row: '#22d3ee',
+    Column: '#06b6d4',
+    Flex: '#0891b2',
+    Stack: '#84cc16',
+    Scaffold: '#4ade80',
+    Expanded: '#6ee7b7',
+    Flexible: '#6ee7b7',
+    Spacer: '#a7f3d0',
   }
   // Custom (game) node types get a stable color hashed from their name, so they
   // stand apart from the built-ins and from each other rather than all reading
@@ -164,6 +180,9 @@
       visible: node.visible,
       layer: node.renderLayer,
       bounds: node.debugBounds,
+      measured: isMeasurable(node)
+        ? { w: node.measuredSize.w, h: node.measuredSize.h }
+        : null,
       behaviors: node.behaviors.map((b) => b.constructor.name),
     }
   })
@@ -222,12 +241,6 @@
   <DebugRow label="Above-static" value={stats.nodeCounts.aboveStatic} />
   <DebugRow label="Dynamic" value={stats.nodeCounts.dynamic} />
   <DebugRow label="Particles" value={stats.aliveParticles} tone="accent" />
-  <DebugRow
-    label="Static bakes/s"
-    value={stats.staticBakesPerSecond}
-    tone={stats.staticBakesPerSecond > 5 ? 'warning' : 'default'}
-  />
-  <DebugRow label="Static bakes total" value={stats.staticBakesTotal} />
 </DebugSection>
 
 {#snippet nodeRow(node: TreeNode)}
@@ -322,6 +335,13 @@
       value={selected.alpha.toFixed(2)}
       tone={selected.alpha === 1 ? 'muted' : 'default'}
     />
+    {#if selected.measured}
+      <DebugRow
+        label="Measured"
+        value={`${selected.measured.w.toFixed(0)} × ${selected.measured.h.toFixed(0)}`}
+        tone="accent"
+      />
+    {/if}
 
     <div class="info-row">
       <span class="label">Visible:</span>

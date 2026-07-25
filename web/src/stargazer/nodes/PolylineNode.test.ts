@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PolylineNode } from './PolylineNode'
 import { Camera } from '../camera/Camera'
-import { Canvas2DGfx } from '../render/gfx/Canvas2DGfx'
+import type { GfxStrokeStyle } from '../render/gfx/Gfx2D'
 
 /**
  * Real camera with a known 1:1 world→screen scale, `strokeSpaceScale()` returns
@@ -85,55 +85,46 @@ describe('PolylineNode', () => {
     expect(p.pointAt(1)).toEqual({ x: 40, y: 0 })
   })
 
+  /**
+   * Minimal `Gfx2D` stub recording `strokePolyline` calls. `PolylineNode.draw`
+   * only ever calls this one facade method, so a full backend isn't needed.
+   */
+  function recordingGfx(): {
+    gfx: import('../render/gfx/Gfx2D').Gfx2D
+    calls: { count: number; style: GfxStrokeStyle }[]
+  } {
+    const calls: { count: number; style: GfxStrokeStyle }[] = []
+    const gfx = {
+      strokePolyline(
+        _pts: ArrayLike<number>,
+        count: number,
+        style: GfxStrokeStyle,
+      ) {
+        calls.push({ count, style })
+      },
+    }
+    return { gfx: gfx as unknown as import('../render/gfx/Gfx2D').Gfx2D, calls }
+  }
+
   it('draw with fewer than 2 points is a no-op (does not throw)', () => {
     const p = new PolylineNode()
-    // Minimal ctx stub wrapped in the Canvas2D facade the node draws through.
-    const ctx = {
-      beginPath() {},
-      moveTo() {},
-      lineTo() {},
-      stroke() {},
-      quadraticCurveTo() {},
-      setLineDash() {},
-      strokeStyle: '' as string | CanvasGradient | CanvasPattern,
-      lineWidth: 1,
-      lineJoin: 'round' as CanvasLineJoin,
-      lineCap: 'round' as CanvasLineCap,
-    }
-    const gfx = new Canvas2DGfx(ctx as unknown as CanvasRenderingContext2D)
+    const { gfx, calls } = recordingGfx()
     // p.draw isn't declared on `SceneNode` mandatorily; access via optional call.
     expect(() => p.draw?.(gfx, unitCamera(), 0)).not.toThrow()
+    expect(calls).toHaveLength(0)
     p.push(1, 1)
     expect(() => p.draw?.(gfx, unitCamera(), 0)).not.toThrow()
+    expect(calls).toHaveLength(0)
   })
 
-  it('draw with quadratic smoothing does not throw on a 5-point path', () => {
+  it('draw with quadratic smoothing forwards the smoothing style and point count', () => {
     const p = new PolylineNode({ smoothing: 'quadratic' })
     for (let i = 0; i < 5; i++) p.push(i * 10, Math.sin(i) * 5)
-    let quadCount = 0
-    let lineCount = 0
-    const ctx = {
-      beginPath() {},
-      moveTo() {},
-      lineTo() {
-        lineCount++
-      },
-      quadraticCurveTo() {
-        quadCount++
-      },
-      stroke() {},
-      setLineDash() {},
-      strokeStyle: '' as string | CanvasGradient | CanvasPattern,
-      lineWidth: 1,
-      lineJoin: 'round' as CanvasLineJoin,
-      lineCap: 'round' as CanvasLineCap,
-    }
-    const gfx = new Canvas2DGfx(ctx as unknown as CanvasRenderingContext2D)
+    const { gfx, calls } = recordingGfx()
     p.draw?.(gfx, unitCamera(), 0)
-    // With smoothing 'quadratic': at least one quadraticCurveTo was called.
-    expect(quadCount).toBeGreaterThan(0)
-    // First segment + last segment are lineTo calls.
-    expect(lineCount).toBeGreaterThan(0)
+    expect(calls).toHaveLength(1)
+    expect(calls[0].count).toBe(5)
+    expect(calls[0].style.smoothing).toBe('quadratic')
   })
 
   describe('dropHead', () => {
@@ -177,6 +168,27 @@ describe('PolylineNode', () => {
       expect(p.pointCount).toBe(3)
       expect(p.pointAt(0)).toEqual({ x: 3, y: 3 })
       expect(p.pointAt(2)).toEqual({ x: 99, y: 99 })
+    })
+  })
+
+  describe('fluent API', () => {
+    it('push chains and appends in order', () => {
+      const p = new PolylineNode()
+      const ret = p.push(0, 0).push(10, 4).push(20, 9)
+      expect(ret).toBe(p)
+      expect(p.pointCount).toBe(3)
+      expect(p.pointAt(2)).toEqual({ x: 20, y: 9 })
+    })
+
+    it('clear / dropHead / setPoint return this', () => {
+      const p = new PolylineNode()
+      p.push(0, 0).push(1, 1).push(2, 2)
+      expect(p.setPoint(0, 5, 5)).toBe(p)
+      expect(p.pointAt(0)).toEqual({ x: 5, y: 5 })
+      expect(p.dropHead(1)).toBe(p)
+      expect(p.pointCount).toBe(2)
+      expect(p.clear()).toBe(p)
+      expect(p.pointCount).toBe(0)
     })
   })
 })

@@ -1,6 +1,7 @@
 import {
   SceneNode,
   Path2DNode,
+  AbortScope,
   createEmitter,
   easings,
   ignoreAbort,
@@ -117,7 +118,7 @@ export interface GameSession {
 const COLOR_STATE_FILL = '#354a6e'
 // Lighter shade used on the selected state during highlight. Every state
 // stays at the muted alpha (uniform apparent opacity across the map), the
-// selected one distinguishes itself by colour, not opacity.
+// selected one distinguishes itself by color, not opacity.
 const COLOR_STATE_FILL_SELECTED = '#8692a8'
 // Strokes are OPAQUE, pre-blended equivalents of the old semi-transparent
 // cream (`rgb(253, 246, 227)`) over their backdrop. Drawn translucent, the
@@ -208,10 +209,13 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   let selectedStateId: StateId | null = null
   let score = 0
   let epicenter: EpicenterNode | null = null
-  let cameraController: AbortController | null = null
+  // Re-abortable scope for the camera tween: each `animateTo` cancels the prior.
+  const cameraScope = new AbortScope()
   let packetIdSeq = 0
   let flashIdSeq = 0
-  let gameOverGrace: AbortController | null = null
+  // Re-abortable scope for the deferred game-over timers (ripple settle + the
+  // gameOver-event grace); `reset()`/`destroy()` cancel them.
+  const graceScope = new AbortScope()
   // Round-start wall clock (`performance.now()`), used to compute the game's
   // `durationMs` when the round ends. 0 means "no active round".
   let roundStartedAtMs = 0
@@ -358,19 +362,15 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   }
 
   async function animateCameraTo(target: Rect): Promise<void> {
-    cameraController?.abort()
-    const controller = new AbortController()
-    cameraController = controller
+    const signal = cameraScope.reset()
     try {
       await host.engine.camera.animateTo(target, {
         duration: CAMERA_TWEEN_SEC,
         easing: easings.inOutCubic,
-        signal: controller.signal,
+        signal,
       })
     } catch (err) {
       ignoreAbort(err)
-    } finally {
-      if (cameraController === controller) cameraController = null
     }
   }
 
@@ -408,7 +408,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   function highlightState(id: StateId): void {
     // Every state dims to the same muted alpha. The selected one gets a
-    // lighter fill so it reads distinctly by colour, not by opacity.
+    // lighter fill so it reads distinctly by color, not by opacity.
     for (const [otherId, node] of stateNodes) {
       node.fill = otherId === id ? COLOR_STATE_FILL_SELECTED : COLOR_STATE_FILL
       tweenStaticAlpha(node, 0.35, 0.4)
@@ -517,12 +517,12 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   function onPacketCaptured(packet: PacketNode): void {
     // Guarded so the tween's completion after a game-over doesn't tick score.
     if (sessionState !== 'playing') {
-      if (!packet.isDestroyed) packet.destroy()
+      packet.destroy()
       return
     }
     score++
     events.emit('packetScored', { total: score })
-    if (!packet.isDestroyed) packet.destroy()
+    packet.destroy()
   }
 
   function checkPacketPacketCollisions(): void {
@@ -559,8 +559,8 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // up in a single cascade, the flash + debris ring will play out at
     // the recorded midpoint. Destroy handlers remove them from
     // `activePackets` automatically.
-    if (!a.isDestroyed) a.destroy()
-    if (!b.isDestroyed) b.destroy()
+    a.destroy()
+    b.destroy()
     spawnImpactFlash(point)
     spawnCollisionDebris(point)
     gridOverlay.pulseFrom(point)
@@ -621,7 +621,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   function spawnBorderBreachDebris(center: Vec2, headingRad: number): void {
     // Directional lines-only burst along the packet's exit velocity.
-    // Border-coloured; each line launches broadside to its flight path
+    // Border-colored; each line launches broadside to its flight path
     // (`initialAngleOffsetRad = π/2`) and tumbles as it drifts out, a
     // wall-shard read for the "border burst" moment.
     const c = TUNING.lossAnim.borderBreach
@@ -685,16 +685,14 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // Defer the outbound `gameOver` event. Svelte listens for it to slide
     // in the game-over card, and we want the impact flash + debris ring +
     // grid ripple to be visible for a moment before the UI takes over.
-    // `session.reset()` / `destroy()` abort this timer.
-    gameOverGrace?.abort()
-    const grace = new AbortController()
-    gameOverGrace = grace
+    // `session.reset()` / `destroy()` cancel these timers via `graceScope`.
+    const graceSignal = graceScope.reset()
     // Once the ripple finishes, unify every state's fill alpha so the
     // map settles at a single consistent brightness before the game-over
     // card slides in. Without this, mid-round selection dims some states
     // to 0.35, leaving a splotchy map during the grace.
     host.engine
-      .wait(TUNING.stateRipple.settleClearDelaySec, grace.signal)
+      .wait(TUNING.stateRipple.settleClearDelaySec, graceSignal)
       .then(() => {
         if (sessionState === 'gameOver') clearHighlight()
       })
@@ -702,14 +700,12 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // Defer the outbound `gameOver` event. Svelte listens for it to slide
     // in the game-over card, and we want the impact flash + debris ring +
     // shockwave to be visible for a moment before the UI takes over.
-    // `session.reset()` / `destroy()` abort this timer.
     host.engine
-      .wait(TUNING.lossAnim.endScreenGraceSec, grace.signal)
-      .then(() => persistPromise.then((p) => ({ grace, ...p })))
-      .then(({ grace: g, record, highScores }) => {
-        if (gameOverGrace !== g) return
-        gameOverGrace = null
-        if (sessionState !== 'gameOver') return
+      .wait(TUNING.lossAnim.endScreenGraceSec, graceSignal)
+      .then(() => persistPromise)
+      .then(({ record, highScores }) => {
+        // The scope may have been reset while persistence was in flight.
+        if (graceSignal.aborted || sessionState !== 'gameOver') return
         events.emit('gameOver', {
           reason,
           stateId,
@@ -730,8 +726,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     spawnController.stop()
     offCollision?.()
     offCollision = null
-    gameOverGrace?.abort()
-    gameOverGrace = null
+    graceScope.abort()
     clearGameplayNodes()
     disposeEpicenter()
     clearHighlight()
@@ -759,18 +754,16 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   }
 
   function disposeEpicenter(): void {
-    if (epicenter && !epicenter.isDestroyed) epicenter.destroy()
+    epicenter?.destroy()
     epicenter = null
   }
 
   function destroy(): void {
-    cameraController?.abort()
-    cameraController = null
+    cameraScope.dispose()
     spawnController.stop()
     offCollision?.()
     offCollision = null
-    gameOverGrace?.abort()
-    gameOverGrace = null
+    graceScope.dispose()
     offBackgroundTap()
     clearGameplayNodes()
     disposeEpicenter()

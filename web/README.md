@@ -19,6 +19,6 @@ etc. without an explicit `@use`. The prepend is configured in
 
 ## Dev URL params
 
-The stargazer engine reads a few URL params (`?debug=hud`, `?renderer=canvas2d`,
-`?msaa=N`, `?demo=<name>`). See [`src/stargazer/README.md`](src/stargazer/README.md)
+The stargazer engine reads a few URL params (`?debug=hud`, `?msaa=N`,
+`?demo=<name>`). See [`src/stargazer/README.md`](src/stargazer/README.md)
 for the full list.

@@ -13,6 +13,15 @@
 
 import type { GeometryHandle } from './GeometryHandle'
 
+/**
+ * Index-count at or above which a tessellation auto-opts into the retained GPU
+ * path (upload once, GPU-transform) unless `opts.retained` says otherwise. Big,
+ * long-lived geometry (the SVG map, ~15K indices) crosses it; small one-off
+ * shapes (packet glyphs, single contours) stay streamed so churning them can't
+ * strand GPU buffers.
+ */
+const RETAIN_INDEX_THRESHOLD = 1500
+
 const pathToGeometry = new WeakMap<Path2D, GeometryHandle>()
 const pathToContours = new WeakMap<Path2D, Float32Array[]>()
 const pathToContourClosed = new WeakMap<Path2D, boolean[]>()
@@ -31,7 +40,11 @@ export function registerPathTessellation(
   geometry: GeometryHandle,
   contours?: Float32Array[],
   closed?: boolean[],
+  opts?: { retained?: boolean },
 ): void {
+  // Explicit flag wins; otherwise auto-retain only clearly-large geometry.
+  geometry.retained =
+    opts?.retained ?? geometry.indices.length >= RETAIN_INDEX_THRESHOLD
   pathToGeometry.set(path, geometry)
   if (contours) {
     pathToContours.set(path, contours)
@@ -39,6 +52,19 @@ export function registerPathTessellation(
     // shorter/absent is treated as `true` by `getContourClosed`.
     pathToContourClosed.set(path, closed ?? contours.map(() => true))
   }
+}
+
+/**
+ * Drop a path's registration. Callers holding GPU-resident geometry
+ * (`GeometryHandle.gpu`) must release the GPU buffers separately (via
+ * `GpuGfx`), since this registry has no device handle. Use from teardown of a
+ * node that registered a one-off retained path so its arena can't grow
+ * unbounded as games churn.
+ */
+export function releasePathTessellation(path: Path2D): void {
+  pathToGeometry.delete(path)
+  pathToContours.delete(path)
+  pathToContourClosed.delete(path)
 }
 
 /** Fetch the triangulated geometry, or `undefined` if the path isn't registered. */

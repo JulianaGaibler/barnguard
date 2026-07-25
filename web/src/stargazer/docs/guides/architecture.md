@@ -30,9 +30,7 @@ const off = engine.onBeforeFrame((dt) => {
 
 ## Rendering
 
-Nodes draw through the `Gfx2D` facade, so node code never sees which backend is live. The backend is WebGL2 (`GpuGfx`): batched draw programs, MSAA, and bitmap-mask clipping. `?msaa=N` picks the sample count, clamped to the driver's `MAX_SAMPLES`.
-
-`Canvas2DGfx` is a second implementation of the same facade, used as a visual-parity oracle when debugging a rendering difference and as a fallback. Reach it with `?renderer=canvas2d`. Treat it as a comparison tool, not the target; the GPU backend is what the engine is built around.
+Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. The backend is WebGL2 (`GpuGfx`): batched draw programs, MSAA, and bitmap-mask clipping. `?msaa=N` picks the sample count, clamped to the driver's `MAX_SAMPLES`. `GfxDevice` is the seam `GpuGfx` draws through, thin enough that a future WebGPU backend could implement it without touching facade-level code.
 
 Cross-cutting facade rules (per-call styles, absolute alpha, pre-resolved stroke widths) are documented on the `Gfx2D` interface.
 
@@ -79,13 +77,11 @@ Details in [Scene graph](/guides/scene).
 
 Each `SceneNode` has a `renderLayer`:
 
-- `'static'`, baked once to an offscreen buffer and blitted every frame. Use it for content that changes rarely, such as a background or a map.
-- `'above-static'`, drawn per frame between the static blit and the dynamic pass. The place to promote a static node that is temporarily animating.
+- `'static'`, drawn first each frame. Use it for content that changes rarely, such as a background or a map.
+- `'above-static'`, drawn per frame between the static and dynamic passes. The place to promote a static node that is temporarily animating.
 - `'dynamic'` (default), drawn per frame on top.
 
-Setting `renderLayer` to or from `'static'` calls `scene.invalidateStatic()`, and the next stable-camera frame re-bakes. Moving a node between `'above-static'` and `'dynamic'` costs nothing, since both draw every frame.
-
-The renderer bypasses the static cache on any frame where the camera moved (a running `animateTo`, or a debug-camera pan) and draws the static tree fresh, then bakes again on the first settled frame. In steady state that means no bakes per second, one bake per camera settle. See [Scene graph](/guides/scene#render-layers-and-the-static-bake).
+The three passes exist for draw order (static under, dynamic over), not caching, GPU fill rate makes redrawing the static layer every frame trivial. See [Scene graph](/guides/scene#render-layers).
 
 ## The Svelte boundary
 

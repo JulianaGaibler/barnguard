@@ -23,6 +23,15 @@ export interface TweenOptions {
    * knock-on effects (invalidating a static cache, marking a node dirty).
    */
   onUpdate?: () => void
+  /**
+   * Optional replace-key. Starting a tween with a `key` first aborts any
+   * running tween that shares the same `key` on the same `target`, so a
+   * re-triggerable animation (a pop, a glow, a ring) restarts cleanly without
+   * the caller juggling an `AbortController`. The aborted tween rejects with
+   * `AbortError` like any other cancellation. Keyed starts also skip the
+   * overlap warning, since the replacement is intentional.
+   */
+  key?: string
 }
 
 /**
@@ -46,6 +55,8 @@ interface AnimationRecord {
    */
   target?: object
   keys?: readonly string[]
+  /** Replace-key from {@link TweenOptions.key}, for self-cancelling restarts. */
+  key?: string
 }
 
 const DEV_WARN_OVERLAP = true
@@ -217,6 +228,26 @@ export class Animator {
         return
       }
 
+      // Self-cancelling restart: abort any live tween sharing this key on this
+      // target before starting, so a re-triggerable animation replaces itself
+      // cleanly (no manual AbortController). The aborted tween rejects with
+      // AbortError. Done before scheduling so the overlap check below sees a
+      // clean field.
+      if (opts.key !== undefined && target) {
+        for (const other of this.#active) {
+          if (
+            other.target === target &&
+            other.key === opts.key &&
+            !other.cancelled &&
+            !other.completed
+          ) {
+            other.cancelled = true
+            this.#finalize(other)
+            other.reject(abortError())
+          }
+        }
+      }
+
       const record: AnimationRecord = {
         duration: opts.duration,
         delay: Math.max(0, opts.delay ?? 0),
@@ -230,6 +261,7 @@ export class Animator {
         completed: false,
         target,
         keys,
+        key: opts.key,
       }
 
       // Attach abort listener. MUST remove on natural completion (see plan
@@ -251,7 +283,14 @@ export class Animator {
 
       // Dev-mode overlap warning: any prior active tween on the same target
       // touching any of these keys will be over-written by us starting now.
-      if (DEV_WARN_OVERLAP && target && keys && keys.length > 0) {
+      // Skipped for keyed starts: they've already cancelled their predecessor.
+      if (
+        DEV_WARN_OVERLAP &&
+        opts.key === undefined &&
+        target &&
+        keys &&
+        keys.length > 0
+      ) {
         outer: for (const other of this.#active) {
           if (other.target !== target || !other.keys) continue
           for (const k of other.keys) {

@@ -1,7 +1,7 @@
 /**
- * `Gfx2D`, the renderer-agnostic drawing facade. The backend is `GpuGfx`
- * (WebGL2). `Canvas2DGfx` implements the same facade as a visual-parity oracle
- * for debugging and as the `?renderer=canvas2d` opt-out.
+ * `Gfx2D`, the drawing facade nodes draw through. The backend is `GpuGfx`
+ * (WebGL2); `GfxDevice` is the thin seam a future backend (e.g. WebGPU) would
+ * implement to plug in underneath it.
  *
  * Conventions:
  *
@@ -15,11 +15,11 @@
  */
 
 import type { BitmapMask } from '../../assets/BitmapMask'
+import type { RoundRectRadii } from './roundRectRadii'
 
 /**
  * Compositing mode. Maps to `ctx.globalCompositeOperation`. The GPU backend
- * implements `'source-over'` and `'lighter'`; the Canvas backend accepts the
- * full set.
+ * implements `'source-over'` and `'lighter'`.
  *
  * @category Advanced
  */
@@ -129,9 +129,9 @@ export interface Gfx2D {
    * the mask's alpha is non-zero. `worldRect` maps mask UV to world.
    * Snapshotted by `save`/`restore`.
    *
-   * GPU: uploads mask as texture (cached per instance), modulates fragment
-   * alpha. Currently only wired through the `coloredTri` program. Canvas2D:
-   * no-op. GridOverlayNode is the only user and runs on GPU.
+   * Uploads the mask as a texture (cached per instance), modulates fragment
+   * alpha. Currently only wired through the `coloredTri` program.
+   * GridOverlayNode is the only user.
    */
   setClipMask(mask: BitmapMask | null): void
 
@@ -139,6 +139,40 @@ export interface Gfx2D {
 
   /** Filled axis-aligned rectangle. */
   fillRect(x: number, y: number, w: number, h: number, color: string): void
+
+  /**
+   * Filled axis-aligned rounded rectangle. `radii` is the CSS `border-radius`
+   * shorthand: a single number, or 1–4 numbers (`[all]`, `[tl&br, tr&bl]`,
+   * `[tl, tr&bl, br]`, `[tl, tr, br, bl]`). Over-large radii are clamped
+   * proportionally, matching `CanvasRenderingContext2D.roundRect`.
+   *
+   * @example
+   *   gfx.fillRoundRect(0, 0, 480, 320, 24, '#1c1c22') // uniform corners
+   *   gfx.fillRoundRect(0, 0, 200, 40, 20, '#8f74e7') // radius ≥ h/2 → capsule
+   *   gfx.fillRoundRect(0, 0, w, h, [0, 32, 0, 0], fill) // only top-right rounded
+   */
+  fillRoundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: RoundRectRadii,
+    color: string,
+  ): void
+
+  /**
+   * Stroked axis-aligned rounded rectangle. The stroke straddles the edge (half
+   * inside, half out), like `CanvasRenderingContext2D.stroke`. `radii` follows
+   * the same shorthand as {@link Gfx2D.fillRoundRect}.
+   */
+  strokeRoundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: RoundRectRadii,
+    style: GfxStrokeStyle,
+  ): void
   /** Filled circle. */
   fillCircle(cx: number, cy: number, r: number, color: string): void
   /**
@@ -246,11 +280,11 @@ export interface Gfx2D {
    * Draw a single line of text with its anchor at `(x, y)` (interpreted per
    * `style.align` / `style.baseline`), in the node's LOCAL space. No wrapping.
    *
-   * Both backends use the platform text engine (Canvas2D `fillText`) for
-   * correct shaping, kerning, ligatures, and emoji. The GPU backend rasterizes
-   * the string to a cached texture at device-pixel resolution derived from the
-   * live transform, so text stays crisp and cheap under rotation and zoom (see
-   * `GfxTextStyle` for the color-animation caveat).
+   * Uses the platform text engine (Canvas2D `fillText`) for correct shaping,
+   * kerning, ligatures, and emoji, rasterizing the string to a cached texture
+   * at device-pixel resolution derived from the live transform, so text stays
+   * crisp and cheap under rotation and zoom (see `GfxTextStyle` for the
+   * color-animation caveat).
    */
   fillText(text: string, x: number, y: number, style?: GfxTextStyle): void
 }

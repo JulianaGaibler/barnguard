@@ -82,7 +82,31 @@ Both use `instanceof`, so subclasses match.
 
 `onFixedStep` runs at the fixed-step rate (120 Hz by default, set via `EngineHostOptions.fixedStepHz`), inside the accumulator loop. Use it for anything that must be independent of render `dt`, such as collision or physics integration. Use `onUpdate` for everything else.
 
+### PointerBehavior
+
+An input behavior almost always binds pointer handlers on attach and unbinds on detach. `PointerBehavior` captures that lifecycle: return the handlers from `handlers()` and the base wires them with `bindPointer` on attach and tears them down (with a synthetic cancel if a drag is live) on detach.
+
+```ts
+class DragToMove extends PointerBehavior {
+  protected handlers(): PointerHandlers {
+    return {
+      singlePointer: true, // ignore extra fingers while one drags
+      move: (e) => {
+        const p = e.localTo(this.node) // world → this node's local space
+        this.node.transform.x = p.x
+        this.node.transform.y = p.y
+      },
+    }
+  }
+}
+node.addBehavior(new DragToMove())
+```
+
+Override the optional `onPointerDetach()` for cleanup that should run after the handlers are unbound. See [Input](/guides/input) for `bindPointer`, `singlePointer`, and region gestures.
+
 ## Async lifecycle scoped to nodes
+
+`destroy()` is idempotent: the first call marks the node destroyed and every later call returns immediately, so there's no need to guard it with `if (!node.isDestroyed) node.destroy()` — just call `destroy()`.
 
 Every `SceneNode` has a private `AbortController`; `node.abortSignal` exposes it read-only. `node.destroy()`:
 
@@ -119,51 +143,19 @@ Override `hitTest` in a subclass if you need something else: world-space in, boo
 
 See [Input](/guides/input) for the rest of the pipeline.
 
-## Render layers and the static bake
+## Render layers
 
-`node.renderLayer` picks one of three passes:
+`node.renderLayer` picks one of three passes, drawn in this order every frame:
 
-- `'static'`. Baked once into an offscreen buffer and blitted each frame. Use it for content that changes rarely, such as a background or map. The bake is sealed into an immutable `ImageBitmap`, so the per-frame blit stays a cheap texture draw.
-- `'above-static'`. Drawn per frame between the static blit and the dynamic pass. Sits above the static content, below the dynamic pass.
-- `'dynamic'` (default). Drawn per frame on top.
+- `'static'`. Use it for content that changes rarely, such as a background or map.
+- `'above-static'`. Drawn between the static and dynamic passes. The place for a static node that's temporarily animating.
+- `'dynamic'` (default). Drawn on top.
 
-Setting `renderLayer` to or from `'static'` calls `scene.invalidateStatic()`, and the next stable-camera frame re-bakes the static tree. Moving a node between the two non-static values costs nothing.
-
-The renderer bypasses the cache on any frame where the camera moved from the previous one; during a `Camera.animateTo` tween that's every frame. The static tree then renders fresh each frame, and the first settled frame bakes once. In steady state there are no bakes.
-
-### Animating a static node
-
-Don't mutate a static node while it sits on the static layer: the cache doesn't know to re-bake, and later frames blit stale content. Promote, animate, then demote:
-
-```ts
-async function pulse(node: SceneNode, signal: AbortSignal): Promise<void> {
-  node.renderLayer = 'above-static' // one bake, without this node
-  try {
-    await node.tween(
-      { alpha: 0.7 },
-      { duration: 0.2, easing: easings.outCubic, signal },
-    )
-    await node.tween(
-      { alpha: 1.0 },
-      { duration: 0.4, easing: easings.inOutQuad, signal },
-    )
-  } finally {
-    node.renderLayer = 'static' // one bake, with the node back
-  }
-}
-```
-
-That's two bakes for the whole pulse.
+The three passes exist purely for draw order, not caching, GPU fill rate makes redrawing the static layer every frame trivial. Mutating a node on any layer, including `'static'`, is safe at any time; there's no bake to go stale.
 
 ### Z-order
 
-Within a layer, draw order follows scene-tree DFS pre-order: a parent draws first, then its children, then the next sibling. Between layers the order is static, then above-static, then dynamic. A promoted static node ends up above the static content but below anything on `'dynamic'`.
-
-## Dynamic resolution
-
-A stage can decouple its render resolution from its display resolution to trade sharpness for fill rate, which helps on large displays where clearing, blitting, and re-rasterizing are pixel-bound. Enable it per stage via `dynamicResolution` (on `EngineOptions` for the primary; secondary stages stay at native). The `DynamicResolution` controller picks a `renderScale` in `(0, 1]` each frame: it drops during camera motion, where the movement masks the softness, and steps a steady-state baseline down under sustained frame-time pressure, then ramps back up when there's headroom.
-
-`Stage.setRenderScale` resizes the backing store and invalidates the static bake so it re-bakes at the new size. It deliberately does not fire `onResize`, since the CSS layout and world viewport are unchanged.
+Within a layer, draw order follows scene-tree DFS pre-order: a parent draws first, then its children, then the next sibling. Between layers the order is static, then above-static, then dynamic. A node on `'above-static'` ends up above the static content but below anything on `'dynamic'`.
 
 ### Viewport culling
 

@@ -1,3 +1,5 @@
+import { SlotPool } from './SlotPool'
+
 /**
  * Structure-of-arrays storage for a {@link ParticlePool}. Each field is a
  * parallel typed array indexed by slot; a slot is live when `alive[i] === 1`.
@@ -15,11 +17,22 @@ export interface ParticleField {
   colorIdx: Uint8Array
   /** 1 = live, 0 = free-listed. */
   alive: Uint8Array
+  /** Current rotation, radians. 0 for a particle whose config has no `spinRadPerSec`. */
+  angle: Float32Array
+  /** Per-particle constant angular velocity, rad/s, sampled at spawn. */
+  spin: Float32Array
+  /** Launch speed magnitude (world units/s), sampled at spawn. Drives `scaleBy: 'speed'` and `minSpeedFrac`. */
+  speed0: Float32Array
 }
 
 /**
- * Fixed-capacity particle pool with an index freelist. All storage is allocated
- * once at construction; per-frame `spawn`/`kill`/`clear` are allocation-free.
+ * Fixed-capacity particle pool. All storage is allocated once at
+ * construction; per-frame `spawn`/`kill`/`clear` are allocation-free. Slot
+ * allocation itself (the freelist, `highWaterIndex`, `aliveCount`) is
+ * delegated to {@link SlotPool}; this class pairs that with the fixed
+ * {@link ParticleField} typed arrays and mirrors liveness into
+ * `field.alive` so draw loops can read it directly without going through
+ * the pool.
  *
  * @category Particles
  */
@@ -27,20 +40,11 @@ export class ParticlePool {
   readonly capacity: number
   readonly field: ParticleField
 
-  /** Stack of currently-free slot indices; top-of-stack is at `freeTop - 1`. */
-  readonly #freelist: Int32Array
-  #freeTop: number
-  /** Highest slot index that has EVER been alive; bounds the update loop. */
-  #highWater = 0
-  #_aliveCount = 0
+  readonly #slots: SlotPool
 
   constructor(capacity: number) {
-    if (capacity <= 0 || !Number.isFinite(capacity)) {
-      throw new Error(
-        `ParticlePool: capacity must be a positive integer (got ${capacity})`,
-      )
-    }
-    this.capacity = capacity | 0
+    this.#slots = new SlotPool(capacity)
+    this.capacity = this.#slots.capacity
     this.field = {
       x: new Float32Array(this.capacity),
       y: new Float32Array(this.capacity),
@@ -51,25 +55,21 @@ export class ParticlePool {
       size: new Float32Array(this.capacity),
       colorIdx: new Uint8Array(this.capacity),
       alive: new Uint8Array(this.capacity),
+      angle: new Float32Array(this.capacity),
+      spin: new Float32Array(this.capacity),
+      speed0: new Float32Array(this.capacity),
     }
-    this.#freelist = new Int32Array(this.capacity)
-    // Prefill the freelist in reverse so `spawn()` returns index 0 first,
-    // 1 next, etc, deterministic and easier to reason about.
-    for (let i = 0; i < this.capacity; i++) {
-      this.#freelist[i] = this.capacity - 1 - i
-    }
-    this.#freeTop = this.capacity
   }
 
   get aliveCount(): number {
-    return this.#_aliveCount
+    return this.#slots.aliveCount
   }
   get availableCount(): number {
-    return this.#freeTop
+    return this.#slots.availableCount
   }
   /** Inclusive upper bound for `update()` / `draw()` loops. */
   get highWaterIndex(): number {
-    return this.#highWater
+    return this.#slots.highWaterIndex
   }
 
   /**
@@ -77,35 +77,23 @@ export class ParticlePool {
    * Caller is responsible for initialising the slot's fields.
    */
   spawn(): number {
-    if (this.#freeTop === 0) return -1
-    this.#freeTop--
-    const idx = this.#freelist[this.#freeTop]
-    this.field.alive[idx] = 1
-    this.#_aliveCount++
-    if (idx + 1 > this.#highWater) this.#highWater = idx + 1
+    const idx = this.#slots.spawn()
+    if (idx >= 0) this.field.alive[idx] = 1
     return idx
   }
 
   /** Return a slot to the freelist. Safe to call on already-dead slots. */
   kill(idx: number): void {
     if (idx < 0 || idx >= this.capacity) return
-    if (this.field.alive[idx] === 0) return
     this.field.alive[idx] = 0
-    this.#freelist[this.#freeTop] = idx
-    this.#freeTop++
-    this.#_aliveCount--
+    this.#slots.kill(idx)
   }
 
   /** Return every slot to the freelist. Cheap, just zeroes the alive mask. */
   clear(): void {
-    for (let i = 0; i < this.#highWater; i++) {
+    for (let i = 0; i < this.#slots.highWaterIndex; i++) {
       this.field.alive[i] = 0
     }
-    this.#_aliveCount = 0
-    for (let i = 0; i < this.capacity; i++) {
-      this.#freelist[i] = this.capacity - 1 - i
-    }
-    this.#freeTop = this.capacity
-    this.#highWater = 0
+    this.#slots.clear()
   }
 }

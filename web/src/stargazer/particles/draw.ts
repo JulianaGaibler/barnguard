@@ -15,13 +15,28 @@
  *   sprite. Sized to ~85% of the tile for a small AA safety margin. Pair with
  *   `blend: 'source-over'` for a crisp small-sprite look; additive blends still
  *   bloom on overlap.
+ * - `'square'` , solid filled square, centered on the sprite at ~85% of the tile
+ *   (same AA margin as the hexagon). Pair with `blend: 'source-over'` for crisp
+ *   square particles (debris, data-style trails).
+ * - `'triangle'` , solid filled equilateral triangle, apex-up, same ~85% AA
+ *   margin. Baked at a single fixed orientation — pair with a config's
+ *   `spinRadPerSec` to have it tumble at draw time rather than needing
+ *   multiple baked poses. Pair with `blend: 'source-over'` for crisp debris.
+ *   Line/shard particles (anisotropic, length ≠ width) aren't supported here —
+ *   `size` is one scalar driving a square-aspect tile; use `VectorParticleNode`
+ *   for shapes that need an independent width and length.
  *
  * @category Particles
  */
 
 import { withAlpha } from '../render/gfx/parseColor'
 
-export type ParticleSpriteStyle = 'gradient' | 'disc' | 'hexagon'
+export type ParticleSpriteStyle =
+  | 'gradient'
+  | 'disc'
+  | 'hexagon'
+  | 'square'
+  | 'triangle'
 
 const SPRITE_SIZE = 64
 const spriteCache = new Map<string, HTMLCanvasElement>()
@@ -58,6 +73,39 @@ export function getParticleSprite(
     ctx.beginPath()
     for (let i = 0; i < 6; i++) {
       const angle = (Math.PI / 3) * i - Math.PI / 6
+      const px = mid + Math.cos(angle) * r
+      const py = mid + Math.sin(angle) * r
+      if (i === 0) ctx.moveTo(px, py)
+      else ctx.lineTo(px, py)
+    }
+    ctx.closePath()
+    ctx.fill()
+    tagAsParticleAtlasCandidate(canvas)
+    spriteCache.set(key, canvas)
+    return canvas
+  }
+
+  if (style === 'square') {
+    // Solid centered square, side ~85% of the tile (same AA margin as the
+    // hexagon), so drawImage-scaling never clips the corners.
+    const half = mid * 0.85
+    ctx.fillStyle = color
+    ctx.fillRect(mid - half, mid - half, half * 2, half * 2)
+    tagAsParticleAtlasCandidate(canvas)
+    spriteCache.set(key, canvas)
+    return canvas
+  }
+
+  if (style === 'triangle') {
+    // Solid filled equilateral triangle, apex-up, centered on the sprite.
+    // Circumradius ~85% of the half-size (same AA margin as the hexagon/
+    // square). A single fixed orientation is enough — draw-time rotation
+    // (`spinRadPerSec`) does the tumbling.
+    const r = mid * 0.85
+    ctx.fillStyle = color
+    ctx.beginPath()
+    for (let i = 0; i < 3; i++) {
+      const angle = -Math.PI / 2 + ((Math.PI * 2) / 3) * i
       const px = mid + Math.cos(angle) * r
       const py = mid + Math.sin(angle) * r
       if (i === 0) ctx.moveTo(px, py)

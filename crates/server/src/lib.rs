@@ -20,7 +20,7 @@ use crate::events::EventHub;
 use crate::http::{build_router, AppState};
 use crate::log::LogHub;
 use crate::queue::{run_worker, QueueController, QueueStore, WorkerConfig};
-use crate::store::GameLogController;
+use crate::store::{GameLogController, LeaderboardController};
 use crate::types::PrinterStatus;
 use printer_driver::MockControls;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -77,6 +77,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     let games_store = GameLogController::load(&cfg.data_dir, &log, events.clone());
+    let leaderboard_store = LeaderboardController::load(&cfg.data_dir, &log);
 
     // Client-facing config lives behind a lock: `POST /config/reload` refreshes
     // the base from disk, `POST/DELETE /config/override` set/clear the in-memory
@@ -91,6 +92,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
         log,
         mock: mock_controls,
         games: games_store,
+        leaderboard: leaderboard_store,
         client_config,
     };
     let app = build_router(state, &cfg.allowed_origins);

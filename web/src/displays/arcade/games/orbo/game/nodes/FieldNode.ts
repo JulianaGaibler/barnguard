@@ -40,8 +40,8 @@ interface Rgb {
 // 0..255 channels for the tweenable band colors, parsed through the engine's
 // cached `parseColor` (which returns 0..1).
 function parseHex(hex: string): Rgb {
-  const c = parseColor(hex)
-  return { r: c.r * 255, g: c.g * 255, b: c.b * 255 }
+  const rgb01 = parseColor(hex)
+  return { r: rgb01.r * 255, g: rgb01.g * 255, b: rgb01.b * 255 }
 }
 
 function rgba(c: Rgb, alpha: number): string {

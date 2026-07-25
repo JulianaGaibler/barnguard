@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { DebugController } from '../DebugController'
-  import type { TextureInspectorSnapshot } from '../../render/gfx/gpu/TextureManager'
+  import type { TextureInspectorSnapshot } from '../../render/gfx/TextureManager'
   import DebugSection from './DebugSection.svelte'
   import DebugRow from './DebugRow.svelte'
   import ProgressBar from './ProgressBar.svelte'

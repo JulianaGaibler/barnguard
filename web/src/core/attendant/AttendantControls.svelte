@@ -1,5 +1,7 @@
 <script lang="ts">
   import { locale, setLocale, supportedLanguages, t } from '@src/i18n'
+  import playIconRaw from '@src/assets/icons/play-20.svg?raw'
+  import pauseIconRaw from '@src/assets/icons/pause-20.svg?raw'
 
   interface Props {
     paused: boolean
@@ -45,30 +47,9 @@
       aria-pressed={paused}
     >
       {#if paused}
-        <!-- Play icon; filled triangle pointing right. -->
-        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-          <path d="M6 4.5 L15.5 10 L6 15.5 Z" fill="currentColor" />
-        </svg>
+        {@html playIconRaw}
       {:else}
-        <!-- Pause icon; two vertical bars. -->
-        <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
-          <rect
-            x="5"
-            y="4.5"
-            width="3"
-            height="11"
-            rx="0.5"
-            fill="currentColor"
-          />
-          <rect
-            x="12"
-            y="4.5"
-            width="3"
-            height="11"
-            rx="0.5"
-            fill="currentColor"
-          />
-        </svg>
+        {@html pauseIconRaw}
       {/if}
     </button>
   {/if}
@@ -129,7 +110,7 @@
       color: rgba(255, 255, 255, 0.85)
       border-color: rgba(255, 255, 255, 0.6)
 
-  .attendant-controls__btn--icon svg
+  .attendant-controls__btn--icon :global(svg)
     width: 14px
     height: 14px
     display: block

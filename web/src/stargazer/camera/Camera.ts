@@ -185,6 +185,37 @@ export class Camera {
     return { x: wx, y: wy }
   }
 
+  /**
+   * The world-space rect currently mapped onto the FULL canvas. Because the
+   * viewport is fit `contain`-style, on an off-aspect canvas this is larger
+   * than {@link Camera.viewport} — the surrounding area is what the clear color
+   * or a background layer fills. Returns the viewport itself while the
+   * transform is degenerate (zero-size viewport or canvas, during initial
+   * resize). Writes into `out` (no allocation) when given.
+   *
+   * @example
+   *   // Fill a layout to whatever the camera currently shows.
+   *   const area = camera.visibleWorldRect()
+   */
+  visibleWorldRect(out?: Rect): Rect {
+    const t = this.getScreenTransform()
+    const pw = this.pixelSize.w
+    const ph = this.pixelSize.h
+    const r = out ?? { x: 0, y: 0, width: 0, height: 0 }
+    if (t.scale <= 0 || pw <= 0 || ph <= 0) {
+      r.x = this.viewport.x
+      r.y = this.viewport.y
+      r.width = this.viewport.width
+      r.height = this.viewport.height
+      return r
+    }
+    r.x = -t.offsetX / t.scale
+    r.y = -t.offsetY / t.scale
+    r.width = pw / t.scale
+    r.height = ph / t.scale
+    return r
+  }
+
   /** Uniform screen-CSS-px per world unit, same on both axes. */
   screenPxPerWorldUnit(): number {
     return this.getScreenTransform().scale

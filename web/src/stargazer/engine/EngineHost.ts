@@ -6,17 +6,14 @@ import { DebugController } from '../debug/DebugController'
 
 /**
  * Construction options for {@link createEngineHost}. Extends
- * {@link EngineOptions} but takes its own `renderer` and context-loss handlers.
+ * {@link EngineOptions} but takes its own context-loss handlers.
  *
  * @category Engine
  */
-export interface EngineHostOptions extends Omit<
-  EngineOptions,
-  'canvas' | 'renderer'
-> {
+export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
   canvas: HTMLCanvasElement
   /**
-   * Called when the canvas loses its 2D context. Default is
+   * Called when the canvas loses its WebGL2 context. Default is
    * `location.reload()`. Apps that don't want a page reload should override
    * this and manage the rebuild themselves.
    */
@@ -33,13 +30,6 @@ export interface EngineHostOptions extends Omit<
    * at runtime via `host.debug.setHudVisible`.
    */
   debug?: 'hidden' | 'hud' | 'perf'
-  /**
-   * Renderer backend for the primary stage. Default `'auto'` uses GPU (WebGL2)
-   * unless `?renderer=canvas2d` is present in `window.location.search`.
-   * Explicit values (`'canvas2d'` / `'gpu'`) skip the URL probe, useful for
-   * tests and hard-wired deployments.
-   */
-  renderer?: 'canvas2d' | 'gpu' | 'auto'
   /**
    * Fallback triggered when the retry ladder decides recovery isn't feasible
    * (≥3 context losses within 60 s, or the browser signaled the loss is
@@ -137,21 +127,6 @@ function resolveDebugMode(
 }
 
 /**
- * Explicit option wins. Otherwise the URL flag: `?renderer=canvas2d` opts out
- * to Canvas 2D. Default is GPU (WebGL2). SSR / no-window environments (tests)
- * get Canvas. WebGL2 needs a live context.
- */
-function resolveRendererMode(
-  explicit?: 'canvas2d' | 'gpu' | 'auto',
-): 'canvas2d' | 'gpu' {
-  if (explicit === 'canvas2d' || explicit === 'gpu') return explicit
-  if (typeof window === 'undefined') return 'canvas2d'
-  const raw = new URLSearchParams(window.location.search).get('renderer')
-  if (raw === 'canvas2d') return 'canvas2d'
-  return 'gpu'
-}
-
-/**
  * Resolve MSAA sample count: explicit option wins; otherwise read `?msaa=N`
  * from the URL. Accepts `0` (off), `2`, `4`, `8`. Default `4`. WebGL2 minimum
  * universally supported and gives visible fill- edge AA without unreasonable
@@ -177,10 +152,10 @@ export function resolveMsaaSamples(explicit?: number): number {
  * Build an {@link EngineHost} around a canvas: construct the {@link Engine},
  * attach a {@link DebugController}, and register WebGL context-loss recovery.
  *
- * The renderer backend, MSAA sample count, and debug HUD state resolve from
- * `opts` first, then fall back to URL flags (`?renderer=`, `?msaa=`, `?debug=`)
- * so a deployed build can be probed without a code change. See
- * {@link EngineHostOptions} for the per-field precedence.
+ * The MSAA sample count and debug HUD state resolve from `opts` first, then
+ * fall back to URL flags (`?msaa=`, `?debug=`) so a deployed build can be
+ * probed without a code change. See {@link EngineHostOptions} for the
+ * per-field precedence.
  *
  * @category Engine
  * @example
@@ -200,11 +175,9 @@ export function resolveMsaaSamples(explicit?: number): number {
  *   host.start()
  */
 export function createEngineHost(opts: EngineHostOptions): EngineHost {
-  const rendererMode = resolveRendererMode(opts.renderer)
   const msaaSamples = resolveMsaaSamples(opts.msaaSamples)
   const engine = new Engine({
     ...opts,
-    renderer: rendererMode,
     msaaSamples,
   })
 
@@ -253,11 +226,6 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
     engine.events.emit('contextrestored', undefined)
   }
 
-  // Both event pairs, only the relevant one for the active backend fires.
-  // `contextlost`/`contextrestored` cover the 2D backend; `webglcontextlost`
-  // /`webglcontextrestored` cover the WebGL2 backend.
-  opts.canvas.addEventListener('contextlost', onContextLost)
-  opts.canvas.addEventListener('contextrestored', onContextRestored)
   opts.canvas.addEventListener('webglcontextlost', onContextLost)
   opts.canvas.addEventListener('webglcontextrestored', onContextRestored)
 
@@ -293,8 +261,6 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
     destroy() {
       if (destroyed) return
       destroyed = true
-      opts.canvas.removeEventListener('contextlost', onContextLost)
-      opts.canvas.removeEventListener('contextrestored', onContextRestored)
       opts.canvas.removeEventListener('webglcontextlost', onContextLost)
       opts.canvas.removeEventListener('webglcontextrestored', onContextRestored)
       engine.destroy()

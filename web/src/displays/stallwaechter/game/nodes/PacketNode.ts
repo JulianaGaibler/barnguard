@@ -49,9 +49,8 @@ function buildHexagonPath(radius: number): Path2D {
     else p.lineTo(x, y)
   }
   p.closePath()
-  // Register the hex tessellation so the GPU backend's `fillPath2D` +
-  // `strokePath2D` find geometry. The static-bake path (Canvas 2D) ignores
-  // the registration.
+  // Register the hex tessellation so `fillPath2D` + `strokePath2D` find
+  // geometry to draw.
   const triangles = tessellateContours([contour])
   registerPathTessellation(p, triangles, [contour])
   return p

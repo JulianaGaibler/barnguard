@@ -26,10 +26,12 @@
     debugHudVisible,
     gamesPanelVisible,
     isFullscreen,
+    leaderboardPanelVisible,
     printerPanelVisible,
     toggleDebugHud,
     toggleFullscreen,
     toggleGamesPanel,
+    toggleLeaderboardPanel,
     togglePrinterPanel,
   } from '@src/core/attendant/boothMenuToggle'
 
@@ -136,6 +138,13 @@
       onToggle={toggleGamesPanel}
       label="Games"
     />
+    {#if $activeDisplay?.leaderboardIds?.length}
+      <ToggleButton
+        active={$leaderboardPanelVisible}
+        onToggle={toggleLeaderboardPanel}
+        label="Leaderboard"
+      />
+    {/if}
     <ToggleButton
       active={$printerPanelVisible}
       onToggle={togglePrinterPanel}

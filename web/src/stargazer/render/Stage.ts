@@ -1,20 +1,7 @@
 import { Renderer } from './Renderer'
-import { Layers } from './Layers'
-import { Canvas2DGfx } from './gfx/Canvas2DGfx'
-import { GpuGfx } from './gfx/gpu/GpuGfx'
-import type { TextureInspector } from './gfx/gpu/TextureManager'
-import { WebGL2Device } from './gfx/gpu/webgl2/WebGL2Device'
-import {
-  DynamicResolution,
-  type DynamicResolutionOptions,
-} from './DynamicResolution'
-
-/**
- * Renderer backend mode. Default is `'gpu'`; `?renderer=canvas2d` opts out.
- *
- * @category Render
- */
-export type RendererMode = 'canvas2d' | 'gpu'
+import { GpuGfx } from './gfx/GpuGfx'
+import type { TextureInspector } from './gfx/TextureManager'
+import { WebGL2Device } from './gfx/webgl2/WebGL2Device'
 import { Scene } from '../scene/Scene'
 import { Camera } from '../camera/Camera'
 import type { Rect } from '../math/Rect'
@@ -27,8 +14,7 @@ import { PhysicsWorld, type PhysicsWorldConfig } from '../physics/PhysicsWorld'
 
 /**
  * Construction options for a {@link Stage}. Every field is optional; the
- * defaults render an interactive-less 1000×1000 viewport under the default
- * backend.
+ * defaults render an interactive-less 1000×1000 viewport.
  *
  * @category Render
  */
@@ -56,19 +42,8 @@ export interface StageOptions {
    */
   onResize?: (info: StageResizeInfo) => void
   /**
-   * Dynamic-resolution policy. When `enabled`, drops render resolution during
-   * camera motion or sustained overload and restores on settle.
-   */
-  dynamicResolution?: DynamicResolutionOptions
-  /**
-   * Renderer backend. Default `'canvas2d'`. Under `'gpu'`, acquires a WebGL2
-   * context and routes draws through `GpuGfx`.
-   */
-  renderer?: RendererMode
-  /**
-   * MSAA sample count under GPU. `1` disables, `>1` allocates a multisample
-   * renderbuffer. Default 4, clamped to driver `MAX_SAMPLES`. No effect under
-   * Canvas mode.
+   * MSAA sample count. `1` disables, `>1` allocates a multisample
+   * renderbuffer. Default 4, clamped to driver `MAX_SAMPLES`.
    */
   msaaSamples?: number
   /**
@@ -77,6 +52,13 @@ export interface StageOptions {
    * tick before the scene's `onFixedStep` pass. Default: no physics.
    */
   physics?: boolean | PhysicsWorldConfig
+  /**
+   * Test-only escape hatch: inject a prebuilt `GfxDevice` instead of
+   * acquiring a real WebGL2 context. Lets Stage/Engine construct in a
+   * DOM-only test environment (e.g. happy-dom, which returns `null` from
+   * `canvas.getContext('webgl2')`) via `MockGfxDevice`. Not for app code.
+   */
+  gpuDevice?: import('./gfx/GfxDevice').GfxDevice
 }
 
 /**
@@ -107,13 +89,9 @@ export interface StageResizeInfo {
 
 const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1000, height: 1000 }
 
-/** Hard floor for `setRenderScale`, a safety clamp below any policy value. */
-const MIN_RENDER_SCALE = 0.1
-
 /**
- * A render surface (canvas + `Renderer` + `Scene` + `Camera` + `Layers`). All
- * stages share the engine's `Ticker` and `Animator` for drift-free synced
- * tweens.
+ * A render surface (canvas + `Renderer` + `Scene` + `Camera`). All stages
+ * share the engine's `Ticker` and `Animator` for drift-free synced tweens.
  *
  * @category Render
  */
@@ -121,7 +99,6 @@ export class Stage {
   readonly renderer: Renderer
   readonly scene: Scene
   readonly camera: Camera
-  readonly layers: Layers
   /** Owning canvas. Public so the debug controller / demos can reference it. */
   readonly canvas: HTMLCanvasElement
   /** Optional label shown in the debug HUD's stage selector. */
@@ -137,30 +114,13 @@ export class Stage {
   readonly #onResize?: (info: StageResizeInfo) => void
   #resizeObserver: ResizeObserver | null = null
   #disposed = false
+  #active = true
 
-  /**
-   * On-canvas rendering surface. `GpuGfx` (WebGL2) by default, `Canvas2DGfx`
-   * under `?renderer=canvas2d`. Both implement `Gfx2D` so Stage is
-   * backend-branch-free.
-   */
-  readonly #screenGfx: Canvas2DGfx | GpuGfx
-  /** WebGL2 device (only when `screenGfx instanceof GpuGfx`). */
-  readonly #device: WebGL2Device | null
-  /** Facade wrapping the offscreen static-bake ctx; created on first bake. */
-  #bakeGfx: Canvas2DGfx | null = null
+  /** On-canvas rendering surface. */
+  readonly #screenGfx: GpuGfx
+  readonly #device: WebGL2Device | import('./gfx/GfxDevice').GfxDevice
 
-  // Static-cache bookkeeping, per-stage so each canvas gets its own bake.
   #prevCameraFrameNum = -1
-  #bakedAtCameraFrameNum = -1
-
-  // Dynamic-resolution knob. Backing-store density is
-  // `devicePixelRatio × _renderScale`; the CSS element stays at display size,
-  // so a scale < 1 renders fewer device pixels and the browser upscales.
-  // Driven by `setRenderScale` (see DynamicResolution).
-  #_renderScale = 1
-
-  /** Dynamic-resolution policy driving `_renderScale`; null when disabled. */
-  readonly #dynRes: DynamicResolution | null
 
   /** Per-layer node walk: viewport cull, transform compose, draw. */
   readonly #layerRenderer = new StageLayerRenderer()
@@ -178,45 +138,25 @@ export class Stage {
       clearColor: opts.clearColor,
       transparent: opts.transparent,
     })
-    const mode: RendererMode = opts.renderer ?? 'canvas2d'
-    if (mode === 'gpu') {
-      // Kick the initial canvas size BEFORE the GL context is acquired so the
-      // default framebuffer starts at the right pixel size.
-      const rect = canvas.getBoundingClientRect()
-      const initialCssW = rect.width || canvas.clientWidth || 1
-      const initialCssH = rect.height || canvas.clientHeight || 1
-      const initialDpr = window.devicePixelRatio || 1
-      this.renderer.resize(initialCssW, initialCssH, initialDpr)
-      this.#device = new WebGL2Device(canvas)
-      this.#screenGfx = new GpuGfx(canvas, this.#device, {
-        samples: opts.msaaSamples ?? 4,
-      })
-      this.#screenGfx.setInternalSize(
-        this.renderer.pixelSize.w,
-        this.renderer.pixelSize.h,
-      )
-    } else {
-      this.#device = null
-      this.#screenGfx = new Canvas2DGfx(canvas, {
-        transparent: opts.transparent ?? false,
-      })
-    }
+    // Kick the initial canvas size BEFORE the GL context is acquired so the
+    // default framebuffer starts at the right pixel size.
+    const rect = canvas.getBoundingClientRect()
+    const initialCssW = rect.width || canvas.clientWidth || 1
+    const initialCssH = rect.height || canvas.clientHeight || 1
+    const initialDpr = window.devicePixelRatio || 1
+    this.renderer.resize(initialCssW, initialCssH, initialDpr)
+    this.#device = opts.gpuDevice ?? new WebGL2Device(canvas)
+    this.#screenGfx = new GpuGfx(canvas, this.#device, {
+      samples: opts.msaaSamples ?? 4,
+    })
+    this.#screenGfx.setInternalSize(
+      this.renderer.pixelSize.w,
+      this.renderer.pixelSize.h,
+    )
     this.scene = new Scene()
     this.scene.engine = engine
     this.camera = new Camera(opts.initialViewport ?? DEFAULT_VIEWPORT)
     this.camera.engine = engine
-    this.layers = new Layers()
-    // DynamicResolution is a Canvas-era optimization (drop rasterization
-    // pixel count when the CPU can't keep up). Under GPU the 4K fill rate
-    // is trivial and the CPU-rasterize path is gone. DynRes only adds
-    // post-motion blur without helping perf. Force-disabled under GPU
-    // regardless of config.
-    const dynResEnabled =
-      opts.dynamicResolution?.enabled === true && mode !== 'gpu'
-    this.#dynRes =
-      dynResEnabled && opts.dynamicResolution
-        ? new DynamicResolution(opts.dynamicResolution)
-        : null
 
     // Kiosk hygiene, touch/selection suppression on every canvas. Applied
     // here so Svelte-mounted secondary canvases inherit it.
@@ -309,9 +249,7 @@ export class Stage {
   /**
    * Render this stage. Uses `camera` (defaults to `this.camera`) for projection
    * , the primary Engine passes its `activeCamera` so the debug camera can
-   * drive the primary stage's view when toggled on. The 3-pass layer walk +
-   * adaptive static-cache logic is unchanged from the single-canvas Engine
-   * implementation; it now runs per stage.
+   * drive the primary stage's view when toggled on.
    */
   render(dt: number, camera: Camera = this.camera): void {
     const { renderer } = this
@@ -324,26 +262,12 @@ export class Stage {
     const currentFN = camera.frameNum
     const camMovedSincePrevFrame = currentFN !== this.#prevCameraFrameNum
     this.#prevCameraFrameNum = currentFN
+    void camMovedSincePrevFrame
 
-    // Dynamic resolution: choose this frame's render scale BEFORE reading the
-    // DPR below. `setRenderScale` may resize the backing store and invalidate
-    // the static bake, so it has to happen ahead of the draw.
-    if (this.#dynRes) {
-      const target = this.#dynRes.update(
-        performance.now(),
-        camMovedSincePrevFrame,
-      )
-      if (target !== this.#_renderScale) this.setRenderScale(target)
-    }
-
-    // Read DPR after any resolution change above (renderer.dpr may have moved).
     const dpr = renderer.dpr
     const dprScale = dpr * t.scale
     const vE = dpr * t.offsetX
     const vF = dpr * t.offsetY
-
-    const cacheHit =
-      !this.scene.staticInvalid && this.#bakedAtCameraFrameNum === currentFN
 
     // Frame-phase perf marks, same `engine.perfMarks` opt-in as the per-node
     // marks in `drawLayer`, so `?debug=perf` brackets each render phase
@@ -361,75 +285,24 @@ export class Stage {
     })
     this.#phaseEnd(marks, 'clear')
 
-    const isGpu = screen instanceof GpuGfx
-    if (isGpu) {
-      // Under GPU, map Path2Ds are tessellated at asset load, so rendering
-      // the static layer live every frame is one colored-tri batch (~5K
-      // tris). Sharper than the bake + reproject and avoids CLAMP_TO_EDGE
-      // artifacts when the viewport strays outside the bake's coverage.
-      this.#phaseBegin(marks, 'static-render')
-      this.#layerRenderer.drawLayer(
-        this.scene,
-        this.renderer,
-        'static',
-        screen,
-        camera,
-        dprScale,
-        vE,
-        vF,
-        dt,
-      )
-      this.#phaseEnd(marks, 'static-render')
-    } else if (cacheHit) {
-      // Canvas: cached ImageBitmap blit, the fast path.
-      this.#phaseBegin(marks, 'static-blit')
-      this.#blitStaticCache()
-      this.#phaseEnd(marks, 'static-blit')
-    } else if (camMovedSincePrevFrame) {
-      // Canvas motion: fresh rasterize (defer the bake so it happens on
-      // settle when the frame budget can absorb it).
-      this.#phaseBegin(marks, 'static-fresh')
-      this.#layerRenderer.drawLayer(
-        this.scene,
-        this.renderer,
-        'static',
-        screen,
-        camera,
-        dprScale,
-        vE,
-        vF,
-        dt,
-      )
-      this.#phaseEnd(marks, 'static-fresh')
-      this.#bakedAtCameraFrameNum = -1
-    } else {
-      this.#phaseBegin(marks, 'static-bake')
-      const bakeCtx = this.layers.ensureSize(
-        renderer.pixelSize.w,
-        renderer.pixelSize.h,
-      )
-      const bakeGfx =
-        this.#bakeGfx ?? (this.#bakeGfx = new Canvas2DGfx(bakeCtx))
-      bakeGfx.setContext(bakeCtx)
-      this.layers.clearBake()
-      this.#layerRenderer.drawLayer(
-        this.scene,
-        this.renderer,
-        'static',
-        bakeGfx,
-        camera,
-        dprScale,
-        vE,
-        vF,
-        dt,
-      )
-      this.layers.recordBake()
-      this.#bakedAtCameraFrameNum = currentFN
-      this.scene.markStaticClean()
-      this.#blitStaticCache()
-      this.#phaseEnd(marks, 'static-bake')
-    }
-    this.#flushIfGpu(screen)
+    // Map Path2Ds are tessellated at asset load, so rendering the static
+    // layer live every frame is one colored-tri batch (~5K tris). Sharper
+    // than a bake + reproject and avoids CLAMP_TO_EDGE artifacts when the
+    // viewport strays outside a stale bake's coverage.
+    this.#phaseBegin(marks, 'static-render')
+    this.#layerRenderer.drawLayer(
+      this.scene,
+      this.renderer,
+      'static',
+      screen,
+      camera,
+      dprScale,
+      vE,
+      vF,
+      dt,
+    )
+    this.#phaseEnd(marks, 'static-render')
+    screen.flush()
 
     this.#phaseBegin(marks, 'above-static')
     this.#layerRenderer.drawLayer(
@@ -444,7 +317,7 @@ export class Stage {
       dt,
     )
     this.#phaseEnd(marks, 'above-static')
-    this.#flushIfGpu(screen)
+    screen.flush()
 
     this.#phaseBegin(marks, 'dynamic')
     this.#layerRenderer.drawLayer(
@@ -459,7 +332,7 @@ export class Stage {
       dt,
     )
     this.#phaseEnd(marks, 'dynamic')
-    this.#flushIfGpu(screen)
+    screen.flush()
 
     // Debug overlays draw INSIDE the frame so they composite on top of the
     // dynamic layer through the same gfx pipeline.
@@ -473,34 +346,12 @@ export class Stage {
     if (debug && this.input) {
       debug.drawInputOverlay(this, screen)
     }
-    this.#flushIfGpu(screen)
+    screen.flush()
 
     screen.endFrame()
   }
 
-  /** Canvas-only. GPU renders the static layer live each frame instead. */
-  #blitStaticCache(): void {
-    const screen = this.#screenGfx
-    if (!(screen instanceof Canvas2DGfx)) return
-    this.layers.blit(screen.ctx)
-  }
-
-  #flushIfGpu(screen: Canvas2DGfx | GpuGfx): void {
-    if (screen instanceof GpuGfx) screen.flush()
-  }
-
-  /**
-   * The 2D context under Canvas mode. `null` under GPU. Escape hatch for
-   * consumers that need raw `CanvasRenderingContext2D` access.
-   */
-  get canvas2dCtx(): CanvasRenderingContext2D | null {
-    return this.#screenGfx instanceof Canvas2DGfx ? this.#screenGfx.ctx : null
-  }
-
-  /**
-   * Per-frame GPU pipeline stats, or `null` under Canvas mode. Read by the
-   * debug HUD.
-   */
+  /** Per-frame GPU pipeline stats. Read by the debug HUD. */
   get gpuStats(): {
     drawCalls: number
     programSwitches: number
@@ -509,51 +360,44 @@ export class Stage {
     overflowWarns: number
     sdfInstances: number
     strokeInstances: number
+    roundRectInstances: number
     msaaSamples: number
-  } | null {
-    return this.#screenGfx instanceof GpuGfx ? this.#screenGfx.stats : null
+  } {
+    return this.#screenGfx.stats
   }
 
   /**
-   * Read-only view of the GPU texture caches for the debug inspector, or `null`
-   * under Canvas mode. Built on demand, no standing cost when unused.
+   * Read-only view of the GPU texture caches for the debug inspector. Built
+   * on demand, no standing cost when unused.
    */
-  get textureInspector(): TextureInspector | null {
-    return this.#screenGfx instanceof GpuGfx
-      ? this.#screenGfx.textureInspector
-      : null
+  get textureInspector(): TextureInspector {
+    return this.#screenGfx.textureInspector
   }
 
   /**
-   * Live-switch MSAA sample count on the GPU render target. No-op under Canvas
-   * mode. Requested value is clamped to the driver's `MAX_SAMPLES` inside the
-   * device.
+   * Live-switch MSAA sample count on the GPU render target. Requested value
+   * is clamped to the driver's `MAX_SAMPLES` inside the device.
    */
   setMsaaSamples(samples: number): void {
-    if (this.#screenGfx instanceof GpuGfx) this.#screenGfx.setSamples(samples)
+    this.#screenGfx.setSamples(samples)
   }
 
-  /** Effective (post-clamp) MSAA sample count, or `null` under Canvas. */
-  getMsaaSamples(): number | null {
-    return this.#screenGfx instanceof GpuGfx
-      ? this.#screenGfx.getSamples()
-      : null
+  /** Effective (post-clamp) MSAA sample count. */
+  getMsaaSamples(): number {
+    return this.#screenGfx.getSamples()
   }
 
   /**
-   * Toggle a GPU-only debug render mode. No-op under Canvas mode. See
-   * `DebugRenderMode` for the modes and what they visualise.
+   * Toggle a debug render mode. See `DebugRenderMode` for the modes and what
+   * they visualise.
    */
-  setDebugRenderMode(mode: import('./gfx/gpu/GpuGfx').DebugRenderMode): void {
-    if (this.#screenGfx instanceof GpuGfx)
-      this.#screenGfx.setDebugRenderMode(mode)
+  setDebugRenderMode(mode: import('./gfx/GpuGfx').DebugRenderMode): void {
+    this.#screenGfx.setDebugRenderMode(mode)
   }
 
-  /** Current GPU debug render mode, or `null` under Canvas. */
-  getDebugRenderMode(): import('./gfx/gpu/GpuGfx').DebugRenderMode | null {
-    return this.#screenGfx instanceof GpuGfx
-      ? this.#screenGfx.getDebugRenderMode()
-      : null
+  /** Current debug render mode. */
+  getDebugRenderMode(): import('./gfx/GpuGfx').DebugRenderMode {
+    return this.#screenGfx.getDebugRenderMode()
   }
 
   /** Open a render-phase perf span. No-op unless `engine.perfMarks` is on. */
@@ -571,16 +415,11 @@ export class Stage {
     performance.measure(name, `phase-${name}:start`, `phase-${name}:end`)
   }
 
-  /** Re-acquire the rendering context after a `contextrestored` event. */
+  /** Re-acquire the rendering context after a `webglcontextrestored` event. */
   reacquireContext(): void {
     this.#screenGfx.reacquireContext()
     this.#screenGfx.rebuildResources()
-    // The offscreen bake context is gone too, drop the facade so the next
-    // bake recreates it against a fresh offscreen.
-    this.#bakeGfx = null
-    // Static bake is gone with the old context, mark for rebake.
     this.scene.invalidateStatic()
-    this.#bakedAtCameraFrameNum = -1
   }
 
   #applyResize = (): void => {
@@ -589,9 +428,7 @@ export class Stage {
     const cssW = rect.width
     const cssH = rect.height
     if (cssW === 0 || cssH === 0) return
-    // Fold the render scale into the effective DPR so a real CSS/DPR resize
-    // preserves whatever dynamic-resolution scale is currently applied.
-    const dpr = window.devicePixelRatio * this.#_renderScale
+    const dpr = window.devicePixelRatio
     if (
       cssW === this.renderer.cssSize.w &&
       cssH === this.renderer.cssSize.h &&
@@ -606,8 +443,6 @@ export class Stage {
     )
     this.camera.setPixelSize(cssW, cssH)
     this.scene.invalidateStatic()
-    // Backing store changed size, the offscreen bake is the wrong resolution.
-    this.#bakedAtCameraFrameNum = -1
     this.#onResize?.({
       cssSize: { ...this.renderer.cssSize },
       pixelSize: { ...this.renderer.pixelSize },
@@ -617,35 +452,25 @@ export class Stage {
 
   #onWindowResize = (): void => this.#applyResize()
 
-  /** Current dynamic-resolution scale in `(0, 1]`. Surfaced to the debug HUD. */
-  get renderScale(): number {
-    return this.#_renderScale
+  /**
+   * When false, the owning {@link Engine} skips this stage entirely each tick:
+   * its scene isn't walked (`onUpdate` / `onFixedStep`), transforms aren't
+   * propagated, and it isn't rendered. Flipping back to true resumes instantly
+   * with no re-init or context churn. Primary stages stay active for their
+   * whole lifetime; a secondary stage (e.g. a pre-warmed demo stage) can park
+   * at zero per-frame cost when idle.
+   *
+   * NOTE: physics worlds step from the engine's GLOBAL registry, independent of
+   * stage `active`. If a parked stage owns bodies, clear its scene (which
+   * unregisters the world) before setting `active = false`, or they keep
+   * stepping.
+   */
+  get active(): boolean {
+    return this.#active
   }
 
-  /**
-   * Set the dynamic-resolution scale and resize the backing store to
-   * `devicePixelRatio × scale`. Does NOT fire `onResize`, only pixel density
-   * changes. Invalidates the static bake so the next blit sees a
-   * correctly-sized bitmap.
-   */
-  setRenderScale(scale: number): void {
-    const clamped = Math.max(MIN_RENDER_SCALE, Math.min(1, scale))
-    if (clamped === this.#_renderScale) return
-    this.#_renderScale = clamped
-    if (this.#disposed) return
-    const cssW = this.renderer.cssSize.w
-    const cssH = this.renderer.cssSize.h
-    if (cssW === 0 || cssH === 0) return
-    const dpr = window.devicePixelRatio * clamped
-    if (dpr === this.renderer.dpr) return
-    this.renderer.resize(cssW, cssH, dpr)
-    this.#screenGfx.setInternalSize(
-      this.renderer.pixelSize.w,
-      this.renderer.pixelSize.h,
-    )
-    // Camera pixel size is CSS-space and unchanged, no `setPixelSize` needed.
-    this.scene.invalidateStatic()
-    this.#bakedAtCameraFrameNum = -1
+  setActive(value: boolean): void {
+    this.#active = value
   }
 
   dispose(): void {
@@ -659,8 +484,7 @@ export class Stage {
     this.#resizeObserver = null
     window.removeEventListener('resize', this.#onWindowResize)
     this.scene.root.destroy()
-    this.layers.dispose()
     // Tear down the WebGL2 device last, canvas listeners live on it.
-    this.#device?.destroy()
+    this.#device.destroy()
   }
 }
