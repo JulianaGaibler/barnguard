@@ -41,8 +41,8 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
 }
 
 /**
- * Populates a fresh {@link Scene}. Passed to {@link EngineHost.loadScene}, which
- * destroys the current scene's contents before calling it. Add root nodes
+ * Populates a fresh {@link SceneTree}. Passed to {@link EngineHost.loadScene},
+ * which destroys the current scene's contents before calling it. Add root nodes
  * through `scene.root`; reach shared services (input, animation, camera)
  * through `engine`. May be async, so it can await asset loads before building
  * the tree.
@@ -154,8 +154,8 @@ export function resolveMsaaSamples(explicit?: number): number {
  *
  * The MSAA sample count and debug HUD state resolve from `opts` first, then
  * fall back to URL flags (`?msaa=`, `?debug=`) so a deployed build can be
- * probed without a code change. See {@link EngineHostOptions} for the
- * per-field precedence.
+ * probed without a code change. See {@link EngineHostOptions} for the per-field
+ * precedence.
  *
  * @category Engine
  * @example
@@ -266,8 +266,9 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
       engine.destroy()
     },
     async loadScene(build) {
-      const existing = engine.tree.root.children.slice()
-      for (const child of existing) child.destroy()
+      // Wipe game content but keep the stage's intrinsic default cameras (and
+      // reset them to current), so a rebuilt scene still has a camera.
+      engine.primaryStage.clearScene()
       await build(engine.tree, engine)
     },
   }

@@ -40,7 +40,6 @@ export class EngineStageManager {
     // Secondary stages default to transparent, the parent HTML card owns
     // the background.
     const stage = new Stage(canvas, engine, {
-      initialViewport: opts.initialViewport,
       clearColor: opts.clearColor,
       transparent: opts.transparent ?? true,
       interactive: opts.interactive,

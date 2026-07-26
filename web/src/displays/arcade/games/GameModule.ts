@@ -23,8 +23,10 @@ export interface GameMeta {
    * the arcade display theme.
    */
   themeTokens?: ThemePalette
-  /** Whether this game submits to and shows `displays/arcade/leaderboard`,
-   * keyed by `id`. */
+  /**
+   * Whether this game submits to and shows `displays/arcade/leaderboard`, keyed
+   * by `id`.
+   */
   supportsLeaderboard?: boolean
 }
 
@@ -61,9 +63,9 @@ export interface GameModule {
   component: Component<GameProps>
   /**
    * Render a finished game's record to a printable JPEG label. Each game owns
-   * its own label design (Jezzball's badge won't look like Connect Four's),
-   * so this lives per-game rather than once for the whole arcade display.
-   * Omit entirely if this game doesn't print — the arcade display's
+   * its own label design (Jezzball's badge won't look like Connect Four's), so
+   * this lives per-game rather than once for the whole arcade display. Omit
+   * entirely if this game doesn't print — the arcade display's
    * `formatGameRecord` gates the attendant "Games" panel's Print button on
    * whether this is present, and dispatches here by `record.gameId` when it
    * is.
@@ -73,8 +75,8 @@ export interface GameModule {
     ctx: LabelRenderContext,
   ): Promise<Blob>
   /**
-   * Render a representative preview label for the attendant printer panel.
-   * Omit alongside `renderLabelForRecord` if this game doesn't print.
+   * Render a representative preview label for the attendant printer panel. Omit
+   * alongside `renderLabelForRecord` if this game doesn't print.
    */
   renderPreviewLabel?(ctx: PreviewLabelContext): Promise<Blob>
 }

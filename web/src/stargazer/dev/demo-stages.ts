@@ -1,4 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
+import { addDemoCamera } from './demoCamera'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { ParticleEmitterNode } from '../nodes/ParticleEmitterNode'
 import { ignoreAbort } from '../anim/abortSignal'
@@ -19,7 +20,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    initialViewport: { x: -800, y: -450, width: 1600, height: 900 },
   })
   attach?.(host)
 
@@ -34,6 +34,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     lineWidth: 3,
   })
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: -800, y: -450, width: 1600, height: 900 })
     scene.root.add(primaryHero)
   })
   host.start()
@@ -69,8 +70,13 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const buildSecondary = (): void => {
     secondaryStage = engine.attachStage(secondaryCanvas, {
       name: 'Loss Card',
-      initialViewport: { x: -120, y: -80, width: 240, height: 160 },
       interactive: true,
+    })
+    addDemoCamera(secondaryStage.tree, {
+      x: -120,
+      y: -80,
+      width: 240,
+      height: 160,
     })
 
     // Subscribe the stage-scoped counter, only fires for taps on THIS canvas.

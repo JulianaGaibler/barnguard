@@ -25,6 +25,8 @@ import type {
   ProgramOpts,
   RenderTarget,
   RenderTargetOpts,
+  ShadowArray,
+  ShadowCube,
   Texture,
   Texture2DOpts,
   TextureUploadOpts,
@@ -64,12 +66,24 @@ interface WebGL2Texture extends Texture {
   height: number
   filter: 'nearest' | 'linear'
   wrap: 'clamp' | 'repeat'
+  /** `true` ⇒ storage is `SRGB8_ALPHA8`; the realloc path must preserve it. */
+  srgb: boolean
+  /** `true` ⇒ mip chain regenerated after each full upload. */
+  mipmap: boolean
 }
 
 interface WebGL2Vao extends Vao {
   gl: WebGLVertexArrayObject
   /** Element width of the captured index buffer, read by `drawElements`. */
   indexType?: IndexType
+}
+
+interface WebGL2ShadowArray extends ShadowArray {
+  gl: WebGLTexture
+}
+
+interface WebGL2ShadowCube extends ShadowCube {
+  gl: WebGLTexture
 }
 
 /**
@@ -106,6 +120,11 @@ export class WebGL2Device implements GfxDevice {
   #curVao: WebGL2Vao | null = null
   #curBlend: GfxBlendMode | null = null
   #curFbo: WebGLFramebuffer | null = null
+  /**
+   * Reusable depth-only FBO for shadow passes; a layer/face is attached per
+   * draw.
+   */
+  #shadowFbo: WebGLFramebuffer | null = null
   // 3D-pass render state, cached like the rest so the 3D pass and
   // `resetToBaseline` skip redundant driver calls. Initial values match the
   // constructor's GL setup (depth off, writes on, no culling).
@@ -136,6 +155,12 @@ export class WebGL2Device implements GfxDevice {
   readonly maxTextureSize: number
   /** Driver's `MAX_SAMPLES`, clamps requested MSAA sample counts. */
   readonly maxSamples: number
+  /**
+   * `EXT_texture_filter_anisotropic` handle, or `null` when unavailable. Cached
+   * once; `#maxAnisotropy` holds the driver's cap (1 when the ext is absent).
+   */
+  readonly #anisoExt: EXT_texture_filter_anisotropic | null
+  readonly #maxAnisotropy: number
   #warnedMaxTextureClamp = false
   #warnedMaxSamplesClamp = false
 
@@ -155,6 +180,12 @@ export class WebGL2Device implements GfxDevice {
     this.#gl = gl
     this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number
     this.maxSamples = gl.getParameter(gl.MAX_SAMPLES) as number
+    this.#anisoExt = gl.getExtension('EXT_texture_filter_anisotropic')
+    this.#maxAnisotropy = this.#anisoExt
+      ? (gl.getParameter(
+          this.#anisoExt.MAX_TEXTURE_MAX_ANISOTROPY_EXT,
+        ) as number)
+      : 1
     // 2D content has mixed winding; culling would drop primitives silently.
     gl.disable(gl.CULL_FACE)
     // Depth/stencil are disabled at context creation; ensure they're off in
@@ -332,6 +363,12 @@ export class WebGL2Device implements GfxDevice {
     const w = p as WebGL2Program
     const loc = this.#locOf(w, name)
     if (loc !== null) this.#gl.uniform1f(loc, v)
+  }
+
+  setUniform2f(p: Program, name: string, x: number, y: number): void {
+    const w = p as WebGL2Program
+    const loc = this.#locOf(w, name)
+    if (loc !== null) this.#gl.uniform2f(loc, x, y)
   }
 
   setUniform4f(
@@ -556,12 +593,17 @@ export class WebGL2Device implements GfxDevice {
         'WebGL2Device.createTexture2D: createTexture returned null',
       )
     const [clampedW, clampedH] = this.#clampTextureDim(opts.width, opts.height)
+    const filter = opts.filter ?? 'linear'
+    const wrap = opts.wrap ?? 'clamp'
+    const srgb = opts.srgb ?? false
+    const mipmap = opts.mipmap ?? false
     gl.bindTexture(gl.TEXTURE_2D, tex)
-    // Allocate storage. Mutable, texImage2D can reallocate on resize.
+    // Allocate storage. Mutable, texImage2D can reallocate on resize. sRGB
+    // storage decodes to linear on sample; mip levels fill lazily on upload.
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
-      gl.RGBA8,
+      srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8,
       clampedW,
       clampedH,
       0,
@@ -569,13 +611,16 @@ export class WebGL2Device implements GfxDevice {
       gl.UNSIGNED_BYTE,
       null,
     )
-    const filter = opts.filter ?? 'linear'
-    const wrap = opts.wrap ?? 'clamp'
-    gl.texParameteri(
-      gl.TEXTURE_2D,
-      gl.TEXTURE_MIN_FILTER,
-      filter === 'linear' ? gl.LINEAR : gl.NEAREST,
-    )
+    // Mipmapped min-filter only when a chain was requested; otherwise a
+    // never-generated chain would sample as an incomplete (black) texture.
+    const minFilter = mipmap
+      ? filter === 'linear'
+        ? gl.LINEAR_MIPMAP_LINEAR
+        : gl.NEAREST_MIPMAP_NEAREST
+      : filter === 'linear'
+        ? gl.LINEAR
+        : gl.NEAREST
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, minFilter)
     gl.texParameteri(
       gl.TEXTURE_2D,
       gl.TEXTURE_MAG_FILTER,
@@ -591,6 +636,13 @@ export class WebGL2Device implements GfxDevice {
       gl.TEXTURE_WRAP_T,
       wrap === 'clamp' ? gl.CLAMP_TO_EDGE : gl.REPEAT,
     )
+    if (mipmap && this.#anisoExt && (opts.anisotropy ?? 1) > 1) {
+      gl.texParameterf(
+        gl.TEXTURE_2D,
+        this.#anisoExt.TEXTURE_MAX_ANISOTROPY_EXT,
+        Math.min(opts.anisotropy ?? 1, this.#maxAnisotropy),
+      )
+    }
     gl.bindTexture(gl.TEXTURE_2D, null)
     return {
       __gfxTexture: undefined as never,
@@ -599,6 +651,8 @@ export class WebGL2Device implements GfxDevice {
       height: clampedH,
       filter,
       wrap,
+      srgb,
+      mipmap,
     } as WebGL2Texture
   }
 
@@ -656,10 +710,12 @@ export class WebGL2Device implements GfxDevice {
         source,
       )
     } else {
+      // Re-spec at the new size. Preserve the texture's internal format —
+      // hardcoding RGBA8 here would silently drop an sRGB allocation.
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
-        gl.RGBA8,
+        t.srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8,
         gl.RGBA,
         gl.UNSIGNED_BYTE,
         source,
@@ -669,6 +725,10 @@ export class WebGL2Device implements GfxDevice {
       ;(t as { width: number }).width = w
       ;(t as { height: number }).height = h
     }
+    // Regenerate the mip chain from the freshly-uploaded level 0. Only full
+    // uploads do this; the partial `updateTextureSubImage2D` path never
+    // regenerates, so atlas textures stay non-mipmapped.
+    if (t.mipmap) gl.generateMipmap(gl.TEXTURE_2D)
     // Reset flip so subsequent uploads don't inherit it accidentally.
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
@@ -798,34 +858,22 @@ export class WebGL2Device implements GfxDevice {
         width: clampedW,
         height: clampedH,
         samples,
+        // The multisample renderbuffer path is always RGBA8 (see above).
+        colorSpace: 'linear',
       } as WebGL2RenderTarget
     } else {
       // Single-sample texture path, usable both for `samples: 1` opt-outs and
       // for a sampled resolve target (a `Viewport2DNode` reads it back in the
       // 3D pass).
+      // sRGB storage so a shader sampling this target decodes to linear and the
+      // gamma matches the on-screen surface.
       const color = this.createTexture2D({
         width: clampedW,
         height: clampedH,
         filter: 'linear',
         wrap: 'clamp',
+        srgb: opts.colorSpace === 'srgb',
       }) as WebGL2Texture
-      if (opts.colorSpace === 'srgb') {
-        // Re-specify storage as sRGB so a shader sampling this target decodes
-        // to linear and the gamma matches the on-screen surface.
-        gl.bindTexture(gl.TEXTURE_2D, color.gl)
-        gl.texImage2D(
-          gl.TEXTURE_2D,
-          0,
-          gl.SRGB8_ALPHA8,
-          clampedW,
-          clampedH,
-          0,
-          gl.RGBA,
-          gl.UNSIGNED_BYTE,
-          null,
-        )
-        gl.bindTexture(gl.TEXTURE_2D, null)
-      }
       gl.framebufferTexture2D(
         gl.FRAMEBUFFER,
         gl.COLOR_ATTACHMENT0,
@@ -840,6 +888,7 @@ export class WebGL2Device implements GfxDevice {
         width: clampedW,
         height: clampedH,
         samples: 1,
+        colorSpace: opts.colorSpace ?? 'linear',
       } as WebGL2RenderTarget
     }
     // Optional depth-stencil attachment (3D passes; 2D leaves it off). Sample
@@ -961,6 +1010,203 @@ export class WebGL2Device implements GfxDevice {
     if (r.depthRb !== undefined) this.#gl.deleteRenderbuffer(r.depthRb)
   }
 
+  // --- shadow maps ----------------------------------------------------------
+
+  createShadowArray(size: number, layers: number): ShadowArray {
+    const gl = this.#gl
+    const tex = gl.createTexture()
+    if (!tex)
+      throw new Error(
+        'WebGL2Device.createShadowArray: createTexture returned null',
+      )
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex)
+    gl.texStorage3D(
+      gl.TEXTURE_2D_ARRAY,
+      1,
+      gl.DEPTH_COMPONENT24,
+      size,
+      size,
+      layers,
+    )
+    this.#setShadowSampling(gl.TEXTURE_2D_ARRAY)
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, null)
+    return {
+      __gfxShadowArray: undefined as never,
+      gl: tex,
+      size,
+      layers,
+    } as WebGL2ShadowArray
+  }
+
+  createShadowCube(size: number): ShadowCube {
+    const gl = this.#gl
+    const tex = gl.createTexture()
+    if (!tex)
+      throw new Error(
+        'WebGL2Device.createShadowCube: createTexture returned null',
+      )
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, tex)
+    gl.texStorage2D(gl.TEXTURE_CUBE_MAP, 1, gl.DEPTH_COMPONENT24, size, size)
+    this.#setShadowSampling(gl.TEXTURE_CUBE_MAP)
+    gl.texParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, null)
+    return {
+      __gfxShadowCube: undefined as never,
+      gl: tex,
+      size,
+    } as WebGL2ShadowCube
+  }
+
+  /**
+   * Depth-compare sampling (hardware 2×2 PCF via LINEAR +
+   * COMPARE_REF_TO_TEXTURE).
+   */
+  #setShadowSampling(target: number): void {
+    const gl = this.#gl
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+    gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(target, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE)
+    gl.texParameteri(target, gl.TEXTURE_COMPARE_FUNC, gl.LEQUAL)
+  }
+
+  deleteShadowArray(s: ShadowArray): void {
+    this.#gl.deleteTexture((s as WebGL2ShadowArray).gl)
+  }
+
+  deleteShadowCube(s: ShadowCube): void {
+    this.#gl.deleteTexture((s as WebGL2ShadowCube).gl)
+  }
+
+  #ensureShadowFbo(): WebGLFramebuffer {
+    if (!this.#shadowFbo) {
+      const fbo = this.#gl.createFramebuffer()
+      if (!fbo)
+        throw new Error('WebGL2Device: shadow createFramebuffer returned null')
+      this.#shadowFbo = fbo
+    }
+    return this.#shadowFbo
+  }
+
+  /**
+   * Attach a depth target, mark the FBO depth-only, clear it, size the
+   * viewport.
+   */
+  #beginShadowTarget(attach: () => void, size: number): void {
+    const gl = this.#gl
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.#ensureShadowFbo())
+    this.#curFbo = this.#shadowFbo
+    attach()
+    // Depth-only completeness: no color attachment, so draw/read buffers = NONE.
+    gl.drawBuffers([gl.NONE])
+    gl.readBuffer(gl.NONE)
+    gl.viewport(0, 0, size, size)
+    this.setDepthTest(true)
+    this.setDepthWrite(true) // depth writes must be on for the clear to land
+    gl.clearDepth(1.0)
+    gl.clear(gl.DEPTH_BUFFER_BIT)
+  }
+
+  beginShadowLayer(s: ShadowArray, layer: number): void {
+    const arr = s as WebGL2ShadowArray
+    const gl = this.#gl
+    this.#beginShadowTarget(
+      () =>
+        gl.framebufferTextureLayer(
+          gl.FRAMEBUFFER,
+          gl.DEPTH_ATTACHMENT,
+          arr.gl,
+          0,
+          layer,
+        ),
+      arr.size,
+    )
+  }
+
+  beginShadowCubeFace(s: ShadowCube, face: number): void {
+    const cube = s as WebGL2ShadowCube
+    const gl = this.#gl
+    this.#beginShadowTarget(
+      () =>
+        gl.framebufferTexture2D(
+          gl.FRAMEBUFFER,
+          gl.DEPTH_ATTACHMENT,
+          gl.TEXTURE_CUBE_MAP_POSITIVE_X + face,
+          cube.gl,
+          0,
+        ),
+      cube.size,
+    )
+  }
+
+  endShadowPass(): void {
+    // The shadow FBO stays bound; the next `beginFrame` rebinds the screen
+    // target and resets the viewport (its `#curFbo !== screenFbo` check fires).
+  }
+
+  setUniformShadowArray(
+    p: Program,
+    name: string,
+    s: ShadowArray,
+    unit: number,
+  ): void {
+    this.#bindSampler(
+      p,
+      name,
+      (s as WebGL2ShadowArray).gl,
+      this.#gl.TEXTURE_2D_ARRAY,
+      unit,
+    )
+  }
+
+  setUniformShadowCube(
+    p: Program,
+    name: string,
+    s: ShadowCube,
+    unit: number,
+  ): void {
+    this.#bindSampler(
+      p,
+      name,
+      (s as WebGL2ShadowCube).gl,
+      this.#gl.TEXTURE_CUBE_MAP,
+      unit,
+    )
+  }
+
+  /**
+   * Shared bind path for non-2D samplers (array/cube), mirroring
+   * setUniformTexture.
+   */
+  #bindSampler(
+    p: Program,
+    name: string,
+    handle: WebGLTexture,
+    target: number,
+    unit: number,
+  ): void {
+    const gl = this.#gl
+    if (this.#boundTex[unit] !== handle) {
+      gl.activeTexture(gl.TEXTURE0 + unit)
+      gl.bindTexture(target, handle)
+      this.#boundTex[unit] = handle
+      this.deviceStats.textureBinds++
+    }
+    const w = p as WebGL2Program
+    if (w.samplerUnits.get(name) !== unit) {
+      const loc = this.#locOf(w, name)
+      if (loc !== null) gl.uniform1i(loc, unit)
+      w.samplerUnits.set(name, unit)
+    }
+  }
+
+  setUniformMat4Array(p: Program, name: string, m: Float32Array): void {
+    const w = p as WebGL2Program
+    const loc = this.#locOf(w, name)
+    if (loc !== null) this.#gl.uniformMatrix4fv(loc, false, m)
+  }
+
   // --- frame lifecycle ------------------------------------------------------
 
   beginFrame(opts: BeginFrameOpts): void {
@@ -1000,16 +1246,23 @@ export class WebGL2Device implements GfxDevice {
   setBlend(mode: GfxBlendMode): void {
     if (this.#curBlend === mode) return
     const gl = this.#gl
-    if (mode === 'source-over') {
-      gl.blendFuncSeparate(
-        gl.ONE,
-        gl.ONE_MINUS_SRC_ALPHA,
-        gl.ONE,
-        gl.ONE_MINUS_SRC_ALPHA,
-      )
+    if (mode === 'none') {
+      // Full-overwrite passes (post-processing) disable blending entirely.
+      gl.disable(gl.BLEND)
     } else {
-      // 'lighter', additive; both surface and source are premultiplied.
-      gl.blendFunc(gl.ONE, gl.ONE)
+      // Re-enable blending when leaving 'none' (it is on at context init).
+      if (this.#curBlend === 'none') gl.enable(gl.BLEND)
+      if (mode === 'source-over') {
+        gl.blendFuncSeparate(
+          gl.ONE,
+          gl.ONE_MINUS_SRC_ALPHA,
+          gl.ONE,
+          gl.ONE_MINUS_SRC_ALPHA,
+        )
+      } else {
+        // 'lighter', additive; both surface and source are premultiplied.
+        gl.blendFunc(gl.ONE, gl.ONE)
+      }
     }
     this.#curBlend = mode
     this.deviceStats.blendSwitches++
@@ -1146,6 +1399,41 @@ export class WebGL2Device implements GfxDevice {
     this.#curFbo = null
   }
 
+  resolveTo(src: RenderTarget, dst: RenderTarget): void {
+    const gl = this.#gl
+    const s = src as WebGL2RenderTarget
+    const d = dst as WebGL2RenderTarget
+    // Same rule as blitToDefault: a multisample resolve needs NEAREST and equal
+    // src/dst bounds. src and dst share a size here (the caller allocates dst at
+    // src's size), and they must share an internal format too.
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, s.fbo)
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, d.fbo)
+    gl.blitFramebuffer(
+      0,
+      0,
+      s.width,
+      s.height,
+      0,
+      0,
+      d.width,
+      d.height,
+      gl.COLOR_BUFFER_BIT,
+      gl.NEAREST,
+    )
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    this.#curFbo = null
+  }
+
+  bindRenderTarget(target: RenderTarget): void {
+    const gl = this.#gl
+    const r = target as WebGL2RenderTarget
+    if (this.#curFbo !== r.fbo) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, r.fbo)
+      this.#curFbo = r.fbo
+    }
+    gl.viewport(0, 0, r.width, r.height)
+  }
+
   // --- context loss ---------------------------------------------------------
 
   isContextLost(): boolean {
@@ -1170,6 +1458,7 @@ export class WebGL2Device implements GfxDevice {
     this.#curVao = null
     this.#curBlend = null
     this.#curFbo = null
+    this.#shadowFbo = null
     this.#boundTex = []
     this.#boundArrayBuffer = null
     for (const cb of this.#lostCbs) cb()

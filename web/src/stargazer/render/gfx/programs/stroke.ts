@@ -214,10 +214,10 @@ export class StrokeProgram implements GpuProgram {
   }
 
   /**
-   * Midpoint-Bézier smoothing (`GfxStrokeStyle.smoothing: 'quadratic'`):
-   * a segment to the midpoint, then a quadratic curve per interior point
-   * using the midpoint of successive points as the anchor. Flattens to line
-   * segments in the scratch buffer + returns the point count.
+   * Midpoint-Bézier smoothing (`GfxStrokeStyle.smoothing: 'quadratic'`): a
+   * segment to the midpoint, then a quadratic curve per interior point using
+   * the midpoint of successive points as the anchor. Flattens to line segments
+   * in the scratch buffer + returns the point count.
    */
   #smoothToBuffer(
     ctx: GpuBatchContext,

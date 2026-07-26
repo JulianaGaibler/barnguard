@@ -11,7 +11,7 @@ export interface A11yRootParams {
 }
 
 /**
- * Svelte action that hands an element to {@link AccessibilityTree} as its mount
+ * Svelte action that hands an element to `AccessibilityTree` as its mount
  * point. The engine fills it with a hidden, screen-reader-readable mirror of
  * the registered scene nodes and makes it visually hidden. Place it where its
  * reading order relative to the canvas is correct — typically a sibling right

@@ -141,8 +141,18 @@ export interface TextureInspectorSnapshot {
     /** One entry per bound sprite; `srcRect` is normalized `[u0, v0, u1, v1]`. */
     bindings: { srcRect: readonly [number, number, number, number] }[]
   }
-  /** Non-atlas images, keyed by their own source in the live cache. */
-  perSource: { width: number; height: number; source: CanvasImageSource }[]
+  /**
+   * Non-atlas images: 2D textures keyed by their own source in the live cache,
+   * or the 3D material textures of a model source. `label` names a model
+   * texture's role (`baseColor`, `normal`, …); it's absent for 2D per-source
+   * images.
+   */
+  perSource: {
+    width: number
+    height: number
+    source: CanvasImageSource
+    label?: string
+  }[]
   /** One entry per cached label texture, with its style recovered from the key. */
   labels: TextureInspectorLabel[]
   labelCount: number

@@ -1,7 +1,7 @@
 // Per-node pivot cross + OBB outline overlay for the debug HUD. Pure function
 // of the scene tree + camera, no controller state.
 
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { Stage } from '../render/Stage'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { Node2D } from '../scene/Node2D'
@@ -12,7 +12,11 @@ import { walkTree } from '../scene/traverse'
  * `stage`'s scene. Called by `DebugController.drawOverlay` when the outlines
  * toggle is on.
  */
-export function drawNodeOutlines(gfx: Gfx2D, stage: Stage, cam: Camera): void {
+export function drawNodeOutlines(
+  gfx: Gfx2D,
+  stage: Stage,
+  cam: CameraView2D,
+): void {
   const strokeStyle = { color: 'rgba(96, 165, 250, 0.6)', width: 1 }
   const rectPts = new Float32Array(8)
 

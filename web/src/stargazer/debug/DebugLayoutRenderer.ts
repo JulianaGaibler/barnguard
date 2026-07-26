@@ -2,7 +2,7 @@
 // LayoutNode so the layout structure is visible. Pure function of the scene
 // tree + camera, no controller state. Toggled separately from node outlines.
 
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { Stage } from '../render/Stage'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import { walkTree } from '../scene/traverse'
@@ -16,7 +16,7 @@ import { LayoutNode } from '../layout/LayoutNode'
 export function drawLayoutOutlines(
   gfx: Gfx2D,
   stage: Stage,
-  cam: Camera,
+  cam: CameraView2D,
 ): void {
   const stroke = { color: 'rgba(45, 212, 191, 0.85)', width: 1.5 }
   const pts = new Float32Array(8)

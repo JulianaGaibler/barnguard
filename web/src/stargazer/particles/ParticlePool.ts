@@ -17,22 +17,27 @@ export interface ParticleField {
   colorIdx: Uint8Array
   /** 1 = live, 0 = free-listed. */
   alive: Uint8Array
-  /** Current rotation, radians. 0 for a particle whose config has no `spinRadPerSec`. */
+  /**
+   * Current rotation, radians. 0 for a particle whose config has no
+   * `spinRadPerSec`.
+   */
   angle: Float32Array
   /** Per-particle constant angular velocity, rad/s, sampled at spawn. */
   spin: Float32Array
-  /** Launch speed magnitude (world units/s), sampled at spawn. Drives `scaleBy: 'speed'` and `minSpeedFrac`. */
+  /**
+   * Launch speed magnitude (world units/s), sampled at spawn. Drives `scaleBy:
+   * 'speed'` and `minSpeedFrac`.
+   */
   speed0: Float32Array
 }
 
 /**
- * Fixed-capacity particle pool. All storage is allocated once at
- * construction; per-frame `spawn`/`kill`/`clear` are allocation-free. Slot
- * allocation itself (the freelist, `highWaterIndex`, `aliveCount`) is
- * delegated to {@link SlotPool}; this class pairs that with the fixed
- * {@link ParticleField} typed arrays and mirrors liveness into
- * `field.alive` so draw loops can read it directly without going through
- * the pool.
+ * Fixed-capacity particle pool. All storage is allocated once at construction;
+ * per-frame `spawn`/`kill`/`clear` are allocation-free. Slot allocation itself
+ * (the freelist, `highWaterIndex`, `aliveCount`) is delegated to `SlotPool`;
+ * this class pairs that with the fixed {@link ParticleField} typed arrays and
+ * mirrors liveness into `field.alive` so draw loops can read it directly
+ * without going through the pool.
  *
  * @category Particles
  */

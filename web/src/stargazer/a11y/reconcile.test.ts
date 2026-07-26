@@ -13,7 +13,10 @@ function entry(node: Node2D, semantics: Semantics): ReconcileEntry {
 }
 
 /** Registered entries in scene painter pre-order (as the subsystem passes them). */
-function ordered(scene: SceneTree, entries: ReconcileEntry[]): ReconcileEntry[] {
+function ordered(
+  scene: SceneTree,
+  entries: ReconcileEntry[],
+): ReconcileEntry[] {
   const byNode = new Map(entries.map((e) => [e.node, e]))
   const out: ReconcileEntry[] = []
   for (const n of scene.getPainterOrder()) {

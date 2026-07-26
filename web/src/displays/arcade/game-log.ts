@@ -6,8 +6,8 @@
  *
  * The arcade hosts three games with incompatible scoring scales (Jezzball's
  * points vs. Connect Four's/Orbo's round-win streaks), so high scores are
- * grouped per `gameId` rather than tracked as a single arcade-wide "overall"
- * — see `ArcadeHighScores`.
+ * grouped per `gameId` rather than tracked as a single arcade-wide "overall" —
+ * see `ArcadeHighScores`.
  */
 
 import {
@@ -31,8 +31,8 @@ export interface ArcadeDetails {
   /** Human-readable winning side (e.g. `'player1'`, `'left'`, `'tie'`). */
   winner?: string
   /**
-   * Snapshotted server-side; true iff the score was the best for this
-   * `gameId` when recorded.
+   * Snapshotted server-side; true iff the score was the best for this `gameId`
+   * when recorded.
    */
   wasGameHigh: boolean
   /** The name the player saved to the leaderboard for this run, if any. */
@@ -58,8 +58,8 @@ export interface ArcadeHighScores {
 
 /**
  * `GameRecord` from the core client (envelope + open bag) narrowed to the
- * arcade shape. Use only on records known to carry the display tag —
- * typically inside the attendant panel or the manifest boundary.
+ * arcade shape. Use only on records known to carry the display tag — typically
+ * inside the attendant panel or the manifest boundary.
  */
 export function asArcade(record: GameRecord): ArcadeGameRecord {
   return record as unknown as ArcadeGameRecord

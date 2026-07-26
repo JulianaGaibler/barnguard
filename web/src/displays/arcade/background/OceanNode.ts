@@ -1,4 +1,9 @@
-import { Node2D, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  Node2D,
+  type CameraView2D,
+  type Gfx2D,
+  type Rect,
+} from '@src/stargazer'
 import { layout } from '../world'
 import { rgbaStr } from './palette'
 import { visibleWorldRect } from './util'
@@ -24,7 +29,7 @@ export class OceanNode extends Node2D {
     this.renderLayer = 'dynamic'
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const vr = visibleWorldRect(camera, this.#vr)
     const p = this.#source.palette
     const top = layout.worldHeight - BAND_HEIGHT

@@ -12,7 +12,7 @@
  */
 import {
   VectorParticleNode,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Vec2,
   type VectorParticleSpawnInit,
@@ -49,7 +49,10 @@ export class OrbExplodeNode extends VectorParticleNode {
   readonly #lineHalf: number
   readonly #color: string
 
-  /** Staged for the particle `burst(1)` is about to spawn; read back inside `spawnParticle`. */
+  /**
+   * Staged for the particle `burst(1)` is about to spawn; read back inside
+   * `spawnParticle`.
+   */
   #pendingTheta = 0
   #age = 0
 
@@ -58,7 +61,11 @@ export class OrbExplodeNode extends VectorParticleNode {
       6,
       Math.round(COUNT_BASE + sourceRadius * COUNT_PER_RADIUS),
     )
-    super({ id: 'orb-explode', capacity: count, dampingPerSec: DAMPING_PER_SEC })
+    super({
+      id: 'orb-explode',
+      capacity: count,
+      dampingPerSec: DAMPING_PER_SEC,
+    })
     this.transform.x = center.x
     this.transform.y = center.y
 
@@ -81,7 +88,10 @@ export class OrbExplodeNode extends VectorParticleNode {
     void this.autoDestroy(this.waitUntilEmpty())
   }
 
-  protected override spawnParticle(i: number, out: VectorParticleSpawnInit): void {
+  protected override spawnParticle(
+    i: number,
+    out: VectorParticleSpawnInit,
+  ): void {
     const theta = this.#pendingTheta
     const speed =
       this.#speedMin + Math.random() * (this.#speedMax - this.#speedMin)
@@ -114,9 +124,16 @@ export class OrbExplodeNode extends VectorParticleNode {
     if (this.#age >= MAX_LIFE_SEC) this.destroy()
   }
 
-  protected override drawParticle(gfx: Gfx2D, i: number, camera: Camera): void {
+  protected override drawParticle(
+    gfx: Gfx2D,
+    i: number,
+    camera: CameraView2D,
+  ): void {
     // Shrink with the piece's remaining speed so it dissolves as it slows.
-    const scale = Math.min(1, Math.hypot(this.vx[i], this.vy[i]) / this.speed0[i])
+    const scale = Math.min(
+      1,
+      Math.hypot(this.vx[i], this.vy[i]) / this.speed0[i],
+    )
     if (scale <= 0.02) return
     gfx.scale(scale, scale)
     if (this.#kind[i] === 0) {

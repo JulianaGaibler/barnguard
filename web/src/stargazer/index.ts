@@ -132,6 +132,10 @@ export {
   mat4TransformPoint,
   mat4TransformDir,
 } from './math/Mat4'
+export type { Mat3 } from './math/Mat3'
+export { mat3, mat3NormalMatrix } from './math/Mat3'
+export type { Aabb } from './math/shadowFit'
+export { fitDirectionalOrtho } from './math/shadowFit'
 export { clamp, clampAbs, lerp, lerpAngle } from './math/scalar'
 export type { Easing } from './math/easings'
 /**
@@ -142,13 +146,17 @@ export type { Easing } from './math/easings'
  */
 export * as easings from './math/easings'
 
-// camera
-export { Camera } from './camera/Camera'
+// camera — cameras are scene-tree nodes; `Camera`/`Camera3D` are internal
+// view-math helpers the nodes own and are not exported.
+export { CameraNode2D } from './camera/CameraNode2D'
+export { CameraNode3D } from './camera/CameraNode3D'
+export type { CameraView2D, Affine2x3 } from './camera/CameraView2D'
+export type { CameraView3D } from './camera/CameraView3D'
 export type { ScreenTransform, CameraAnimateOptions } from './camera/Camera'
-export { Camera3D } from './camera/Camera3D'
 export type {
   Projectionness,
   ProjectionAnimateOptions,
+  ScreenProjection,
 } from './camera/Camera3D'
 
 // render internals (mostly for advanced users / tests)
@@ -160,6 +168,26 @@ export type {
 } from './render/Stage'
 export { Renderer } from './render/Renderer'
 export type { RendererOptions } from './render/Renderer'
+export {
+  RenderQuality,
+  SHADOW_MAP_SIZES,
+  SHADOW_SOFTNESS_TAPS,
+} from './render/RenderQuality'
+export type { RenderQualityOptions } from './render/RenderQuality'
+export { Fog } from './render/Fog'
+export type { FogOptions, FogMode } from './render/Fog'
+export { PostProcessPipeline } from './render/postfx/PostProcessPipeline'
+export type {
+  PostEffect,
+  PostPass,
+  PostPassContext,
+} from './render/postfx/PostEffect'
+export { ChromaticAberration } from './render/postfx/effects/ChromaticAberration'
+export type { ChromaticAberrationOptions } from './render/postfx/effects/ChromaticAberration'
+export { Vignette } from './render/postfx/effects/Vignette'
+export type { VignetteOptions } from './render/postfx/effects/Vignette'
+export { VignetteBlur } from './render/postfx/effects/VignetteBlur'
+export type { VignetteBlurOptions } from './render/postfx/effects/VignetteBlur'
 export type {
   Gfx2D,
   GfxBlend,
@@ -212,7 +240,20 @@ export type {
 export { TextNode } from './nodes/TextNode'
 export type { TextNodeOptions } from './nodes/TextNode'
 export { MeshNode, createBoxGeometry } from './nodes/MeshNode'
-export type { MeshGeometry, MeshMaterial } from './nodes/MeshNode'
+export type {
+  MeshGeometry,
+  MeshMaterial,
+  MaterialTexture,
+  TextureImage,
+  TextureSampler,
+} from './nodes/MeshNode'
+export {
+  Light3D,
+  DirectionalLight3D,
+  PointLight3D,
+  SpotLight3D,
+} from './nodes/Light3D'
+export type { Light3DOptions } from './nodes/Light3D'
 export { Viewport2DNode } from './nodes/Viewport2DNode'
 export type { Viewport2DOptions } from './nodes/Viewport2DNode'
 export { measureText } from './render/gfx/rasterizeLabel'
@@ -325,6 +366,16 @@ export { Animator } from './anim/Animator'
 export type { TweenOptions } from './anim/Animator'
 export { Timeline } from './anim/Timeline'
 export type { TimelineStep } from './anim/Timeline'
+// glTF keyframe playback (distinct from the tween Animator above)
+export { AnimationPlayer } from './anim/AnimationPlayer'
+export type { AnimationPlayerOptions } from './anim/AnimationPlayer'
+export type {
+  AnimationClip,
+  AnimationChannel,
+  AnimationSampler,
+  Interpolation,
+  ChannelPath,
+} from './anim/AnimationClip'
 export {
   ignoreAbort,
   isAbortError,

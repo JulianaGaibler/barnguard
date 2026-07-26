@@ -8,7 +8,10 @@
   interface Props {
     size?: number
     filled?: boolean
-    /** Gold-gradient fill for the high-score badge; plain `currentColor` otherwise. */
+    /**
+     * Gold-gradient fill for the high-score badge; plain `currentColor`
+     * otherwise.
+     */
     gold?: boolean
   }
   const { size = 16, filled = false, gold = false }: Props = $props()

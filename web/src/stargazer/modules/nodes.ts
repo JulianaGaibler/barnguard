@@ -4,8 +4,8 @@
  * point stream (finger-drawn paths), {@link TextNode} a line of text,
  * {@link ParticleEmitterNode} a baked, sprite-based particle system, and
  * {@link VectorParticleNode} an open base class for particles that need
- * per-piece vector geometry. {@link Node2D} is a transform-only container
- * for grouping children. Subclass `Node2D` for anything custom.
+ * per-piece vector geometry. {@link Node2D} is a transform-only container for
+ * grouping children. Subclass `Node2D` for anything custom.
  *
  * @module nodes
  * @category Nodes
@@ -30,6 +30,19 @@ export type {
 export { TextNode } from '../nodes/TextNode'
 export type { TextNodeOptions } from '../nodes/TextNode'
 export { MeshNode, createBoxGeometry } from '../nodes/MeshNode'
-export type { MeshGeometry, MeshMaterial } from '../nodes/MeshNode'
+export type {
+  MeshGeometry,
+  MeshMaterial,
+  MaterialTexture,
+  TextureImage,
+  TextureSampler,
+} from '../nodes/MeshNode'
+export {
+  Light3D,
+  DirectionalLight3D,
+  PointLight3D,
+  SpotLight3D,
+} from '../nodes/Light3D'
+export type { Light3DOptions } from '../nodes/Light3D'
 export { Viewport2DNode } from '../nodes/Viewport2DNode'
 export type { Viewport2DOptions } from '../nodes/Viewport2DNode'

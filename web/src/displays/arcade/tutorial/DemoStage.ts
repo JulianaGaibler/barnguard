@@ -1,11 +1,16 @@
-import type { EngineHost, Rect, Stage } from '@src/stargazer'
+import {
+  CameraNode2D,
+  type EngineHost,
+  type Rect,
+  type Stage,
+} from '@src/stargazer'
 import type { DemoBuilder, DemoHandle, DemoStageController } from './types'
 
 /**
  * Fixed world rect the demo stage frames. 4:3, matching the media slot's aspect
  * (`--htp-media-w` : `--htp-media-h` in `HowToPlay.svelte`), so the world fills
  * the canvas with no letterbox and builders can lay out against a constant
- * rect. Read by builders as `stage.camera.viewport`.
+ * rect. Read by builders as `stage.currentCamera2D.viewport`.
  */
 const DEMO_VIEWPORT: Rect = { x: 0, y: 0, width: 1000, height: 750 }
 
@@ -69,11 +74,17 @@ export class DemoStage implements DemoStageController {
       name: 'Tutorial Demo',
       interactive: false,
       transparent: true,
-      initialViewport: { ...DEMO_VIEWPORT },
       // Revealing into a slot resizes the canvas; build any pending demo once
       // it has a real backing size.
       onResize: () => this.#tryBuild(),
     })
+    // The demo stage's own camera, framing the fixed 4:3 demo rect. Intrinsic so
+    // it survives the `destroyChildren()` sweep between demos.
+    const cam = new CameraNode2D('demo-camera')
+    cam.setViewport({ ...DEMO_VIEWPORT })
+    cam.intrinsic = true
+    this.#stage.tree.root.add(cam)
+    cam.makeCurrent()
     this.#stage.setActive(false)
   }
 

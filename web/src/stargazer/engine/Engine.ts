@@ -6,15 +6,25 @@ import type { Node } from '../scene/Node'
 import type { SceneTree } from '../scene/SceneTree'
 import type { Node2D } from '../scene/Node2D'
 import { walkTree } from '../scene/traverse'
-import type { Camera } from '../camera/Camera'
-import type { Camera3D } from '../camera/Camera3D'
-import type { Rect } from '../math/Rect'
+import type { CameraNode2D } from '../camera/CameraNode2D'
+import type { CameraNode3D } from '../camera/CameraNode3D'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { DebugController } from '../debug/DebugController'
 import { InputSystem } from '../input/InputSystem'
 import { Animator, type TweenOptions } from '../anim/Animator'
 import { combineAbortSignals } from '../anim/abortSignal'
 import type { Transform2D } from '../math/Transform2D'
-import { Stage, type StageOptions, type StagePointerEvents } from '../render/Stage'
+import {
+  Stage,
+  type StageOptions,
+  type StagePointerEvents,
+} from '../render/Stage'
+import {
+  RenderQuality,
+  type RenderQualityOptions,
+} from '../render/RenderQuality'
+import { Fog, type FogOptions } from '../render/Fog'
+import type { PostProcessPipeline } from '../render/postfx/PostProcessPipeline'
 import type { GfxDevice } from '../render/gfx/GfxDevice'
 import { EngineStageManager } from './EngineStageManager'
 import type { PhysicsWorld, PhysicsWorldConfig } from '../physics/PhysicsWorld'
@@ -47,13 +57,15 @@ export interface EngineOptions {
   maxFps?: number
   /** Smooth render `dt` to filter timer-precision jitter. Default true. */
   smoothTimestep?: boolean
-  /** Initial camera viewport in world coords. Default 1920×1080. */
-  initialViewport?: Rect
   /**
    * MSAA sample count. `0`/`1` disables, `>1` allocates a multisample
    * renderbuffer resolved on present. Default 4. Secondary stages inherit.
    */
   msaaSamples?: number
+  /** Initial 3D rendering-quality settings (shadow resolution, anisotropy, …). */
+  quality?: RenderQualityOptions
+  /** Initial 3D distance-fog settings. Off unless `enabled` is set. */
+  fog?: FogOptions
   /**
    * Attach a {@link PhysicsWorld} to the primary stage. `true` uses defaults;
    * pass a config to tune gravity, iterations, sleeping, etc. The fixed-step
@@ -62,9 +74,8 @@ export interface EngineOptions {
    */
   physics?: boolean | PhysicsWorldConfig
   /**
-   * Test-only escape hatch: inject a prebuilt `GfxDevice` for the primary
-   * stage instead of acquiring a real WebGL2 context. See
-   * `StageOptions.gpuDevice`.
+   * Test-only escape hatch: inject a prebuilt `GfxDevice` for the primary stage
+   * instead of acquiring a real WebGL2 context. See `StageOptions.gpuDevice`.
    */
   gpuDevice?: GfxDevice
 }
@@ -96,10 +107,6 @@ export interface RegisterPhysicsWorldOptions {
   label?: string
 }
 
-// Landscape 16:9 by default. The kiosk is 3840×2160 and every dev browser
-// is landscape too; specific games (e.g. the map-based one) override.
-const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1920, height: 1080 }
-
 /**
  * The core engine: a {@link Ticker}, a primary {@link Stage}, an
  * {@link InputSystem}, an {@link Animator}, and an event bus wired together. One
@@ -109,8 +116,8 @@ const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1920, height: 1080 }
  *
  * Most apps build this through `createEngineHost` rather than directly, the
  * host adds start/stop, pause/resume, and context-loss recovery on top. The
- * `renderer`, `scene`, and `camera` getters forward to the primary stage for
- * convenience.
+ * `renderer`, `tree`, and `currentCamera2D` getters forward to the primary
+ * stage for convenience.
  *
  * @category Engine
  */
@@ -118,9 +125,14 @@ export class Engine {
   readonly ticker: Ticker
   readonly events: Emitter<EngineEvents>
   readonly canvas: HTMLCanvasElement
+  /** Live 3D rendering-quality settings, read by the renderer each frame. */
+  readonly quality: RenderQuality
+  /** Live 3D distance-fog settings, read by the renderer each frame. */
+  readonly fog: Fog
+
   /**
-   * Primary render surface. Legacy `engine.{renderer,scene,camera}` getters
-   * delegate here.
+   * Primary render surface. The `engine.{renderer,tree,currentCamera2D}`
+   * getters delegate here.
    */
   readonly primaryStage: Stage
   readonly animation: Animator
@@ -154,6 +166,8 @@ export class Engine {
 
   constructor(opts: EngineOptions) {
     this.canvas = opts.canvas
+    this.quality = new RenderQuality(opts.quality)
+    this.fog = new Fog(opts.fog)
     this.events = createEmitter<EngineEvents>()
     this.ticker = createTicker({
       fixedStepHz: opts.fixedStepHz,
@@ -164,7 +178,6 @@ export class Engine {
     this.msaaSamples = opts.msaaSamples ?? 4
     // Primary stage is always interactive.
     this.primaryStage = new Stage(opts.canvas, this, {
-      initialViewport: opts.initialViewport ?? DEFAULT_VIEWPORT,
       clearColor: opts.clearColor,
       transparent: opts.transparent ?? false,
       interactive: true,
@@ -193,11 +206,10 @@ export class Engine {
       })
     }
 
-    // Forward primary-stage pointer events onto `engine.events` for
-    // backwards compat. Secondary stages' pointer events stay isolated on
-    // their own `stage.events`, so game code that listens at the engine
-    // level can't accidentally process tutorial-canvas taps as live-game
-    // input.
+    // Forward primary-stage pointer events onto `engine.events` so game code
+    // can listen at the engine level. Secondary stages' pointer events stay
+    // isolated on their own `stage.events`, so a tutorial-canvas tap can't be
+    // mistaken for live-game input.
     const forwardKeys: (keyof StagePointerEvents)[] = [
       'pointerDown',
       'pointerMove',
@@ -278,8 +290,8 @@ export class Engine {
     return [...this.#layoutRoots]
   }
 
-  // Backwards-compat getters, external code keeps using `engine.renderer`,
-  // `engine.tree`, `engine.camera` unchanged.
+  // Convenience getters onto the primary stage: `engine.renderer`,
+  // `engine.tree`, `engine.currentCamera2D`.
   get renderer(): Renderer {
     return this.primaryStage.renderer
   }
@@ -287,17 +299,27 @@ export class Engine {
   get tree(): SceneTree {
     return this.primaryStage.tree
   }
-  get camera(): Camera {
-    return this.primaryStage.camera
+  /**
+   * The primary stage's screen-space post-processing chain (chromatic
+   * aberration, vignette, custom effects). Created on first access.
+   */
+  get postProcess(): PostProcessPipeline {
+    return this.primaryStage.postProcess
   }
-  /** The primary stage's 3D camera. */
-  get camera3d(): Camera3D {
-    return this.primaryStage.camera3d
+  /** The primary stage's current 2D camera, or `null` when none is current yet. */
+  get currentCamera2D(): CameraNode2D | null {
+    return this.primaryStage.currentCamera2D
   }
-
-  /** The camera currently driving rendering + input world-coord conversion. */
-  get activeCamera(): Camera {
-    return this.debug?.cameraActive ? this.debug.camera : this.camera
+  /** The primary stage's current 3D camera, or `null` when none is current. */
+  get currentCamera3D(): CameraNode3D | null {
+    return this.primaryStage.currentCamera3D
+  }
+  /**
+   * The camera currently driving rendering + input world-coord conversion, or
+   * `null` when the primary stage has no current 2D camera.
+   */
+  get activeCamera(): CameraView2D | null {
+    return this.debug?.cameraActive ? this.debug.camera : this.currentCamera2D
   }
 
   /**
@@ -476,20 +498,14 @@ export class Engine {
       if (stage.active) stage.updateTransforms()
     }
 
-    // 6. Render every stage through its game camera, or the debug camera
-    //    when the HUD has selected this stage and debug-camera is on.
+    // 6. Render every stage. Each resolves its own current camera (and honors
+    //    the debug-camera override internally when the HUD is driving it).
     //    Debug overlays draw INSIDE `stage.render()` so they composite
     //    through the same `Gfx2D` pipeline as game content.
-    const debug = this.debug
-    this.primaryStage.render(
-      dt,
-      debug
-        ? debug.activeCameraFor(this.primaryStage)
-        : this.primaryStage.camera,
-    )
+    this.primaryStage.render(dt)
     for (const stage of this.#stageManager.stages) {
       if (!stage.active) continue
-      stage.render(dt, debug ? debug.activeCameraFor(stage) : stage.camera)
+      stage.render(dt)
     }
 
     // Stash the actual CPU work time BEFORE emitting `frame` so any

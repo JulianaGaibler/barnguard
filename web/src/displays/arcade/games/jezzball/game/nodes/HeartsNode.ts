@@ -1,10 +1,16 @@
 /**
- * A row of heart-slot icons — the engine port of `Hearts.svelte`/`Heart.svelte`.
- * Every heart is a stroked outline, never filled (the original SVG is
- * `fill="none"` too): a lit heart uses the player's color at a thicker
- * stroke, an empty slot uses a muted ink tint at a thinner one.
+ * A row of heart-slot icons — the engine port of
+ * `Hearts.svelte`/`Heart.svelte`. Every heart is a stroked outline, never
+ * filled (the original SVG is `fill="none"` too): a lit heart uses the player's
+ * color at a thicker stroke, an empty slot uses a muted ink tint at a thinner
+ * one.
  */
-import { Node2D, parseSvgPaths, type Camera, type Gfx2D } from '@src/stargazer'
+import {
+  Node2D,
+  parseSvgPaths,
+  type CameraView2D,
+  type Gfx2D,
+} from '@src/stargazer'
 import heartSvgRaw from '../../assets/heart.svg?raw'
 
 const HEART = Array.from(
@@ -43,7 +49,7 @@ export class HeartsNode extends Node2D {
     this.#lives = lives
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     if (!HEART) return
     const s = camera.strokeSpaceScale()
     const size = this.#sizePx * s
@@ -52,7 +58,11 @@ export class HeartsNode extends Node2D {
     const step = size + gap
     const rowWidth = this.#max * size + (this.#max - 1) * gap
     const startX =
-      this.#align === 'center' ? -rowWidth / 2 : this.#align === 'right' ? -rowWidth : 0
+      this.#align === 'center'
+        ? -rowWidth / 2
+        : this.#align === 'right'
+          ? -rowWidth
+          : 0
 
     for (let i = 0; i < this.#max; i++) {
       // Right-aligned rows fill from the outer edge inward, so a losing

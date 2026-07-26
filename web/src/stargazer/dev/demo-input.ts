@@ -1,4 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
+import { addDemoCamera } from './demoCamera'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { PolylineNode } from '../nodes/PolylineNode'
 import type { PointerEvent2D } from '../input/PointerState'
@@ -33,13 +34,13 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    initialViewport: { x: 0, y: 0, width: 1920, height: 1080 },
   })
   attach?.(host)
 
   const draggables: DraggableShape[] = []
 
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: 0, y: 0, width: 1920, height: 1080 })
     draggables.push(makeDraggable('shape:amber', 640, 540, '#ffd34d'))
     draggables.push(makeDraggable('shape:sky', 1280, 540, '#41a8ff'))
     for (const d of draggables) {

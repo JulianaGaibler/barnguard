@@ -1,4 +1,4 @@
-import { Node2D, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
 import type { BoardLayout } from '../layout'
 import { FRAME } from '../tuning'
 
@@ -18,7 +18,7 @@ export class FrameNode extends Node2D {
     this.renderLayer = 'dynamic'
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const layout = this.#layout
     const x0 = layout.panelX
     const y0 = layout.panelY

@@ -1,6 +1,6 @@
 # Scene graph
 
-A `SceneTree` belongs to a `Stage` and holds one tree of both 2D (`Node2D`) and 3D (`Node3D`) nodes (Godot-style), rooted at `tree.root`. The primary engine has one, and each `engine.attachStage(...)` returns a stage with its own. Everything below applies per stage: `engine.tree` is a shortcut for the primary; secondary stages get theirs via `stage.tree`. See [Stages](/guides/stages) for how to attach a second canvas.
+A `SceneTree` belongs to a `Stage` and holds one tree of both 2D (`Node2D`) and 3D (`Node3D`) nodes, rooted at `tree.root`. The primary engine has one, and each `engine.attachStage(...)` returns a stage with its own. Everything below applies per stage: `engine.tree` is a shortcut for the primary; secondary stages get theirs via `stage.tree`. See [Stages](/guides/stages) for how to attach a second canvas.
 
 ## Node2D
 

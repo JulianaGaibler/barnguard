@@ -29,6 +29,26 @@
   "categorizeByGroup": false,
   "sort": ["source-order"],
   "skipErrorChecking": true,
+  "externalSymbolLinkMappings": {
+    "typescript": {
+      "AbortSignal": "https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal"
+    }
+  },
+  "intentionallyNotExported": [
+    "CameraHost",
+    "Camera",
+    "DebugCameraMode",
+    "DebugRenderMode",
+    "World3DReadout",
+    "DebugLine3DRenderer",
+    "GfxDevice",
+    "Texture",
+    "GpuGeometry",
+    "TextureInspector",
+    "TextureSource",
+    "PointerTarget",
+    "GltfDoc"
+  ],
   "cleanJsdocTheme": {
     "siteName": "Stargazer",
     "docs": "src/stargazer/docs",

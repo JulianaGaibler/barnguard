@@ -25,23 +25,32 @@
 
   interface Props {
     display: string
-    /** The qualifying score attempt. Omit, or <= 0, to skip the leaderboard
-     * flow entirely (a 2p match result, or a game with no high score). */
+    /**
+     * The qualifying score attempt. Omit, or <= 0, to skip the leaderboard flow
+     * entirely (a 2p match result, or a game with no high score).
+     */
     score?: number
     onPlayAgain: () => void
     onMenu: () => void
     /**
-     * Fired exactly once, whenever the panel is about to go away (a button,
-     * or the arcade-wide swipe escape tearing it down) — with whatever name
-     * was typed, or `''` if the player never opened the keyboard. Lets the
-     * caller attach the name to its own game-log record, which it can only
-     * finalize once name entry either happens or is skipped.
+     * Fired exactly once, whenever the panel is about to go away (a button, or
+     * the arcade-wide swipe escape tearing it down) — with whatever name was
+     * typed, or `''` if the player never opened the keyboard. Lets the caller
+     * attach the name to its own game-log record, which it can only finalize
+     * once name entry either happens or is skipped.
      */
     onFinalize?: (name: string) => void
     /** Game-specific score presentation, rendered at the top of the card. */
     scoreDisplay: Snippet
   }
-  const { display, score, onPlayAgain, onMenu, onFinalize, scoreDisplay }: Props = $props()
+  const {
+    display,
+    score,
+    onPlayAgain,
+    onMenu,
+    onFinalize,
+    scoreDisplay,
+  }: Props = $props()
 
   type Stage = 'loading' | 'unavailable' | 'closed' | 'entering'
   let stage = $state<Stage>('loading')
@@ -64,7 +73,8 @@
     fetchLeaderboard(display, MAX_ROWS)
       .then((list) => {
         entries = list
-        const qualifies = list.length < MAX_ROWS || score > list[MAX_ROWS - 1].score
+        const qualifies =
+          list.length < MAX_ROWS || score > list[MAX_ROWS - 1].score
         stage = qualifies ? 'entering' : 'closed'
       })
       .catch(() => {
@@ -125,16 +135,26 @@
               closeLabel={$t.arcade.leaderboard.closeKeyboard}
             />
             <p class="over__hint">
-              {name ? $t.arcade.leaderboard.willBeSavedAs(name.toUpperCase()) : $t.arcade.leaderboard.wontBeSaved}
+              {name
+                ? $t.arcade.leaderboard.willBeSavedAs(name.toUpperCase())
+                : $t.arcade.leaderboard.wontBeSaved}
             </p>
           </div>
         {/if}
 
         <div class="over__actions">
-          <Button variant="primary" disabled={exiting} onclick={() => exit(onPlayAgain)}>
+          <Button
+            variant="primary"
+            disabled={exiting}
+            onclick={() => exit(onPlayAgain)}
+          >
             {$t.arcade.leaderboard.playAgain}
           </Button>
-          <Button variant="outline" disabled={exiting} onclick={() => exit(onMenu)}>
+          <Button
+            variant="outline"
+            disabled={exiting}
+            onclick={() => exit(onMenu)}
+          >
             {$t.arcade.leaderboard.menu}
           </Button>
         </div>

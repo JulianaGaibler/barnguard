@@ -6,12 +6,7 @@
  * short delay the top disc of each column drops in using the real
  * `DiscNode.drop` animation, then it rests.
  */
-import {
-  Node2D,
-  ignoreAbort,
-  type EngineHost,
-  type Rect,
-} from '@src/stargazer'
+import { Node2D, ignoreAbort, type EngineHost, type Rect } from '@src/stargazer'
 import type { MenuPreview } from '@src/displays/arcade/menu/types'
 import { DiscNode } from './nodes/DiscNode'
 import { BOARD } from './tuning'

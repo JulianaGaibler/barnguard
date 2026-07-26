@@ -1,9 +1,14 @@
 import { Transform2D } from '../math/Transform2D'
 import type { Rect } from '../math/Rect'
 import type { Vec2 } from '../math/Vec2'
-import { Node, type NodeEvents, type NodeKind, type PointerHandlers } from './Node'
+import {
+  Node,
+  type NodeEvents,
+  type NodeKind,
+  type PointerHandlers,
+} from './Node'
 import type { SceneTree } from './SceneTree'
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { TweenOptions } from '../anim/Animator'
 import { ignoreAbort } from '../anim/abortSignal'
@@ -28,17 +33,18 @@ export type RenderLayer = 'static' | 'above-static' | 'dynamic'
  * children, and optional attached {@link Behavior}s. Position a node by mutating
  * its `transform`; nest nodes with {@link Node2D.add} so children inherit the
  * parent's transform. Shares its non-spatial machinery (behaviors, lifecycle,
- * abort, tween/wait/loop) with the 3D {@link Node3D} branch through {@link Node}.
+ * abort, tween/wait/loop) with the 3D {@link Node3D} branch through
+ * {@link Node}.
  *
  * The built-in rendering primitives (`ShapeNode`, `Path2DNode`, `PolylineNode`,
  * `TextNode`, `ParticleEmitterNode`) subclass this and override
- * {@link Node2D.draw}. Game logic goes in a {@link Behavior} or a subclass
- * hook ({@link Node.onUpdate}, {@link Node.onFixedStep}); the engine core itself
- * is game-agnostic.
+ * {@link Node2D.draw}. Game logic goes in a {@link Behavior} or a subclass hook
+ * ({@link Node.onUpdate}, {@link Node.onFixedStep}); the engine core itself is
+ * game-agnostic.
  *
- * The async helpers ({@link Node2D.tween}, {@link Node.wait}, {@link
- * Node.loop}) are scoped to {@link Node.abortSignal}, so destroying a node
- * cancels its outstanding work rather than leaving Promises hanging.
+ * The async helpers ({@link Node2D.tween}, {@link Node.wait}, {@link Node.loop})
+ * are scoped to {@link Node.abortSignal}, so destroying a node cancels its
+ * outstanding work rather than leaving Promises hanging.
  *
  * @category Scene
  * @example
@@ -53,7 +59,10 @@ export type RenderLayer = 'static' | 'above-static' | 'dynamic'
 export class Node2D extends Node {
   readonly kind: NodeKind = '2d'
 
-  /** Local transform (position, rotation, scale, alpha). Mutate to move the node. */
+  /**
+   * Local transform (position, rotation, scale, alpha). Mutate to move the
+   * node.
+   */
   readonly transform = new Transform2D()
 
   /**
@@ -77,7 +86,10 @@ export class Node2D extends Node {
    * `subtreeHasStaticLayer` stays O(1). Cross-checked by `_verifyStaticCount`.
    */
   #_staticDescendantCount = 0
-  /** Semantics accumulated before the node joins a scene; see {@link Node2D.a11y}. */
+  /**
+   * Semantics accumulated before the node joins a scene; see
+   * {@link Node2D.a11y}.
+   */
   #pendingSemantics: Partial<Semantics> | null = null
   /** Live accessibility registration once attached; see {@link Node2D.a11y}. */
   #a11yHandle: SemanticsHandle | null = null
@@ -93,10 +105,10 @@ export class Node2D extends Node {
   }
 
   /**
-   * Nearest ancestor that is also a `Node2D`, skipping any 3D or group nodes
-   * in between; `null` if none. World composition uses this, so a `Node2D`
-   * nested under a 3D or group parent behaves as a top-level 2D node (its world
-   * equals its local).
+   * Nearest ancestor that is also a `Node2D`, skipping any 3D or group nodes in
+   * between; `null` if none. World composition uses this, so a `Node2D` nested
+   * under a 3D or group parent behaves as a top-level 2D node (its world equals
+   * its local).
    */
   get spatialParent(): Node2D | null {
     let p = this.parent
@@ -141,8 +153,8 @@ export class Node2D extends Node {
 
   /**
    * Whether this node or any descendant draws on the `'static'` layer. O(1): it
-   * reads the incrementally-maintained descendant count. The layout pass uses it
-   * to decide whether moving a subtree must invalidate the static bake.
+   * reads the incrementally-maintained descendant count. The layout pass uses
+   * it to decide whether moving a subtree must invalidate the static bake.
    */
   get subtreeHasStaticLayer(): boolean {
     return this.#_renderLayer === 'static' || this.#_staticDescendantCount > 0
@@ -197,7 +209,8 @@ export class Node2D extends Node {
   _verifyStaticCount(): number {
     let actualDescendants = 0
     for (const c of this.children) {
-      if (c.kind === '2d') actualDescendants += (c as Node2D)._verifyStaticCount()
+      if (c.kind === '2d')
+        actualDescendants += (c as Node2D)._verifyStaticCount()
     }
     if (actualDescendants !== this.#_staticDescendantCount) {
       throw new Error(
@@ -305,8 +318,8 @@ export class Node2D extends Node {
    * `this` for chaining. The first call needs a `role`; later calls take a
    * partial and merge into the current semantics, patching the hidden proxy in
    * place (focus preserved). Sugar over `engine.a11y.attach` / `handle.update`:
-   * if the node isn't in a scene yet, the semantics are held and registered when
-   * it attaches. Zero cost until used.
+   * if the node isn't in a scene yet, the semantics are held and registered
+   * when it attaches. Zero cost until used.
    *
    * @example
    *   new ShapeNode({ geometry: { kind: 'rect', width: 240, height: 64 } })
@@ -369,9 +382,11 @@ export class Node2D extends Node {
 
   /**
    * Subclass hook: called by the render walker with the base transform + alpha
-   * already installed on `gfx`. Draw in the node's LOCAL coordinate space.
+   * already installed on `gfx`. Draw in the node's LOCAL coordinate space. The
+   * `camera` is the current {@link CameraView2D} (query stroke scale / world
+   * mapping through it).
    */
-  draw?(gfx: Gfx2D, camera: Camera, dt: number): void
+  draw?(gfx: Gfx2D, camera: CameraView2D, dt: number): void
 
   /**
    * Tween properties on this node's transform. Auto-scoped to
@@ -404,9 +419,9 @@ export class Node2D extends Node {
   }
 
   /**
-   * Fire-and-forget {@link Node2D.tween}: animate the node's transform
-   * without awaiting, swallowing the `AbortError` when the node dies mid-flight.
-   * Pass `opts.key` to make it replace a prior same-key tween on this transform.
+   * Fire-and-forget {@link Node2D.tween}: animate the node's transform without
+   * awaiting, swallowing the `AbortError` when the node dies mid-flight. Pass
+   * `opts.key` to make it replace a prior same-key tween on this transform.
    */
   play(to: Partial<Transform2D>, opts: TweenOptions): void {
     this.tween(to, opts).catch(ignoreAbort)

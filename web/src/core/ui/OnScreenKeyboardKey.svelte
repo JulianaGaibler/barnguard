@@ -13,13 +13,21 @@
     label: string
     /** Accessible name, when `label` is a glyph rather than a letter. */
     ariaLabel?: string
-    /** Raw SVG markup (a `?raw` import) shown instead of `label`, for the
-     * non-letter keys (close, backspace, enter). */
+    /**
+     * Raw SVG markup (a `?raw` import) shown instead of `label`, for the
+     * non-letter keys (close, backspace, enter).
+     */
     icon?: string
     onTap: () => void
     disabled?: boolean
   }
-  const { label, ariaLabel = label, icon, onTap, disabled = false }: Props = $props()
+  const {
+    label,
+    ariaLabel = label,
+    icon,
+    onTap,
+    disabled = false,
+  }: Props = $props()
 
   let active = $state(false)
   const activePointers = new SvelteSet<number>()
@@ -47,8 +55,10 @@
   function onWindowRelease(e: PointerEvent): void {
     releasePointer(e.pointerId)
   }
-  /** Force-release. Called on window blur / tab hide and on unmount, so a
-   * pressed key can never outlive the component. */
+  /**
+   * Force-release. Called on window blur / tab hide and on unmount, so a
+   * pressed key can never outlive the component.
+   */
   function clearAll(): void {
     detach()
     activePointers.clear()

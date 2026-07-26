@@ -3,6 +3,7 @@ import type { Node, NodeOwner } from './Node'
 import type { Node2D, RenderLayer } from './Node2D'
 import type { Node3D } from './Node3D'
 import type { Engine } from '../engine/Engine'
+import type { CameraHost } from '../camera/CameraHost'
 import { walkTree } from './traverse'
 
 /**
@@ -13,7 +14,8 @@ import { walkTree } from './traverse'
  * bucketed by node kind:
  *
  * - **2D:** painter order + per-layer node lists + the static-layer dirty flag,
- *   collected by walking the tree and keeping only {@link Node2D}s in DFS order.
+ *   collected by walking the tree and keeping only {@link Node2D}s in DFS
+ *   order.
  * - **3D:** the transform pass that composes each {@link Node3D}'s world matrix.
  *
  * The two render pipelines stay separate (2D painter order, 3D depth-tested),
@@ -34,6 +36,14 @@ export class SceneTree implements NodeOwner {
    * through it for `node.tween` / `node.wait`.
    */
   engine: Engine | null = null
+
+  /**
+   * The camera registry this tree's cameras attach to — the owning `Stage`. Set
+   * by the Stage right after construction; null for standalone trees (unit
+   * tests) and the embedded tree inside a `Viewport2DNode`. A camera node whose
+   * tree has no `stage` cannot register, so attaching one hard-errors.
+   */
+  stage: CameraHost | null = null
 
   /** Cached DFS pre-order (painter order) of the {@link Node2D}s in the tree. */
   #_painterOrder: Node2D[] | null = null
@@ -76,7 +86,10 @@ export class SceneTree implements NodeOwner {
     if (this.#_painterOrder) return this.#_painterOrder
     const out: Node2D[] = []
     walkTree(this.root, (n) => {
-      if (n.kind === '2d') out.push(n as Node2D)
+      // Intrinsic nodes (camera nodes) are not content: they never draw, so
+      // they stay out of painter order — and thus out of layer buckets, the
+      // render walk, and hit-testing (which reads this list).
+      if (n.kind === '2d' && !n.intrinsic) out.push(n as Node2D)
     })
     this.#_painterOrder = out
     return out
@@ -146,7 +159,10 @@ export class SceneTree implements NodeOwner {
     return this
   }
 
-  /** Remove one or more nodes from the root. Shorthand for `tree.root.remove(...)`. */
+  /**
+   * Remove one or more nodes from the root. Shorthand for
+   * `tree.root.remove(...)`.
+   */
   remove(...nodes: Node[]): this {
     this.root.remove(...nodes)
     return this
@@ -160,9 +176,14 @@ export class SceneTree implements NodeOwner {
 
 const EMPTY_LAYER: readonly Node2D[] = Object.freeze([]) as readonly Node2D[]
 
-/** Depth-first search with early exit: does the subtree hold a node of `kind`? */
+/**
+ * Depth-first search with early exit: does the subtree hold a non-intrinsic
+ * node of `kind`? Intrinsic nodes (e.g. a stage's default `CameraNode3D`, which
+ * is kind `'3d'`) are skipped so they don't spuriously flip on the 3D pass; the
+ * walk still recurses through them.
+ */
 function hasKind(node: Node, kind: string): boolean {
-  if (node.kind === kind) return true
+  if (!node.intrinsic && node.kind === kind) return true
   const children = node.children
   for (let i = 0; i < children.length; i++) {
     if (hasKind(children[i], kind)) return true

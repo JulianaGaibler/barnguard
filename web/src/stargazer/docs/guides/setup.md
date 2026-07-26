@@ -176,7 +176,7 @@ Everything hangs off `host.engine`:
 const engine = host.engine
 
 engine.tree // the primary Scene; engine.tree.root is where nodes go
-engine.camera // the game Camera (viewport, animateTo)
+engine.currentCamera2D // the current 2D camera (viewport, animateTo)
 engine.input // the primary InputSystem (pointers, touch slop)
 engine.animation // the Animator behind tween / wait
 engine.renderer // pixel size, CSS size, dpr

@@ -1,7 +1,7 @@
 import type { Vec2 } from '../math/Vec2'
 import type { Engine } from '../engine/Engine'
-import type { Camera } from '../camera/Camera'
-import type { Camera3D } from '../camera/Camera3D'
+import type { CameraView2D } from '../camera/CameraView2D'
+import type { CameraView3D } from '../camera/CameraView3D'
 import type { Stage } from '../render/Stage'
 import type {
   PointerEvent2D,
@@ -85,7 +85,7 @@ export class InputSystem {
 
   /** Slop converted to world units using the ACTIVE camera's uniform scale. */
   get touchSlopWorld(): number {
-    const scale = this.#getActiveCamera().screenPxPerWorldUnit()
+    const scale = this.#getActiveCamera()?.screenPxPerWorldUnit() ?? 0
     return scale > 0 ? this.#touchSlopScreenPx / scale : 0
   }
 
@@ -95,23 +95,29 @@ export class InputSystem {
    * stage's own game camera. Recomputed on every access so pan-under-
    * a-still-finger stays glued during debug camera motion.
    */
-  #getActiveCamera(): Camera {
+  #getActiveCamera(): CameraView2D | null {
     return (
-      this.#engine.debug?.activeCameraFor(this.#stage) ?? this.#stage.camera
-    )
-  }
-
-  /** Active 3D camera (debug fly-cam when engaged, else the stage's game cam). */
-  #getActiveCamera3d(): Camera3D {
-    return (
-      this.#engine.debug?.activeCamera3dFor(this.#stage) ?? this.#stage.camera3d
+      this.#engine.debug?.activeCameraFor(this.#stage) ??
+      this.#stage.currentCamera2D
     )
   }
 
   /**
-   * Hit-test the 3D world for a pointer at canvas-CSS `(sx, sy)`: convert to NDC
-   * (full-canvas — the 3D camera fills the canvas, unlike the letterboxed 2D
-   * camera), cast a ray, and return the nearest hit-enabled mesh, or `null`.
+   * Active 3D camera (debug fly-cam when engaged, else the stage's game cam),
+   * or null.
+   */
+  #getActiveCamera3d(): CameraView3D | null {
+    return (
+      this.#engine.debug?.activeCamera3dFor(this.#stage) ??
+      this.#stage.currentCamera3D
+    )
+  }
+
+  /**
+   * Hit-test the 3D world for a pointer at canvas-CSS `(sx, sy)`: convert to
+   * NDC (full-canvas — the 3D camera fills the canvas, unlike the letterboxed
+   * 2D camera), cast a ray, and return the nearest hit-enabled mesh, or
+   * `null`.
    */
   #pick3d(sx: number, sy: number): PointerTarget | null {
     if (!this.#stage.tree.has3D) return null
@@ -120,7 +126,9 @@ export class InputSystem {
     if (cssW <= 0 || cssH <= 0) return null
     const ndcX = (2 * sx) / cssW - 1
     const ndcY = 1 - (2 * sy) / cssH
-    const ray = this.#getActiveCamera3d().screenToRay(ndcX, ndcY)
+    const cam3d = this.#getActiveCamera3d()
+    if (!cam3d) return null
+    const ray = cam3d.screenToRay(ndcX, ndcY)
     const hit = raycastWorld3D(this.#stage.tree, ray, (n) => n.hitEnabled)
     return hit?.node ?? null
   }
@@ -134,6 +142,7 @@ export class InputSystem {
   beforeFrame(): void {
     if (this.#disposed || this.#recordsMap.size === 0) return
     const cam = this.#getActiveCamera()
+    if (!cam) return
     const scratch = { x: 0, y: 0 }
     for (const record of this.#recordsMap.values()) {
       cam.screenToWorld(record.screen.x, record.screen.y, scratch)
@@ -222,7 +231,10 @@ export class InputSystem {
     e.preventDefault()
 
     const screen = this.#toCanvasCss(e)
-    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera()?.screenToWorld(
+      screen.x,
+      screen.y,
+    ) ?? { x: 0, y: 0 }
     const record: PointerRecord = {
       id: e.pointerId,
       kind: this.#pointerKind(e),
@@ -277,7 +289,10 @@ export class InputSystem {
     const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera()?.screenToWorld(
+      screen.x,
+      screen.y,
+    ) ?? { x: 0, y: 0 }
     const dx = world.x - record.world.x
     const dy = world.y - record.world.y
     record.world.x = world.x
@@ -306,7 +321,10 @@ export class InputSystem {
     const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera()?.screenToWorld(
+      screen.x,
+      screen.y,
+    ) ?? { x: 0, y: 0 }
     const dx = world.x - record.world.x
     const dy = world.y - record.world.y
     record.world.x = world.x

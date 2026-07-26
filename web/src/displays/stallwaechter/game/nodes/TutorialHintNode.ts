@@ -2,7 +2,7 @@ import {
   Node2D,
   easings,
   lerp,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Vec2,
 } from '@src/stargazer'
@@ -243,7 +243,7 @@ export class TutorialHintNode extends Node2D {
     }
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const archPath = this.#archPath
     if (this.#stopped || !this.#geometryReady || !archPath) return
     if (this.#alpha < MIN_DRAW_ALPHA) return

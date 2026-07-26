@@ -131,7 +131,10 @@ export const WIN = {
     sizePerRadius: 0.5,
     /** Fraction of a piece's own launch speed below which it despawns. */
     minSpeedFrac: 0.02,
-    /** Safety cap on lifetime (seconds); pieces normally despawn sooner via `minSpeedFrac`. */
+    /**
+     * Safety cap on lifetime (seconds); pieces normally despawn sooner via
+     * `minSpeedFrac`.
+     */
     lifetimeSecMax: 3,
   },
 } as const

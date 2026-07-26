@@ -4,7 +4,10 @@
   import Overlay from '@src/core/ui/Overlay.svelte'
   import Surface from '@src/core/ui/Surface.svelte'
   import IconButton from '@src/core/ui/IconButton.svelte'
-  import { fetchLeaderboard, type LeaderboardEntry } from '@src/core/leaderboard/leaderboardClient'
+  import {
+    fetchLeaderboard,
+    type LeaderboardEntry,
+  } from '@src/core/leaderboard/leaderboardClient'
   import { t } from '../i18n'
   import LeaderboardList from './LeaderboardList.svelte'
   import LeaderboardIcon from './LeaderboardIcon.svelte'
@@ -34,7 +37,11 @@
          no second gradient paint to keep in sync with the border's. -->
     <div class="lb__header"></div>
     <div class="lb__close">
-      <IconButton label={$t.arcade.leaderboard.close} tone="surface" onclick={onClose}>
+      <IconButton
+        label={$t.arcade.leaderboard.close}
+        tone="surface"
+        onclick={onClose}
+      >
         <span class="lb__close-icon">{@html closeIconRaw}</span>
       </IconButton>
     </div>

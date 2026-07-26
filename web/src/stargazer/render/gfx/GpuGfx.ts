@@ -221,10 +221,10 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * Add a depth attachment to the offscreen target so a depth-tested 3D pass can
-   * run before the 2D layers, and clear it each frame from then on. Idempotent
-   * and permanent for the stage's lifetime (the attachment survives resize and
-   * context restore). No-op if already enabled.
+   * Add a depth attachment to the offscreen target so a depth-tested 3D pass
+   * can run before the 2D layers, and clear it each frame from then on.
+   * Idempotent and permanent for the stage's lifetime (the attachment survives
+   * resize and context restore). No-op if already enabled.
    */
   enableDepth(): void {
     if (this.#depthEnabled) return
@@ -328,6 +328,29 @@ export class GpuGfx implements Gfx2D {
   get colorTexture(): Texture | null {
     const t = this.#target as { color?: Texture }
     return t.color ?? null
+  }
+
+  /**
+   * The offscreen render target this surface draws into. A post-process
+   * pipeline reads it as the resolve source (after `setPresent(false)` +
+   * `endFrame` have submitted the frame without blitting).
+   */
+  get target(): RenderTarget {
+    return this.#target
+  }
+
+  /** Current target size in device pixels, for sizing downstream targets. */
+  get targetSize(): { w: number; h: number } {
+    return { w: this.#targetWidth, h: this.#targetHeight }
+  }
+
+  /**
+   * Toggle whether `endFrame` blits the target to the canvas. A `Stage` sets
+   * this false for the frames a post-process pipeline will present instead, and
+   * true again when no effects are active. Pure state flag; touches no GL.
+   */
+  setPresent(present: boolean): void {
+    this.#present = present
   }
 
   /**

@@ -64,12 +64,24 @@
 <Surface tone="light" radius="panel" blur>
   <div class="keyboard">
     {#each ROWS as row, i (row)}
-      <div class="row" style:margin-inline-start={rowOffset(i, i === LAST && !!onClose)}>
+      <div
+        class="row"
+        style:margin-inline-start={rowOffset(i, i === LAST && !!onClose)}
+      >
         {#if i === LAST && onClose}
-          <Key label="" ariaLabel={closeLabel} icon={chevronDownIconRaw} onTap={onClose} />
+          <Key
+            label=""
+            ariaLabel={closeLabel}
+            icon={chevronDownIconRaw}
+            onTap={onClose}
+          />
         {/if}
         {#each row as ch (ch)}
-          <Key label={ch} onTap={() => typeChar(ch)} disabled={value.length >= maxLength} />
+          <Key
+            label={ch}
+            onTap={() => typeChar(ch)}
+            disabled={value.length >= maxLength}
+          />
         {/each}
         {#if i === LAST}
           <Key label="⌫" onTap={backspace} disabled={value.length === 0} />

@@ -1,4 +1,9 @@
-import { Node2D, type Camera, type Gfx2D, type Vec2 } from '@src/stargazer'
+import {
+  Node2D,
+  type CameraView2D,
+  type Gfx2D,
+  type Vec2,
+} from '@src/stargazer'
 import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
 import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessellationRegistry'
 
@@ -152,7 +157,7 @@ export class PacketSpawnConvergeNode extends Node2D {
     this.#aliveCount++
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera): void {
+  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
     const cap = this.#capacity
     const rStart = this.#ringRadius
     const rEnd = this.#ringRadius * this.#radiusEndFraction

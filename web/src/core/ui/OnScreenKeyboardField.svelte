@@ -16,11 +16,15 @@
     placeholder?: string
     closeLabel?: string
     onSubmit?: () => void
-    /** Externally controllable, so a caller can open the sheet from its own
-     * trigger (e.g. a leaderboard row) instead of the default input below. */
+    /**
+     * Externally controllable, so a caller can open the sheet from its own
+     * trigger (e.g. a leaderboard row) instead of the default input below.
+     */
     open?: boolean
-    /** Set false to drive `open` entirely from outside and skip the default
-     * input button. */
+    /**
+     * Set false to drive `open` entirely from outside and skip the default
+     * input button.
+     */
     showTrigger?: boolean
   }
   let {
@@ -40,7 +44,10 @@
 
   // Slides by the sheet's own rendered height rather than a fixed distance,
   // so it always clears the edge fully regardless of keyboard/content size.
-  function slideFromEdge(node: HTMLElement, { duration = 220 }: { duration?: number } = {}) {
+  function slideFromEdge(
+    node: HTMLElement,
+    { duration = 220 }: { duration?: number } = {},
+  ) {
     const height = node.getBoundingClientRect().height
     return {
       duration,
@@ -51,8 +58,15 @@
 </script>
 
 {#if showTrigger}
-  <button type="button" class="kbfield__input" class:open onclick={() => (open = true)}>
-    <span class="kbfield__value">{value ? value.toUpperCase() : placeholder}</span>
+  <button
+    type="button"
+    class="kbfield__input"
+    class:open
+    onclick={() => (open = true)}
+  >
+    <span class="kbfield__value"
+      >{value ? value.toUpperCase() : placeholder}</span
+    >
   </button>
 {/if}
 

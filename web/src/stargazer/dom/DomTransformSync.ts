@@ -1,7 +1,7 @@
 /**
  * Drives HTML elements from scene-node transforms. Attach a DOM element to a
- * {@link Node2D} and the engine writes the element's CSS transform each frame
- * so it stays flush with the canvas: the node's position, scale, rotation, and
+ * {@link Node2D} and the engine writes the element's CSS transform each frame so
+ * it stays flush with the canvas: the node's position, scale, rotation, and
  * pivot carry through, and the camera pan/zoom is applied on top. The engine
  * never touches the element's contents, only its box.
  *
@@ -14,8 +14,9 @@ import type { Engine } from '../engine/Engine'
 import type { Node } from '../scene/Node'
 import type { Node2D } from '../scene/Node2D'
 import type { Node3D } from '../scene/Node3D'
-import type { Camera3D, ScreenProjection } from '../camera/Camera3D'
-import type { ScreenTransform } from '../camera/Camera'
+import type { ScreenProjection } from '../camera/Camera3D'
+import type { Affine2x3 } from '../camera/CameraView2D'
+import type { CameraView3D } from '../camera/CameraView3D'
 import { mat4, mat4Identity, mat4Multiply, type Mat4 } from '../math/Mat4'
 import { vec3, type Vec3 } from '../math/Vec3'
 
@@ -23,9 +24,9 @@ import { vec3, type Vec3 } from '../math/Vec3'
  * Shared CSS3D layer for `orient` anchors: a plain box positioned over the
  * canvas that oriented elements nest inside. Each element carries the camera's
  * full `viewProjection` baked into its own `matrix3d` (see {@link matrix3dCss}),
- * so the layer needs no CSS `perspective` of its own — the projection, including
- * the ortho<->perspective blend, lives entirely in the per-element matrix and
- * CSS performs the perspective divide from it.
+ * so the layer needs no CSS `perspective` of its own — the projection,
+ * including the ortho<->perspective blend, lives entirely in the per-element
+ * matrix and CSS performs the perspective divide from it.
  */
 interface Css3dLayer {
   container: HTMLElement
@@ -63,7 +64,8 @@ function setViewportMatrix(out: Mat4, cssW: number, cssH: number): Mat4 {
 
 /**
  * Element-local scale mapping CSS pixels on the element's plane to world units:
- * `1 / pxPerUnit`, with y negated because CSS y runs down while world y runs up.
+ * `1 / pxPerUnit`, with y negated because CSS y runs down while world y runs
+ * up.
  */
 function setElementScaleMatrix(out: Mat4, pxPerUnit: number): Mat4 {
   const s = 1 / pxPerUnit
@@ -85,33 +87,33 @@ export interface CssMatrix {
 }
 
 /**
- * Compose a camera screen transform after a node's world affine into the CSS
+ * Compose a camera screen affine after a node's world affine into the CSS
  * `matrix(a,b,c,d,e,f)` that places a DOM element over the same region the
- * canvas draws the node. The screen transform is uniform scale plus translate
- * in CSS pixels (`Camera.getScreenTransform`); the node's world affine carries
- * any rotation, scale, and the baked-in pivot. Writes into `out` (no
- * allocation) and returns it.
+ * canvas draws the node. `screen` is the camera's full CSS-pixel world→screen
+ * affine (`CameraView2D.getScreenAffine`), so a rotated / scaled / parented
+ * camera projects correctly; the node's world affine carries its own rotation,
+ * scale, and baked-in pivot. Writes into `out` (no allocation).
  *
  * @category DOM
  * @example
  *   const m = projectWorldToCss(
- *     camera.getScreenTransform(),
+ *     camera.getScreenAffine(),
  *     node.transform.world,
  *   )
  *   el.style.transform = `matrix(${m.a},${m.b},${m.c},${m.d},${m.e},${m.f})`
  */
 export function projectWorldToCss(
-  screen: ScreenTransform,
+  screen: Affine2x3,
   world: CssMatrix,
   out: CssMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 },
 ): CssMatrix {
-  const s = screen.scale
-  out.a = s * world.a
-  out.b = s * world.b
-  out.c = s * world.c
-  out.d = s * world.d
-  out.e = s * world.e + screen.offsetX
-  out.f = s * world.f + screen.offsetY
+  // Full 2×3 matmul: screen · world (the camera affine may carry rotation/skew).
+  out.a = screen.a * world.a + screen.c * world.b
+  out.b = screen.b * world.a + screen.d * world.b
+  out.c = screen.a * world.c + screen.c * world.d
+  out.d = screen.b * world.c + screen.d * world.d
+  out.e = screen.a * world.e + screen.c * world.f + screen.e
+  out.f = screen.b * world.e + screen.d * world.f + screen.f
   return out
 }
 
@@ -186,8 +188,8 @@ export interface Dom3DAttachOptions {
   /** Hide the element when the node (or an ancestor) is invisible. Default true. */
   syncVisibility?: boolean
   /**
-   * Shrink the element with distance from the camera, so it reads as attached to
-   * the 3D object rather than floating at a fixed size. Scale is
+   * Shrink the element with distance from the camera, so it reads as attached
+   * to the 3D object rather than floating at a fixed size. Scale is
    * `camera.focalDistance / distance`. Default false. Ignored when `orient` is
    * set (perspective already foreshortens).
    */
@@ -296,21 +298,25 @@ class Attachment implements DomAttachment {
     const node = this.node
     // Fall back to the primary stage so there's always a camera and canvas size.
     const stage = engine.stageForScene(node.scene) ?? engine.primaryStage
-    const cam = engine.debug?.activeCameraFor(stage) ?? stage.camera
-    const screen = cam.getScreenTransform()
+    const cam = engine.debug?.activeCameraFor(stage) ?? stage.currentCamera2D
 
     const visible =
       (this.#opts.syncVisibility ?? true) === false
         ? true
         : effectiveVisible(node)
-    // A zero scale means the canvas is mid-resize with no valid mapping; hide
-    // rather than place the element wrongly for a frame.
-    let show = visible && screen.scale > 0
-    if (show) {
-      // Project first: the cull test reads the resulting matrix.
-      node.ensureWorldTransform()
-      projectWorldToCss(screen, node.transform.world, scratch)
-      if (this.#opts.cull && this.#offCanvas(stage)) show = false
+    // No current camera, or a singular affine (canvas mid-resize / degenerate
+    // camera), means no valid mapping; hide rather than place the element wrongly.
+    let show = visible && cam !== null
+    if (show && cam) {
+      const screen = cam.getScreenAffine()
+      const det = screen.a * screen.d - screen.b * screen.c
+      show = Number.isFinite(det) && det !== 0
+      if (show) {
+        // Project first: the cull test reads the resulting matrix.
+        node.ensureWorldTransform()
+        projectWorldToCss(screen, node.transform.world, scratch)
+        if (this.#opts.cull && this.#offCanvas(stage)) show = false
+      }
     }
 
     if (show !== this.#lastVisible) {
@@ -367,15 +373,16 @@ class Attachment implements DomAttachment {
 
 /**
  * Pins an HTML element to a {@link Node3D}'s projected screen position. Projects
- * the node origin through the given {@link Camera3D} each frame and translates
- * the element (centered on the point), hiding it when the node is behind the
- * camera. Position-only: the element stays screen-upright and doesn't inherit 3D
- * rotation. Uses the primary stage's canvas size for the NDC→CSS mapping.
+ * the node origin through the given {@link CameraView3D} each frame and
+ * translates the element (centered on the point), hiding it when the node is
+ * behind the camera. Position-only: the element stays screen-upright and
+ * doesn't inherit 3D rotation. Uses the primary stage's canvas size for the
+ * NDC→CSS mapping.
  */
 class Attachment3D implements Dom3DAttachment {
   readonly node: Node3D
   readonly element: HTMLElement
-  readonly #camera: Camera3D
+  readonly #camera: CameraView3D
   #opts: Dom3DAttachOptions
   readonly #onRemove: () => void
   #lastVisible = false
@@ -393,7 +400,7 @@ class Attachment3D implements Dom3DAttachment {
   constructor(
     node: Node3D,
     element: HTMLElement,
-    camera: Camera3D,
+    camera: CameraView3D,
     opts: Dom3DAttachOptions,
     onRemove: () => void,
   ) {
@@ -433,7 +440,8 @@ class Attachment3D implements Dom3DAttachment {
   #restoreParent(): void {
     if (!this.#reparented) return
     this.#reparented = false
-    if (this.#origParent) this.#origParent.insertBefore(this.element, this.#origNext)
+    if (this.#origParent)
+      this.#origParent.insertBefore(this.element, this.#origNext)
   }
 
   _sync(engine: Engine, layer?: Css3dLayer | null): void {
@@ -446,7 +454,7 @@ class Attachment3D implements Dom3DAttachment {
   }
 
   /**
-   * matrix3d path: nest the element in the canvas-aligned layer and give it the
+   * Matrix3d path: nest the element in the canvas-aligned layer and give it the
    * camera's full `viewProjection` baked into a single `matrix3d`, so it lands
    * exactly where the WebGL pass would draw the same plane — in perspective,
    * orthographic, and every blend in between. CSS does the perspective divide
@@ -464,12 +472,23 @@ class Attachment3D implements Dom3DAttachment {
       this.#reparented = true
     }
     const stage = engine.primaryStage
-    const cam = engine.debug?.activeCamera3dFor(stage) ?? stage.camera3d
+    const cam = engine.debug?.activeCamera3dFor(stage) ?? stage.currentCamera3D
     const cssW = stage.renderer.cssSize.w
     const cssH = stage.renderer.cssSize.h
 
+    // No current 3D camera → nothing to project against; hide the element.
+    if (!cam) {
+      if (this.#lastVisible !== false) {
+        this.element.style.display = 'none'
+        this.#lastVisible = false
+      }
+      return
+    }
+
     const visible =
-      (this.#opts.syncVisibility ?? true) === false ? true : effectiveVisible3d(node)
+      (this.#opts.syncVisibility ?? true) === false
+        ? true
+        : effectiveVisible3d(node)
     node.ensureWorldTransform()
     const w = node.transform.world
     // Behind test: camera-space z of the node origin (camera looks down -z).
@@ -509,7 +528,10 @@ class Attachment3D implements Dom3DAttachment {
     // T = viewport · viewProjection · world · scale(1/pxPerUnit): element-local
     // CSS pixels -> canvas pixels, with the projection's perspective divide.
     const vp = setViewportMatrix(scratchViewport, cssW, cssH)
-    const scale = setElementScaleMatrix(scratchScale, this.#opts.pxPerUnit ?? 200)
+    const scale = setElementScaleMatrix(
+      scratchScale,
+      this.#opts.pxPerUnit ?? 200,
+    )
     mat4Multiply(scratchVpM, cam.viewProjection, w)
     mat4Multiply(scratchVpMS, scratchVpM, scale)
     mat4Multiply(scratchT, vp, scratchVpMS)
@@ -539,7 +561,9 @@ class Attachment3D implements Dom3DAttachment {
     const cssH = stage.renderer.cssSize.h
     const node = this.node
     const visible =
-      (this.#opts.syncVisibility ?? true) === false ? true : effectiveVisible3d(node)
+      (this.#opts.syncVisibility ?? true) === false
+        ? true
+        : effectiveVisible3d(node)
     let show = visible && cssW > 0 && cssH > 0
     let x = 0
     let y = 0
@@ -548,7 +572,14 @@ class Attachment3D implements Dom3DAttachment {
       node.ensureWorldTransform()
       const w = node.transform.world
       // The node origin is the world matrix's translation column.
-      const proj = this.#camera.worldToScreen(w[12], w[13], w[14], cssW, cssH, scratch3d)
+      const proj = this.#camera.worldToScreen(
+        w[12],
+        w[13],
+        w[14],
+        cssW,
+        cssH,
+        scratch3d,
+      )
       if (proj.behind) {
         show = false
       } else {
@@ -570,13 +601,11 @@ class Attachment3D implements Dom3DAttachment {
 
     // Write when any value moved. Phrased as `!(within epsilon)` so the
     // NaN-initialized `#last*` (first frame) also triggers a write.
-    if (
-      !(
-        Math.abs(x - this.#lastX) <= EPSILON &&
-        Math.abs(y - this.#lastY) <= EPSILON &&
-        Math.abs(scale - this.#lastScale) <= EPSILON
-      )
-    ) {
+    if (!(
+      Math.abs(x - this.#lastX) <= EPSILON &&
+      Math.abs(y - this.#lastY) <= EPSILON &&
+      Math.abs(scale - this.#lastScale) <= EPSILON
+    )) {
       this.#lastX = x
       this.#lastY = y
       this.#lastScale = scale
@@ -633,20 +662,26 @@ export class DomTransformSync {
 
   /**
    * Attach `element` to a 3D `node`, projected through `camera` (usually
-   * `engine.camera3d`). The element tracks the node's projected screen position
-   * each frame and hides when the node is behind the camera. The element must
-   * live in a container overlaying the canvas. Detaches automatically if the
-   * node is destroyed.
+   * `engine.currentCamera3D`). The element tracks the node's projected screen
+   * position each frame and hides when the node is behind the camera. The
+   * element must live in a container overlaying the canvas. Detaches
+   * automatically if the node is destroyed.
    */
   attachWorld3d(
     node: Node3D,
     element: HTMLElement,
-    camera: Camera3D,
+    camera: CameraView3D,
     opts: Dom3DAttachOptions = {},
   ): Dom3DAttachment {
-    const a: Attachment3D = new Attachment3D(node, element, camera, opts, () => {
-      this.#attachments3d.delete(a)
-    })
+    const a: Attachment3D = new Attachment3D(
+      node,
+      element,
+      camera,
+      opts,
+      () => {
+        this.#attachments3d.delete(a)
+      },
+    )
     this.#attachments3d.add(a)
     return a
   }

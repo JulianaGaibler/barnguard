@@ -80,7 +80,10 @@ export interface WallSegment {
   len: number
 }
 
-/** Placement geometry for a two-way wall seeded at `seed`, or null when the seed cell isn't open. */
+/**
+ * Placement geometry for a two-way wall seeded at `seed`, or null when the seed
+ * cell isn't open.
+ */
 export interface WallPlan {
   /** Column for a vertical wall, row for a horizontal wall. */
   fixedIndex: number

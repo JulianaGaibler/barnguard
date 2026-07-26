@@ -390,9 +390,10 @@ export async function startGame(
       const indicator = indicators[player.id]
       if (!indicator) continue
       indicator.update(
-        queues[player.id].map(
-          (queued): QueuedOrbView => ({ id: queued.id, size: queued.size }),
-        ),
+        queues[player.id].map((queued): QueuedOrbView => ({
+          id: queued.id,
+          size: queued.size,
+        })),
       )
     }
   }

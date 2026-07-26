@@ -12,8 +12,10 @@ export interface MenuAction {
   /** Optional leading icon component (e.g. `RobotIcon`). */
   icon?: Component
   onSelect: () => void
-  /** A square icon-only button rendered to this item's right (e.g. a
-   * leaderboard toggle next to "How to Play"). */
+  /**
+   * A square icon-only button rendered to this item's right (e.g. a leaderboard
+   * toggle next to "How to Play").
+   */
   trailing?: {
     icon: Component
     ariaLabel: string

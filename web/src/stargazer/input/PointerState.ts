@@ -4,8 +4,8 @@ import type { Stage } from '../render/Stage'
 import type { Vec2 } from '../math/Vec2'
 
 /**
- * A node that can capture a pointer: a 2D {@link Node2D} (bounds hit) or a
- * 3D {@link Node3D} (ray pick). The input system dispatches pointer callbacks to
+ * A node that can capture a pointer: a 2D {@link Node2D} (bounds hit) or a 3D
+ * {@link Node3D} (ray pick). The input system dispatches pointer callbacks to
  * whichever captured on `down`.
  *
  * @category Input
@@ -65,8 +65,8 @@ export interface PointerEvent2D {
   readonly stage: Stage
   /**
    * The pointer's `world` position converted into `node`'s local space via
-   * {@link Node2D.worldToLocal}. Convenience for drag handlers whose target
-   * sits under a scaled/translated ancestor, so they read local coords directly
+   * {@link Node2D.worldToLocal}. Convenience for drag handlers whose target sits
+   * under a scaled/translated ancestor, so they read local coords directly
    * instead of threading a bespoke world→local closure. Pass `out` to reuse a
    * scratch {@link Vec2}.
    */

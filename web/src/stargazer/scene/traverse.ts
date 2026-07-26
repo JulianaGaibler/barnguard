@@ -5,8 +5,8 @@ import type { Node } from './Node'
  * node's children left to right. This is painter order: `visit` sees nodes in
  * the sequence they should draw. `root` itself is visited first.
  *
- * The tree is heterogeneous ({@link Node2D} and {@link Node3D} can coexist),
- * so `visit` receives the base `Node`; branch on `node.kind` (or narrow) when a
+ * The tree is heterogeneous ({@link Node2D} and {@link Node3D} can coexist), so
+ * `visit` receives the base `Node`; branch on `node.kind` (or narrow) when a
  * walk only cares about one dimension. Passing a subtree root of a single kind
  * infers `N` to that type, so a homogeneous walk keeps its concrete typing.
  *

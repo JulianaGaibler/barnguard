@@ -8,7 +8,10 @@ import type { Gfx2D } from '../render/gfx/Gfx2D'
 
 type LoggedCall = readonly [string, ...unknown[]]
 
-/** Minimal `Gfx2D` test double: logs the calls this suite cares about, no-ops the rest. */
+/**
+ * Minimal `Gfx2D` test double: logs the calls this suite cares about, no-ops
+ * the rest.
+ */
 function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
   const calls: LoggedCall[] = []
   const gfx: Gfx2D = {
@@ -43,7 +46,10 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
 
 const fakeCamera = {} as Camera
 
-/** Trivial concrete subclass exposing hook call logs + protected fields for assertions. */
+/**
+ * Trivial concrete subclass exposing hook call logs + protected fields for
+ * assertions.
+ */
 class TestParticleNode extends VectorParticleNode {
   readonly spawnLog: number[] = []
   readonly drawLog: number[] = []
@@ -67,7 +73,10 @@ class TestParticleNode extends VectorParticleNode {
     return this.alive
   }
 
-  protected override spawnParticle(i: number, out: VectorParticleSpawnInit): void {
+  protected override spawnParticle(
+    i: number,
+    out: VectorParticleSpawnInit,
+  ): void {
     out.x = 0
     out.y = 0
     out.vx = 100
@@ -96,7 +105,10 @@ class PermanentTestNode extends VectorParticleNode {
   triggerBurst(count: number): void {
     this.burst(count)
   }
-  protected override spawnParticle(_i: number, out: VectorParticleSpawnInit): void {
+  protected override spawnParticle(
+    _i: number,
+    out: VectorParticleSpawnInit,
+  ): void {
     out.vx = 10
   }
   protected override drawParticle(): void {}
@@ -121,7 +133,10 @@ describe('VectorParticleNode', () => {
         this.pending = value
         this.burst(1)
       }
-      protected override spawnParticle(_i: number, out: VectorParticleSpawnInit): void {
+      protected override spawnParticle(
+        _i: number,
+        out: VectorParticleSpawnInit,
+      ): void {
         this.seen.push(this.pending)
         out.vx = 1
       }
@@ -157,7 +172,7 @@ describe('VectorParticleNode', () => {
     expect(n.xAtUpdateExtra).toEqual([50, 50, 100, 100])
   })
 
-  it("shouldDespawn defaults to false on the base class — particles never auto-despawn without an override", () => {
+  it('shouldDespawn defaults to false on the base class — particles never auto-despawn without an override', () => {
     const n = new PermanentTestNode({ capacity: 4 })
     n.triggerBurst(4)
     for (let i = 0; i < 50; i++) n.onUpdate(1)

@@ -49,8 +49,11 @@ There are three coordinate spaces:
 Convert between the two spaces through the camera. Game code that reads a DOM pointer coord maps it to world; code that positions an HTML element maps the other way:
 
 ```ts
-const world = engine.camera.screenToWorld(cssX, cssY) // CSS px → world
-const screen = engine.camera.worldToScreen(node.transform.x, node.transform.y) // world → CSS px
+const world = engine.currentCamera2D.screenToWorld(cssX, cssY) // CSS px → world
+const screen = engine.currentCamera2D.worldToScreen(
+  node.transform.x,
+  node.transform.y,
+) // world → CSS px
 ```
 
 Both take an optional `out: Vec2` to avoid allocating in a per-frame loop.
@@ -59,7 +62,7 @@ Both take an optional `out: Vec2` to avoid allocating in a per-frame loop.
 
 ## Stages
 
-A `Stage` bundles what varies per canvas: `Renderer`, `Scene`, `Camera`, `Layers`, a `ResizeObserver`, and the render pipeline that targets it. `Engine` owns a `primaryStage`; `engine.renderer` / `engine.tree` / `engine.camera` / `engine.layers` are getters onto it.
+A `Stage` bundles what varies per canvas: `Renderer`, `Scene`, `Camera`, `Layers`, a `ResizeObserver`, and the render pipeline that targets it. `Engine` owns a `primaryStage`; `engine.renderer` / `engine.tree` / `engine.currentCamera2D` / `engine.layers` are getters onto it.
 
 More stages attach via `engine.attachStage(canvas, opts)` and detach via `engine.detachStage(stage)`. Each has its own scene tree, camera, and static-layer cache; nothing bleeds between stages.
 
@@ -69,7 +72,7 @@ Secondary stages share the `Ticker` (one rAF loop drives every stage), the `Anim
 
 `SceneTree` owns one root (a `GroupNode`) holding both 2D and 3D nodes. Every 2D renderable is a `Node2D` subclass (`ShapeNode`, `Path2DNode`, `PolylineNode`, `TextNode`, `ParticleEmitterNode`, `Node2D`). Nodes compose spatially through their `transform` as parent world matrix × child local matrix.
 
-`Node2D` (2D) and `Node3D` (3D) share a non-spatial `Node` base that owns children, behaviors, the abort/event lifecycle, and the tween/wait/loop helpers, and both live in the **one** `SceneTree` (Godot-style). Each keeps its own transform type and world composition (2×3 affine for 2D, 4×4 for 3D), composed from its nearest same-`kind` ancestor; render passes bucket the single tree walk by `node.kind`. See [3D](/guides/3d).
+`Node2D` (2D) and `Node3D` (3D) share a non-spatial `Node` base that owns children, behaviors, the abort/event lifecycle, and the tween/wait/loop helpers, and both live in the **one** `SceneTree`. Each keeps its own transform type and world composition (2×3 affine for 2D, 4×4 for 3D), composed from its nearest same-`kind` ancestor; render passes bucket the single tree walk by `node.kind`. See [3D](/guides/3d).
 
 `Behavior` objects attach game logic to nodes, with optional `onAttach`, `onDetach`, `onUpdate(dt)`, and `onFixedStep(fixedDt)` hooks. Multiple behaviors can share a node; `node.getBehavior<T>(Ctor)` and `getBehaviors<T>(Ctor)` look them up by class.
 

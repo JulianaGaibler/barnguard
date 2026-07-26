@@ -10,7 +10,9 @@ const GAME_BY_ID = new Map(GAMES.map((g) => [g.meta.id, g]))
 // The leaderboard is scoped per arcade game (its `display` param is a
 // `GameMeta.id`, not this manifest's own `id`) — reuse the same per-game
 // opt-in flag the in-game leaderboard UI already checks.
-const LEADERBOARD_IDS = GAMES.filter((g) => g.meta.supportsLeaderboard).map((g) => g.meta.id)
+const LEADERBOARD_IDS = GAMES.filter((g) => g.meta.supportsLeaderboard).map(
+  (g) => g.meta.id,
+)
 
 /**
  * The arcade display: a launcher "main screen" that hosts three games
@@ -20,12 +22,12 @@ const LEADERBOARD_IDS = GAMES.filter((g) => g.meta.supportsLeaderboard).map((g) 
  *
  * Printing is opt-in per game, not per display: each label design is
  * game-specific, so `renderLabelForRecord`/`renderPreviewLabel` live on the
- * `GameModule` itself (see `GameModule.ts`) and this display just dispatches
- * to the right game by `record.gameId`. None of the three games has a label
- * renderer wired up yet, so every record currently comes back
- * `printable: false` and the dispatch below never actually fires — but a
- * game only needs to implement those two methods on its own module to start
- * printing; no change here.
+ * `GameModule` itself (see `GameModule.ts`) and this display just dispatches to
+ * the right game by `record.gameId`. None of the three games has a label
+ * renderer wired up yet, so every record currently comes back `printable:
+ * false` and the dispatch below never actually fires — but a game only needs to
+ * implement those two methods on its own module to start printing; no change
+ * here.
  */
 export const arcade: DisplayManifest = {
   id: 'arcade',

@@ -90,7 +90,9 @@ interface OrboScene {
  * once it resolves; the orbs render immediately meanwhile.
  */
 function buildOrboScene(stage: Stage, host: EngineHost): OrboScene {
-  const vp = stage.camera.viewport
+  const cam = stage.currentCamera2D
+  if (!cam) throw new Error('buildOrboScene: stage has no current 2D camera')
+  const vp = cam.viewport
   const bounds: Bounds = {
     x: vp.x + FIELD_PADDING,
     y: vp.y + FIELD_PADDING,

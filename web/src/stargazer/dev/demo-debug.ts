@@ -1,4 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
+import { addDemoCamera } from './demoCamera'
 import { Node2D } from '../scene/Node2D'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { PolylineNode } from '../nodes/PolylineNode'
@@ -81,11 +82,11 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     canvas,
     clearColor: '#0d1a2c',
     // Landscape 16:9, matches the target kiosk aspect.
-    initialViewport: { x: 0, y: 0, width: 1920, height: 1080 },
   })
   attach?.(host)
 
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: 0, y: 0, width: 1920, height: 1080 })
     const group = new Node2D('group')
     group.transform.x = 700
     group.transform.y = 640

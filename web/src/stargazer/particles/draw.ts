@@ -20,11 +20,11 @@
  *   square particles (debris, data-style trails).
  * - `'triangle'` , solid filled equilateral triangle, apex-up, same ~85% AA
  *   margin. Baked at a single fixed orientation — pair with a config's
- *   `spinRadPerSec` to have it tumble at draw time rather than needing
- *   multiple baked poses. Pair with `blend: 'source-over'` for crisp debris.
- *   Line/shard particles (anisotropic, length ≠ width) aren't supported here —
- *   `size` is one scalar driving a square-aspect tile; use `VectorParticleNode`
- *   for shapes that need an independent width and length.
+ *   `spinRadPerSec` to have it tumble at draw time rather than needing multiple
+ *   baked poses. Pair with `blend: 'source-over'` for crisp debris. Line/shard
+ *   particles (anisotropic, length ≠ width) aren't supported here — `size` is
+ *   one scalar driving a square-aspect tile; use `VectorParticleNode` for
+ *   shapes that need an independent width and length.
  *
  * @category Particles
  */
@@ -32,11 +32,7 @@
 import { withAlpha } from '../render/gfx/parseColor'
 
 export type ParticleSpriteStyle =
-  | 'gradient'
-  | 'disc'
-  | 'hexagon'
-  | 'square'
-  | 'triangle'
+  'gradient' | 'disc' | 'hexagon' | 'square' | 'triangle'
 
 const SPRITE_SIZE = 64
 const spriteCache = new Map<string, HTMLCanvasElement>()

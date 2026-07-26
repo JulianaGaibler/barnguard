@@ -1,12 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Node2D, domAnchor, type Rect } from '@src/stargazer'
-  import { coverView, gameVisibleRect, REGION_WIDTH, REGION_HEIGHT } from '../../world'
+  import {
+    coverView,
+    gameVisibleRect,
+    REGION_WIDTH,
+    REGION_HEIGHT,
+  } from '../../world'
   import type { GameProps } from '../GameModule'
   import { BoardSession, type SessionState } from './game/session'
   import { Match } from './game/match'
   import { InputController } from './game/input'
-  import { computeBoardBounds, computeDualBoardBounds, sideMargins } from './game/layout'
+  import {
+    computeBoardBounds,
+    computeDualBoardBounds,
+    sideMargins,
+  } from './game/layout'
   import type { Bounds, TextSegment } from './game/types'
   import { BackdropNode } from './game/nodes/BackdropNode'
   import { ChromeNode } from './game/nodes/ChromeNode'
@@ -57,24 +66,35 @@
     state: 'idle',
   })
   const pad = (n: number): string => String(n).padStart(2, '0')
-  const countLabel = (v: number): string => (v > 0 ? String(v) : v === 0 ? S.go : '')
+  const countLabel = (v: number): string =>
+    v > 0 ? String(v) : v === 0 ? S.go : ''
 
-  /** Timestamp a solo/versus session started, for the recorded game's `durationMs`. */
+  /**
+   * Timestamp a solo/versus session started, for the recorded game's
+   * `durationMs`.
+   */
   let gameStartMs = 0
 
-  /** Stashed by the `gameOver`/`matchOver` handlers below (with `durationMs`
+  /**
+   * Stashed by the `gameOver`/`matchOver` handlers below (with `durationMs`
    * already fixed at that moment, not later — the player may linger on the
    * game-over screen entering a name). The record can only be finalized once
-   * `GameOver` knows whether a name was saved, so the actual server call
-   * waits for its `onFinalize`. */
-  let pendingLog: Omit<Parameters<typeof recordArcadeGame>[0], 'playerName'> | null = null
+   * `GameOver` knows whether a name was saved, so the actual server call waits
+   * for its `onFinalize`.
+   */
+  let pendingLog: Omit<
+    Parameters<typeof recordArcadeGame>[0],
+    'playerName'
+  > | null = null
   function finalizeGameLog(name: string): void {
     if (!pendingLog) return
     const log = pendingLog
     pendingLog = null
-    recordArcadeGame({ ...log, playerName: name || undefined }).catch((e: unknown) => {
-      console.warn('[jezzball] failed to record game to server', e)
-    })
+    recordArcadeGame({ ...log, playerName: name || undefined }).catch(
+      (e: unknown) => {
+        console.warn('[jezzball] failed to record game to server', e)
+      },
+    )
   }
 
   // Node the overlays are pinned to, so the whole surface rides the camera.
@@ -87,9 +107,9 @@
   })
 
   /**
-   * Cover rect for the menu preview: the whole visible area at the fixed
-   * region aspect, left-anchored, so the preview reads as a full background
-   * with no borders at any aspect (it crops rather than leaving gaps).
+   * Cover rect for the menu preview: the whole visible area at the fixed region
+   * aspect, left-anchored, so the preview reads as a full background with no
+   * borders at any aspect (it crops rather than leaving gaps).
    */
   function previewView(): Rect {
     return coverView(gameRect, REGION_WIDTH / REGION_HEIGHT)
@@ -113,7 +133,11 @@
   let match: Match | null = null
   let input: InputController | null = null
   let soloBoard: Bounds | null = null
-  let dualBoard: { a: Bounds; b: Bounds; orientation: 'row' | 'column' } | null = null
+  let dualBoard: {
+    a: Bounds
+    b: Bounds
+    orientation: 'row' | 'column'
+  } | null = null
 
   // Persistent HUD node, created once in `onMount` and live for the whole
   // component (shown/hidden rather than rebuilt).
@@ -140,11 +164,22 @@
 
   /** Reposition/resize the solo HUD from the current `gameRect`/`soloBoard`. */
   function layoutSolo(): void {
-    if (!soloBoard || !heartsA || !badgeLvl || !badgePts || !progressNode || !countdownA) return
+    if (
+      !soloBoard ||
+      !heartsA ||
+      !badgeLvl ||
+      !badgePts ||
+      !progressNode ||
+      !countdownA
+    )
+      return
     const margin = sideMargins(gameRect, soloBoard)
     const badgeSize = Math.min(margin.width * 0.82, gameRect.height * 0.34)
     const midY = gameRect.y + gameRect.height / 2
-    const boardCenter = { x: soloBoard.x + soloBoard.width / 2, y: soloBoard.y + soloBoard.height / 2 }
+    const boardCenter = {
+      x: soloBoard.x + soloBoard.width / 2,
+      y: soloBoard.y + soloBoard.height / 2,
+    }
 
     heartsA.transform.x = gameRect.x + gameRect.width / 2
     heartsA.transform.y = gameRect.y + gameRect.height * 0.04 + 19
@@ -183,7 +218,10 @@
       orientation === 'row'
         ? { x: (a.x + a.width + b.x) / 2, y: a.y + a.height / 2 }
         : { x: a.x + a.width / 2, y: (a.y + a.height + b.y) / 2 }
-    const badgeSize = Math.min(vsGap * 0.72, Math.min(gameRect.width, gameRect.height) * 0.24)
+    const badgeSize = Math.min(
+      vsGap * 0.72,
+      Math.min(gameRect.width, gameRect.height) * 0.24,
+    )
 
     heartsA.transform.x = gameRect.x + gameRect.width * 0.04
     heartsA.transform.y = gameRect.y + gameRect.height * 0.08 + 11
@@ -197,7 +235,7 @@
     badgeLvl.transform.x = vsCenter.x - badgeSize / 2
     badgeLvl.transform.y = vsCenter.y - badgeSize / 2
     progressNode.transform.x = gameRect.x + gameRect.width / 2
-    progressNode.transform.y = gameRect.y + gameRect.height * 0.965
+    progressNode.transform.y = gameRect.y + gameRect.height - 64
     countdownA.transform.x = a.x + a.width / 2
     countdownA.transform.y = a.y + a.height / 2
     countdownB.transform.x = b.x + b.width / 2
@@ -207,12 +245,15 @@
   }
 
   function syncSolo(): void {
-    if (!heartsA || !badgeLvl || !badgePts || !progressNode || !countdownA) return
+    if (!heartsA || !badgeLvl || !badgePts || !progressNode || !countdownA)
+      return
     heartsA.setLives(hudA.lives)
     badgeLvl.setValue(pad(hudA.level), hudA.level)
     badgePts.setValue(String(hudA.points), hudA.points)
     progressNode.setSolo(hudA.pct)
-    countdownA.setLabel(hudA.state === 'countdown' ? countLabel(hudA.countdown) : null)
+    countdownA.setLabel(
+      hudA.state === 'countdown' ? countLabel(hudA.countdown) : null,
+    )
   }
 
   function syncVersus(): void {
@@ -234,8 +275,12 @@
     scoreB.setValue(hudB.points)
     badgeLvl.setValue(pad(hudA.level), hudA.level)
     progressNode.setVersus(hudA.pct, hudB.pct)
-    countdownA.setLabel(hudA.state === 'countdown' ? countLabel(hudA.countdown) : null)
-    countdownB.setLabel(hudB.state === 'countdown' ? countLabel(hudB.countdown) : null)
+    countdownA.setLabel(
+      hudA.state === 'countdown' ? countLabel(hudA.countdown) : null,
+    )
+    countdownB.setLabel(
+      hudB.state === 'countdown' ? countLabel(hudB.countdown) : null,
+    )
 
     const waitingSide =
       hudA.state === 'cleared' && hudB.state !== 'cleared'
@@ -325,7 +370,13 @@
     mode = '1p'
     hudA = newHud()
     soloBoard = computeBoardBounds(gameRect)
-    const s = new BoardSession(host, soloBoard, GRID.cols, GRID.rows, ACCENT_SOLO)
+    const s = new BoardSession(
+      host,
+      soloBoard,
+      GRID.cols,
+      GRID.rows,
+      ACCENT_SOLO,
+    )
     // The session adds its board straight to the scene root; reparent it
     // under `contentLayer` (behind the HUD layer added next) so the field/
     // wall/ball nodes never paint over the countdown or other HUD overlays.
@@ -334,12 +385,34 @@
     const layer = new Node2D('jb-hud-solo')
     contentLayer?.add(layer)
     hudLayer = layer
-    heartsA = new HeartsNode({ max: RULES.maxLivesDisplay, color: COLORS.ink, align: 'center', sizePx: 38 })
-    badgeLvl = new BadgeNode({ label: S.lvl, color: ACCENT_SOLO.primary, size: 1, labelCorner: 'tr', tabCorner: 'bl' })
-    badgePts = new BadgeNode({ label: S.pts, color: ACCENT_SOLO.primary, size: 1, labelCorner: 'tl', tabCorner: 'br' })
-    progressNode = new ProgressNode({ mode: 'solo', target: RULES.targetPct, width: 1 })
+    heartsA = new HeartsNode({
+      max: RULES.maxLivesDisplay,
+      color: COLORS.ink,
+      align: 'center',
+      sizePx: 38,
+    })
+    badgeLvl = new BadgeNode({
+      label: S.lvl,
+      color: ACCENT_SOLO.primary,
+      size: 1,
+      labelCorner: 'tr',
+      tabCorner: 'bl',
+    })
+    badgePts = new BadgeNode({
+      label: S.pts,
+      color: ACCENT_SOLO.primary,
+      size: 1,
+      labelCorner: 'tl',
+      tabCorner: 'br',
+    })
+    progressNode = new ProgressNode({
+      mode: 'solo',
+      target: RULES.targetPct,
+      width: 1,
+    })
     countdownA = new CountdownNode()
-    for (const n of [heartsA, badgeLvl, badgePts, progressNode, countdownA]) layer.add(n)
+    for (const n of [heartsA, badgeLvl, badgePts, progressNode, countdownA])
+      layer.add(n)
     layoutSolo()
 
     wire(s, hudA, syncSolo)
@@ -378,16 +451,46 @@
     const layer = new Node2D('jb-hud-versus')
     contentLayer?.add(layer)
     hudLayer = layer
-    heartsA = new HeartsNode({ max: RULES.maxLivesDisplay, color: ACCENT_VS[1].primary, align: 'left', sizePx: 22 })
-    heartsB = new HeartsNode({ max: RULES.maxLivesDisplay, color: ACCENT_VS[2].primary, align: 'right', sizePx: 22 })
+    heartsA = new HeartsNode({
+      max: RULES.maxLivesDisplay,
+      color: ACCENT_VS[1].primary,
+      align: 'left',
+      sizePx: 22,
+    })
+    heartsB = new HeartsNode({
+      max: RULES.maxLivesDisplay,
+      color: ACCENT_VS[2].primary,
+      align: 'right',
+      sizePx: 22,
+    })
     scoreA = new VersusScoreNode(ACCENT_VS[1].primary, S.pts)
     scoreB = new VersusScoreNode(ACCENT_VS[2].primary, S.pts)
-    badgeLvl = new BadgeNode({ label: S.lvl, color: ACCENT_SOLO.primary, size: 1, labelCorner: 'tr', tabCorner: 'bl' })
-    progressNode = new ProgressNode({ mode: 'versus', target: RULES.targetPct, width: 1 })
+    badgeLvl = new BadgeNode({
+      label: S.lvl,
+      color: ACCENT_SOLO.primary,
+      size: 1,
+      labelCorner: 'tr',
+      tabCorner: 'bl',
+    })
+    progressNode = new ProgressNode({
+      mode: 'versus',
+      target: RULES.targetPct,
+      width: 1,
+    })
     countdownA = new CountdownNode()
     countdownB = new CountdownNode()
     waitingNode = new WaitingNode(S.waitHeadline, S.waiting)
-    for (const n of [heartsA, heartsB, scoreA, scoreB, badgeLvl, progressNode, countdownA, countdownB, waitingNode])
+    for (const n of [
+      heartsA,
+      heartsB,
+      scoreA,
+      scoreB,
+      badgeLvl,
+      progressNode,
+      countdownA,
+      countdownB,
+      waitingNode,
+    ])
       layer.add(n)
     layoutVersus()
 
@@ -400,7 +503,11 @@
         r.winner === 0
           ? [{ text: S.tie, color: COLORS.ink }]
           : [
-              { text: r.winner === 1 ? S.player1 : S.player2, color: r.winner === 1 ? ACCENT_VS[1].primary : ACCENT_VS[2].primary },
+              {
+                text: r.winner === 1 ? S.player1 : S.player2,
+                color:
+                  r.winner === 1 ? ACCENT_VS[1].primary : ACCENT_VS[2].primary,
+              },
               { text: ` ${S.winsSuffix}`, color: COLORS.ink },
             ]
       showGameOver(title, [
@@ -490,7 +597,8 @@
     // The pause toggle starts hidden — the component always mounts on the
     // splash screen, not mid-game.
     const pauseBtn = new PauseButtonNode(pause)
-    pauseBtn.transform.x = view.x + view.width * 0.96 - 38.4
+    if (mode === '1p') pauseBtn.transform.x = view.x + view.width * 0.96 - 38.4
+    else pauseBtn.transform.x = view.x + view.width * 0.5 - 24.2
     pauseBtn.transform.y = view.y + view.height * 0.16
     pauseBtn.visible = false
     chromeLayer.add(pauseBtn)
@@ -559,7 +667,10 @@
       {/if}
 
       {#if showLeaderboard}
-        <LeaderboardModal display="jezzball" onClose={() => (showLeaderboard = false)} />
+        <LeaderboardModal
+          display="jezzball"
+          onClose={() => (showLeaderboard = false)}
+        />
       {/if}
     </div>
   {/if}

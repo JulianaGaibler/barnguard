@@ -9,8 +9,10 @@
   export interface PendingRow {
     name: string
     score: number
-    /** Overrides how the name renders (e.g. a live "Y A I _ _" while the
-     * keyboard is open). Falls back to `name`/the placeholder when unset. */
+    /**
+     * Overrides how the name renders (e.g. a live "Y A I _ _" while the
+     * keyboard is open). Falls back to `name`/the placeholder when unset.
+     */
     display?: string
   }
 
@@ -25,8 +27,10 @@
     /** Renders the pending row as a CTA pill instead of its score. */
     pendingAction?: PendingAction | null
     maxRows?: number
-    /** Show only this many rows above/below the pending row. Omit for the
-     * full list from rank 1 (the standalone leaderboard modal). */
+    /**
+     * Show only this many rows above/below the pending row. Omit for the full
+     * list from rank 1 (the standalone leaderboard modal).
+     */
     contextRows?: number
   }
   const {
@@ -44,8 +48,10 @@
     pending: boolean
   }
 
-  /** A `contextRows`-radius window centered on the pending row, shifted
-   * (not shrunk) when that would run past either end of `all`. */
+  /**
+   * A `contextRows`-radius window centered on the pending row, shifted (not
+   * shrunk) when that would run past either end of `all`.
+   */
   function windowAround(all: Row[], radius: number): Row[] {
     const idx = all.findIndex((r) => r.pending)
     if (idx === -1) return all
@@ -62,11 +68,12 @@
   }
 
   const rows = $derived.by<Row[]>(() => {
-    const base: Array<{ name: string; score: number; pending: boolean }> = entries.map((e) => ({
-      name: e.name,
-      score: e.score,
-      pending: false,
-    }))
+    const base: Array<{ name: string; score: number; pending: boolean }> =
+      entries.map((e) => ({
+        name: e.name,
+        score: e.score,
+        pending: false,
+      }))
     if (pending) {
       const insertAt = base.findIndex((r) => pending.score > r.score)
       base.splice(insertAt === -1 ? base.length : insertAt, 0, {
@@ -75,8 +82,12 @@
         pending: true,
       })
     }
-    const capped = base.slice(0, maxRows).map((r, i) => ({ place: i + 1, ...r }))
-    return contextRows === undefined ? capped : windowAround(capped, contextRows)
+    const capped = base
+      .slice(0, maxRows)
+      .map((r, i) => ({ place: i + 1, ...r }))
+    return contextRows === undefined
+      ? capped
+      : windowAround(capped, contextRows)
   })
 </script>
 
@@ -100,7 +111,11 @@
   {#each rows as row (row.place)}
     <li>
       {#if row.pending && pendingAction}
-        <button type="button" class="row pending" onclick={pendingAction.onClick}>
+        <button
+          type="button"
+          class="row pending"
+          onclick={pendingAction.onClick}
+        >
           {@render rowContent(row)}
         </button>
       {:else}

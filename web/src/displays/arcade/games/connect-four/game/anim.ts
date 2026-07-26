@@ -65,10 +65,9 @@ export async function playWinHighlight(opts: {
 }
 
 /**
- * Square burst at a winning cell: squares spin and shrink as they slow,
- * evenly spaced around the circle (with jitter, so a small burst doesn't
- * clump) in the winning player's glow color. Self-destroys once every piece
- * has settled.
+ * Square burst at a winning cell: squares spin and shrink as they slow, evenly
+ * spaced around the circle (with jitter, so a small burst doesn't clump) in the
+ * winning player's glow color. Self-destroys once every piece has settled.
  */
 function createWinBurst(
   center: Vec2,

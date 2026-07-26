@@ -5,7 +5,10 @@ import type { Gfx2D } from '../render/gfx/Gfx2D'
 
 type LoggedCall = readonly [string, ...unknown[]]
 
-/** Minimal `Gfx2D` test double: logs the calls this suite cares about, no-ops the rest. */
+/**
+ * Minimal `Gfx2D` test double: logs the calls this suite cares about, no-ops
+ * the rest.
+ */
 function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
   const calls: LoggedCall[] = []
   const gfx: Gfx2D = {

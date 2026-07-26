@@ -1,4 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
+import { addDemoCamera } from './demoCamera'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { Timeline } from '../anim/Timeline'
 import { ignoreAbort } from '../anim/abortSignal'
@@ -23,12 +24,12 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    initialViewport: { x: 0, y: 0, width: 1920, height: 1080 },
   })
   attach?.(host)
 
   let hero: ShapeNode | null = null
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: 0, y: 0, width: 1920, height: 1080 })
     hero = new ShapeNode({
       id: 'hero',
       geometry: { kind: 'circle', radius: 80 },

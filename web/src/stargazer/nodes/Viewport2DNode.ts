@@ -37,10 +37,10 @@ const LAYERS = ['static', 'above-static', 'dynamic'] as const
 /**
  * A 2D scene rendered to a texture and shown on a transformable quad in the 3D
  * world, the bridge for putting stargazer's 2D content (shapes, text, sprites)
- * into a 3D scene. Build the 2D content under {@link Viewport2DNode.scene}`.root`
- * exactly as for a normal stage; the 3D pass renders it to an offscreen target
- * each frame and draws it on a unit quad that this node's {@link Transform3D}
- * places, orients, and scales.
+ * into a 3D scene. Build the 2D content under
+ * {@link Viewport2DNode.scene}`.root` exactly as for a normal stage; the 3D pass
+ * renders it to an offscreen target each frame and draws it on a unit quad that
+ * this node's `Transform3D` places, orients, and scales.
  *
  * The quad starts scaled to the surface's aspect ratio (width:height), so 2D
  * content isn't stretched; override `transform.scale` to resize it. The 2D
@@ -55,7 +55,10 @@ const LAYERS = ['static', 'above-static', 'dynamic'] as const
  * @example
  *   const panel = new Viewport2DNode({ width: 512, height: 256 })
  *   panel.scene.root.add(
- *     new ShapeNode({ geometry: { kind: 'rect', width: 512, height: 256 }, fill: '#123' }),
+ *     new ShapeNode({
+ *       geometry: { kind: 'rect', width: 512, height: 256 },
+ *       fill: '#123',
+ *     }),
  *   )
  *   panel.transform.setPosition(0, 1, -3)
  *   engine.tree.add(panel)
@@ -79,7 +82,12 @@ export class Viewport2DNode extends Node3D {
     this.#height = opts.height
     this.#clearColor = opts.clearColor ?? '#000000'
     this.#transparent = opts.transparent ?? true
-    const viewport = opts.viewport ?? { x: 0, y: 0, width: opts.width, height: opts.height }
+    const viewport = opts.viewport ?? {
+      x: 0,
+      y: 0,
+      width: opts.width,
+      height: opts.height,
+    }
     this.scene = new SceneTree(new Node2D('scene-root'))
     this.camera = new Camera(viewport, { w: opts.width, h: opts.height })
     // Start the quad aspect-correct so square 2D pixels aren't stretched.
@@ -108,12 +116,16 @@ export class Viewport2DNode extends Node3D {
   }
 
   /**
-   * Render the embedded 2D scene into the offscreen target. The stage calls this
-   * as a pre-pass before the main frame; the 3D pass then samples
+   * Render the embedded 2D scene into the offscreen target. The stage calls
+   * this as a pre-pass before the main frame; the 3D pass then samples
    * {@link Viewport2DNode.colorTexture}. `canvas` is only used to construct the
    * offscreen surface (it never presents to it).
    */
-  renderOffscreen(device: GfxDevice, canvas: HTMLCanvasElement, dt: number): void {
+  renderOffscreen(
+    device: GfxDevice,
+    canvas: HTMLCanvasElement,
+    dt: number,
+  ): void {
     if (!this.#gpu) {
       // samples: 1 so the target is a sampleable color texture; the 2D pipeline
       // is analytically anti-aliased, so it stays crisp without MSAA.
@@ -133,10 +145,11 @@ export class Viewport2DNode extends Node3D {
       pixelH: this.#height,
     })
     // The offscreen target is device-pixel-for-pixel (dpr 1), so the layer
-    // renderer's screen transform is the camera's scale + offset directly.
+    // renderer's base affine is the camera's screen affine directly.
     const rendererStub = {
       cssSize: { w: this.#width, h: this.#height },
     } as unknown as Renderer
+    const render = camera.getScreenAffine()
     for (const layer of LAYERS) {
       this.#layerRenderer.drawLayer(
         this.scene,
@@ -144,9 +157,7 @@ export class Viewport2DNode extends Node3D {
         layer,
         gpu,
         camera,
-        t.scale,
-        t.offsetX,
-        t.offsetY,
+        render,
         dt,
       )
       gpu.flush()

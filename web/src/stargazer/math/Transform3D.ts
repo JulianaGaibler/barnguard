@@ -19,7 +19,7 @@ import type { Quat } from './Quat'
  * walk. Treat both matrices as read-only.
  *
  * Composition order (applied to a point right-to-left): scale → rotate →
- * translate. Matches {@link Mat4.mat4Compose} and glTF's TRS convention.
+ * translate. Matches {@link mat4Compose} and glTF's TRS convention.
  *
  * @category Math
  * @example

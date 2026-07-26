@@ -1,6 +1,6 @@
 import {
   PolylineNode,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Vec2,
 } from '@src/stargazer'
@@ -143,7 +143,7 @@ export class PathTrailNode extends PolylineNode {
     }
   }
 
-  override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D, _dt: number): void {
     const n = this.pointCount
     if (n < 2) return
     const fade = TUNING.path.fadeSec

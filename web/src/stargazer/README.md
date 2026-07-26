@@ -62,6 +62,7 @@ The Svelte host is the only part that touches the DOM. Everything else runs on t
 - [Layout](/guides/layout), opt-in constraints-based boxes, Row/Column, LayoutRoot, resize
 - [Camera](/guides/camera), viewport, uniform aspect fit, `animateTo`
 - [3D](/guides/3d), the 3D world, `Camera3D`, meshes, glTF, 2D-in-3D, picking
+- [Post-processing](/guides/post-processing), screen-space effects — vignette, chromatic aberration, edge blur, custom passes
 - [Input](/guides/input), pointer capture, hit testing, world reprojection
 - [Animation](/guides/animation), `tween`, `wait`, `Timeline`, the abort contract
 - [Text](/guides/text), `fillText`, `TextNode`, label caching and animation cost

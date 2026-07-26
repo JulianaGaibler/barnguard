@@ -2,7 +2,7 @@
 
 Layout is opt-in. By default you place a node by setting `transform.x`/`transform.y`, and that is the right tool for game entities. Reach for layout when a group of nodes should fill the window and reflow on resize, a menu, a HUD, a panel, instead of sitting at fixed coordinates.
 
-The model is constraints-based, the same idea as Flutter and SwiftUI: constraints flow down, sizes flow up, and each parent places its children. You build a tree of containers, hand it to a `LayoutRoot`, and the engine measures and arranges it into the visible area, then again on every resize. Nothing here runs until you attach a `LayoutRoot`.
+The model is constraints-based: constraints flow down, sizes flow up, and each parent places its children. You build a tree of containers, hand it to a `LayoutRoot`, and the engine measures and arranges it into the visible area, then again on every resize. Nothing here runs until you attach a `LayoutRoot`.
 
 ## A first layout
 

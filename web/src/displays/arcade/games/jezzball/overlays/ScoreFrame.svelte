@@ -16,7 +16,8 @@
   <div class="frame__circle"></div>
   <div class="frame__content">
     <span class="frame__label">{t.gameOver}</span>
-    <span class="frame__value" style="color: {color}">{formatScore(score)}</span>
+    <span class="frame__value" style="color: {color}">{formatScore(score)}</span
+    >
   </div>
 </div>
 

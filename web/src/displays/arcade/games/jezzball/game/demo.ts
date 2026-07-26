@@ -1,7 +1,7 @@
 /**
  * Scripted tutorial demos, built on the shared demo stage (fixed 1000×750
- * viewport). Each reuses the real field/wall nodes and the real placement
- * math (`planWallPlacement`, `markWallSpan`, `circleHitsRect`,
+ * viewport). Each reuses the real field/wall nodes and the real placement math
+ * (`planWallPlacement`, `markWallSpan`, `circleHitsRect`,
  * `captureEmptyRegions`) but drives a lightweight, physics-free loop so the
  * mechanic in question reads clearly on its own:
  *
@@ -17,7 +17,12 @@ import {
   type Stage,
 } from '@src/stargazer'
 import type { DemoBuilder } from '@src/displays/arcade/tutorial/types'
-import { createGrid, captureEmptyRegions, markWallSpan, type Grid } from './grid'
+import {
+  createGrid,
+  captureEmptyRegions,
+  markWallSpan,
+  type Grid,
+} from './grid'
 import { cellCenter, computeFieldGeom, type FieldGeom } from './layout'
 import { circleHitsRect } from './colliders'
 import { planWallPlacement, type WallSegment } from './board'
@@ -30,8 +35,10 @@ import { ACCENT_SOLO, COLORS, PHYSICS, ballRadiusWorld } from './tuning'
 const COLS = 10
 const ROWS = 10
 const BOARD = { x: 220, y: 95, width: 560, height: 560 }
-/** Demo-only wall growth speed — slower than `PHYSICS.wallGrowSpeed` so the
- * mechanic is easy to follow on a small looping card. */
+/**
+ * Demo-only wall growth speed — slower than `PHYSICS.wallGrowSpeed` so the
+ * mechanic is easy to follow on a small looping card.
+ */
 const GROW_SPEED = 520
 const HOLD_SEC = 1.3
 const GAP_SEC = 0.5
@@ -119,7 +126,13 @@ function spawnSegments(
 /** Write every segment's span into the grid as a permanent wall. */
 function solidifySegments(grid: Grid, segments: readonly WallSegment[]): void {
   for (const seg of segments) {
-    markWallSpan(grid, seg.orientation, seg.fixedIndex, seg.startCell, seg.endCell)
+    markWallSpan(
+      grid,
+      seg.orientation,
+      seg.fixedIndex,
+      seg.startCell,
+      seg.endCell,
+    )
   }
 }
 
@@ -258,7 +271,8 @@ class WallGrowLoop extends Behavior {
   }
 
   #beginDots(): void {
-    this.#orientation = this.#orientation === 'vertical' ? 'horizontal' : 'vertical'
+    this.#orientation =
+      this.#orientation === 'vertical' ? 'horizontal' : 'vertical'
     const c = cellCenter(this.#d.geom, this.#seed.col, this.#seed.row)
     const dotRadius = this.#d.geom.cell * 0.75
     const dx = this.#orientation === 'horizontal' ? DOT_SPREAD : 0
@@ -352,7 +366,12 @@ class CaptureLoop extends Behavior {
   #timer = 0
   #segments: WallSegment[] = []
 
-  constructor(d: DemoField, seed: CellRef, orientation: Orientation, ball: DemoBall) {
+  constructor(
+    d: DemoField,
+    seed: CellRef,
+    orientation: Orientation,
+    ball: DemoBall,
+  ) {
     super()
     this.#d = d
     this.#seed = seed
@@ -453,18 +472,18 @@ const DESTROY_BALL_STARTS: readonly BallSpawn[] = [
 ]
 
 /**
- * This demo's own (much slower) wall growth speed. A wall this size takes
- * ~1.5s to fully grow at this pace — long enough that three balls bouncing
- * the full board width almost always cross the growing column before it
- * solidifies, so the break reads as a near-sure thing rather than a fluke.
+ * This demo's own (much slower) wall growth speed. A wall this size takes ~1.5s
+ * to fully grow at this pace — long enough that three balls bouncing the full
+ * board width almost always cross the growing column before it solidifies, so
+ * the break reads as a near-sure thing rather than a fluke.
  */
 const DESTROY_GROW_SPEED = 190
 
 /**
- * Minimum distance (world units) a ball must clear from the seed column
- * before the next attempt spawns — otherwise a ball loitering right on the
- * seed would break each new wall within its first frame or two, reading as
- * constant sparks rather than a clean grow → break → pause → regrow cycle.
+ * Minimum distance (world units) a ball must clear from the seed column before
+ * the next attempt spawns — otherwise a ball loitering right on the seed would
+ * break each new wall within its first frame or two, reading as constant sparks
+ * rather than a clean grow → break → pause → regrow cycle.
  */
 const RESPAWN_CLEARANCE = 90
 
@@ -478,9 +497,11 @@ class DestroyLoop extends Behavior {
   #phase: DestroyPhase = 'grow'
   #timer = 0
   #segments: WallSegment[] = []
-  /** Segments that finished growing unbroken, held for teardown at the next
+  /**
+   * Segments that finished growing unbroken, held for teardown at the next
    * attempt — this demo is about the break, so an uninterrupted wall doesn't
-   * get to linger once a fresh attempt starts. */
+   * get to linger once a fresh attempt starts.
+   */
   #solidNodes: WallSegmentNode[] = []
 
   constructor(d: DemoField, seed: CellRef, balls: DemoBall[]) {
@@ -489,7 +510,13 @@ class DestroyLoop extends Behavior {
     this.#seed = seed
     this.#seedX = cellCenter(d.geom, seed.col, seed.row).x
     this.#balls = balls
-    this.#segments = spawnSegments(d.wallLayer, d.geom, 'vertical', seed, d.grid)
+    this.#segments = spawnSegments(
+      d.wallLayer,
+      d.geom,
+      'vertical',
+      seed,
+      d.grid,
+    )
   }
 
   override onUpdate(dt: number): void {
@@ -509,7 +536,13 @@ class DestroyLoop extends Behavior {
       seg.node.setLength(seg.len)
 
       if (seg.len >= seg.target) {
-        markWallSpan(this.#d.grid, seg.orientation, seg.fixedIndex, seg.startCell, seg.endCell)
+        markWallSpan(
+          this.#d.grid,
+          seg.orientation,
+          seg.fixedIndex,
+          seg.startCell,
+          seg.endCell,
+        )
         this.#solidNodes.push(seg.node)
         continue
       }
@@ -520,7 +553,11 @@ class DestroyLoop extends Behavior {
       )
       if (hit) {
         this.#d.wallLayer.add(
-          new BurstNode(hit.node.transform.x, hit.node.transform.y, ACCENT_SOLO.primary),
+          new BurstNode(
+            hit.node.transform.x,
+            hit.node.transform.y,
+            ACCENT_SOLO.primary,
+          ),
         )
         if (!seg.node.isDestroyed) seg.node.destroy()
         continue

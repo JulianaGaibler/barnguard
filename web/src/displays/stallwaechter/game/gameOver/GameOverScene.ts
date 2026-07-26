@@ -1,9 +1,10 @@
 import {
   Path2DNode,
   Node2D,
+  CameraNode2D,
   easings,
   ignoreAbort,
-  type Camera,
+  type CameraView2D,
   type EngineHost,
   type Gfx2D,
   type Rect,
@@ -29,7 +30,7 @@ import type { GameOverReason } from '../session'
 // ----------------------------------------------------------------------------
 
 /**
- * Camera viewport (portrait), tuned to the loss card's aspect. Zoomed ~6×
+ * CameraView2D viewport (portrait), tuned to the loss card's aspect. Zoomed ~6×
  * closer than the initial `300 × 400` so the packet reads big enough to be the
  * focal point. Eyes' world size shrinks in tandem below so their on-screen
  * dimensions stay in the "right size" the user landed on.
@@ -54,8 +55,8 @@ const BORDER_LINE_OFFSET_WORLD = 44
 /**
  * Full length of the border line perpendicular to the heading, extends far past
  * the camera's visible slice so the wall reads as a boundary that stretches
- * "off in both directions" rather than a fixed segment. Camera only ever sees
- * the central strip.
+ * "off in both directions" rather than a fixed segment. CameraView2D only ever
+ * sees the central strip.
  */
 const BORDER_LINE_LENGTH_WORLD = 1200
 /** Fade-out of the border line after the packet crosses. */
@@ -146,6 +147,7 @@ export interface GameOverSceneOptions {
 export class GameOverScene {
   readonly #host: EngineHost
   readonly #stage: Stage
+  readonly #camera: CameraNode2D
   readonly #reason: GameOverReason
   readonly #escapeHeadingRad: number
   readonly #eyeOutlinePath: Path2D
@@ -200,13 +202,17 @@ export class GameOverScene {
       // over it. `clearColor` is ignored while `transparent` is true.
       transparent: true,
       clearColor: '#010612',
-      initialViewport: {
-        x: -CAM_W / 2,
-        y: -CAM_H / 2,
-        width: CAM_W,
-        height: CAM_H,
-      },
     })
+    // The scene's own camera, centered on the origin.
+    this.#camera = new CameraNode2D('gameover-camera')
+    this.#camera.setViewport({
+      x: -CAM_W / 2,
+      y: -CAM_H / 2,
+      width: CAM_W,
+      height: CAM_H,
+    })
+    this.#stage.tree.root.add(this.#camera)
+    this.#camera.makeCurrent()
 
     // Kick off the per-reason async choreography. Both flows finish by
     // idling; on destroy the shared abort signal cancels every await.
@@ -305,8 +311,8 @@ export class GameOverScene {
       this.#escapeTrail.setLiveHead(packet.transform.x, packet.transform.y)
       this.#escapeTrail.sample(packet.transform.x, packet.transform.y)
     }
-    // Camera keeps the packet centred.
-    this.#stage.camera.setViewport({
+    // Keep the packet centred.
+    this.#camera.setViewport({
       x: packet.transform.x - CAM_W / 2,
       y: packet.transform.y - CAM_H / 2,
       width: CAM_W,
@@ -699,7 +705,7 @@ class BorderLineNode extends Node2D {
     this.#dashCssPx = dashCssPx
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const a = this.transform.alpha
     if (a <= 0.001) return
     const s = camera.strokeSpaceScale()

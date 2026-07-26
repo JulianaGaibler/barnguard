@@ -208,7 +208,6 @@
     use:mountEngine={{
       options: {
         transparent: true,
-        initialViewport: { x: 0, y: 0, width: 661, height: 888 },
       },
       onReady: onEngineReady,
       onDestroy: onEngineDestroy,

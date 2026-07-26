@@ -58,7 +58,8 @@ export class BadgeNode extends Node2D {
   }
 
   override onUpdate(dt: number): void {
-    if (this.#spinT < 1) this.#spinT = Math.min(1, this.#spinT + dt / SPIN_DURATION_SEC)
+    if (this.#spinT < 1)
+      this.#spinT = Math.min(1, this.#spinT + dt / SPIN_DURATION_SEC)
   }
 
   override draw(gfx: Gfx2D): void {
@@ -79,7 +80,8 @@ export class BadgeNode extends Node2D {
     gfx.restore()
     gfx.strokeCircle(half, half, motif / 2, border)
 
-    const labelX = half + (this.#labelCorner === 'tr' ? size * 0.28 : -size * 0.28)
+    const labelX =
+      half + (this.#labelCorner === 'tr' ? size * 0.28 : -size * 0.28)
     gfx.fillText(this.#label, labelX, size * 0.2, {
       font: `800 ${size * 0.1}px ${FONT_FAMILY}`,
       align: this.#labelCorner === 'tr' ? 'right' : 'left',

@@ -4,7 +4,7 @@ import { Node2D } from '../scene/Node2D'
 import { MockGfxDevice } from '../render/gfx/webgl2/mockGfxDevice'
 
 /**
- * happy-dom's `<canvas>` doesn't return a real WebGL2 context, but `GpuGfx`
+ * Happy-dom's `<canvas>` doesn't return a real WebGL2 context, but `GpuGfx`
  * only needs it for `canvas.width` / `canvas.height` bookkeeping and the FBO
  * blit destination; all GL calls go through the injected mock device.
  */

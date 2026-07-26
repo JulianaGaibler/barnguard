@@ -1,4 +1,9 @@
-import { mat4Invert, mat4TransformPoint, mat4TransformDir, mat4 } from '../math/Mat4'
+import {
+  mat4Invert,
+  mat4TransformPoint,
+  mat4TransformDir,
+  mat4,
+} from '../math/Mat4'
 import { vec3, type Vec3 } from '../math/Vec3'
 import type { Ray } from '../math/Ray'
 import { MeshNode } from '../nodes/MeshNode'
@@ -34,9 +39,23 @@ export function raycastMesh(ray: Ray, mesh: MeshNode): number | null {
   if (!bounds) return null
   const world = mesh.worldMatrix
   if (!mat4Invert(INV, world)) return null
-  const o = mat4TransformPoint(LOCAL_ORIGIN, INV, ray.origin.x, ray.origin.y, ray.origin.z)
-  const ox = o.x, oy = o.y, oz = o.z
-  const d = mat4TransformDir(LOCAL_DIR, INV, ray.direction.x, ray.direction.y, ray.direction.z)
+  const o = mat4TransformPoint(
+    LOCAL_ORIGIN,
+    INV,
+    ray.origin.x,
+    ray.origin.y,
+    ray.origin.z,
+  )
+  const ox = o.x,
+    oy = o.y,
+    oz = o.z
+  const d = mat4TransformDir(
+    LOCAL_DIR,
+    INV,
+    ray.direction.x,
+    ray.direction.y,
+    ray.direction.z,
+  )
 
   // Slab test in local space.
   let tMin = -Infinity
@@ -73,11 +92,11 @@ export function raycastMesh(ray: Ray, mesh: MeshNode): number | null {
 /**
  * Nearest {@link MeshNode} in `world` struck by `ray`, or `null`. Skips
  * invisible nodes and meshes without loaded geometry. Pair with
- * {@link Camera3D.screenToRay} for pointer picking in 3D.
+ * `CameraNode3D.screenToRay` for pointer picking in 3D.
  *
  * @category Scene
  * @example
- *   const ray = engine.camera3d.screenToRay(ndcX, ndcY)
+ *   const ray = engine.currentCamera3D.screenToRay(ndcX, ndcY)
  *   const hit = raycastWorld3D(engine.tree, ray)
  *   if (hit) select(hit.node)
  */

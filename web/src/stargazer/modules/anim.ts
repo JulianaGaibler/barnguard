@@ -13,6 +13,17 @@ export { Animator } from '../anim/Animator'
 export type { TweenOptions } from '../anim/Animator'
 export { Timeline } from '../anim/Timeline'
 export type { TimelineStep } from '../anim/Timeline'
+// glTF keyframe playback: `AnimationPlayer` samples an `AnimationClip` into node
+// transforms each update. Distinct from `Animator` above (async property tweens).
+export { AnimationPlayer } from '../anim/AnimationPlayer'
+export type { AnimationPlayerOptions } from '../anim/AnimationPlayer'
+export type {
+  AnimationClip,
+  AnimationChannel,
+  AnimationSampler,
+  Interpolation,
+  ChannelPath,
+} from '../anim/AnimationClip'
 export {
   ignoreAbort,
   isAbortError,
@@ -20,3 +31,5 @@ export {
   combineAbortSignals,
 } from '../anim/abortSignal'
 export type { CombinedAbort } from '../anim/abortSignal'
+// Re-abortable cancel scope tied to a node's lifetime (`Node.scope()`).
+export { AbortScope } from '../anim/AbortScope'

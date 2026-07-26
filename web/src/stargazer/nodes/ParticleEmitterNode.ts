@@ -20,9 +20,9 @@ export interface ParticleEmitterNodeOptions {
 
 /**
  * Scene-graph wrapper around a {@link ParticleEmitter}. Advances the emitter in
- * {@link Node2D.onUpdate} and draws its sprites in {@link Node2D.draw}.
- * Reach the emitter through {@link ParticleEmitterNode.emitter} to emit, burst,
- * or move the origin.
+ * {@link Node2D.onUpdate} and draws its sprites in {@link Node2D.draw}. Reach the
+ * emitter through {@link ParticleEmitterNode.emitter} to emit, burst, or move
+ * the origin.
  *
  * Particles live in the node's local coordinate space. `emitter.setOrigin(x,
  * y)` is a node-local point, so parenting this node under a moving object makes

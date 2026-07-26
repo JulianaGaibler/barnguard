@@ -7,6 +7,8 @@
   import type { Node3D } from '../../scene/Node3D'
   import { MeshNode } from '../../nodes/MeshNode'
   import { Viewport2DNode } from '../../nodes/Viewport2DNode'
+  import { CameraNode2D } from '../../camera/CameraNode2D'
+  import { CameraNode3D } from '../../camera/CameraNode3D'
   import { PhysicsWorldBehavior } from '../../physics/PhysicsWorldBehavior'
   import { RigidBodyBehavior } from '../../physics/RigidBodyBehavior'
   import { DebugSection, DebugRow, DebugTree, type TreeNode } from '../ui'
@@ -31,10 +33,10 @@
   interface NodeMeta {
     node: Node
     /**
-     * What the overlay highlights when this row is selected. Usually `node`, but
-     * for a node inside a `Viewport2DNode`'s embedded scene it's the containing
-     * viewport quad — that node lives in an offscreen texture space, so its own
-     * outline can't be drawn in the main overlay.
+     * What the overlay highlights when this row is selected. Usually `node`,
+     * but for a node inside a `Viewport2DNode`'s embedded scene it's the
+     * containing viewport quad — that node lives in an offscreen texture space,
+     * so its own outline can't be drawn in the main overlay.
      */
     highlightTarget: Node
     type: string
@@ -51,6 +53,10 @@
     hasRigidBody: boolean
     behaviors: string[]
     accent: string | null
+    /** True for a `CameraNode2D` / `CameraNode3D`. */
+    isCamera: boolean
+    /** True when this camera is the current one on its stage. */
+    isCurrentCamera: boolean
     // Index signature so a NodeMeta satisfies TreeNode's `metadata` bag.
     [key: string]: unknown
   }
@@ -67,6 +73,9 @@
     Node3D: '#c4b5fd',
     MeshNode: '#c084fc',
     Viewport2DNode: '#e879f9',
+    // Cameras read as amber, distinct from content.
+    CameraNode2D: '#f59e0b',
+    CameraNode3D: '#f59e0b',
     // Neutral grouping.
     GroupNode: '#64748b',
     // Layout containers read as a teal/green family, apart from the primitives.
@@ -121,10 +130,10 @@
 
   /**
    * Build one flat, depth-tagged list from the whole tree (2D, 3D, and group
-   * nodes together), mirroring Godot's single scene-tree view. A
-   * `Viewport2DNode`'s embedded 2D scene is shown nested under it (the
-   * SubViewport bridge). Rows are keyed by tree path, not `node.id` (ids aren't
-   * unique; a duplicate key would cross-link expansion/selection).
+   * nodes together). A `Viewport2DNode`'s embedded 2D scene is shown nested
+   * under it (the SubViewport bridge). Rows are keyed by tree path, not
+   * `node.id` (ids aren't unique; a duplicate key would cross-link
+   * expansion/selection).
    */
   function buildTree(root: Node, expanded: Set<string>): TreeNode[] {
     const out: TreeNode[] = []
@@ -143,7 +152,15 @@
       const type = node.constructor.name
       const is2d = node.kind === '2d'
       const n2 = is2d ? (node as Node2D) : null
-      const isWorldHost = n2 ? n2.getBehavior(PhysicsWorldBehavior) !== null : false
+      const isWorldHost = n2
+        ? n2.getBehavior(PhysicsWorldBehavior) !== null
+        : false
+      const stage = debug.activeStage
+      const isCamera =
+        node instanceof CameraNode2D || node instanceof CameraNode3D
+      const isCurrentCamera =
+        (node instanceof CameraNode2D && stage.currentCamera2D === node) ||
+        (node instanceof CameraNode3D && stage.currentCamera3D === node)
       const meta: NodeMeta = {
         node,
         highlightTarget: embeddedIn ?? node,
@@ -161,6 +178,8 @@
         hasRigidBody: n2 ? n2.getBehavior(RigidBodyBehavior) !== null : false,
         behaviors: node.behaviors.map((b) => b.constructor.name),
         accent: isWorldHost && n2 ? debug.overlayAccentForNode(n2) : null,
+        isCamera,
+        isCurrentCamera,
       }
       // Regular children, plus a Viewport2DNode's embedded 2D scene root.
       const kids = node.children
@@ -208,9 +227,7 @@
 
   function selectNode(id: string): void {
     selectedId = selectedId === id ? null : id
-    const row = selectedId
-      ? treeNodes.find((n) => n.id === selectedId)
-      : null
+    const row = selectedId ? treeNodes.find((n) => n.id === selectedId) : null
     const target = row ? (row.metadata as NodeMeta).highlightTarget : null
     debug.setHighlighted(target)
   }
@@ -228,12 +245,27 @@
     const node = nodeOf(selectedId)
     if (!node) return null
     const type = node.constructor.name
+    const stage = debug.activeStage
+    const isCamera =
+      node instanceof CameraNode2D || node instanceof CameraNode3D
+    const isCurrentCamera =
+      (node instanceof CameraNode2D && stage.currentCamera2D === node) ||
+      (node instanceof CameraNode3D && stage.currentCamera3D === node)
+    const makeCurrent = (): void => {
+      if (node instanceof CameraNode2D || node instanceof CameraNode3D) {
+        node.makeCurrent()
+        rebuild()
+      }
+    }
     const base = {
       id: node.id,
       type,
       dot: colorForType(type),
       visible: node.visible,
       behaviors: node.behaviors.map((b) => b.constructor.name),
+      isCamera,
+      isCurrentCamera,
+      makeCurrent,
     }
     if (node.kind === '2d') {
       const n = node as Node2D
@@ -257,9 +289,42 @@
     }
     if (node.kind === '3d') {
       const t = (node as Node3D).transform
-      return { ...base, kind: '3d' as const, pos: t.position, scale3: t.scale, alpha: t.alpha }
+      return {
+        ...base,
+        kind: '3d' as const,
+        pos: t.position,
+        scale3: t.scale,
+        alpha: t.alpha,
+      }
     }
     return { ...base, kind: 'group' as const }
+  })
+
+  // Live camera registry for the active stage (node-based camera model). Each
+  // stage tracks a current 2D + 3D camera; `make` switches it.
+  const cameras = $derived.by(() => {
+    void revision
+    const stage = debug.activeStage
+    return {
+      list2d: stage.cameras2d.map((c) => ({
+        id: c.id,
+        current: stage.currentCamera2D === c,
+        intrinsic: c.intrinsic,
+        make: () => {
+          c.makeCurrent()
+          rebuild()
+        },
+      })),
+      list3d: stage.cameras3d.map((c) => ({
+        id: c.id,
+        current: stage.currentCamera3D === c,
+        intrinsic: c.intrinsic,
+        make: () => {
+          c.makeCurrent()
+          rebuild()
+        },
+      })),
+    }
   })
 
   // Throttled (~1 Hz) tree rebuild, only while the tree section is open. The
@@ -303,6 +368,25 @@
       : 'game'}
     tone={stats.cameraMode === 'debug' ? 'accent' : 'default'}
   />
+
+  <!-- Current 2D camera + the registry (click a non-current one to make it current). -->
+  <div class="cam-list">
+    {#each cameras.list2d as c (c.id)}
+      <button
+        type="button"
+        class="cam-item"
+        class:current={c.current}
+        disabled={c.current}
+        title={c.current ? 'Current camera' : `Make "${c.id}" current`}
+        onclick={c.make}
+      >
+        <span class="cam-mark">{c.current ? '●' : '○'}</span>
+        <span class="cam-name">{c.id}</span>
+        {#if c.intrinsic}<span class="chip muted">default</span>{/if}
+      </button>
+    {/each}
+  </div>
+
   <DebugRow label="Viewport x" value={fmtCoord(stats.viewport.x)} />
   <DebugRow label="Viewport y" value={fmtCoord(stats.viewport.y)} />
   <DebugRow label="Viewport w" value={fmtCoord(stats.viewport.width)} />
@@ -316,6 +400,22 @@
       value={stats.world3d.cameraMode}
       tone={stats.world3d.cameraMode === 'debug' ? 'accent' : 'default'}
     />
+    <div class="cam-list">
+      {#each cameras.list3d as c (c.id)}
+        <button
+          type="button"
+          class="cam-item"
+          class:current={c.current}
+          disabled={c.current}
+          title={c.current ? 'Current camera' : `Make "${c.id}" current`}
+          onclick={c.make}
+        >
+          <span class="cam-mark">{c.current ? '●' : '○'}</span>
+          <span class="cam-name">{c.id}</span>
+          {#if c.intrinsic}<span class="chip muted">default</span>{/if}
+        </button>
+      {/each}
+    </div>
     <DebugRow
       label="Projection"
       value={fmtProjection(stats.world3d.camera.projectionness)}
@@ -361,7 +461,12 @@
     ></button>
     <span class="node-id">{node.label}</span>
     <span class="node-type">{meta.type}</span>
-    {#if meta.kind !== '2d'}
+    {#if meta.isCamera}
+      <span class="chip cam">cam {meta.kind === '3d' ? '3D' : '2D'}</span>
+      {#if meta.isCurrentCamera}
+        <span class="chip current">current</span>
+      {/if}
+    {:else if meta.kind !== '2d'}
       <span class="chip kind">{meta.kind === '3d' ? '3D' : 'group'}</span>
     {/if}
     {#if meta.layer && meta.layer !== 'dynamic'}
@@ -489,6 +594,23 @@
     {#if selected.behaviors.length > 0}
       <DebugRow label="Behaviors" value={selected.behaviors.join(', ')} />
     {/if}
+    {#if selected.isCamera}
+      <div class="info-row">
+        <span class="label">Camera:</span>
+        <span class="badge" class:on={selected.isCurrentCamera}>
+          {selected.isCurrentCamera ? 'current' : 'inactive'}
+        </span>
+      </div>
+      {#if !selected.isCurrentCamera}
+        <button
+          type="button"
+          class="deselect"
+          onclick={() => selected?.makeCurrent()}
+        >
+          Make current
+        </button>
+      {/if}
+    {/if}
     <button type="button" class="deselect" onclick={clearSelection}>
       Deselect
     </button>
@@ -556,6 +678,54 @@
     &.kind
       color: rgba(196, 181, 253, 0.95)
       border-color: rgba(196, 181, 253, 0.55)
+
+    &.cam
+      color: rgba(245, 158, 11, 0.95)
+      border-color: rgba(245, 158, 11, 0.55)
+
+    &.current
+      font-weight: 600
+      color: rgb(110, 231, 183)
+      border-color: rgba(52, 211, 153, 0.6)
+
+  .cam-list
+    display: flex
+    flex-direction: column
+    gap: 2px
+    margin: 2px 0 4px
+
+  .cam-item
+    display: flex
+    align-items: center
+    gap: 6px
+    padding: 2px 4px
+    background: rgba(148, 163, 184, 0.1)
+    border: 1px solid rgba(148, 163, 184, 0.3)
+    border-radius: 3px
+    color: inherit
+    font: inherit
+    text-align: left
+    cursor: pointer
+
+    &:hover:not(:disabled)
+      background: rgba(148, 163, 184, 0.24)
+
+    &.current
+      border-color: rgba(52, 211, 153, 0.5)
+      cursor: default
+
+    .cam-mark
+      color: rgba(245, 158, 11, 0.95)
+      flex: none
+
+    &.current .cam-mark
+      color: rgb(110, 231, 183)
+
+    .cam-name
+      color: rgba(226, 232, 240, 0.95)
+      overflow: hidden
+      text-overflow: ellipsis
+      white-space: nowrap
 
   .deselect
     margin-top: 6px

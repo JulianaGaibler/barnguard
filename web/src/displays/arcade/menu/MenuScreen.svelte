@@ -16,7 +16,13 @@
   import Button from '@src/core/ui/Button.svelte'
   import IconButton from '@src/core/ui/IconButton.svelte'
   import MatchScore from './MatchScore.svelte'
-  import type { MenuAction, MenuItem, MenuScore, MenuSubmenu, MenuVariant } from './types'
+  import type {
+    MenuAction,
+    MenuItem,
+    MenuScore,
+    MenuSubmenu,
+    MenuVariant,
+  } from './types'
   import type { Component } from 'svelte'
 
   interface Props {
@@ -118,7 +124,9 @@
                   {b.label}
                 </Button>
               {:else}
-                <Button variant={b.variant} onclick={b.onClick}>{b.label}</Button>
+                <Button variant={b.variant} onclick={b.onClick}
+                  >{b.label}</Button
+                >
               {/if}
               {#if b.trailing}
                 {@const TrailingIcon = b.trailing.icon}

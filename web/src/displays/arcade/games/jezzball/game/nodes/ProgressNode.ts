@@ -1,8 +1,8 @@
 /**
  * Bottom progress readout — engine port of `Progress.svelte`. Solo: a track
- * filled to the captured percentage with the big number over it, plus a
- * small accent dot and "of N%". Versus: both players' percentages flank a
- * shared vertical "of N%" pill, each growing its own vertical meter.
+ * filled to the captured percentage with the big number over it, plus a small
+ * accent dot and "of N%". Versus: both players' percentages flank a shared
+ * vertical "of N%" pill, each growing its own vertical meter.
  */
 import { Node2D, type Gfx2D } from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
@@ -60,7 +60,10 @@ export class ProgressNode extends Node2D {
     const pct = Math.min(100, this.#pct)
     gfx.fillRect(-w / 2, trackY, w, trackH, COLORS.white)
     gfx.fillRect(-w / 2, trackY, w * (pct / 100), trackH, TRACK_FILL)
-    gfx.strokeRoundRect(-w / 2, trackY, w, trackH, 0, { color: COLORS.ink, width: 2 })
+    gfx.strokeRoundRect(-w / 2, trackY, w, trackH, 0, {
+      color: COLORS.ink,
+      width: 2,
+    })
 
     const numFont = 57.6
     const metaFont = 13.6
@@ -91,21 +94,19 @@ export class ProgressNode extends Node2D {
   #drawVersus(gfx: Gfx2D): void {
     const numFont = 57.6
     const barW = 8
-    const barH = 70
-    const gap = 24
+    const barH = 80
     const dividerW = 30
-    const dividerH = 60
+    const dividerH = barH
     const centerX = 0
-    const leftBarX = centerX - dividerW / 2 - gap - barW
-    const rightBarX = centerX + dividerW / 2 + gap
+    const leftBarX = centerX - dividerW / 2 - barW
+    const rightBarX = centerX + dividerW / 2
 
     const drawMeter = (x: number, fillFrac: number): void => {
-      gfx.fillRect(x, -barH / 2, barW, barH, 'rgba(39, 39, 39, 0.14)')
       const fillH = barH * Math.min(1, fillFrac / 100)
       gfx.fillRect(x, barH / 2 - fillH, barW, fillH, PROGRESS_ACCENT)
     }
-    drawMeter(leftBarX, this.#leftPct / this.#target * 100)
-    drawMeter(rightBarX, this.#rightPct / this.#target * 100)
+    drawMeter(leftBarX, (this.#leftPct / this.#target) * 100)
+    drawMeter(rightBarX, (this.#rightPct / this.#target) * 100)
 
     gfx.fillText(String(Math.round(this.#leftPct)), leftBarX - 12, 0, {
       font: `800 ${numFont}px ${FONT_FAMILY}`,
@@ -122,7 +123,13 @@ export class ProgressNode extends Node2D {
 
     // The "of N%" divider, rotated to read top-to-bottom like the original's
     // `writing-mode: vertical-rl` pill.
-    gfx.fillRoundRect(-dividerW / 2, -dividerH / 2, dividerW, dividerH, 4, PROGRESS_ACCENT)
+    gfx.fillRect(
+      -dividerW / 2,
+      -dividerH / 2,
+      dividerW,
+      dividerH,
+      PROGRESS_ACCENT,
+    )
     gfx.save()
     gfx.rotate(Math.PI / 2)
     gfx.fillText(`of ${this.#target}%`, 0, 0, {

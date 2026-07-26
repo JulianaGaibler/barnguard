@@ -3,7 +3,11 @@ import type { Behavior, BehaviorCtor } from './Behavior'
 import type { Engine } from '../engine/Engine'
 import type { PointerEvent2D } from '../input/PointerState'
 import type { TweenOptions } from '../anim/Animator'
-import { combineAbortSignals, ignoreAbort, isAbortError } from '../anim/abortSignal'
+import {
+  combineAbortSignals,
+  ignoreAbort,
+  isAbortError,
+} from '../anim/abortSignal'
 import { AbortScope } from '../anim/AbortScope'
 import { Timeline } from '../anim/Timeline'
 
@@ -12,8 +16,8 @@ import { Timeline } from '../anim/Timeline'
  * {@link Node3D} branches. It owns everything that has no coordinate system:
  * tree structure (parent/children), attached {@link Behavior}s, the abort +
  * event lifecycle, per-frame/fixed-step update hooks, the world-dirty flag, and
- * the async tween/wait/loop helpers. Each spatial branch adds its own transform,
- * world composition, and draw path on top.
+ * the async tween/wait/loop helpers. Each spatial branch adds its own
+ * transform, world composition, and draw path on top.
  *
  * `Node` is not generic: `parent`, `children`, and `add(...)` are typed as the
  * base `Node`, so one tree can hold both 2D ({@link Node2D}) and 3D
@@ -23,11 +27,12 @@ import { Timeline } from '../anim/Timeline'
  * composes its world transform from the nearest same-`kind` ancestor, so
  * cross-kind nesting is allowed and simply doesn't inherit a transform.
  *
- * Engine access flows through the owner: the async helpers reach `owner.engine`.
- * A node not yet attached to an owner has no engine, so those helpers reject.
+ * Engine access flows through the owner: the async helpers reach
+ * `owner.engine`. A node not yet attached to an owner has no engine, so those
+ * helpers reject.
  *
- * Game code uses {@link Node2D} / {@link Node3D}; this class is not
- * instantiated directly.
+ * Game code uses {@link Node2D} / {@link Node3D}; this class is not instantiated
+ * directly.
  *
  * @category Scene
  */
@@ -38,8 +43,8 @@ export interface NodeOwner {
 
 /**
  * A node's dimension. `'group'` is a transform-less logical/grouping node (the
- * tree root); `'2d'` is a {@link Node2D}; `'3d'` is a {@link Node3D}. Hot
- * walks branch on this cheap field instead of `instanceof`.
+ * tree root); `'2d'` is a {@link Node2D}; `'3d'` is a {@link Node3D}. Hot walks
+ * branch on this cheap field instead of `instanceof`.
  *
  * @category Scene
  */
@@ -84,11 +89,17 @@ function generateId(prefix = 'node'): string {
 }
 
 export abstract class Node {
-  /** Stable unique id. Auto-generated (`node-N`) unless passed to the constructor. */
+  /**
+   * Stable unique id. Auto-generated (`node-N`) unless passed to the
+   * constructor.
+   */
   readonly id: string
   /** This node's dimension; see {@link NodeKind}. Fixed per subclass. */
   abstract readonly kind: NodeKind
-  /** Parent node, or `null` when detached / at a tree root. Set by {@link Node.add}. */
+  /**
+   * Parent node, or `null` when detached / at a tree root. Set by
+   * {@link Node.add}.
+   */
   parent: Node | null = null
 
   /** When false, the node and its subtree are skipped by the render walk. */
@@ -98,6 +109,15 @@ export abstract class Node {
    * `Node2D`, ray pick for `Node3D`). See {@link Node.bindPointer}.
    */
   hitEnabled = false
+
+  /**
+   * Engine-managed node (e.g. a stage's default camera), not game content.
+   * Intrinsic nodes are skipped by every content scan — painter order,
+   * hit-testing, `SceneTree.has3D`, the debug node tree — and survive
+   * {@link Node.destroyChildren}, so a scene wipe leaves them intact. Set by the
+   * engine, not app code.
+   */
+  intrinsic = false
 
   readonly events: Emitter<NodeEvents> = createEmitter<NodeEvents>()
 
@@ -109,10 +129,11 @@ export abstract class Node {
   #_worldDirty = true
 
   /**
-   * Cached "does this node or any behavior implement `onUpdate`/`onFixedStep`?".
-   * The engine's update walk skips no-work nodes. Kept in sync by the
-   * constructor and `addBehavior`/`removeBehavior`; a subclass that mutates
-   * `this.onUpdate` at runtime calls {@link Node._recomputeHasWork}.
+   * Cached "does this node or any behavior implement
+   * `onUpdate`/`onFixedStep`?". The engine's update walk skips no-work nodes.
+   * Kept in sync by the constructor and `addBehavior`/`removeBehavior`; a
+   * subclass that mutates `this.onUpdate` at runtime calls
+   * {@link Node._recomputeHasWork}.
    */
   _hasUpdateWork = false
   _hasFixedStepWork = false
@@ -125,8 +146,8 @@ export abstract class Node {
 
   /**
    * Recompute the update/fixed-step work flags from scratch. Runs on
-   * `addBehavior`/`removeBehavior`; also for a subclass that swaps `this.onUpdate`
-   * at runtime.
+   * `addBehavior`/`removeBehavior`; also for a subclass that swaps
+   * `this.onUpdate` at runtime.
    */
   _recomputeHasWork(): void {
     let update = typeof this.onUpdate === 'function'
@@ -216,7 +237,10 @@ export abstract class Node {
   protected _onChildAttached(_child: Node): void {}
   /** Hook: a child subtree was just unlinked from this node. */
   protected _onChildDetached(_child: Node): void {}
-  /** Hook: this node was attached to an owner (after owner is set, before children recurse). */
+  /**
+   * Hook: this node was attached to an owner (after owner is set, before
+   * children recurse).
+   */
   protected _onAttach(): void {}
   /** Hook: this node was detached from its owner. */
   protected _onDetach(): void {}
@@ -278,7 +302,10 @@ export abstract class Node {
     for (const c of this._children) c.#markSubtreeWorldDirty()
   }
 
-  /** Internal: clear the world-dirty flag after the transform pass writes the world matrix. */
+  /**
+   * Internal: clear the world-dirty flag after the transform pass writes the
+   * world matrix.
+   */
   markWorldClean(): void {
     this.#_worldDirty = false
   }
@@ -291,11 +318,13 @@ export abstract class Node {
    * fires on attach).
    */
   addBehavior<B extends Behavior<Node>>(behavior: B): B {
-    if (this.#_destroyed) throw new Error('Cannot add behavior to destroyed node')
+    if (this.#_destroyed)
+      throw new Error('Cannot add behavior to destroyed node')
     ;(behavior as unknown as { node: Node }).node = this
     this._behaviors.push(behavior)
     if (typeof behavior.onUpdate === 'function') this._hasUpdateWork = true
-    if (typeof behavior.onFixedStep === 'function') this._hasFixedStepWork = true
+    if (typeof behavior.onFixedStep === 'function')
+      this._hasFixedStepWork = true
     behavior.onAttach?.()
     if (this.#_owner && !behavior._sceneReadyFired) {
       behavior._sceneReadyFired = true
@@ -408,7 +437,8 @@ export abstract class Node {
       if (handlers.move) this.onPointerMove = undefined
       if (handlers.up) this.onPointerUp = undefined
       if (handlers.cancel) this.onPointerCancel = undefined
-      if (shouldHit && this.hitEnabled && !prevHitEnabled) this.hitEnabled = false
+      if (shouldHit && this.hitEnabled && !prevHitEnabled)
+        this.hitEnabled = false
     }
   }
 
@@ -429,13 +459,16 @@ export abstract class Node {
   }
 
   /**
-   * Destroy every child (recursively), leaving this node alive and empty, and
-   * return `this`. Iterates a snapshot so a child that re-enters and mutates the
-   * list is handled safely.
+   * Destroy every non-intrinsic child (recursively), leaving this node alive
+   * and empty, and return `this`. {@link Node.intrinsic} children (e.g. a
+   * stage's default camera) are preserved, so a scene wipe keeps them. Iterates
+   * a snapshot so a child that re-enters and mutates the list is handled
+   * safely.
    */
   destroyChildren(): this {
     const snapshot = this._children.slice()
     for (const c of snapshot) {
+      if (c.intrinsic) continue
       if (!c.isDestroyed) c.destroy()
     }
     return this
@@ -517,8 +550,8 @@ export abstract class Node {
    * Run `body` in a loop while the node is alive. Aborts are swallowed; other
    * errors log and terminate the loop. `body` receives `{node, signal,
    * iteration, nextFrame()}`; `nextFrame()` resolves after the current frame
-   * renders. Fire-and-forget; the first invocation defers a microtask so callers
-   * inside `Behavior.onAttach` can rely on attachment.
+   * renders. Fire-and-forget; the first invocation defers a microtask so
+   * callers inside `Behavior.onAttach` can rely on attachment.
    */
   loop(
     body: (ctx: {
@@ -578,10 +611,15 @@ export abstract class Node {
       )
     }
     const combined = combineAbortSignals(this.abortSignal, extraSignal)
-    return engine.animation.wait(seconds, combined.signal).finally(combined.dispose)
+    return engine.animation
+      .wait(seconds, combined.signal)
+      .finally(combined.dispose)
   }
 
-  /** Convenience for `new Timeline()`. Pass a signal to `.run(signal)`, usually `node.abortSignal`. */
+  /**
+   * Convenience for `new Timeline()`. Pass a signal to `.run(signal)`, usually
+   * `node.abortSignal`.
+   */
   timeline(): Timeline {
     return new Timeline()
   }

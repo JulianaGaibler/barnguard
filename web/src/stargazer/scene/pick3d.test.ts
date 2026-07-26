@@ -5,7 +5,10 @@ import { MeshNode, createBoxGeometry } from '../nodes/MeshNode'
 import { Camera3D } from '../camera/Camera3D'
 import { raycastWorld3D } from './raycast3d'
 
-const material = { lit: false, color: [1, 1, 1, 1] as [number, number, number, number] }
+const material = {
+  lit: false,
+  color: [1, 1, 1, 1] as [number, number, number, number],
+}
 
 /** Mirror InputSystem's screen(css)→NDC mapping (full-canvas, y-flipped). */
 function screenToNdc(sx: number, sy: number, cssW: number, cssH: number) {

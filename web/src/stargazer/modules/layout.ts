@@ -54,11 +54,11 @@
  *
  * ## Design principles
  *
- * Layout nodes are ordinary persistent `Node2D`s. stargazer is retained
- * mode: you build the tree once and mutate it in place. Only the
- * measure-and-place algorithm is borrowed from declarative toolkits, not their
- * rebuild-the-tree step, which in a retained engine would throw away the state
- * on a node (its in-flight tweens, physics body, input capture).
+ * Layout nodes are ordinary persistent `Node2D`s. stargazer is retained mode:
+ * you build the tree once and mutate it in place. Only the measure-and-place
+ * algorithm is borrowed from declarative toolkits, not their rebuild-the-tree
+ * step, which in a retained engine would throw away the state on a node (its
+ * in-flight tweens, physics body, input capture).
  *
  * Animate transforms, not sizes. The pass runs before transform propagation and
  * never reads `transform` as an input, so animating `transform.x` or `scaleX`
@@ -137,6 +137,7 @@ export { LayoutRoot } from '../layout/LayoutRoot'
 export type { LayoutRootOptions } from '../layout/LayoutRoot'
 export { Box, SizedBox, Padding, Align, Center } from '../layout/nodes/Box'
 export type { BoxOptions, AlignOptions, Align1D } from '../layout/nodes/Box'
+export { alignOffset, alignWithin } from '../layout/align'
 export {
   Flex,
   Row,

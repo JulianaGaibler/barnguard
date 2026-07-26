@@ -161,4 +161,4 @@ scene.root.add(burst)
 void burst.autoDestroy(burst.emitter.waitUntilEmpty())
 ```
 
-`waitUntilEmpty()` resolves once `aliveCount` is 0 — immediately if it already is, else the next time every particle dies (naturally via `life`, or early via `minSpeedFrac`). Call it right after the `burst()` you want it to track, in the same synchronous span; it reflects live state with no memory of past cycles, so an emitter reused for a later, unrelated burst works with no manual reset — but calling it *before* the burst you care about can observe a stale "already empty" from a previous cycle.
+`waitUntilEmpty()` resolves once `aliveCount` is 0 — immediately if it already is, else the next time every particle dies (naturally via `life`, or early via `minSpeedFrac`). Call it right after the `burst()` you want it to track, in the same synchronous span; it reflects live state with no memory of past cycles, so an emitter reused for a later, unrelated burst works with no manual reset — but calling it _before_ the burst you care about can observe a stale "already empty" from a previous cycle.

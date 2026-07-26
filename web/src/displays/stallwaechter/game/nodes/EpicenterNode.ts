@@ -1,7 +1,7 @@
 import {
   Node2D,
   withAlpha,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Rect,
   type Vec2,
@@ -137,7 +137,7 @@ export class EpicenterNode extends Node2D {
     return Math.abs(delta) <= tol
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const alpha = this.transform.alpha
     if (alpha < 0.001) return
     const s = camera.strokeSpaceScale()

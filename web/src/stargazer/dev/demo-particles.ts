@@ -1,4 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
+import { addDemoCamera } from './demoCamera'
 import { ParticleEmitterNode } from '../nodes/ParticleEmitterNode'
 import type { DemoFn } from './types'
 
@@ -20,7 +21,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    initialViewport: { x: 0, y: 0, width: 1920, height: 1080 },
   })
   attach?.(host)
 
@@ -28,6 +28,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   let burst: ParticleEmitterNode | null = null
   let spinBurst: ParticleEmitterNode | null = null
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: 0, y: 0, width: 1920, height: 1080 })
     trail = new ParticleEmitterNode({
       id: 'trail',
       config: {
@@ -108,17 +109,20 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     const rect = canvas.getBoundingClientRect()
     const cssX = e.clientX - rect.left
     const cssY = e.clientY - rect.top
-    const w = host.engine.activeCamera.screenToWorld(cssX, cssY)
+    const w = host.engine.activeCamera?.screenToWorld(cssX, cssY) ?? {
+      x: 0,
+      y: 0,
+    }
     trailRef.emitter.setOrigin(w.x, w.y)
   }
   const onMove = (e: PointerEvent): void => setOriginFromEvent(e)
   const onDown = (e: PointerEvent): void => {
     setOriginFromEvent(e)
     const rect = canvas.getBoundingClientRect()
-    const w = host.engine.activeCamera.screenToWorld(
+    const w = host.engine.activeCamera?.screenToWorld(
       e.clientX - rect.left,
       e.clientY - rect.top,
-    )
+    ) ?? { x: 0, y: 0 }
     burstRef.emitter.burst(500, w.x, w.y)
     spinBurstRef.emitter.burst(24, w.x, w.y)
   }

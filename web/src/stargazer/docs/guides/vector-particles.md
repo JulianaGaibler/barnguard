@@ -14,7 +14,10 @@ What it does NOT own: rotation speed, shape kind, or any other per-burst-specifi
 
 ```ts
 abstract class VectorParticleNode extends Node2D {
-  protected abstract spawnParticle(i: number, out: VectorParticleSpawnInit): void
+  protected abstract spawnParticle(
+    i: number,
+    out: VectorParticleSpawnInit,
+  ): void
   protected abstract drawParticle(gfx: Gfx2D, i: number, camera: Camera): void
   protected updateExtra(i: number, dt: number): void // default no-op
   protected shouldDespawn(i: number): boolean // default false
@@ -79,4 +82,4 @@ for (let i = 0; i < count; i++) {
 
 ## Reading state
 
-`aliveCount` / `particleCount` mirror `ParticleEmitterNode`'s. There's no `availableCount` exposed on `VectorParticleNode` itself today — capacity minus `aliveCount` covers it.
+`aliveCount` / `particleCount` mirror `ParticleEmitterNode`'s. `VectorParticleNode` has no `availableCount` getter; capacity minus `aliveCount` covers it.

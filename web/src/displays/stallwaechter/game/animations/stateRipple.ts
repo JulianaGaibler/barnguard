@@ -1,8 +1,4 @@
-import {
-  Path2DNode,
-  easings,
-  ignoreAbort,
-} from '@src/stargazer'
+import { Path2DNode, easings, ignoreAbort } from '@src/stargazer'
 import { bfsLayers } from '../data/adjacency'
 import type { StateId } from '../data/states'
 import { TUNING } from '../data/tuning'

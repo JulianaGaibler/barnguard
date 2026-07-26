@@ -38,7 +38,11 @@
         variant: 'surface',
         onSelect: onHowToPlay,
         trailing: onOpenLeaderboard
-          ? { icon: LeaderboardIcon, ariaLabel: t.openLeaderboard, onSelect: onOpenLeaderboard }
+          ? {
+              icon: LeaderboardIcon,
+              ariaLabel: t.openLeaderboard,
+              onSelect: onOpenLeaderboard,
+            }
           : undefined,
       })
     }

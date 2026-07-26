@@ -9,7 +9,7 @@
  */
 import { Node2D } from '../scene/Node2D'
 import type { SceneTree } from '../scene/SceneTree'
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { Rect } from '../math/Rect'
 import { BoxConstraints } from './constraints'
 import { assertFiniteSize, type Measurable } from './LayoutNode'
@@ -30,7 +30,7 @@ export interface LayoutRootOptions {
    * Camera whose visible area sets the bounds when `bounds` is omitted.
    * Defaults to the camera of the stage this root's scene belongs to.
    */
-  camera?: Camera
+  camera?: CameraView2D
   /** Node id. Defaults to `layout-root`. */
   id?: string
 }
@@ -65,7 +65,7 @@ export interface LayoutRootOptions {
  */
 export class LayoutRoot extends Node2D {
   readonly #boundsFn?: () => Rect
-  readonly #camera?: Camera
+  readonly #camera?: CameraView2D
   #content: (Node2D & Measurable) | null = null
   #dirty = true
   readonly #constraints = new BoxConstraints()
@@ -153,8 +153,8 @@ export class LayoutRoot extends Node2D {
     const engine = this.scene?.engine
     const cam =
       this.#camera ??
-      engine?.stageForScene(this.scene)?.camera ??
-      engine?.camera
+      engine?.stageForScene(this.scene)?.currentCamera2D ??
+      engine?.currentCamera2D
     return cam ? cam.visibleWorldRect(this.#boundsScratch) : this.#boundsScratch
   }
 }

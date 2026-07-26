@@ -49,7 +49,12 @@ export function buildOrboWalls(world: PhysicsWorld, layout: FieldLayout): void {
   const overhang = 200 // how far each wall extends past the field edge
   const w = layout.width
   const h = layout.height
-  const addWall = (x: number, y: number, halfW: number, halfH: number): void => {
+  const addWall = (
+    x: number,
+    y: number,
+    halfW: number,
+    halfH: number,
+  ): void => {
     world.addBody(
       new Body({
         type: BodyType.Static,

@@ -1,4 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
+import { addDemoCamera } from './demoCamera'
 import { VectorParticleNode } from '../nodes/VectorParticleNode'
 import type { Camera } from '../camera/Camera'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
@@ -19,8 +20,8 @@ const MIN_SPEED_FRAC = 0.02
 /**
  * `VectorParticleNode` showcase: a burst of mixed triangle/line pieces, drawn
  * via per-particle `gfx.fillConvexPoly`/`strokeLine` rather than a baked
- * sprite. Click to spawn a self-destroying burst (despawns + `autoDestroy`
- * once every piece has settled); shift-click for a permanent variant (no
+ * sprite. Click to spawn a self-destroying burst (despawns + `autoDestroy` once
+ * every piece has settled); shift-click for a permanent variant (no
  * `shouldDespawn` override) that lingers until "reset" clears the layer —
  * demonstrating both lifecycle modes from the vector-particles guide.
  */
@@ -31,7 +32,11 @@ class ShrapnelBurst extends VectorParticleNode {
   readonly #permanent: boolean
 
   constructor(center: Vec2, color: string, permanent: boolean) {
-    super({ id: 'shrapnel-burst', capacity: COUNT, dampingPerSec: DAMPING_PER_SEC })
+    super({
+      id: 'shrapnel-burst',
+      capacity: COUNT,
+      dampingPerSec: DAMPING_PER_SEC,
+    })
     this.transform.x = center.x
     this.transform.y = center.y
     this.#spin = new Float32Array(COUNT)
@@ -42,7 +47,10 @@ class ShrapnelBurst extends VectorParticleNode {
     if (!permanent) void this.autoDestroy(this.waitUntilEmpty())
   }
 
-  protected override spawnParticle(i: number, out: VectorParticleSpawnInit): void {
+  protected override spawnParticle(
+    i: number,
+    out: VectorParticleSpawnInit,
+  ): void {
     const theta = Math.random() * Math.PI * 2
     const [speedMin, speedMax] = SPEED_RANGE
     const speed = speedMin + Math.random() * (speedMax - speedMin)
@@ -63,7 +71,9 @@ class ShrapnelBurst extends VectorParticleNode {
   protected override shouldDespawn(i: number): boolean {
     if (this.#permanent) return false
     const speed0 = this.speed0[i]
-    return speed0 > 0 && Math.hypot(this.vx[i], this.vy[i]) < MIN_SPEED_FRAC * speed0
+    return (
+      speed0 > 0 && Math.hypot(this.vx[i], this.vy[i]) < MIN_SPEED_FRAC * speed0
+    )
   }
 
   protected override drawParticle(gfx: Gfx2D, i: number, camera: Camera): void {
@@ -97,20 +107,21 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    initialViewport: { x: 0, y: 0, width: 1920, height: 1080 },
   })
   attach?.(host)
 
-  await host.loadScene(() => {})
+  await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: 0, y: 0, width: 1920, height: 1080 })
+  })
   host.start()
 
   let colorIdx = 0
   const onDown = (e: PointerEvent): void => {
     const rect = canvas.getBoundingClientRect()
-    const w = host.engine.activeCamera.screenToWorld(
+    const w = host.engine.activeCamera?.screenToWorld(
       e.clientX - rect.left,
       e.clientY - rect.top,
-    )
+    ) ?? { x: 0, y: 0 }
     const color = PALETTE[colorIdx % PALETTE.length]
     colorIdx++
     host.engine.tree.root.add(new ShrapnelBurst(w, color, e.shiftKey))

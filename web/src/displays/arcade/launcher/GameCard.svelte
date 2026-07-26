@@ -8,8 +8,10 @@
   interface Props {
     game: GameModule
     onPlay: (game: GameModule) => void
-    /** `undefined`: not a leaderboard game. `null`: leaderboard game, no entry
-     * (yet, or none). Populated: show it. */
+    /**
+     * `undefined`: not a leaderboard game. `null`: leaderboard game, no entry
+     * (yet, or none). Populated: show it.
+     */
     topEntry?: LeaderboardEntry | null
   }
   const { game, onPlay, topEntry }: Props = $props()
@@ -29,11 +31,18 @@
     <div class="game-card__heading">
       <h2 class="game-card__title">{game.meta.title}</h2>
       {#if game.meta.supportsLeaderboard}
-        <div class="game-card__badge-frame" class:game-card__badge-frame--hidden={!topEntry}>
+        <div
+          class="game-card__badge-frame"
+          class:game-card__badge-frame--hidden={!topEntry}
+        >
           <div class="game-card__badge">
             <LeaderboardIcon size={14} filled gold />
-            <span class="game-card__badge-name">{topEntry ? topEntry.name.toUpperCase() : ''}</span>
-            <span class="game-card__badge-score">{topEntry ? formatScore(topEntry.score) : ''}</span>
+            <span class="game-card__badge-name"
+              >{topEntry ? topEntry.name.toUpperCase() : ''}</span
+            >
+            <span class="game-card__badge-score"
+              >{topEntry ? formatScore(topEntry.score) : ''}</span
+            >
           </div>
         </div>
       {/if}

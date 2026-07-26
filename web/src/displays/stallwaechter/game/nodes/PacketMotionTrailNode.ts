@@ -1,4 +1,9 @@
-import { Node2D, withAlpha, type Camera, type Gfx2D } from '@src/stargazer'
+import {
+  Node2D,
+  withAlpha,
+  type CameraView2D,
+  type Gfx2D,
+} from '@src/stargazer'
 import { TUNING } from '../data/tuning'
 
 export interface PacketMotionTrailOptions {
@@ -123,7 +128,7 @@ export class PacketMotionTrailNode extends Node2D {
     this.liveHeadY = NaN
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera, _dt: number): void {
+  override draw(gfx: Gfx2D, _camera: CameraView2D, _dt: number): void {
     const count = this.#_count
     if (count === 0) return
     const haveLive =

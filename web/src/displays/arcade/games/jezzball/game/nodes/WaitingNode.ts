@@ -1,7 +1,7 @@
 /**
  * The "waiting for other player" callout — engine port of the `.waiting`
- * overlay: an ink headline chip over an accent sub chip, fading in over
- * 150ms like the original `transition:fade`.
+ * overlay: an ink headline chip over an accent sub chip, fading in over 150ms
+ * like the original `transition:fade`.
  */
 import { Node2D, measureText, type Gfx2D } from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'

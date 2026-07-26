@@ -1,4 +1,4 @@
-import { Node2D, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
 import { COLS, ROWS } from '../board'
 import { cellCenter, type BoardLayout } from '../layout'
 import { BOARD } from '../tuning'
@@ -21,7 +21,7 @@ export class BoardNode extends Node2D {
     this.renderLayer = 'dynamic'
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const layout = this.#layout
     // Panel: only the top-right corner rounded (radii are [tl, tr, br, bl]).
     gfx.fillRoundRect(

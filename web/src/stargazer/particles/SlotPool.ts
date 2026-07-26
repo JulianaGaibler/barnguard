@@ -1,15 +1,14 @@
 /**
- * Fixed-capacity index allocator with a freelist. Owns no per-slot data
- * itself — callers keep their own typed arrays sized to `capacity` and use
- * the indices `spawn()` hands out to index into them. Shared by
- * {@link ParticlePool} (which pairs it with a fixed `ParticleField`) and
- * `VectorParticleNode` (which pairs it with whatever fields a subclass
- * declares).
+ * Fixed-capacity index allocator with a freelist. Owns no per-slot data itself
+ * — callers keep their own typed arrays sized to `capacity` and use the indices
+ * `spawn()` hands out to index into them. Shared by {@link ParticlePool} (which
+ * pairs it with a fixed `ParticleField`) and `VectorParticleNode` (which pairs
+ * it with whatever fields a subclass declares).
  *
- * `kill` is fully self-contained and idempotent: it tracks its own active
- * bit per slot, so calling it twice on the same index (a caller bug, a
- * re-entrant destroy path, anything) can never double-free a slot into the
- * freelist and hand the same index to two live occupants at once.
+ * `kill` is fully self-contained and idempotent: it tracks its own active bit
+ * per slot, so calling it twice on the same index (a caller bug, a re-entrant
+ * destroy path, anything) can never double-free a slot into the freelist and
+ * hand the same index to two live occupants at once.
  *
  * @category Particles
  */
@@ -21,7 +20,10 @@ export class SlotPool {
   #freeTop: number
   /** 1 = claimed via `spawn()` and not yet `kill()`ed, 0 = free. */
   readonly #active: Uint8Array
-  /** Highest slot index that has EVER been active; bounds a caller's update loop. */
+  /**
+   * Highest slot index that has EVER been active; bounds a caller's update
+   * loop.
+   */
   #highWater = 0
   #_aliveCount = 0
 
@@ -54,8 +56,8 @@ export class SlotPool {
   }
 
   /**
-   * Claim a free slot. Returns the slot index or -1 when the pool is
-   * exhausted. Caller is responsible for initialising the slot's own data.
+   * Claim a free slot. Returns the slot index or -1 when the pool is exhausted.
+   * Caller is responsible for initialising the slot's own data.
    */
   spawn(): number {
     if (this.#freeTop === 0) return -1

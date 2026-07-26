@@ -41,26 +41,37 @@
   let perfMarks = $state(false)
   let fpsCap = $state(0)
   let smoothTimestep = $state(true)
+  // 3D quality overrides (engine.quality), mirrored live like the rest.
+  let shadowsOn = $state(true)
+  let shadowSize = $state(1024)
+  let anisotropy = $state(8)
+  let shadowSoftness = $state(4)
 
-  const RENDER_MODE_OPTIONS_2D: readonly DebugSelectOption<CombinedRenderMode>[] = [
-    { value: 'normal', label: 'Normal' },
-    { value: 'polygons', label: '2D polygon outlines' },
-    { value: 'overdraw', label: '2D overdraw heatmap' },
-    { value: 'batch-color', label: '2D batch coloring' },
-    { value: 'clip-mask', label: '2D clip mask' },
-  ]
-  const RENDER_MODE_OPTIONS_3D: readonly DebugSelectOption<CombinedRenderMode>[] = [
-    { value: 'wireframe', label: '3D wireframe' },
-    { value: 'unshaded', label: '3D unshaded (albedo)' },
-    { value: 'normals', label: '3D normals' },
-  ]
+  const RENDER_MODE_OPTIONS_2D: readonly DebugSelectOption<CombinedRenderMode>[] =
+    [
+      { value: 'normal', label: 'Normal' },
+      { value: 'polygons', label: '2D polygon outlines' },
+      { value: 'overdraw', label: '2D overdraw heatmap' },
+      { value: 'batch-color', label: '2D batch coloring' },
+      { value: 'clip-mask', label: '2D clip mask' },
+    ]
+  const RENDER_MODE_OPTIONS_3D: readonly DebugSelectOption<CombinedRenderMode>[] =
+    [
+      { value: 'wireframe', label: '3D wireframe' },
+      { value: 'unshaded', label: '3D unshaded (albedo)' },
+      { value: 'normals', label: '3D normals' },
+    ]
   // 3D views only offered when the scene has 3D content.
   const renderModeOptions = $derived(
     stats.world3d
       ? [...RENDER_MODE_OPTIONS_2D, ...RENDER_MODE_OPTIONS_3D]
       : RENDER_MODE_OPTIONS_2D,
   )
-  const MESH_MODES = new Set<CombinedRenderMode>(['wireframe', 'unshaded', 'normals'])
+  const MESH_MODES = new Set<CombinedRenderMode>([
+    'wireframe',
+    'unshaded',
+    'normals',
+  ])
 
   const MSAA_OPTIONS: readonly DebugSelectOption<number>[] = [
     { value: 0, label: 'Off (1×)' },
@@ -78,6 +89,27 @@
     { value: 144, label: '144' },
   ]
 
+  const SHADOW_SIZE_OPTIONS: readonly DebugSelectOption<number>[] = [
+    { value: 256, label: '256' },
+    { value: 512, label: '512' },
+    { value: 1024, label: '1024' },
+    { value: 2048, label: '2048' },
+    { value: 4096, label: '4096' },
+  ]
+  const ANISO_OPTIONS: readonly DebugSelectOption<number>[] = [
+    { value: 1, label: 'Off' },
+    { value: 2, label: '2×' },
+    { value: 4, label: '4×' },
+    { value: 8, label: '8×' },
+    { value: 16, label: '16×' },
+  ]
+  const SOFTNESS_OPTIONS: readonly DebugSelectOption<number>[] = [
+    { value: 1, label: 'Hard' },
+    { value: 4, label: 'Soft' },
+    { value: 9, label: 'Softer' },
+    { value: 16, label: 'Softest' },
+  ]
+
   $effect(() => {
     void revision
     const active = debug.activeStage
@@ -93,6 +125,11 @@
     if (liveCap !== fpsCap) fpsCap = liveCap
     if (debug.smoothTimestep !== smoothTimestep)
       smoothTimestep = debug.smoothTimestep
+    const q = debug.quality
+    if (q.shadowsEnabled !== shadowsOn) shadowsOn = q.shadowsEnabled
+    if (q.shadowMapSize !== shadowSize) shadowSize = q.shadowMapSize
+    if (q.anisotropy !== anisotropy) anisotropy = q.anisotropy
+    if (q.shadowSoftness !== shadowSoftness) shadowSoftness = q.shadowSoftness
   })
 
   function handleRenderModeChange(mode: CombinedRenderMode): void {
@@ -126,6 +163,26 @@
   function handleSmoothTimestepToggle(): void {
     debug.setSmoothTimestep(!smoothTimestep)
     smoothTimestep = debug.smoothTimestep
+  }
+
+  function handleShadowsToggle(): void {
+    debug.quality.shadowsEnabled = !shadowsOn
+    shadowsOn = debug.quality.shadowsEnabled
+  }
+
+  function handleShadowSizeChange(v: number): void {
+    debug.quality.shadowMapSize = v
+    shadowSize = debug.quality.shadowMapSize
+  }
+
+  function handleAnisotropyChange(v: number): void {
+    debug.quality.anisotropy = v
+    anisotropy = debug.quality.anisotropy
+  }
+
+  function handleSoftnessChange(v: number): void {
+    debug.quality.shadowSoftness = v
+    shadowSoftness = debug.quality.shadowSoftness
   }
 </script>
 
@@ -173,10 +230,7 @@
   <DebugRow label="Blend switches" value={stats.gpu.blendSwitches} />
   <DebugRow label="SDF instances" value={stats.gpu.sdfInstances} />
   <DebugRow label="Stroke instances" value={stats.gpu.strokeInstances} />
-  <DebugRow
-    label="Round-rect instances"
-    value={stats.gpu.roundRectInstances}
-  />
+  <DebugRow label="Round-rect instances" value={stats.gpu.roundRectInstances} />
   <DebugRow
     label="MSAA"
     value={stats.gpu.msaaSamples > 1 ? `${stats.gpu.msaaSamples}×` : 'off'}
@@ -191,6 +245,31 @@
 
 {#if stats.world3d}
   <DebugSection title="3D" bind:open={threeOpen}>
+    <div class="debug-controls with-divider">
+      <ToggleButton
+        active={shadowsOn}
+        onToggle={handleShadowsToggle}
+        label="Shadows"
+      />
+      <DebugSelect
+        label="Shadow resolution"
+        value={shadowSize}
+        options={SHADOW_SIZE_OPTIONS}
+        onChange={handleShadowSizeChange}
+      />
+      <DebugSelect
+        label="Shadow softness"
+        value={shadowSoftness}
+        options={SOFTNESS_OPTIONS}
+        onChange={handleSoftnessChange}
+      />
+      <DebugSelect
+        label="Anisotropy"
+        value={anisotropy}
+        options={ANISO_OPTIONS}
+        onChange={handleAnisotropyChange}
+      />
+    </div>
     <DebugRow label="Nodes" value={stats.world3d.nodeCount} />
     <DebugRow label="Meshes" value={stats.world3d.meshCount} />
     {#if stats.world3d.rttSurfaces > 0}

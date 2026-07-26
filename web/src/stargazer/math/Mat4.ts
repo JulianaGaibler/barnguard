@@ -214,8 +214,8 @@ export function mat4Perspective(
 
 /**
  * Right-handed orthographic projection, mapping the box `[left, right] ×
- * [bottom, top] × [near, far]` (camera space) into clip space with `z` in
- * `[-1, 1]`.
+ * [bottom, top] × [near, far]` (camera space) into clip space with `z` in `[-1,
+ * 1]`.
  *
  * @category Math
  */

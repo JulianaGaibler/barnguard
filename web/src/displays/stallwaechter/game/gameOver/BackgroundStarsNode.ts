@@ -1,4 +1,4 @@
-import { Node2D, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
 
 export interface BackgroundStarsOptions {
   /** Star count. ~500 is a comfortable ceiling for a 4K kiosk canvas. */
@@ -52,7 +52,7 @@ export class BackgroundStarsNode extends Node2D {
     }
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera): void {
+  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
     const n = this.#count
     const d = this.#data
     const color = this.#color

@@ -1,4 +1,9 @@
-import { Node2D, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  Node2D,
+  type CameraView2D,
+  type Gfx2D,
+  type Rect,
+} from '@src/stargazer'
 
 export interface EyeNodeOptions {
   /**
@@ -82,7 +87,7 @@ export class EyeNode extends Node2D {
     this.#irisFill = opts.irisFill
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera): void {
+  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
     if (this.openAmount <= 0.001) return
     gfx.save()
     // Squash the lid open along Y only, reads as a lid raising rather

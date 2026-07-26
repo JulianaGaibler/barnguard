@@ -1,15 +1,15 @@
 /**
- * Stylized in-engine menu preview for JezzBall: a square and a circle
- * overlaid, with four diagonal spokes reaching in from the square's corners
- * toward its center (stopping short, so the middle stays open). The square
- * sits like a `bottom: -20%; right: -20%` box — its own height tall, pinned
- * so it bleeds past the view's bottom and right edges — and every stroke is
- * clipped to the view rect by hand, since the renderer's `setClipMask` only
- * affects filled triangles, not the `strokeLine`/`strokeCircle` calls this
- * decoration is built from. The square's edges and the spokes are real static
- * colliders, but the collider box itself is inset to the visible area (not
- * the full, partly off-screen square) so the balls — solid fills, which
- * can't be clipped the same cheap way — never wander past the frame either.
+ * Stylized in-engine menu preview for JezzBall: a square and a circle overlaid,
+ * with four diagonal spokes reaching in from the square's corners toward its
+ * center (stopping short, so the middle stays open). The square sits like a
+ * `bottom: -20%; right: -20%` box — its own height tall, pinned so it bleeds
+ * past the view's bottom and right edges — and every stroke is clipped to the
+ * view rect by hand, since the renderer's `setClipMask` only affects filled
+ * triangles, not the `strokeLine`/`strokeCircle` calls this decoration is built
+ * from. The square's edges and the spokes are real static colliders, but the
+ * collider box itself is inset to the visible area (not the full, partly
+ * off-screen square) so the balls — solid fills, which can't be clipped the
+ * same cheap way — never wander past the frame either.
  */
 import {
   Body,
@@ -20,7 +20,7 @@ import {
   circleShape,
   lerp,
   polygonShape,
-  type Camera,
+  type CameraView2D,
   type EngineHost,
   type Gfx2D,
   type Rect,
@@ -42,12 +42,14 @@ const CIRCLE_RADIUS_FRAC = 0.62 // of square side
 const SPOKE_REACH_FRAC = 0.55
 const BALL_RADIUS_FRAC = 0.018 // of square side — "relatively small"
 const LINE_WIDTH_PX = 2.5
-/** Straight segments a stroked circle is approximated by, so it can be
- * clipped the same way as every other line in this file. */
+/**
+ * Straight segments a stroked circle is approximated by, so it can be clipped
+ * the same way as every other line in this file.
+ */
 const CIRCLE_SEGMENTS = 96
 /**
- * Collider half-thickness (border + spokes), as a fraction of the square
- * side. Thin, but comfortably wider than a ball's per-step travel at
+ * Collider half-thickness (border + spokes), as a fraction of the square side.
+ * Thin, but comfortably wider than a ball's per-step travel at
  * `PHYSICS.ballSpeed` and 120Hz so nothing tunnels through.
  */
 const COLLIDER_HALF_THICKNESS_FRAC = 0.012
@@ -68,9 +70,11 @@ function windCcw(verts: Vec2[]): Vec2[] {
   return area < 0 ? verts.reverse() : verts
 }
 
-/** A thin rectangle spanning `a` to `b`, `halfThickness` on each side — the
- * closest stand-in for a line-segment collider, since the physics module has
- * no dedicated segment shape. */
+/**
+ * A thin rectangle spanning `a` to `b`, `halfThickness` on each side — the
+ * closest stand-in for a line-segment collider, since the physics module has no
+ * dedicated segment shape.
+ */
 function segmentVerts(a: Vec2, b: Vec2, halfThickness: number): Vec2[] {
   const dx = b.x - a.x
   const dy = b.y - a.y
@@ -123,8 +127,10 @@ function clipSegment(a: Vec2, b: Vec2, rect: Rect): [Vec2, Vec2] | null {
   ]
 }
 
-/** The static outline: square border, decorative circle, and corner spokes,
- * all clipped to `clip` since they're free to run past it. */
+/**
+ * The static outline: square border, decorative circle, and corner spokes, all
+ * clipped to `clip` since they're free to run past it.
+ */
 class DecorNode extends Node2D {
   readonly #square: readonly Vec2[]
   readonly #circle: Readonly<{ x: number; y: number; r: number }>
@@ -145,7 +151,7 @@ class DecorNode extends Node2D {
     this.#clip = clip
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const width = LINE_WIDTH_PX * camera.strokeSpaceScale()
     const style = { color: COLORS.ink, width, cap: 'round' as const }
     const stroke = (a: Vec2, b: Vec2): void => {
@@ -199,7 +205,12 @@ export function buildJezzballMenuPreview(
   root.transform.x = view.x
   root.transform.y = view.y
   root.add(
-    new DecorNode(corners, { x: cx, y: cy, r: side * CIRCLE_RADIUS_FRAC }, spokes, clip),
+    new DecorNode(
+      corners,
+      { x: cx, y: cy, r: side * CIRCLE_RADIUS_FRAC },
+      spokes,
+      clip,
+    ),
   )
 
   const physicsLayer = new Node2D('jezzball-menu-physics')
@@ -232,14 +243,28 @@ export function buildJezzballMenuPreview(
       colliders: [
         // Play-area border, one collider per edge, each overlapping the
         // corners by `halfT` so there's no gap at the seams.
-        { shape: aabbShape(play.width / 2 + halfT, halfT), offset: { x: playCx, y: play.y - halfT } },
-        { shape: aabbShape(play.width / 2 + halfT, halfT), offset: { x: playCx, y: play.y + play.height + halfT } },
-        { shape: aabbShape(halfT, play.height / 2 + halfT), offset: { x: play.x - halfT, y: playCy } },
-        { shape: aabbShape(halfT, play.height / 2 + halfT), offset: { x: play.x + play.width + halfT, y: playCy } },
+        {
+          shape: aabbShape(play.width / 2 + halfT, halfT),
+          offset: { x: playCx, y: play.y - halfT },
+        },
+        {
+          shape: aabbShape(play.width / 2 + halfT, halfT),
+          offset: { x: playCx, y: play.y + play.height + halfT },
+        },
+        {
+          shape: aabbShape(halfT, play.height / 2 + halfT),
+          offset: { x: play.x - halfT, y: playCy },
+        },
+        {
+          shape: aabbShape(halfT, play.height / 2 + halfT),
+          offset: { x: play.x + play.width + halfT, y: playCy },
+        },
         // Spokes keep the true (partly off-screen) corners — the border walls
         // above already block balls from ever reaching the part that would
         // hang past them, so the unreachable tail is harmless dead geometry.
-        ...spokes.map((seg) => ({ shape: polygonShape(segmentVerts(seg[0], seg[1], halfT)) })),
+        ...spokes.map((seg) => ({
+          shape: polygonShape(segmentVerts(seg[0], seg[1], halfT)),
+        })),
       ],
     }),
   )
@@ -252,7 +277,10 @@ export function buildJezzballMenuPreview(
     const angle = (angleDeg * Math.PI) / 180
     const body = new Body({
       type: BodyType.Dynamic,
-      position: { x: play.x + play.width * xFrac, y: play.y + play.height * yFrac },
+      position: {
+        x: play.x + play.width * xFrac,
+        y: play.y + play.height * yFrac,
+      },
       velocity: {
         x: Math.cos(angle) * PHYSICS.ballSpeed,
         y: Math.sin(angle) * PHYSICS.ballSpeed,

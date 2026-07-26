@@ -34,7 +34,7 @@ import {
  * link a canvas node's proxy to it with `Semantics.links` rather than merging
  * the two trees.
  *
- * The structural template is {@link DomTransformSync} (`engine.dom`): a frame
+ * The structural template is `DomTransformSync` (`engine.dom`): a frame
  * subscription, a registry with per-node destroy listeners, and a `dispose`.
  * Unlike that subsystem it does no per-frame work — screen readers ignore
  * position, so a static scene reconciles zero times.

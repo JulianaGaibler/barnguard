@@ -18,7 +18,9 @@ export interface LeaderboardEntry {
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    throw new Error(`leaderboard request failed: ${res.status} ${res.statusText}`)
+    throw new Error(
+      `leaderboard request failed: ${res.status} ${res.statusText}`,
+    )
   }
   return (await res.json()) as T
 }
@@ -37,8 +39,10 @@ export async function fetchLeaderboard(
   )
 }
 
-/** Submit a score for `name` under `display`; returns the stored record
- * (the server keeps the higher of the new and any prior score for that name). */
+/**
+ * Submit a score for `name` under `display`; returns the stored record (the
+ * server keeps the higher of the new and any prior score for that name).
+ */
 export async function submitScore(
   display: string,
   name: string,

@@ -202,9 +202,9 @@ function getSharedCtx(): { canvas: AnyCanvas; ctx: AnyCtx } | null {
 /**
  * Measure a label's local-space box using the shared offscreen canvas — the
  * public counterpart to {@link measureLabel} for callers that don't have a
- * `LabelMeasureCtx` of their own (custom `Node2D`s sizing text, or
- * `TextNode`'s own `measure()`). Returns an all-zero box if no 2D canvas
- * context is available (e.g. headless without a canvas polyfill).
+ * `LabelMeasureCtx` of their own (custom `Node2D`s sizing text, or `TextNode`'s
+ * own `measure()`). Returns an all-zero box if no 2D canvas context is
+ * available (e.g. headless without a canvas polyfill).
  */
 export function measureText(text: string, style: LabelStyle): LabelMetrics {
   const shared = getSharedCtx()

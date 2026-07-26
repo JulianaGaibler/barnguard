@@ -48,32 +48,32 @@ export interface ParticleEmitterConfig {
   /** Alpha over life (spawn → death). Default [1, 0]. */
   alphaOverLife?: readonly [number, number]
   /**
-   * Random per-particle constant angular velocity range, rad/s, e.g.
-   * `[-6, 6]` for a symmetric tumble (like every other `[min, max]` range in
-   * this config, pass a negative min for a range that straddles zero — this
-   * one is sampled with its sign, not folded to a magnitude). Sampled once at
-   * spawn, integrated every frame (`angle += spin * dt`), applied at draw
-   * time as a sprite rotation. Omit (default) for no rotation —
+   * Random per-particle constant angular velocity range, rad/s, e.g. `[-6, 6]`
+   * for a symmetric tumble (like every other `[min, max]` range in this config,
+   * pass a negative min for a range that straddles zero — this one is sampled
+   * with its sign, not folded to a magnitude). Sampled once at spawn,
+   * integrated every frame (`angle += spin * dt`), applied at draw time as a
+   * sprite rotation. Omit (default) for no rotation —
    * `ParticleEmitterNode.draw` then skips the rotate transform entirely, so
    * non-rotating emitters pay nothing extra.
    */
   spinRadPerSec?: readonly [number, number]
   /**
    * What drives the `scaleOverLife` interpolation. `'life'` (default): the
-   * usual `t = 1 - life/maxLife`. `'speed'`: drives the SAME curve by
-   * `1 - clamp(currentSpeed / speed0, 0, 1)` instead, so a particle still
-   * moving fast reads at `scaleOverLife[0]` and one that's nearly stopped
-   * reads at `scaleOverLife[1]`, regardless of remaining lifetime — use this
-   * for a burst that should visually dissolve as it decelerates rather than
-   * on a fixed clock. `alphaOverLife` always stays life-driven.
+   * usual `t = 1 - life/maxLife`. `'speed'`: drives the SAME curve by `1 -
+   * clamp(currentSpeed / speed0, 0, 1)` instead, so a particle still moving
+   * fast reads at `scaleOverLife[0]` and one that's nearly stopped reads at
+   * `scaleOverLife[1]`, regardless of remaining lifetime — use this for a burst
+   * that should visually dissolve as it decelerates rather than on a fixed
+   * clock. `alphaOverLife` always stays life-driven.
    */
   scaleBy?: 'life' | 'speed'
   /**
    * Opt-in early despawn: once a particle's current speed drops below
-   * `minSpeedFrac * speed0` (its own launch speed), it's killed even if
-   * `life` hasn't run out. Unset (default) disables this — particles only
-   * die from `life <= 0`. `lifetimeSec`'s upper bound remains the safety
-   * backstop either way.
+   * `minSpeedFrac * speed0` (its own launch speed), it's killed even if `life`
+   * hasn't run out. Unset (default) disables this — particles only die from
+   * `life <= 0`. `lifetimeSec`'s upper bound remains the safety backstop either
+   * way.
    */
   minSpeedFrac?: number
 }
@@ -155,10 +155,11 @@ export class ParticleEmitter {
    * for, in the same synchronous span (no `await` between them): JS's
    * single-threaded execution then guarantees no `update()` tick runs in
    * between, so `aliveCount` still reflects the burst you just triggered.
-   * Typical one-shot-burst idiom: `node.autoDestroy(node.emitter.waitUntilEmpty())`.
-   * This method has no per-burst identity — pair it with the specific burst
-   * it should track, not with reuse across unrelated later bursts, or it may
-   * observe a stale "already empty" left over from a previous cycle.
+   * Typical one-shot-burst idiom:
+   * `node.autoDestroy(node.emitter.waitUntilEmpty())`. This method has no
+   * per-burst identity — pair it with the specific burst it should track, not
+   * with reuse across unrelated later bursts, or it may observe a stale
+   * "already empty" left over from a previous cycle.
    */
   waitUntilEmpty(): Promise<void> {
     if (this.pool.aliveCount === 0) return Promise.resolve()
@@ -262,7 +263,8 @@ export class ParticleEmitter {
     f.size[idx] = size
     f.colorIdx[idx] = Math.floor(Math.random() * cfg.palette.length)
     f.angle[idx] = 0
-    f.spin[idx] = this.#spinMin + Math.random() * (this.#spinMax - this.#spinMin)
+    f.spin[idx] =
+      this.#spinMin + Math.random() * (this.#spinMax - this.#spinMin)
     f.speed0[idx] = speed
     return true
   }

@@ -400,59 +400,134 @@
     {:else if toggleState.cameraMode === 'debug-2d'}
       <div class="camera-pad">
         <div class="pad-cell pad-tl">
-          <HoldButton ariaLabel="Zoom out" onPress={() => pressPan('KeyQ')} onRelease={() => releasePan('KeyQ')}>−</HoldButton>
+          <HoldButton
+            ariaLabel="Zoom out"
+            onPress={() => pressPan('KeyQ')}
+            onRelease={() => releasePan('KeyQ')}>−</HoldButton
+          >
         </div>
         <div class="pad-cell pad-tc">
-          <HoldButton ariaLabel="Pan up" onPress={() => pressPan('KeyW')} onRelease={() => releasePan('KeyW')}>↑</HoldButton>
+          <HoldButton
+            ariaLabel="Pan up"
+            onPress={() => pressPan('KeyW')}
+            onRelease={() => releasePan('KeyW')}>↑</HoldButton
+          >
         </div>
         <div class="pad-cell pad-tr">
-          <HoldButton ariaLabel="Zoom in" onPress={() => pressPan('KeyE')} onRelease={() => releasePan('KeyE')}>+</HoldButton>
+          <HoldButton
+            ariaLabel="Zoom in"
+            onPress={() => pressPan('KeyE')}
+            onRelease={() => releasePan('KeyE')}>+</HoldButton
+          >
         </div>
         <div class="pad-cell pad-ml">
-          <HoldButton ariaLabel="Pan left" onPress={() => pressPan('KeyA')} onRelease={() => releasePan('KeyA')}>←</HoldButton>
+          <HoldButton
+            ariaLabel="Pan left"
+            onPress={() => pressPan('KeyA')}
+            onRelease={() => releasePan('KeyA')}>←</HoldButton
+          >
         </div>
         <div class="pad-cell pad-mc">
-          <button type="button" class="pad-reset-btn" onpointerdown={noFocus} onclick={resetPan} aria-label="Reset debug camera" title="Reset (R)">⌂</button>
+          <button
+            type="button"
+            class="pad-reset-btn"
+            onpointerdown={noFocus}
+            onclick={resetPan}
+            aria-label="Reset debug camera"
+            title="Reset (R)">⌂</button
+          >
         </div>
         <div class="pad-cell pad-mr">
-          <HoldButton ariaLabel="Pan right" onPress={() => pressPan('KeyD')} onRelease={() => releasePan('KeyD')}>→</HoldButton>
+          <HoldButton
+            ariaLabel="Pan right"
+            onPress={() => pressPan('KeyD')}
+            onRelease={() => releasePan('KeyD')}>→</HoldButton
+          >
         </div>
         <div class="pad-cell pad-bc">
-          <HoldButton ariaLabel="Pan down" onPress={() => pressPan('KeyS')} onRelease={() => releasePan('KeyS')}>↓</HoldButton>
+          <HoldButton
+            ariaLabel="Pan down"
+            onPress={() => pressPan('KeyS')}
+            onRelease={() => releasePan('KeyS')}>↓</HoldButton
+          >
         </div>
       </div>
-      <div class="pad-hint">Pan (WASD) + zoom (Q/E). Any press enables the 2D debug camera.</div>
+      <div class="pad-hint">
+        Pan (WASD) + zoom (Q/E). Any press enables the 2D debug camera.
+      </div>
     {:else}
       <div class="camera-pad">
         <div class="pad-cell pad-tl">
-          <HoldButton ariaLabel="Look left" onPress={() => pressPan('ArrowLeft')} onRelease={() => releasePan('ArrowLeft')}>↺</HoldButton>
+          <HoldButton
+            ariaLabel="Look left"
+            onPress={() => pressPan('ArrowLeft')}
+            onRelease={() => releasePan('ArrowLeft')}>↺</HoldButton
+          >
         </div>
         <div class="pad-cell pad-tc">
-          <HoldButton ariaLabel="Move up" onPress={() => pressPan('KeyE')} onRelease={() => releasePan('KeyE')}>↑</HoldButton>
+          <HoldButton
+            ariaLabel="Move up"
+            onPress={() => pressPan('KeyE')}
+            onRelease={() => releasePan('KeyE')}>↑</HoldButton
+          >
         </div>
         <div class="pad-cell pad-tr">
-          <HoldButton ariaLabel="Look right" onPress={() => pressPan('ArrowRight')} onRelease={() => releasePan('ArrowRight')}>↻</HoldButton>
+          <HoldButton
+            ariaLabel="Look right"
+            onPress={() => pressPan('ArrowRight')}
+            onRelease={() => releasePan('ArrowRight')}>↻</HoldButton
+          >
         </div>
         <div class="pad-cell pad-ml">
-          <HoldButton ariaLabel="Strafe left" onPress={() => pressPan('KeyA')} onRelease={() => releasePan('KeyA')}>←</HoldButton>
+          <HoldButton
+            ariaLabel="Strafe left"
+            onPress={() => pressPan('KeyA')}
+            onRelease={() => releasePan('KeyA')}>←</HoldButton
+          >
         </div>
         <div class="pad-cell pad-mc">
-          <button type="button" class="pad-reset-btn" onpointerdown={noFocus} onclick={resetPan} aria-label="Reset debug camera" title="Reset (R)">⌂</button>
+          <button
+            type="button"
+            class="pad-reset-btn"
+            onpointerdown={noFocus}
+            onclick={resetPan}
+            aria-label="Reset debug camera"
+            title="Reset (R)">⌂</button
+          >
         </div>
         <div class="pad-cell pad-mr">
-          <HoldButton ariaLabel="Strafe right" onPress={() => pressPan('KeyD')} onRelease={() => releasePan('KeyD')}>→</HoldButton>
+          <HoldButton
+            ariaLabel="Strafe right"
+            onPress={() => pressPan('KeyD')}
+            onRelease={() => releasePan('KeyD')}>→</HoldButton
+          >
         </div>
         <div class="pad-cell pad-bl">
-          <HoldButton ariaLabel="Move forward" onPress={() => pressPan('KeyW')} onRelease={() => releasePan('KeyW')}>⤒</HoldButton>
+          <HoldButton
+            ariaLabel="Move forward"
+            onPress={() => pressPan('KeyW')}
+            onRelease={() => releasePan('KeyW')}>⤒</HoldButton
+          >
         </div>
         <div class="pad-cell pad-bc">
-          <HoldButton ariaLabel="Move down" onPress={() => pressPan('KeyQ')} onRelease={() => releasePan('KeyQ')}>↓</HoldButton>
+          <HoldButton
+            ariaLabel="Move down"
+            onPress={() => pressPan('KeyQ')}
+            onRelease={() => releasePan('KeyQ')}>↓</HoldButton
+          >
         </div>
         <div class="pad-cell pad-br">
-          <HoldButton ariaLabel="Move back" onPress={() => pressPan('KeyS')} onRelease={() => releasePan('KeyS')}>⤓</HoldButton>
+          <HoldButton
+            ariaLabel="Move back"
+            onPress={() => pressPan('KeyS')}
+            onRelease={() => releasePan('KeyS')}>⤓</HoldButton
+          >
         </div>
       </div>
-      <div class="pad-hint">Fly: strafe (A/D), up/down (E/Q), forward/back (corners), look (↺↻). Any press enables the 3D fly camera.</div>
+      <div class="pad-hint">
+        Fly: strafe (A/D), up/down (E/Q), forward/back (corners), look (↺↻). Any
+        press enables the 3D fly camera.
+      </div>
     {/if}
   </DebugSection>
 </DraggableWindow>

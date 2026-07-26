@@ -18,19 +18,36 @@
     /** Passed straight through to `GameOverPanel` — see its own doc comment. */
     onFinalize?: (name: string) => void
   }
-  const { title, score, leaderboardScore, onPlayAgain, onMenu, onFinalize }: Props = $props()
+  const {
+    title,
+    score,
+    leaderboardScore,
+    onPlayAgain,
+    onMenu,
+    onFinalize,
+  }: Props = $props()
 </script>
 
-<GameOverPanel display="jezzball" score={leaderboardScore} {onPlayAgain} {onMenu} {onFinalize}>
+<GameOverPanel
+  display="jezzball"
+  score={leaderboardScore}
+  {onPlayAgain}
+  {onMenu}
+  {onFinalize}
+>
   {#snippet scoreDisplay()}
     {#if leaderboardScore !== undefined}
       <ScoreFrame score={leaderboardScore} color={ACCENT_SOLO.primary} />
     {:else}
       <h2 class="over__title">
-        {#each title as seg (seg.text)}<span style="color: {seg.color}">{seg.text}</span>{/each}
+        {#each title as seg (seg.text)}<span style="color: {seg.color}"
+            >{seg.text}</span
+          >{/each}
       </h2>
       <p class="over__score">
-        {#each score as seg (seg.text)}<span style="color: {seg.color}">{seg.text}</span>{/each}
+        {#each score as seg (seg.text)}<span style="color: {seg.color}"
+            >{seg.text}</span
+          >{/each}
       </p>
     {/if}
   {/snippet}

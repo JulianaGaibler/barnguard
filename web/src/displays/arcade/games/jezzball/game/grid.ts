@@ -55,8 +55,8 @@ export function markWall(g: Grid, col: number, row: number): void {
 /**
  * Mark a whole wall span (as returned by {@link wallSpans}) solid, one
  * axis-aligned run of cells at `fixedIndex` from `startCell` to `endCell`
- * inclusive. Shared by the board's segment solidify step and the tutorial
- * demos so both write the grid the same way.
+ * inclusive. Shared by the board's segment solidify step and the tutorial demos
+ * so both write the grid the same way.
  */
 export function markWallSpan(
   g: Grid,

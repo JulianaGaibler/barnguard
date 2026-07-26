@@ -148,10 +148,11 @@ export class InputController {
       if (e.button !== 0 && e.button !== 2) return
       e.preventDefault()
       const rect = engine.canvas.getBoundingClientRect()
-      const world = engine.camera.screenToWorld(
+      const world = engine.currentCamera2D?.screenToWorld(
         e.clientX - rect.left,
         e.clientY - rect.top,
       )
+      if (!world) return
       const orientation: Orientation =
         e.button === 0 ? 'vertical' : 'horizontal'
       for (const board of this.#boards) {

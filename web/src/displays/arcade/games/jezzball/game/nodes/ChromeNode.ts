@@ -2,12 +2,12 @@
  * Purely decorative frame chrome, ported from CSS to the engine so it's one
  * fewer always-mounted DOM overlay: two full-width top/bottom bars, four
  * rounded "tab" pills, and four corner marks (a rotating "+" plus two hollow
- * squares). Every size below is a CSS-pixel value converted to world units
- * via `camera.strokeSpaceScale()` each frame, so it reads at a constant
- * on-screen size regardless of the canvas' actual resolution — matching how
- * the original absolutely-positioned DOM version behaved.
+ * squares). Every size below is a CSS-pixel value converted to world units via
+ * `camera.strokeSpaceScale()` each frame, so it reads at a constant on-screen
+ * size regardless of the canvas' actual resolution — matching how the original
+ * absolutely-positioned DOM version behaved.
  */
-import { Node2D, easings, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, easings, type CameraView2D, type Gfx2D } from '@src/stargazer'
 import type { Bounds } from '../types'
 import { COLORS } from '../tuning'
 
@@ -23,8 +23,10 @@ const TAB_HEIGHT_PX = 22.4 // 1.4rem
 const TAB_RADIUS_PX = 12.8 // 0.8rem
 const TAB_INSET_FRAC = 0.15
 
-/** Each corner's `+` free-runs on its own loop so all four don't snap in
- * unison — durations/delays (seconds) match the original CSS animation. */
+/**
+ * Each corner's `+` free-runs on its own loop so all four don't snap in unison
+ * — durations/delays (seconds) match the original CSS animation.
+ */
 const CORNERS = [
   { h: 'left', v: 'top', duration: 13, delay: 0 },
   { h: 'right', v: 'top', duration: 17, delay: 6 },
@@ -40,7 +42,11 @@ const CORNERS = [
  * turn itself. A symmetric `+` looks identical at every 90° multiple, so the
  * only visible moment is the brief mid-turn flicker to an "X".
  */
-function quarterTurnAngle(elapsed: number, duration: number, delay: number): number {
+function quarterTurnAngle(
+  elapsed: number,
+  duration: number,
+  delay: number,
+): number {
   const t = elapsed - delay
   if (t <= 0) return 0
   const quarter = duration / 4
@@ -51,7 +57,8 @@ function quarterTurnAngle(elapsed: number, duration: number, delay: number): num
   const deg =
     local < HOLD_FRAC
       ? index * 90
-      : index * 90 + easings.inOutCubic((local - HOLD_FRAC) / (1 - HOLD_FRAC)) * 90
+      : index * 90 +
+        easings.inOutCubic((local - HOLD_FRAC) / (1 - HOLD_FRAC)) * 90
   return (deg * Math.PI) / 180
 }
 
@@ -73,7 +80,7 @@ export class ChromeNode extends Node2D {
     this.#elapsed += dt
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const s = camera.strokeSpaceScale()
     const r = this.#rect
     const color = COLORS.ink
@@ -89,8 +96,22 @@ export class ChromeNode extends Node2D {
     const topRadii: [number, number, number, number] = [0, 0, tabR, tabR]
     const botRadii: [number, number, number, number] = [tabR, tabR, 0, 0]
     gfx.fillRoundRect(r.x + inset, r.y, tabW, tabH, topRadii, color)
-    gfx.fillRoundRect(r.x + r.width - inset - tabW, r.y, tabW, tabH, topRadii, color)
-    gfx.fillRoundRect(r.x + inset, r.y + r.height - tabH, tabW, tabH, botRadii, color)
+    gfx.fillRoundRect(
+      r.x + r.width - inset - tabW,
+      r.y,
+      tabW,
+      tabH,
+      topRadii,
+      color,
+    )
+    gfx.fillRoundRect(
+      r.x + inset,
+      r.y + r.height - tabH,
+      tabW,
+      tabH,
+      botRadii,
+      color,
+    )
     gfx.fillRoundRect(
       r.x + r.width - inset - tabW,
       r.y + r.height - tabH,
@@ -111,7 +132,9 @@ export class ChromeNode extends Node2D {
       const dir = c.h === 'left' ? 1 : -1
       const edgeX = c.h === 'left' ? r.x + pad : r.x + r.width - pad
       const rowY =
-        c.v === 'top' ? r.y + pad + plusSize / 2 : r.y + r.height - pad - plusSize / 2
+        c.v === 'top'
+          ? r.y + pad + plusSize / 2
+          : r.y + r.height - pad - plusSize / 2
 
       // Row of 3 items (plus, then two squares), growing inward from `edgeX`.
       let cursor = edgeX
@@ -131,8 +154,22 @@ export class ChromeNode extends Node2D {
       gfx.fillRect(-thick / 2, -plusSize / 2, thick, plusSize, color)
       gfx.restore()
 
-      gfx.strokeRoundRect(sq1X - sqSize / 2, rowY - sqSize / 2, sqSize, sqSize, 0, border)
-      gfx.strokeRoundRect(sq2X - sqSize / 2, rowY - sqSize / 2, sqSize, sqSize, 0, border)
+      gfx.strokeRoundRect(
+        sq1X - sqSize / 2,
+        rowY - sqSize / 2,
+        sqSize,
+        sqSize,
+        0,
+        border,
+      )
+      gfx.strokeRoundRect(
+        sq2X - sqSize / 2,
+        rowY - sqSize / 2,
+        sqSize,
+        sqSize,
+        0,
+        border,
+      )
     }
   }
 }

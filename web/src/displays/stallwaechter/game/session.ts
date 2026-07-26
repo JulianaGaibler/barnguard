@@ -1,6 +1,7 @@
 import {
   Node2D,
   Path2DNode,
+  CameraNode2D,
   AbortScope,
   createEmitter,
   easings,
@@ -209,6 +210,8 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   let selectedStateId: StateId | null = null
   let score = 0
   let epicenter: EpicenterNode | null = null
+  // The game's 2D camera, created explicitly in the scene build below.
+  let camera: CameraNode2D | null = null
   // Re-abortable scope for the camera tween: each `animateTo` cancels the prior.
   const cameraScope = new AbortScope()
   let packetIdSeq = 0
@@ -231,7 +234,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
       // even when the camera was framed on the upper or lower half).
       // Rejection sampling still trims out the letterbox-inside-country
       // via `mask.contains(pt, inset=minDistFromBorder)`.
-      spawnBounds: () => host.engine.camera.viewport,
+      spawnBounds: () => camera?.viewport ?? FULL_VIEW,
       spawnPacket,
     },
     (seconds, signal) => host.engine.wait(seconds, signal),
@@ -240,6 +243,13 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   // --- Scene build ---------------------------------------------------------
   await host.loadScene((scene) => {
+    // The game's 2D camera, framing the full 661×888 country.
+    const cam = new CameraNode2D('stallwaechter-camera')
+    cam.setViewport(FULL_VIEW)
+    scene.root.add(cam)
+    cam.makeCurrent()
+    camera = cam
+
     const mapGroup = new Node2D('map')
     mapGroup.renderLayer = 'static'
     scene.root.add(mapGroup)
@@ -315,7 +325,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // Round is live or ending, ignore state taps entirely.
   }
 
-  // --- Camera framing -----------------------------------------------------
+  // --- CameraView2D framing -----------------------------------------------------
   async function selectState(id: StateId): Promise<void> {
     const info = findState(id)
     if (!info.half) return // geometry not filled, should never happen
@@ -362,9 +372,10 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   }
 
   async function animateCameraTo(target: Rect): Promise<void> {
+    if (!camera) return
     const signal = cameraScope.reset()
     try {
-      await host.engine.camera.animateTo(target, {
+      await camera.animateTo(target, {
         duration: CAMERA_TWEEN_SEC,
         easing: easings.inOutCubic,
         signal,
@@ -465,7 +476,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
         hooks: {
           isPlaying: () => sessionState === 'playing',
           epicenter: () => epicenter,
-          gameViewport: () => host.engine.camera.viewport,
+          gameViewport: () => camera?.viewport ?? FULL_VIEW,
           mask: () => assets.mask,
           onExitedGermany: (p, exitPos, exitHeading) =>
             onPacketExited(p, exitPos, exitHeading),

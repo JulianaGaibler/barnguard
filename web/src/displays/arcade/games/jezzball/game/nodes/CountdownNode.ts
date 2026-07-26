@@ -1,6 +1,6 @@
 /**
- * The big countdown digit/GO text — engine port of the `.count` overlay,
- * fading in/out over 120ms exactly like the original `transition:fade`.
+ * The big countdown digit/GO text — engine port of the `.count` overlay, fading
+ * in/out over 120ms exactly like the original `transition:fade`.
  */
 import { Node2D, type Gfx2D } from '@src/stargazer'
 import { COLORS } from '../tuning'

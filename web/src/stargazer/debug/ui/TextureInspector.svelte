@@ -44,11 +44,15 @@
     sources.map((s) => ({ value: s.id, label: s.label })),
   )
 
-  /** Re-read sources, resolve the selected one (falling back to the first), snapshot it. */
+  /**
+   * Re-read sources, resolve the selected one (falling back to the first),
+   * snapshot it.
+   */
   function resync(): void {
     const list = debug.activeStage.textureSources
     sources = list
-    const active = list.find((s) => s.id === selectedSourceId) ?? list[0] ?? null
+    const active =
+      list.find((s) => s.id === selectedSourceId) ?? list[0] ?? null
     activeInspector = active?.inspector ?? null
     hasGpu = activeInspector !== null
     snap = activeInspector ? activeInspector.snapshot() : null
@@ -80,6 +84,10 @@
   function pct(used: number, cap: number): number {
     return cap > 0 ? (used / cap) * 100 : 0
   }
+
+  // A 3D-model source is a plain image list — no atlas, no label cache. Real
+  // 2D sources always report a positive label capacity, so this discriminates.
+  const imageOnly = $derived(snap !== null && snap.labelCap === 0)
 
   function shortText(t: string): string {
     return t.length > 24 ? t.slice(0, 23) + '…' : t
@@ -138,102 +146,113 @@
     />
   {/if}
   {#if snap}
-  <DebugSection title="Summary" open={true}>
-    <DebugRow
-      label="Atlas tiles"
-      value={`${snap.atlas.used} / ${snap.atlas.capacity}`}
-      tone={snap.atlas.full ? 'warning' : 'default'}
-    />
-    <ProgressBar percentage={pct(snap.atlas.used, snap.atlas.capacity)} />
-    <DebugRow label="Labels" value={`${snap.labelCount} / ${snap.labelCap}`} />
-    <ProgressBar percentage={pct(snap.labelCount, snap.labelCap)} />
-    <DebugRow
-      label="Label regens / frame"
-      value={`${snap.labelRegensThisFrame} / ${snap.labelMaxRegensPerFrame}`}
-      tone={snap.labelRegensThisFrame >= snap.labelMaxRegensPerFrame
-        ? 'warning'
-        : 'default'}
-    />
-    <DebugRow label="Per-source images" value={snap.perSource.length} />
-  </DebugSection>
+    {#if !imageOnly}
+      <DebugSection title="Summary" open={true}>
+        <DebugRow
+          label="Atlas tiles"
+          value={`${snap.atlas.used} / ${snap.atlas.capacity}`}
+          tone={snap.atlas.full ? 'warning' : 'default'}
+        />
+        <ProgressBar percentage={pct(snap.atlas.used, snap.atlas.capacity)} />
+        <DebugRow
+          label="Labels"
+          value={`${snap.labelCount} / ${snap.labelCap}`}
+        />
+        <ProgressBar percentage={pct(snap.labelCount, snap.labelCap)} />
+        <DebugRow
+          label="Label regens / frame"
+          value={`${snap.labelRegensThisFrame} / ${snap.labelMaxRegensPerFrame}`}
+          tone={snap.labelRegensThisFrame >= snap.labelMaxRegensPerFrame
+            ? 'warning'
+            : 'default'}
+        />
+        <DebugRow label="Per-source images" value={snap.perSource.length} />
+      </DebugSection>
 
-  <DebugSection title={`Atlas (${snap.atlas.width}×${snap.atlas.height})`}>
-    {#if snap.atlas.canvas}
-      <div class="preview">
-        <canvas
-          class="checker"
-          use:fitImage={{
-            source: snap.atlas.canvas,
-            srcW: snap.atlas.width,
-            srcH: snap.atlas.height,
-            max: 260,
-          }}
-        ></canvas>
-      </div>
-    {:else}
-      <p class="hint">Atlas not yet allocated.</p>
-    {/if}
-  </DebugSection>
-
-  <DebugSection title={`Labels (${snap.labels.length})`} maxHeight={true}>
-    {#if snap.labels.length === 0}
-      <p class="hint">No cached labels.</p>
-    {/if}
-    {#each snap.labels as label (label.key)}
-      <button
-        class="row"
-        class:selected={selectedLabel === label.key}
-        onpointerdown={(e) => e.preventDefault()}
-        onclick={() =>
-          (selectedLabel = selectedLabel === label.key ? null : label.key)}
-      >
-        <span class="text" title={label.text}>{shortText(label.text)}</span>
-        <span class="meta">{label.texW}×{label.texH} · b{label.bucket}</span>
-      </button>
-      {#if selectedLabel === label.key}
-        <div class="preview">
-          {#if labelPreview}
+      <DebugSection title={`Atlas (${snap.atlas.width}×${snap.atlas.height})`}>
+        {#if snap.atlas.canvas}
+          <div class="preview">
             <canvas
               class="checker"
               use:fitImage={{
-                source: labelPreview,
-                srcW: labelPreview.width,
-                srcH: labelPreview.height,
+                source: snap.atlas.canvas,
+                srcW: snap.atlas.width,
+                srcH: snap.atlas.height,
                 max: 260,
               }}
             ></canvas>
-          {:else}
-            <p class="hint">Preview unavailable.</p>
-          {/if}
-        </div>
-      {/if}
-    {/each}
-  </DebugSection>
+          </div>
+        {:else}
+          <p class="hint">Atlas not yet allocated.</p>
+        {/if}
+      </DebugSection>
 
-  <DebugSection
-    title={`Per-source (${snap.perSource.length})`}
-    maxHeight={true}
-  >
-    {#if snap.perSource.length === 0}
-      <p class="hint">No per-source textures.</p>
+      <DebugSection title={`Labels (${snap.labels.length})`} maxHeight={true}>
+        {#if snap.labels.length === 0}
+          <p class="hint">No cached labels.</p>
+        {/if}
+        {#each snap.labels as label (label.key)}
+          <button
+            class="row"
+            class:selected={selectedLabel === label.key}
+            onpointerdown={(e) => e.preventDefault()}
+            onclick={() =>
+              (selectedLabel = selectedLabel === label.key ? null : label.key)}
+          >
+            <span class="text" title={label.text}>{shortText(label.text)}</span>
+            <span class="meta">{label.texW}×{label.texH} · b{label.bucket}</span
+            >
+          </button>
+          {#if selectedLabel === label.key}
+            <div class="preview">
+              {#if labelPreview}
+                <canvas
+                  class="checker"
+                  use:fitImage={{
+                    source: labelPreview,
+                    srcW: labelPreview.width,
+                    srcH: labelPreview.height,
+                    max: 260,
+                  }}
+                ></canvas>
+              {:else}
+                <p class="hint">Preview unavailable.</p>
+              {/if}
+            </div>
+          {/if}
+        {/each}
+      </DebugSection>
     {/if}
-    <div class="thumbs">
-      {#each snap.perSource as ps, i (i)}
-        <figure class="thumb">
-          <canvas
-            class="checker"
-            use:fitImage={{
-              source: ps.source,
-              srcW: ps.width,
-              srcH: ps.height,
-              max: 72,
-            }}
-          ></canvas>
-          <figcaption>{ps.width}×{ps.height}</figcaption>
-        </figure>
-      {/each}
-    </div>
-  </DebugSection>
+
+    <DebugSection
+      title={imageOnly
+        ? `Model textures (${snap.perSource.length})`
+        : `Per-source (${snap.perSource.length})`}
+      maxHeight={true}
+    >
+      {#if snap.perSource.length === 0}
+        <p class="hint">No per-source textures.</p>
+      {/if}
+      <div class="thumbs">
+        {#each snap.perSource as ps, i (i)}
+          <figure class="thumb">
+            <canvas
+              class="checker"
+              use:fitImage={{
+                source: ps.source,
+                srcW: ps.width,
+                srcH: ps.height,
+                max: 72,
+              }}
+            ></canvas>
+            {#if ps.label}
+              <figcaption class="label">{ps.label}</figcaption>
+            {/if}
+            <figcaption>{ps.width}×{ps.height}</figcaption>
+          </figure>
+        {/each}
+      </div>
+    </DebugSection>
   {:else}
     <p class="hint">No texture data.</p>
   {/if}
@@ -307,4 +326,11 @@
     figcaption
       font-size: 9px
       color: rgba(255, 255, 255, 0.5)
+
+    .label
+      max-width: 84px
+      overflow: hidden
+      white-space: nowrap
+      text-overflow: ellipsis
+      color: rgba(255, 255, 255, 0.72)
 </style>

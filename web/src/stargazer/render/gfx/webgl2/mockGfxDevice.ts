@@ -12,6 +12,8 @@ import type {
   ProgramOpts,
   RenderTarget,
   RenderTargetOpts,
+  ShadowArray,
+  ShadowCube,
   Texture,
   Texture2DOpts,
   TextureUploadOpts,
@@ -61,6 +63,18 @@ export class MockGfxDevice implements GfxDevice {
   readonly textures: Texture[] = []
   readonly vaos: Vao[] = []
   readonly renderTargets: RenderTarget[] = []
+  /** Every `resolveTo(src → dst)` FBO→FBO resolve, in order. */
+  readonly resolves: { src: RenderTarget; dst: RenderTarget }[] = []
+  /** Every `bindRenderTarget` target, in order (post-fx ping-pong binds). */
+  readonly boundTargets: RenderTarget[] = []
+  /** Every `blitToDefault` present, in order. */
+  readonly blits: {
+    source: RenderTarget
+    dstWidth: number
+    dstHeight: number
+  }[] = []
+  /** Count of `deleteRenderTarget` calls (pool realloc / teardown). */
+  deletedRenderTargets = 0
 
   #curProgram: Program | null = null
   #curBlend: GfxBlendMode = 'source-over'
@@ -119,6 +133,9 @@ export class MockGfxDevice implements GfxDevice {
   setUniform1f(p: Program, n: string, v: number): void {
     this.#recordUniform(p, n, v)
   }
+  setUniform2f(p: Program, n: string, x: number, y: number): void {
+    this.#recordUniform(p, n, new Float32Array([x, y]))
+  }
   setUniform4f(
     p: Program,
     n: string,
@@ -141,6 +158,60 @@ export class MockGfxDevice implements GfxDevice {
       this.deviceStats.textureBinds++
     }
     this.#curTexture = t
+  }
+
+  // --- shadow maps (test-visible records) -----------------------------------
+  readonly shadowArrays: ShadowArray[] = []
+  readonly shadowCubes: ShadowCube[] = []
+  /** Layers begun this session (assert a caster rendered into layer 0, etc.). */
+  readonly shadowLayerBegins: number[] = []
+  /** Cube faces begun (assert 6 per point caster). */
+  readonly shadowCubeFaceBegins: number[] = []
+  shadowPassEnds = 0
+
+  createShadowArray(size: number, layers: number): ShadowArray {
+    const s = { __gfxShadowArray: undefined as never, size, layers }
+    this.shadowArrays.push(s)
+    return s
+  }
+  createShadowCube(size: number): ShadowCube {
+    const s = { __gfxShadowCube: undefined as never, size }
+    this.shadowCubes.push(s)
+    return s
+  }
+  deleteShadowArray(_s: ShadowArray): void {
+    /* noop */
+  }
+  deleteShadowCube(_s: ShadowCube): void {
+    /* noop */
+  }
+  beginShadowLayer(_s: ShadowArray, layer: number): void {
+    this.shadowLayerBegins.push(layer)
+  }
+  beginShadowCubeFace(_s: ShadowCube, face: number): void {
+    this.shadowCubeFaceBegins.push(face)
+  }
+  endShadowPass(): void {
+    this.shadowPassEnds++
+  }
+  setUniformShadowArray(
+    p: Program,
+    n: string,
+    _s: ShadowArray,
+    unit: number,
+  ): void {
+    this.#recordUniform(p, n, unit)
+  }
+  setUniformShadowCube(
+    p: Program,
+    n: string,
+    _s: ShadowCube,
+    unit: number,
+  ): void {
+    this.#recordUniform(p, n, unit)
+  }
+  setUniformMat4Array(p: Program, n: string, m: Float32Array): void {
+    this.#recordUniform(p, n, m)
   }
 
   createVertexBuffer(_byteSize: number): VBuffer {
@@ -291,7 +362,11 @@ export class MockGfxDevice implements GfxDevice {
       // real device, so `GpuGfx.colorTexture` resolves in tests.
       color:
         samples === 1
-          ? { __gfxTexture: undefined as never, width: opts.width, height: opts.height }
+          ? {
+              __gfxTexture: undefined as never,
+              width: opts.width,
+              height: opts.height,
+            }
           : undefined,
     }
     this.renderTargets.push(rt)
@@ -301,7 +376,13 @@ export class MockGfxDevice implements GfxDevice {
     /* noop */
   }
   deleteRenderTarget(_rt: RenderTarget): void {
-    /* noop */
+    this.deletedRenderTargets++
+  }
+  bindRenderTarget(target: RenderTarget): void {
+    this.boundTargets.push(target)
+  }
+  resolveTo(src: RenderTarget, dst: RenderTarget): void {
+    this.resolves.push({ src, dst })
   }
 
   beginFrame(_opts: BeginFrameOpts): void {
@@ -419,8 +500,13 @@ export class MockGfxDevice implements GfxDevice {
     })
   }
 
-  blitToDefault(_s: RenderTarget, _w: number, _h: number, _o?: BlitOpts): void {
-    /* noop */
+  blitToDefault(
+    source: RenderTarget,
+    dstWidth: number,
+    dstHeight: number,
+    _o?: BlitOpts,
+  ): void {
+    this.blits.push({ source, dstWidth, dstHeight })
   }
 
   isContextLost(): boolean {
@@ -441,12 +527,25 @@ export class MockGfxDevice implements GfxDevice {
 
   // Test-only helpers ---------------------------------------------------------
 
+  /** Fire the registered `onContextLost` callbacks. */
+  simulateContextLost(): void {
+    for (const cb of this.#lostCbs) cb()
+  }
+  /** Fire the registered `onContextRestored` callbacks. */
+  simulateContextRestored(): void {
+    for (const cb of this.#restoredCbs) cb()
+  }
+
   reset(): void {
     this.draws.length = 0
     this.uploads.length = 0
     this.uniformUploads.length = 0
     this.indexUploads.length = 0
     this.subImageUploads.length = 0
+    this.resolves.length = 0
+    this.boundTargets.length = 0
+    this.blits.length = 0
+    this.deletedRenderTargets = 0
     this.capturedUniforms.clear()
     this.#bufferBytes.clear()
     this.#lastBufferBytes = null

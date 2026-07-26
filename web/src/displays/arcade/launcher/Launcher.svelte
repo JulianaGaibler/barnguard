@@ -3,7 +3,10 @@
   import arcadeLogo from '@src/displays/arcade/assets/arcade-logo.svg?url'
   import { GAMES } from '@src/displays/arcade/games/registry'
   import type { GameModule } from '@src/displays/arcade/games/GameModule'
-  import { fetchLeaderboard, type LeaderboardEntry } from '@src/core/leaderboard/leaderboardClient'
+  import {
+    fetchLeaderboard,
+    type LeaderboardEntry,
+  } from '@src/core/leaderboard/leaderboardClient'
   import GameCard from './GameCard.svelte'
 
   interface Props {
@@ -15,7 +18,10 @@
   // for every entry in this map so a late-arriving score never shifts layout.
   let topEntries = $state<Record<string, LeaderboardEntry | null>>(
     Object.fromEntries(
-      GAMES.filter((g) => g.meta.supportsLeaderboard).map((g) => [g.meta.id, null]),
+      GAMES.filter((g) => g.meta.supportsLeaderboard).map((g) => [
+        g.meta.id,
+        null,
+      ]),
     ),
   )
 
@@ -95,7 +101,9 @@
           <GameCard
             {game}
             {onPlay}
-            topEntry={game.meta.supportsLeaderboard ? topEntries[game.meta.id] : undefined}
+            topEntry={game.meta.supportsLeaderboard
+              ? topEntries[game.meta.id]
+              : undefined}
           />
         </div>
       {/each}

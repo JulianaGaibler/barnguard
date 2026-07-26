@@ -1,5 +1,6 @@
 import {
   Node2D,
+  CameraNode2D,
   ignoreAbort,
   parseSvgPaths,
   type EngineHost,
@@ -48,8 +49,8 @@ const TARGET_Y_FRAC = 0.72
  */
 const AXIS_REF_Y_FRAC = -0.6
 /**
- * Camera pan applied on top of the viewport rectangle. Negative shifts the
- * visible content DOWN on screen (the camera looks at a higher slice of the
+ * CameraView2D pan applied on top of the viewport rectangle. Negative shifts
+ * the visible content DOWN on screen (the camera looks at a higher slice of the
  * world). Small value used for a subtle compositional drop so the action sits
  * below dead-centre.
  */
@@ -92,6 +93,7 @@ const NO_TURNAROUND_VIEWPORT: Rect = {
 export class TutorialSession {
   readonly #host: EngineHost
   readonly #stage: Stage
+  readonly #camera: CameraNode2D
   readonly #packetLayer = new Node2D('tutorial-packets')
   readonly #pathLayer = new Node2D('tutorial-paths')
   readonly #handleLayer = new Node2D('tutorial-handles')
@@ -123,9 +125,12 @@ export class TutorialSession {
       interactive: true,
       transparent: false,
       clearColor: '#0d0d10',
-      initialViewport: this.#viewport,
       onResize: (info) => this.#handleResize(info),
     })
+    this.#camera = new CameraNode2D('tutorial-camera')
+    this.#camera.setViewport(this.#viewport)
+    this.#stage.tree.root.add(this.#camera)
+    this.#camera.makeCurrent()
 
     // Layer order matches the main game, paths under packets so trails
     // don't occlude the finger's target.
@@ -195,9 +200,9 @@ export class TutorialSession {
     const height = width / aspect
     this.#viewport.width = width
     this.#viewport.height = height
-    // Camera viewport shifts up in world space vs `this.viewport`, which
+    // The camera viewport shifts up in world space vs `this.viewport`, which
     // drops visible content down on screen without moving packet or target.
-    this.#stage.camera.setViewport({
+    this.#camera.setViewport({
       x: 0,
       y: height * CAMERA_Y_OFFSET_FRAC,
       width,

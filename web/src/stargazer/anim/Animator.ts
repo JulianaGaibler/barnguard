@@ -69,10 +69,9 @@ const DEV_WARN_OVERLAP = true
  * at once.
  *
  * You rarely construct one. Reach it through the scoped helpers that tie a
- * tween's lifetime to a node or the engine: `Node2D.tween`,
- * `Node2D.wait`, `Camera.animateTo`, `Engine.tween`. Call
- * {@link Animator.tween} directly only for an ad-hoc target with your own abort
- * signal.
+ * tween's lifetime to a node or the engine: `Node2D.tween`, `Node2D.wait`,
+ * `Camera.animateTo`, `Engine.tween`. Call {@link Animator.tween} directly only
+ * for an ad-hoc target with your own abort signal.
  *
  * @category Animation
  */

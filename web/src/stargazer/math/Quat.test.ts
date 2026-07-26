@@ -13,7 +13,12 @@ import { vec3 } from './Vec3'
 const HALF_PI = Math.PI / 2
 
 /** Rotate a point by a quaternion via a scale-1 compose, for assertions. */
-function rotatePoint(q: ReturnType<typeof quat>, x: number, y: number, z: number) {
+function rotatePoint(
+  q: ReturnType<typeof quat>,
+  x: number,
+  y: number,
+  z: number,
+) {
   const m = mat4Compose(mat4(), vec3(0, 0, 0), q, vec3(1, 1, 1))
   return mat4TransformPoint(vec3(), m, x, y, z)
 }

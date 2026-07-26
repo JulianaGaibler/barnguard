@@ -48,7 +48,9 @@ interface Scene {
 }
 
 function buildScene(stage: Stage): Scene {
-  const vp = stage.camera.viewport
+  const cam = stage.currentCamera2D
+  if (!cam) throw new Error('buildScene: stage has no current 2D camera')
+  const vp = cam.viewport
   const layout = computeLayout({
     x: vp.x + FIELD_PADDING,
     y: vp.y + FIELD_PADDING,

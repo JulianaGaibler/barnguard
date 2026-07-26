@@ -1,6 +1,6 @@
 /**
- * The in-game pause toggle — engine port of the `.pause-btn` overlay: a
- * small bordered square with a static "II" glyph. Its fill matches the page
+ * The in-game pause toggle — engine port of the `.pause-btn` overlay: a small
+ * bordered square with a static "II" glyph. Its fill matches the page
  * background (only the border + glyph read against it), same as the original.
  */
 import { Node2D, type Gfx2D } from '@src/stargazer'
@@ -38,8 +38,18 @@ export class PauseButtonNode extends Node2D {
   }
 
   override draw(gfx: Gfx2D): void {
-    gfx.fillRoundRect(0, 0, SIZE, SIZE, RADIUS, this.#pressed ? PRESS_FILL : COLORS.background)
-    gfx.strokeRoundRect(0, 0, SIZE, SIZE, RADIUS, { color: COLORS.ink, width: 2 })
+    gfx.fillRoundRect(
+      0,
+      0,
+      SIZE,
+      SIZE,
+      RADIUS,
+      this.#pressed ? PRESS_FILL : COLORS.background,
+    )
+    gfx.strokeRoundRect(0, 0, SIZE, SIZE, RADIUS, {
+      color: COLORS.ink,
+      width: 2,
+    })
     gfx.fillText('II', SIZE / 2, SIZE / 2, {
       font: `900 13.6px ${FONT_FAMILY}`,
       align: 'center',

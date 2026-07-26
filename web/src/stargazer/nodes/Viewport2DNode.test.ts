@@ -22,7 +22,10 @@ describe('Viewport2DNode', () => {
     const device = new MockGfxDevice()
     const vp = new Viewport2DNode({ width: 128, height: 128 })
     vp.scene.root.add(
-      new ShapeNode({ geometry: { kind: 'rect', width: 128, height: 128 }, fill: '#345' }),
+      new ShapeNode({
+        geometry: { kind: 'rect', width: 128, height: 128 },
+        fill: '#345',
+      }),
     )
     expect(vp.colorTexture).toBeNull()
     vp.renderOffscreen(device, canvas(), 0)

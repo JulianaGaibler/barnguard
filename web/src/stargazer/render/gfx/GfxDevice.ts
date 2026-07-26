@@ -28,6 +28,29 @@ export interface Texture {
   readonly height: number
 }
 
+/**
+ * A layered depth texture for shadow maps: a `DEPTH_COMPONENT` 2D-array with a
+ * comparison sampler, one layer per shadow-casting directional or spot light.
+ * Render depth into a layer with {@link GfxDevice.beginShadowLayer}, then sample
+ * it in a shader through {@link GfxDevice.setUniformShadowArray} as a
+ * `sampler2DArrayShadow`.
+ */
+export interface ShadowArray {
+  readonly __gfxShadowArray: unique symbol
+  readonly size: number
+  readonly layers: number
+}
+
+/**
+ * A depth cubemap for a point light's shadow. Render its six faces with
+ * {@link GfxDevice.beginShadowCubeFace}, then sample it as a `samplerCubeShadow`
+ * through {@link GfxDevice.setUniformShadowCube}.
+ */
+export interface ShadowCube {
+  readonly __gfxShadowCube: unique symbol
+  readonly size: number
+}
+
 export interface Vao {
   readonly __gfxVao: unique symbol
 }
@@ -62,6 +85,13 @@ export interface RenderTarget {
    * is active.
    */
   readonly samples: number
+  /**
+   * Color-attachment color space the target was allocated with (see
+   * {@link RenderTargetOpts.colorSpace}). A post-process pass reads this to
+   * allocate its ping-pong targets with a matching internal format — a
+   * multisample→single-sample resolve blit requires identical formats.
+   */
+  readonly colorSpace: 'linear' | 'srgb'
 }
 
 // --- attribute layout descriptors ------------------------------------------
@@ -110,6 +140,30 @@ export interface Texture2DOpts {
   height: number
   filter?: 'nearest' | 'linear'
   wrap?: 'clamp' | 'repeat'
+  /**
+   * Allocate `SRGB8_ALPHA8` storage so sampling decodes sRGB → linear in
+   * hardware (and mip generation / filtering happen in linear space). Set for
+   * glTF base-color and emissive textures; leave off (default `RGBA8`) for
+   * normal, metallic-roughness, and occlusion maps, whose bytes are linear
+   * data. Create the texture at the source's exact size so the first
+   * {@link GfxDevice.updateTexture2D} takes the in-place `texSubImage2D` path
+   * and preserves this internal format.
+   */
+  srgb?: boolean
+  /**
+   * Allocate a mip chain and select a mipmapped min-filter (trilinear when
+   * `filter` is `'linear'`). Mips are (re)generated after each full
+   * {@link GfxDevice.updateTexture2D} upload; the partial
+   * {@link GfxDevice.updateTextureSubImage2D} path never regenerates, so
+   * atlas-style textures must stay non-mipmapped. Default `false`.
+   */
+  mipmap?: boolean
+  /**
+   * Anisotropic-filtering sample cap for minified mipmapped textures, clamped
+   * to the driver max; ignored when `EXT_texture_filter_anisotropic` is absent
+   * or the texture is not mipmapped. Default `1` (isotropic).
+   */
+  anisotropy?: number
 }
 
 export interface TextureUploadOpts {
@@ -152,9 +206,9 @@ export interface BeginFrameOpts {
   /** RGBA in `0..1`. Clears the target at frame start. */
   clearColor?: readonly [number, number, number, number]
   /**
-   * Clear the depth buffer at frame start. Set only when a depth-tested 3D
-   * pass follows and the target carries a depth attachment; a pure-2D frame
-   * leaves it unset so no depth clear is issued.
+   * Clear the depth buffer at frame start. Set only when a depth-tested 3D pass
+   * follows and the target carries a depth attachment; a pure-2D frame leaves
+   * it unset so no depth clear is issued.
    */
   clearDepth?: boolean
 }
@@ -165,7 +219,7 @@ export interface BlitOpts {
 
 // --- state -----------------------------------------------------------------
 
-export type GfxBlendMode = 'source-over' | 'lighter'
+export type GfxBlendMode = 'source-over' | 'lighter' | 'none'
 
 /**
  * Face-culling mode for the 3D pass. `'none'` draws both faces (the 2D
@@ -206,6 +260,7 @@ export interface GfxDevice {
   // Uniforms -----------------------------------------------------------------
   setUniform1i(p: Program, name: string, v: number): void
   setUniform1f(p: Program, name: string, v: number): void
+  setUniform2f(p: Program, name: string, x: number, y: number): void
   setUniform4f(
     p: Program,
     name: string,
@@ -321,12 +376,78 @@ export interface GfxDevice {
   createRenderTarget(opts: RenderTargetOpts): RenderTarget
   resizeRenderTarget(rt: RenderTarget, width: number, height: number): void
   deleteRenderTarget(rt: RenderTarget): void
+  /**
+   * Bind `target`'s framebuffer and set the viewport to its size, without
+   * clearing and without the per-frame ring/stat bookkeeping `beginFrame` does.
+   * The lightweight bind a post-process pass uses to redirect fullscreen draws
+   * into a ping-pong target it will fully overwrite.
+   */
+  bindRenderTarget(target: RenderTarget): void
+  /**
+   * Copy/resolve the color of `src` into `dst` (framebuffer→framebuffer blit).
+   * Performs the MSAA resolve when `src.samples > 1`; `dst` must be
+   * single-sample (texture-backed) so the result is sampleable. Both targets
+   * must share the same size and internal format (the WebGL2
+   * multisample-resolve constraint). Used by the post-process pipeline to
+   * resolve the screen frame into a sampleable texture before running effects.
+   */
+  resolveTo(src: RenderTarget, dst: RenderTarget): void
+
+  // Shadow maps --------------------------------------------------------------
+  /**
+   * Allocate a `size`×`size`×`layers` depth-array shadow map
+   * (directional/spot).
+   */
+  createShadowArray(size: number, layers: number): ShadowArray
+  /** Allocate a `size`×`size` depth-cubemap shadow map (one point light). */
+  createShadowCube(size: number): ShadowCube
+  deleteShadowArray(s: ShadowArray): void
+  deleteShadowCube(s: ShadowCube): void
+  /**
+   * Bind `s`'s `layer` as the depth target and clear it, for a depth-only pass
+   * (no color attachment). Sets the viewport to the map size. The next
+   * {@link GfxDevice.beginFrame} rebinds the screen target and its viewport.
+   */
+  beginShadowLayer(s: ShadowArray, layer: number): void
+  /** Bind one cube `face` (0..5) of `s` as the depth target and clear it. */
+  beginShadowCubeFace(s: ShadowCube, face: number): void
+  /**
+   * End a shadow pass (depth-state hygiene; the FBO rebinds on the next
+   * `beginFrame`).
+   */
+  endShadowPass(): void
+  /** Bind a shadow array to a unit and set its `sampler2DArrayShadow` uniform. */
+  setUniformShadowArray(
+    p: Program,
+    name: string,
+    s: ShadowArray,
+    unit: number,
+  ): void
+  /** Bind a shadow cube to a unit and set its `samplerCubeShadow` uniform. */
+  setUniformShadowCube(
+    p: Program,
+    name: string,
+    s: ShadowCube,
+    unit: number,
+  ): void
+  /**
+   * Set a `mat4[]` uniform from a packed column-major float array (16 per
+   * matrix).
+   */
+  setUniformMat4Array(p: Program, name: string, m: Float32Array): void
 
   // Frame lifecycle ----------------------------------------------------------
   beginFrame(opts: BeginFrameOpts): void
   endFrame(): void
 
   // State --------------------------------------------------------------------
+  /**
+   * Set the blend mode. `'source-over'` premultiplied compositing (2D default),
+   * `'lighter'` additive, `'none'` disables blending (`gl.disable(BLEND)`) for
+   * full-overwrite passes like post-processing, where every pixel is written
+   * and blending against stale contents would be both wrong and wasted
+   * bandwidth.
+   */
   setBlend(mode: GfxBlendMode): void
   /**
    * Enable/disable depth testing. Cached; the 3D pass turns it on, then
@@ -340,8 +461,8 @@ export interface GfxDevice {
   /**
    * Restore the state the 2D pipeline expects at the start of a layer pass:
    * depth test off, depth writes on, cull off, blend `source-over`. Routes
-   * through the cached setters so the internal state cache stays truthful.
-   * Call between the 3D pass and the 2D layers.
+   * through the cached setters so the internal state cache stays truthful. Call
+   * between the 3D pass and the 2D layers.
    */
   resetToBaseline(): void
 

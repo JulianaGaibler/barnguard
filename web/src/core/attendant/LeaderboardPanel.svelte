@@ -37,7 +37,9 @@
     loading = true
     Promise.all(ids.map((id) => fetchLeaderboard(id, MAX_ROWS)))
       .then((lists) => {
-        rows = lists.flatMap((list) => list.map((entry, i) => ({ place: i + 1, entry })))
+        rows = lists.flatMap((list) =>
+          list.map((entry, i) => ({ place: i + 1, entry })),
+        )
       })
       .catch(() => (rows = []))
       .finally(() => (loading = false))
@@ -50,7 +52,9 @@
     if ($leaderboardPanelVisible) refresh()
   })
 
-  const showGameLabel = $derived(($activeDisplay?.leaderboardIds?.length ?? 0) > 1)
+  const showGameLabel = $derived(
+    ($activeDisplay?.leaderboardIds?.length ?? 0) > 1,
+  )
   const confirmGroup = createConfirmCoordinator()
 
   function handleDelete(entry: LeaderboardEntry): void {

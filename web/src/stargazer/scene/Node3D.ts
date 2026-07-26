@@ -1,9 +1,5 @@
 import { Transform3D } from '../math/Transform3D'
-import {
-  mat4Multiply,
-  mat4Copy,
-  type Mat4,
-} from '../math/Mat4'
+import { mat4Multiply, mat4Copy, type Mat4 } from '../math/Mat4'
 import { vec3Lerp, type Vec3 } from '../math/Vec3'
 import { quatSlerp, type Quat } from '../math/Quat'
 import { lerp } from '../math/scalar'
@@ -13,8 +9,8 @@ import { combineAbortSignals, ignoreAbort } from '../anim/abortSignal'
 
 /**
  * Targets for {@link Node3D.tween}. Position and scale interpolate linearly;
- * rotation interpolates by quaternion slerp; alpha interpolates linearly. Omit a
- * field to leave it fixed.
+ * rotation interpolates by quaternion slerp; alpha interpolates linearly. Omit
+ * a field to leave it fixed.
  *
  * @category Scene
  */
@@ -33,9 +29,9 @@ export interface Node3DTweenTo {
  * mutating its `transform`; nest nodes with {@link Node.add} so children inherit
  * the parent's world transform.
  *
- * 3D nodes live under a {@link World3D} root, separate from the 2D
- * {@link Scene}. A drawable 3D node (e.g. a mesh) subclasses this and the 3D
- * render pass draws it; a plain `Node3D` is a transform-only group.
+ * 3D nodes live under a {@link World3D} root, separate from the 2D {@link Scene}.
+ * A drawable 3D node (e.g. a mesh) subclasses this and the 3D render pass draws
+ * it; a plain `Node3D` is a transform-only group.
  *
  * @category Scene
  * @example
@@ -50,7 +46,10 @@ export interface Node3DTweenTo {
 export class Node3D extends Node {
   readonly kind: NodeKind = '3d'
 
-  /** Local transform (position, rotation, scale, alpha). Mutate to move the node. */
+  /**
+   * Local transform (position, rotation, scale, alpha). Mutate to move the
+   * node.
+   */
   readonly transform = new Transform3D()
 
   /**
@@ -78,8 +77,8 @@ export class Node3D extends Node {
 
   /**
    * Force `transform.world` up-to-date now without waiting for the 3D transform
-   * pass, e.g. to read a descendant's world position mid-frame after mutating an
-   * ancestor. O(depth) worst case, O(1) when the ancestor chain is clean.
+   * pass, e.g. to read a descendant's world position mid-frame after mutating
+   * an ancestor. O(depth) worst case, O(1) when the ancestor chain is clean.
    */
   ensureWorldTransform(): void {
     if (!this.worldDirty) return
@@ -136,32 +135,36 @@ export class Node3D extends Node {
     const userUpdate = opts.onUpdate
     const progress = { p: 0 }
     return engine.animation
-      .tween(progress, { p: 1 }, {
-        ...opts,
-        signal: combined.signal,
-        onUpdate: () => {
-          const p = progress.p
-          if (to.position) {
-            const np = vec3Lerp({ x: 0, y: 0, z: 0 }, startP, to.position, p)
-            t.setPosition(np.x, np.y, np.z)
-          }
-          if (to.scale) {
-            const ns = vec3Lerp({ x: 0, y: 0, z: 0 }, startS, to.scale, p)
-            t.setScale(ns.x, ns.y, ns.z)
-          }
-          if (to.rotation) {
-            const nr = quatSlerp(
-              { x: 0, y: 0, z: 0, w: 1 },
-              startR,
-              to.rotation,
-              p,
-            )
-            t.setRotation(nr.x, nr.y, nr.z, nr.w)
-          }
-          if (to.alpha !== undefined) t.alpha = lerp(startAlpha, to.alpha, p)
-          userUpdate?.()
+      .tween(
+        progress,
+        { p: 1 },
+        {
+          ...opts,
+          signal: combined.signal,
+          onUpdate: () => {
+            const p = progress.p
+            if (to.position) {
+              const np = vec3Lerp({ x: 0, y: 0, z: 0 }, startP, to.position, p)
+              t.setPosition(np.x, np.y, np.z)
+            }
+            if (to.scale) {
+              const ns = vec3Lerp({ x: 0, y: 0, z: 0 }, startS, to.scale, p)
+              t.setScale(ns.x, ns.y, ns.z)
+            }
+            if (to.rotation) {
+              const nr = quatSlerp(
+                { x: 0, y: 0, z: 0, w: 1 },
+                startR,
+                to.rotation,
+                p,
+              )
+              t.setRotation(nr.x, nr.y, nr.z, nr.w)
+            }
+            if (to.alpha !== undefined) t.alpha = lerp(startAlpha, to.alpha, p)
+            userUpdate?.()
+          },
         },
-      })
+      )
       .finally(combined.dispose)
   }
 

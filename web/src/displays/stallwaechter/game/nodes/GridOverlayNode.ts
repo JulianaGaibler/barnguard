@@ -1,7 +1,7 @@
 import {
   Node2D,
   type BitmapMask,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Vec2,
 } from '@src/stargazer'
@@ -73,8 +73,8 @@ export class GridOverlayNode extends Node2D {
   readonly #cellSize: number
   readonly #cellHalf: number
   /**
-   * Country outline. `draw` wraps its passes in `gfx.setClipMask(this.mask)`
-   * so coastal cells clip to the outline.
+   * Country outline. `draw` wraps its passes in `gfx.setClipMask(this.mask)` so
+   * coastal cells clip to the outline.
    */
   readonly #mask: BitmapMask
   /** Interleaved (x, y) cell centres, length `2 × count`. */
@@ -233,7 +233,7 @@ export class GridOverlayNode extends Node2D {
     this.#updateWarn(dt)
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera): void {
+  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
     if (this.#count === 0) return
     gfx.save()
     // Clip both passes so coastal cells don't spill into the sea.

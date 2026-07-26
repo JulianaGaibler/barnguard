@@ -12,8 +12,8 @@ export interface DemoHandle {
 
 /**
  * Builds one card's in-engine scene into the shared demo `stage`, laid out to
- * the stage's fixed viewport (`stage.camera.viewport`, never the primary
- * `host.engine.renderer.pixelSize`). Animated cards drive motion via
+ * the stage's fixed viewport (`stage.currentCamera2D.viewport`, never the
+ * primary `host.engine.renderer.pixelSize`). Animated cards drive motion via
  * `node.loop` / `engine.wait` / tweens; a "still" card just builds a static
  * scene. Only the centered card's demo exists at a time, so it always plays —
  * there is no separate play flag.

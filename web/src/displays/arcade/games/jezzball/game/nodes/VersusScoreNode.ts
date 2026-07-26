@@ -1,8 +1,8 @@
 /**
  * A team's points readout in 2p — engine port of the `.vs__pts` block: a big
- * number over a small "PTS" label, both in the team's color, left-aligned.
- * Two `TextNode`s rather than one multi-line node, since the number and the
- * label render at different font sizes.
+ * number over a small "PTS" label, both in the team's color, left-aligned. Two
+ * `TextNode`s rather than one multi-line node, since the number and the label
+ * render at different font sizes.
  */
 import { Node2D, TextNode } from '@src/stargazer'
 

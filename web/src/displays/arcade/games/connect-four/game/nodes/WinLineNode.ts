@@ -1,4 +1,4 @@
-import { Node2D, easings, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, easings, type CameraView2D, type Gfx2D } from '@src/stargazer'
 import { ANIM, WIN } from '../tuning'
 
 interface Point {
@@ -38,7 +38,7 @@ export class WinLineNode extends Node2D {
     this.#progress = Math.min(max, this.#progress + dt / ANIM.winLineDraw)
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const pts = this.#centers
     const n = pts.length
     if (n < 2) return

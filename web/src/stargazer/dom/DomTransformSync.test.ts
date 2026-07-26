@@ -1,15 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { projectWorldToCss, type CssMatrix } from './DomTransformSync'
-import type { ScreenTransform } from '../camera/Camera'
+import type { Affine2x3 } from '../camera/CameraView2D'
 
 const IDENTITY: CssMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
 
-function screen(
-  scale: number,
-  offsetX: number,
-  offsetY: number,
-): ScreenTransform {
-  return { scale, offsetX, offsetY }
+// A uniform-scale + translate camera screen affine (what a plain framed camera
+// with identity transform produces).
+function screen(scale: number, offsetX: number, offsetY: number): Affine2x3 {
+  return { a: scale, b: 0, c: 0, d: scale, e: offsetX, f: offsetY }
 }
 
 describe('projectWorldToCss', () => {

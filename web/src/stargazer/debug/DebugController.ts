@@ -1,19 +1,27 @@
 import { createEmitter, type Emitter } from '../events/Emitter'
 import type { Engine, RegisteredPhysicsWorld } from '../engine/Engine'
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { Stage } from '../render/Stage'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { BitmapMask } from '../assets/BitmapMask'
 import { DebugCamera } from './DebugCamera'
 import { DebugCamera3D } from './DebugCamera3D'
 import { FrameStats } from './FrameStats'
-import type { Camera3D } from '../camera/Camera3D'
+import type { CameraView3D } from '../camera/CameraView3D'
 import type { Node3D } from '../scene/Node3D'
 import { MeshNode } from '../nodes/MeshNode'
 import { Viewport2DNode } from '../nodes/Viewport2DNode'
 import type { DebugLine3DRenderer } from '../render/gfx/DebugLine3DRenderer'
 import { mat4TransformPoint } from '../math/Mat4'
-import { vec3 } from '../math/Vec3'
+import { vec3, vec3Cross, vec3Normalize, type Vec3 } from '../math/Vec3'
+import {
+  Light3D,
+  DirectionalLight3D,
+  PointLight3D,
+  SpotLight3D,
+} from '../nodes/Light3D'
+import type { LineColor } from '../render/gfx/DebugLine3DRenderer'
+import type { RenderQuality } from '../render/RenderQuality'
 import { walkTree } from '../scene/traverse'
 import { drawGrid } from './DebugGridRenderer'
 import { drawNodeOutlines } from './DebugOutlineRenderer'
@@ -45,8 +53,8 @@ import './ui/debug-ui.sass'
 /**
  * Which camera drives the debug view. `active` is the engine's normal cameras
  * (no override); `debug-2d` swaps in the free 2D pan/zoom camera; `debug-3d`
- * swaps in the free 3D fly camera. The grid, outlines, and camera pad follow the
- * selected mode's space.
+ * swaps in the free 3D fly camera. The grid, outlines, and camera pad follow
+ * the selected mode's space.
  *
  * @category Debug
  */
@@ -320,9 +328,8 @@ export class DebugController {
   /**
    * HUD visibility, backed by a Svelte writable so external components (like
    * the booth menu) can subscribe to changes without wiring the `toggle` event
-   * by hand. `toggleHud()` / `setHudVisible()` both write here; the private
-   * `_hudVisible` getter reads `get(store)` synchronously for backward-compat
-   * with the existing plain-JS API.
+   * by hand. `toggleHud()` / `setHudVisible()` both write here; the
+   * `hudVisible` getter reads `get(store)` synchronously for plain-JS callers.
    */
   readonly #hudVisibleStore = writable<boolean>(false)
   /** Reactive HUD visibility, subscribe from Svelte with `$`. */
@@ -389,7 +396,7 @@ export class DebugController {
 
   constructor(engine: Engine, opts: DebugControllerOptions = {}) {
     this.engine = engine
-    this.camera = new DebugCamera(engine.camera)
+    this.camera = new DebugCamera(engine.currentCamera2D)
     this.frameStats = new FrameStats(300)
     this.events = createEmitter<DebugEvents>()
 
@@ -507,6 +514,10 @@ export class DebugController {
   get paused(): boolean {
     return this.engine.paused
   }
+  /** Live 3D rendering-quality settings; the Rendering panel overrides these. */
+  get quality(): RenderQuality {
+    return this.engine.quality
+  }
   get perfMarks(): boolean {
     return this.engine.perfMarks
   }
@@ -562,7 +573,7 @@ export class DebugController {
     if (stage === this.engine.primaryStage) stage = null
     this.#_activeStage = stage
     const active = this.activeStage
-    this.camera.setGameCamera(active.camera)
+    this.camera.setGameCamera(active.currentCamera2D)
     if (this.#_cameraActive) {
       this.camera.reset()
       this.camera.setPixelSize(
@@ -580,7 +591,7 @@ export class DebugController {
   onStageDetached(stage: Stage): void {
     if (this.#_activeStage !== stage) return
     this.#_activeStage = null
-    this.camera.setGameCamera(this.engine.primaryStage.camera)
+    this.camera.setGameCamera(this.engine.primaryStage.currentCamera2D)
     if (this.#_cameraActive) {
       this.camera.reset()
     }
@@ -651,12 +662,19 @@ export class DebugController {
     this.#emitToggle()
   }
 
-  /** Mesh-shader debug mode uniform: 0 = normal/wireframe, 1 = unshaded, 2 = normals. */
+  /**
+   * Mesh-shader debug mode uniform: 0 = normal/wireframe, 1 = unshaded, 2 =
+   * normals.
+   */
   get meshShaderMode(): number {
-    return this.#_renderMode === 'unshaded' ? 1 : this.#_renderMode === 'normals' ? 2 : 0
+    return this.#_renderMode === 'unshaded'
+      ? 1
+      : this.#_renderMode === 'normals'
+        ? 2
+        : 0
   }
 
-  /** The camera driving the debug view; see {@link DebugCameraMode}. */
+  /** The camera driving the debug view; see `DebugCameraMode`. */
   get cameraMode(): DebugCameraMode {
     if (!this.#_cameraActive) return 'active'
     return this.#_debugSpace === '3d' ? 'debug-3d' : 'debug-2d'
@@ -664,8 +682,8 @@ export class DebugController {
 
   /**
    * Select the debug view camera. `active` clears any debug camera; `debug-2d`
-   * / `debug-3d` engage the free camera for that space (and set the space so the
-   * grid + pad follow). This is the HUD dropdown's setter.
+   * / `debug-3d` engage the free camera for that space (and set the space so
+   * the grid + pad follow). This is the HUD dropdown's setter.
    */
   setCameraMode(mode: DebugCameraMode): void {
     if (mode === this.cameraMode) return
@@ -675,7 +693,8 @@ export class DebugController {
     } else {
       const space = mode === 'debug-3d' ? '3d' : '2d'
       // Switching directly between 2D and 3D debug: drop the old camera's keys.
-      if (this.#_cameraActive && this.#_debugSpace !== space) this.#stopDebugCameras()
+      if (this.#_cameraActive && this.#_debugSpace !== space)
+        this.#stopDebugCameras()
       this.#_debugSpace = space
       this.#_cameraActive = true
       this.#prepareDebugCamera()
@@ -687,12 +706,16 @@ export class DebugController {
   #prepareDebugCamera(): void {
     const active = this.activeStage
     if (this.#_debugSpace === '2d') {
-      this.camera.setGameCamera(active.camera)
+      this.camera.setGameCamera(active.currentCamera2D)
       this.camera.reset()
-      this.camera.setPixelSize(active.renderer.cssSize.w, active.renderer.cssSize.h)
+      this.camera.setPixelSize(
+        active.renderer.cssSize.w,
+        active.renderer.cssSize.h,
+      )
     } else {
-      if (!this.#debugCamera3d) this.#debugCamera3d = new DebugCamera3D(active.camera3d)
-      else this.#debugCamera3d.setGameCamera(active.camera3d)
+      if (!this.#debugCamera3d)
+        this.#debugCamera3d = new DebugCamera3D(active.currentCamera3D)
+      else this.#debugCamera3d.setGameCamera(active.currentCamera3D)
       this.#debugCamera3d.reset()
     }
   }
@@ -763,9 +786,9 @@ export class DebugController {
   }
 
   /**
-   * Highlight any node from the unified scene tree, routing to the 2D overlay or
-   * the 3D gizmo pass by the node's {@link Node.kind}. Selecting one clears the
-   * other, so only the picked node outlines. The Scene panel calls this.
+   * Highlight any node from the unified scene tree, routing to the 2D overlay
+   * or the 3D gizmo pass by the node's {@link Node.kind}. Selecting one clears
+   * the other, so only the picked node outlines. The Scene panel calls this.
    */
   setHighlighted(node: Node | null): void {
     if (node && node.kind === '3d') {
@@ -828,12 +851,12 @@ export class DebugController {
    * active-debug-stage flag matches AND the debug camera is toggled on;
    * otherwise the stage's own game camera. Called by `Engine.frame()`.
    */
-  activeCameraFor(stage: Stage): Camera {
+  activeCameraFor(stage: Stage): CameraView2D | null {
     return this.#_cameraActive &&
       this.#_debugSpace === '2d' &&
       stage === this.activeStage
       ? this.camera
-      : stage.camera
+      : stage.currentCamera2D
   }
 
   /** Whether the debug camera is engaged in 3D mode (fly-camera inspecting). */
@@ -846,10 +869,12 @@ export class DebugController {
    * the debug camera is active in 3D mode on the active stage, else the stage's
    * game `camera3d`. Mirrors {@link DebugController.activeCameraFor}.
    */
-  activeCamera3dFor(stage: Stage): Camera3D {
-    return this.camera3dActive && stage === this.activeStage && this.#debugCamera3d
+  activeCamera3dFor(stage: Stage): CameraView3D | null {
+    return this.camera3dActive &&
+      stage === this.activeStage &&
+      this.#debugCamera3d
       ? this.#debugCamera3d
-      : stage.camera3d
+      : stage.currentCamera3D
   }
 
   /** Highlight a 3D node's bounds in the gizmo pass, or `null` to clear. */
@@ -876,12 +901,13 @@ export class DebugController {
       aliveParticles += n.particleCount
     })
     // The active stage's "active" camera, debug or game depending on toggle.
+    // Null when the stage has no current 2D camera (readouts fall back to zero).
     const cam = this.activeCameraFor(active)
     // Hover-pointer readout is primary-only (DebugController's own
     // pointermove listener is attached to engine.canvas). Active-pointer
     // sections follow the active stage's InputSystem instead.
     const ps = this.activeIsPrimary ? this.#_pointerScreen : null
-    const pw = ps ? cam.screenToWorld(ps.x, ps.y) : null
+    const pw = ps && cam ? cam.screenToWorld(ps.x, ps.y) : null
     const stageInput = active.input
     const activePointers: ActivePointerReadout[] = []
     if (stageInput) {
@@ -909,8 +935,8 @@ export class DebugController {
       gpu,
       cameraMode: this.#_cameraActive ? 'debug' : 'game',
       cameraFollowing: this.#_followGameCamera,
-      viewport: { ...cam.viewport },
-      screenPxPerWorldUnit: cam.screenPxPerWorldUnit(),
+      viewport: cam ? { ...cam.viewport } : { x: 0, y: 0, width: 0, height: 0 },
+      screenPxPerWorldUnit: cam?.screenPxPerWorldUnit() ?? 0,
       pointerScreen: ps ? { ...ps } : null,
       pointerWorld: pw,
       canvasCss: { ...active.renderer.cssSize },
@@ -931,8 +957,10 @@ export class DebugController {
 
   /** Tally 3D world + camera stats for a stage, or `null` when it has no 3D. */
   #snapshotWorld3d(stage: Stage): World3DReadout | null {
-    const hasContent = stage.tree.root.children.length > 0
-    if (!hasContent && !this.camera3dActive) return null
+    // Only report 3D when the stage has real 3D content (or the 3D fly-cam is
+    // engaged). `has3D` skips intrinsic nodes, so reading it never materializes
+    // the lazy default 3D camera on a pure-2D stage.
+    if (!stage.tree.has3D && !this.camera3dActive) return null
     let nodeCount = 0
     let meshCount = 0
     let rttSurfaces = 0
@@ -949,6 +977,8 @@ export class DebugController {
     })
     const s = stage.render3dStats
     const cam = this.activeCamera3dFor(stage)
+    // 3D content but no 3D camera yet: no camera readout to report.
+    if (!cam) return null
     const eye = cam.eyePosition()
     return {
       nodeCount,
@@ -1057,7 +1087,7 @@ export class DebugController {
    * `stage`. Called by `Engine.frame()` on whichever stage is currently the
    * active-debug-stage. Baseline transform: CSS px for consistent line widths.
    */
-  drawOverlay(stage: Stage, activeCamera: Camera, gfx: Gfx2D): void {
+  drawOverlay(stage: Stage, activeCamera: CameraView2D, gfx: Gfx2D): void {
     const { renderer } = stage
     const dpr = renderer.dpr
 
@@ -1114,8 +1144,9 @@ export class DebugController {
 
     // Only meaningful when the debug camera is active, the pip shows the
     // stage's game camera rect in debug-camera space.
-    if (this.#_cameraActive) {
-      this.#drawGameCameraRect(gfx, activeCamera, stage.camera)
+    const gameCam = stage.currentCamera2D
+    if (this.#_cameraActive && gameCam) {
+      this.#drawGameCameraRect(gfx, activeCamera, gameCam)
     }
   }
 
@@ -1123,11 +1154,15 @@ export class DebugController {
    * Collect 3D gizmos into `lines` for the stage's world, viewed through
    * `cam3d`. Called by `Stage.render` in the depth-tested 3D pass (between the
    * mesh pass and `resetToBaseline`). Grid + world axes ride the grid toggle
-   * (`X`); mesh/quad bounds ride the outlines toggle (`O`); the highlighted node
-   * draws as an always-visible overlay; the game camera frustum shows while the
-   * 3D fly-camera is active.
+   * (`X`); mesh/quad bounds ride the outlines toggle (`O`); the highlighted
+   * node draws as an always-visible overlay; the game camera frustum shows
+   * while the 3D fly-camera is active.
    */
-  drawOverlay3D(stage: Stage, cam3d: Camera3D, lines: DebugLine3DRenderer): void {
+  drawOverlay3D(
+    stage: Stage,
+    cam3d: CameraView3D,
+    lines: DebugLine3DRenderer,
+  ): void {
     void cam3d
     // The ground grid draws only in 3D mode, so it never coexists with the 2D
     // screen grid (which the 2D overlay draws in 2D mode).
@@ -1139,7 +1174,15 @@ export class DebugController {
       walkTree(stage.tree.root, (n) => {
         if (n instanceof MeshNode) {
           const b = n.localBounds()
-          if (b) this.#pushObb(lines, b.min, b.max, n.worldMatrix, [0.4, 0.9, 1, 0.9], false)
+          if (b)
+            this.#pushObb(
+              lines,
+              b.min,
+              b.max,
+              n.worldMatrix,
+              [0.4, 0.9, 1, 0.9],
+              false,
+            )
         } else if (n instanceof Viewport2DNode) {
           this.#pushObb(
             lines,
@@ -1182,6 +1225,8 @@ export class DebugController {
           c,
           true,
         )
+      } else if (hi instanceof Light3D) {
+        this.#drawLightGizmo(lines, hi)
       } else {
         this.#pushObb(
           lines,
@@ -1193,8 +1238,8 @@ export class DebugController {
         )
       }
     }
-    if (this.camera3dActive) {
-      lines.frustum(stage.camera3d.invViewProjection, [1, 0.8, 0.3, 0.8])
+    if (this.camera3dActive && stage.currentCamera3D) {
+      lines.frustum(stage.currentCamera3D.invViewProjection, [1, 0.8, 0.3, 0.8])
     }
   }
 
@@ -1218,9 +1263,173 @@ export class DebugController {
     // Corner index bits: x=1, y=2, z=4.
     const e = (a: number, b: number): void =>
       lines.line(c[a].x, c[a].y, c[a].z, c[b].x, c[b].y, c[b].z, color, overlay)
-    e(0, 1); e(1, 3); e(3, 2); e(2, 0) // z=min face
-    e(4, 5); e(5, 7); e(7, 6); e(6, 4) // z=max face
-    e(0, 4); e(1, 5); e(2, 6); e(3, 7) // connectors
+    e(0, 1)
+    e(1, 3)
+    e(3, 2)
+    e(2, 0) // z=min face
+    e(4, 5)
+    e(5, 7)
+    e(7, 6)
+    e(6, 4) // z=max face
+    e(0, 4)
+    e(1, 5)
+    e(2, 6)
+    e(3, 7) // connectors
+  }
+
+  /**
+   * Draw the selected light's shape in its own color: a directional light's
+   * aim, a point light's range sphere, or a spot light's cone. Lines overlay
+   * geometry so the gizmo reads through the scene.
+   */
+  #drawLightGizmo(lines: DebugLine3DRenderer, light: Light3D): void {
+    const w = light.worldMatrix
+    const px = w[12]
+    const py = w[13]
+    const pz = w[14]
+    const f = vec3Normalize(vec3(), vec3(-w[8], -w[9], -w[10])) // world −Z (aim)
+    const col: LineColor = [light.color[0], light.color[1], light.color[2], 1]
+    // Basis spanning the plane perpendicular to the aim, for circles/cones.
+    const up0 = Math.abs(f.y) > 0.99 ? vec3(1, 0, 0) : vec3(0, 1, 0)
+    const right = vec3Normalize(vec3(), vec3Cross(vec3(), up0, f))
+    const up = vec3Cross(vec3(), f, right)
+
+    if (light instanceof DirectionalLight3D) {
+      const len = 2
+      lines.ray(px, py, pz, f.x, f.y, f.z, len, col)
+      const tx = px + f.x * len
+      const ty = py + f.y * len
+      const tz = pz + f.z * len
+      const h = 0.2
+      for (const s of [1, -1]) {
+        lines.line(
+          tx,
+          ty,
+          tz,
+          tx - f.x * h + right.x * h * s,
+          ty - f.y * h + right.y * h * s,
+          tz - f.z * h + right.z * h * s,
+          col,
+          true,
+        )
+      }
+      this.#circleGizmo(lines, px, py, pz, right, up, 0.3, 16, col)
+    } else if (light instanceof PointLight3D) {
+      // A small solid-color marker keeps the light spottable even when its range
+      // sphere is huge; the range sphere itself is drawn faint.
+      this.#sphereGizmo(lines, px, py, pz, 0.15, 16, col)
+      if (light.range > 0) {
+        const faint: LineColor = [col[0], col[1], col[2], 0.35]
+        this.#sphereGizmo(lines, px, py, pz, light.range, 28, faint)
+      }
+    } else if (light instanceof SpotLight3D) {
+      const len = light.range > 0 ? light.range : 3
+      const rad = Math.tan(Math.min(light.outerConeAngle, 1.45)) * len
+      const bx = px + f.x * len
+      const by = py + f.y * len
+      const bz = pz + f.z * len
+      this.#circleGizmo(lines, bx, by, bz, right, up, rad, 28, col)
+      for (const [rc, uc] of [
+        [1, 0],
+        [-1, 0],
+        [0, 1],
+        [0, -1],
+      ] as const) {
+        lines.line(
+          px,
+          py,
+          pz,
+          bx + right.x * rad * rc + up.x * rad * uc,
+          by + right.y * rad * rc + up.y * rad * uc,
+          bz + right.z * rad * rc + up.z * rad * uc,
+          col,
+          true,
+        )
+      }
+      if (light.innerConeAngle > 0) {
+        const rin = Math.tan(Math.min(light.innerConeAngle, 1.45)) * len
+        this.#circleGizmo(lines, bx, by, bz, right, up, rin, 28, [
+          col[0],
+          col[1],
+          col[2],
+          0.4,
+        ])
+      }
+    }
+  }
+
+  /** Three axis-aligned rings approximating a wireframe sphere. */
+  #sphereGizmo(
+    lines: DebugLine3DRenderer,
+    cx: number,
+    cy: number,
+    cz: number,
+    r: number,
+    segments: number,
+    color: LineColor,
+  ): void {
+    this.#circleGizmo(
+      lines,
+      cx,
+      cy,
+      cz,
+      vec3(1, 0, 0),
+      vec3(0, 1, 0),
+      r,
+      segments,
+      color,
+    )
+    this.#circleGizmo(
+      lines,
+      cx,
+      cy,
+      cz,
+      vec3(1, 0, 0),
+      vec3(0, 0, 1),
+      r,
+      segments,
+      color,
+    )
+    this.#circleGizmo(
+      lines,
+      cx,
+      cy,
+      cz,
+      vec3(0, 1, 0),
+      vec3(0, 0, 1),
+      r,
+      segments,
+      color,
+    )
+  }
+
+  /** A closed circle centered at `c`, spanning the `u`/`v` plane, `r` radius. */
+  #circleGizmo(
+    lines: DebugLine3DRenderer,
+    cx: number,
+    cy: number,
+    cz: number,
+    u: Vec3,
+    v: Vec3,
+    r: number,
+    segments: number,
+    color: LineColor,
+  ): void {
+    let prevX = 0
+    let prevY = 0
+    let prevZ = 0
+    for (let i = 0; i <= segments; i++) {
+      const t = (i / segments) * Math.PI * 2
+      const ca = Math.cos(t) * r
+      const sa = Math.sin(t) * r
+      const x = cx + u.x * ca + v.x * sa
+      const y = cy + u.y * ca + v.y * sa
+      const z = cz + u.z * ca + v.z * sa
+      if (i > 0) lines.line(prevX, prevY, prevZ, x, y, z, color, true)
+      prevX = x
+      prevY = y
+      prevZ = z
+    }
   }
 
   /**
@@ -1234,7 +1443,9 @@ export class DebugController {
     const pos = g.positions
     const idx = g.indices
     const w = mesh.worldMatrix
-    const color: readonly [number, number, number, number] = [0.5, 1, 0.65, 0.85]
+    const color: readonly [number, number, number, number] = [
+      0.5, 1, 0.65, 0.85,
+    ]
     const a = vec3()
     const b = vec3()
     const c = vec3()
@@ -1253,14 +1464,16 @@ export class DebugController {
 
   /**
    * Wireframe for a unit quad (a `Viewport2DNode` surface): the 4 border edges
-   * plus one diagonal, showing its two triangles. Local corners span
-   * `[-0.5, 0.5]` in x/y at z = 0, transformed by `world`.
+   * plus one diagonal, showing its two triangles. Local corners span `[-0.5,
+   * 0.5]` in x/y at z = 0, transformed by `world`.
    */
   #pushQuadWireframe(
     lines: DebugLine3DRenderer,
     world: import('../math/Mat4').Mat4,
   ): void {
-    const color: readonly [number, number, number, number] = [0.5, 1, 0.65, 0.85]
+    const color: readonly [number, number, number, number] = [
+      0.5, 1, 0.65, 0.85,
+    ]
     const tl = mat4TransformPoint(vec3(), world, -0.5, 0.5, 0)
     const tr = mat4TransformPoint(vec3(), world, 0.5, 0.5, 0)
     const br = mat4TransformPoint(vec3(), world, 0.5, -0.5, 0)
@@ -1278,14 +1491,20 @@ export class DebugController {
    * transform + `gfx.setClipMask(mask)` so `fillRect` uses local (world) coords
    * for the mask UVs, same coord system the mask's `worldRect` is in.
    */
-  #drawClipMaskOverlay(gfx: Gfx2D, camera: Camera, dpr: number): void {
+  #drawClipMaskOverlay(gfx: Gfx2D, camera: CameraView2D, dpr: number): void {
     const mask = this.#_inspectedMask
     if (!mask) return
-    const cam = camera.getScreenTransform()
-    const s = cam.scale * dpr
+    const S = camera.getScreenAffine()
     gfx.setBlend('source-over')
     gfx.setAlpha(1)
-    gfx.setBaseTransform(s, 0, 0, s, cam.offsetX * dpr, cam.offsetY * dpr)
+    gfx.setBaseTransform(
+      S.a * dpr,
+      S.b * dpr,
+      S.c * dpr,
+      S.d * dpr,
+      S.e * dpr,
+      S.f * dpr,
+    )
     gfx.setClipMask(mask)
     const wr = mask.worldRect
     gfx.fillRect(wr.x, wr.y, wr.width, wr.height, 'rgba(255, 80, 80, 0.4)')
@@ -1361,7 +1580,9 @@ export class DebugController {
     switch (e.code) {
       case 'KeyV':
         // Toggle the 3D fly camera (from any mode back to active if already on).
-        this.setCameraMode(this.cameraMode === 'debug-3d' ? 'active' : 'debug-3d')
+        this.setCameraMode(
+          this.cameraMode === 'debug-3d' ? 'active' : 'debug-3d',
+        )
         e.preventDefault()
         return
       case 'KeyY':
@@ -1370,7 +1591,9 @@ export class DebugController {
         return
       case 'KeyC':
         // Toggle the 2D pan/zoom debug camera.
-        this.setCameraMode(this.cameraMode === 'debug-2d' ? 'active' : 'debug-2d')
+        this.setCameraMode(
+          this.cameraMode === 'debug-2d' ? 'active' : 'debug-2d',
+        )
         e.preventDefault()
         return
       case 'KeyO':
@@ -1421,7 +1644,11 @@ export class DebugController {
     }
   }
 
-  #drawGameCameraRect(gfx: Gfx2D, activeCam: Camera, gameCam: Camera): void {
+  #drawGameCameraRect(
+    gfx: Gfx2D,
+    activeCam: CameraView2D,
+    gameCam: CameraView2D,
+  ): void {
     // Game camera's world-space viewport rect (dashed) as seen through the
     // currently-active (debug) camera.
     const g = gameCam.viewport
@@ -1452,7 +1679,7 @@ export class DebugController {
    * node id. Falls back to a small ring at the node origin when the node has no
    * `debugBounds`.
    */
-  #drawNodeHighlight(gfx: Gfx2D, cam: Camera, node: Node2D): void {
+  #drawNodeHighlight(gfx: Gfx2D, cam: CameraView2D, node: Node2D): void {
     // Bright line over a dark halo so the highlight reads on any background.
     const color = 'rgba(255, 255, 255, 0.98)'
     const halo = 'rgba(0, 0, 0, 0.85)'

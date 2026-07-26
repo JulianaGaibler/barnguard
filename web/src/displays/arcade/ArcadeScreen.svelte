@@ -5,6 +5,7 @@
     easings,
     ignoreAbort,
     Node2D,
+    CameraNode2D,
     domAnchor,
     type EngineHost,
     type Rect,
@@ -34,6 +35,8 @@
   type Screen = 'launcher' | 'transitioning' | 'ingame'
 
   let host = $state<EngineHost | null>(null)
+  // The one 2D camera for the arcade, created explicitly on engine-ready.
+  let camera: CameraNode2D | null = null
   let background: BackgroundController | null = null
   // One pre-warmed, arcade-owned demo stage shared by every game's tutorial.
   // Created at boot behind the loading screen so its WebGL2 context init never
@@ -61,8 +64,8 @@
   const CAMERA_SEC = 0.7
 
   function panCamera(view: ReturnType<typeof gameView>): Promise<void> {
-    if (!host) return Promise.resolve()
-    return host.engine.camera
+    if (!camera) return Promise.resolve()
+    return camera
       .animateTo(view, { duration: CAMERA_SEC, easing: easings.inOutCubic })
       .catch(ignoreAbort)
   }
@@ -85,7 +88,12 @@
       // one region's content into the other's view.
       const px = h.engine.renderer.pixelSize
       updateLayout(px.w, px.h)
-      h.engine.camera.setViewport(launcherView())
+      // Explicitly create the arcade's 2D camera and make it current.
+      const cam = new CameraNode2D('arcade-camera')
+      cam.setViewport(launcherView())
+      h.engine.tree.root.add(cam)
+      cam.makeCurrent()
+      camera = cam
       // A node at the launcher visible rect's top-left; the launcher UI attaches
       // to it and covers the whole visible area. Its position + the overlay size
       // are re-fit on resize so the menu tracks the window aspect.
@@ -106,9 +114,9 @@
         launcherRect = lr
         // Re-anchor whichever region is framed (the game framing is fixed).
         if (screen === 'launcher') {
-          h.engine.camera.setViewport(launcherView())
+          cam.setViewport(launcherView())
         } else if (screen === 'ingame') {
-          h.engine.camera.setViewport(gameView())
+          cam.setViewport(gameView())
         }
       })
       h.start()
@@ -126,6 +134,7 @@
     demoStage = null
     background?.destroy()
     background = null
+    camera = null
     host = null
   }
 
@@ -182,7 +191,6 @@
         // Matches the sky base so the first frame (before the gradient paints)
         // doesn't flash the engine's default dark clear.
         clearColor: '#eac6f2',
-        initialViewport: launcherView(),
       },
       onReady: onEngineReady,
       onDestroy: onEngineDestroy,

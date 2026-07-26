@@ -6,6 +6,7 @@ precision highp float;
 // to the y-up sample space, and taken as already-premultiplied. Output is
 // premultiplied alpha to match the engine's premultiplied framebuffer.
 
+in vec3 v_worldPos;
 in vec3 v_normal;
 in vec2 v_uv;
 
@@ -20,7 +21,29 @@ uniform sampler2D u_texture;
 // 2 = normals (rgb = world normal * 0.5 + 0.5).
 uniform float u_debugMode;
 
+// Distance fog. u_eyePos.xyz is the world-space camera. u_fogColor.rgb is the
+// display-space fog tint, .w a 1/0 enable flag. u_fogParams packs the model
+// (x: 0 exp, 1 linear), density (y), and linear start/end (z, w).
+uniform vec4 u_eyePos;
+uniform vec4 u_fogColor;
+uniform vec4 u_fogParams;
+
 out vec4 outColor;
+
+// Blend `color` (display-space rgb) toward the fog tint by camera distance.
+// Fog rides on rgb only; alpha is untouched, so premultiply still holds after.
+vec3 applyFog(vec3 color) {
+  if (u_fogColor.w < 0.5) return color;
+  float dist = length(u_eyePos.xyz - v_worldPos);
+  float f;
+  if (u_fogParams.x < 0.5) {
+    f = 1.0 - exp(-u_fogParams.y * dist); // exp
+  } else {
+    f = clamp((dist - u_fogParams.z) / max(u_fogParams.w - u_fogParams.z, 1e-4),
+              0.0, 1.0); // linear
+  }
+  return mix(color, u_fogColor.rgb, f);
+}
 
 void main() {
   float a = u_color.a;
@@ -32,7 +55,10 @@ void main() {
   }
   if (u_useTexture > 0.5) {
     // The 2D surface is rendered premultiplied; sample it straight, V-flipped.
-    outColor = texture(u_texture, vec2(v_uv.x, 1.0 - v_uv.y)) * u_color.a;
+    // Un-premultiply to fog the straight color, then re-apply alpha.
+    vec4 tex = texture(u_texture, vec2(v_uv.x, 1.0 - v_uv.y));
+    vec3 straight = tex.a > 0.0 ? tex.rgb / tex.a : tex.rgb;
+    outColor = vec4(applyFog(straight) * tex.a, tex.a) * u_color.a;
     return;
   }
   vec3 base = u_color.rgb;
@@ -45,5 +71,5 @@ void main() {
   } else {
     shaded = base;
   }
-  outColor = vec4(shaded * a, a);
+  outColor = vec4(applyFog(shaded) * a, a);
 }

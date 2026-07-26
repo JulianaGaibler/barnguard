@@ -1,4 +1,5 @@
 import { Camera3D } from '../camera/Camera3D'
+import type { CameraView3D } from '../camera/CameraView3D'
 import { quat, quatFromAxisAngle, quatMultiply } from '../math/Quat'
 
 const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE'] as const
@@ -15,30 +16,38 @@ const LOOK_KEYS = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] as const
  */
 export class DebugCamera3D extends Camera3D {
   readonly #held = new Set<string>()
-  #gameCamera: Camera3D
+  // Null when the inspected stage has no current 3D camera; reset/step then keep
+  // this camera's own defaults.
+  #gameCamera: CameraView3D | null
   #eye = { x: 0, y: 0, z: 0 }
   #yaw = 0
   #pitch = 0
 
-  constructor(gameCamera: Camera3D) {
+  constructor(gameCamera: CameraView3D | null) {
     super()
     this.#gameCamera = gameCamera
     this.reset()
   }
 
-  /** Point the debug camera at whatever the game camera currently frames. */
-  setGameCamera(cam: Camera3D): void {
+  /**
+   * Point the debug camera at whatever the game camera currently frames (or
+   * `null`).
+   */
+  setGameCamera(cam: CameraView3D | null): void {
     this.#gameCamera = cam
   }
 
   /**
    * Snap the debug camera to the game camera's eye (looking toward the origin)
-   * and snapshot its projection. The projection is captured here, at invocation,
-   * and then held fixed, so a game-camera ortho⇄perspective animation doesn't
-   * warp the inspection view. Only aspect keeps tracking (for resize).
+   * and snapshot its projection. The projection is captured here, at
+   * invocation, and then held fixed, so a game-camera ortho⇄perspective
+   * animation doesn't warp the inspection view. Only aspect keeps tracking (for
+   * resize).
    */
   reset(): void {
-    const eye = this.#gameCamera.eyePosition()
+    const g = this.#gameCamera
+    if (!g) return
+    const eye = g.eyePosition()
     this.#eye = { x: eye.x, y: eye.y, z: eye.z }
     // Face the world origin from the current eye.
     const dx = -eye.x
@@ -47,7 +56,6 @@ export class DebugCamera3D extends Camera3D {
     const len = Math.hypot(dx, dy, dz) || 1
     this.#yaw = Math.atan2(-dx / len, -dz / len)
     this.#pitch = Math.asin(Math.max(-1, Math.min(1, dy / len)))
-    const g = this.#gameCamera
     this.fovY = g.fovY
     this.near = g.near
     this.far = g.far
@@ -70,7 +78,7 @@ export class DebugCamera3D extends Camera3D {
   step(dt: number): void {
     // Track only aspect so a resize stays correct; the rest of the projection
     // was snapshotted at reset() and stays put through game-camera transitions.
-    this.setAspect(this.#gameCamera.aspect)
+    if (this.#gameCamera) this.setAspect(this.#gameCamera.aspect)
     if (this.#held.size === 0) return
 
     const lookRate = 1.6 * dt
@@ -82,7 +90,8 @@ export class DebugCamera3D extends Camera3D {
     this.#pitch = Math.max(-maxPitch, Math.min(maxPitch, this.#pitch))
 
     // Move at a rate proportional to the focal distance so it feels consistent.
-    const speed = this.#gameCamera.focalDistance * 0.9 * dt
+    const speed =
+      (this.#gameCamera?.focalDistance ?? this.focalDistance) * 0.9 * dt
     const sinY = Math.sin(this.#yaw)
     const cosY = Math.cos(this.#yaw)
     // Forward/right on the horizontal (yaw) plane; camera looks down -z.
@@ -91,10 +100,22 @@ export class DebugCamera3D extends Camera3D {
     let mx = 0
     let mz = 0
     let my = 0
-    if (this.#held.has('KeyW')) { mx += fwd.x; mz += fwd.z }
-    if (this.#held.has('KeyS')) { mx -= fwd.x; mz -= fwd.z }
-    if (this.#held.has('KeyD')) { mx += right.x; mz += right.z }
-    if (this.#held.has('KeyA')) { mx -= right.x; mz -= right.z }
+    if (this.#held.has('KeyW')) {
+      mx += fwd.x
+      mz += fwd.z
+    }
+    if (this.#held.has('KeyS')) {
+      mx -= fwd.x
+      mz -= fwd.z
+    }
+    if (this.#held.has('KeyD')) {
+      mx += right.x
+      mz += right.z
+    }
+    if (this.#held.has('KeyA')) {
+      mx -= right.x
+      mz -= right.z
+    }
     if (this.#held.has('KeyE')) my += 1
     if (this.#held.has('KeyQ')) my -= 1
     this.#eye.x += mx * speed

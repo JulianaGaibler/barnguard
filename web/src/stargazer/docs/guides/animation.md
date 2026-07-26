@@ -61,7 +61,7 @@ Keyed starts also skip the dev-time overlap warning, since the replacement is in
 
 ## Re-abortable scopes
 
-`AbortScope` is a cancellation handle that hands out a fresh signal per "epoch" and aborts the previous one when the next begins. It replaces the generation-counter pattern — a `moveGen` you bump and then check with `if (gen !== moveGen) return` after every `await`. Get one scoped to a node with `node.scope()` (destroying the node aborts it):
+`AbortScope` is a cancellation handle that hands out a fresh signal per "epoch" and aborts the previous one when the next begins, so async code doesn't need a hand-rolled `moveGen` counter checked with `if (gen !== moveGen) return` after every `await`. Get one scoped to a node with `node.scope()` (destroying the node aborts it):
 
 ```ts
 const scope = node.scope()
@@ -128,7 +128,7 @@ Any function of type `(t: number) => number` where `t ∈ [0, 1]` works; write y
 
 Every helper that accepts a `signal` follows the same pattern:
 
-1. If the signal is already aborted at call time, the returned Promise rejects synchronously (well, on the next microtask) with `DOMException('Aborted', 'AbortError')`.
+1. If the signal is already aborted at call time, the returned Promise rejects on the next microtask with `DOMException('Aborted', 'AbortError')`.
 2. If the signal aborts mid-operation, the Promise rejects with the same AbortError.
 3. On natural completion, the abort listener is removed from the signal.
 

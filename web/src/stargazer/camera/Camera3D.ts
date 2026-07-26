@@ -14,18 +14,19 @@ import type { Ray } from '../math/Ray'
 import { clamp, lerp } from '../math/scalar'
 import type { Engine } from '../engine/Engine'
 import type { Easing } from '../math/easings'
+import type { CameraView3D } from './CameraView3D'
 
 /**
- * Projection blend between orthographic (`0`) and perspective (`1`). A `Camera3D`
- * animates this value to move between the two looks; see
- * {@link Camera3D.animateProjection}.
+ * Projection blend between orthographic (`0`) and perspective (`1`). A
+ * `Camera3D` animates this value to move between the two looks; see
+ * {@link CameraNode3D.animateProjection}.
  *
  * @category Camera
  */
 export type Projectionness = number
 
 /**
- * Result of {@link Camera3D.worldToScreen}: CSS-pixel position plus a
+ * Result of {@link CameraNode3D.worldToScreen}: CSS-pixel position plus a
  * `behind`-camera flag (position invalid when true).
  *
  * @category Camera
@@ -37,7 +38,7 @@ export interface ScreenProjection {
 }
 
 /**
- * Options for {@link Camera3D.animateProjection}.
+ * Options for {@link CameraNode3D.animateProjection}.
  *
  * @category Camera
  */
@@ -59,22 +60,21 @@ const DEG2RAD = Math.PI / 180
  * {@link Camera3D.screenToRay}.
  *
  * The projection is described by parameters (vertical field of view, near/far,
- * and a `focalDistance`), not by two fixed matrices. Blending them and rebuilding
- * the matrix keeps intermediate states valid, and anchoring the orthographic
- * size to the perspective frustum at `focalDistance` keeps an object at that
- * depth the same on-screen size across the whole transition.
+ * and a `focalDistance`), not by two fixed matrices. Blending them and
+ * rebuilding the matrix keeps intermediate states valid, and anchoring the
+ * orthographic size to the perspective frustum at `focalDistance` keeps an
+ * object at that depth the same on-screen size across the whole transition.
  *
  * The world is right-handed, y-up, with the camera looking down its local `-z`.
  *
+ * Internal projection-math helper. A `CameraNode3D` owns one of these and
+ * drives its view from the node's world pose; the debug HUD swaps in its own to
+ * inspect the scene. Not part of the public API.
+ *
  * @category Camera
- * @example
- *   const cam = new Camera3D()
- *   cam.transform.setPosition(0, 2, 8) // look from above/behind toward -z
- *   cam.setAspect(canvasW / canvasH)
- *   // Ease from the perspective look to a flat orthographic one.
- *   await cam.animateProjection(0, { duration: 0.8 })
+ * @internal
  */
-export class Camera3D {
+export class Camera3D implements CameraView3D {
   /** Camera pose. Position + orientation of the eye in the world. */
   readonly transform = new Transform3D()
 
@@ -136,7 +136,10 @@ export class Camera3D {
     this.#markProjDirty()
   }
 
-  /** Viewport aspect ratio (width / height). Kept in sync by the stage on resize. */
+  /**
+   * Viewport aspect ratio (width / height). Kept in sync by the stage on
+   * resize.
+   */
   get aspect(): number {
     return this.#_aspect
   }
@@ -189,7 +192,13 @@ export class Camera3D {
       // it, so they agree on scale at that depth.
       const halfH = Math.tan(fov / 2) * this.#_focalDistance
       const halfW = halfH * this.#_aspect
-      const persp = mat4Perspective(mat4(), fov, this.#_aspect, this.#_near, this.#_far)
+      const persp = mat4Perspective(
+        mat4(),
+        fov,
+        this.#_aspect,
+        this.#_near,
+        this.#_far,
+      )
       const ortho = mat4Ortho(
         mat4(),
         -halfW,
@@ -205,7 +214,8 @@ export class Camera3D {
       } else if (t >= 1) {
         mat4Copy(this.#_proj, persp)
       } else {
-        for (let i = 0; i < 16; i++) this.#_proj[i] = lerp(ortho[i], persp[i], t)
+        for (let i = 0; i < 16; i++)
+          this.#_proj[i] = lerp(ortho[i], persp[i], t)
       }
       this.#_projDirty = false
     }
@@ -241,8 +251,8 @@ export class Camera3D {
 
   /**
    * Project a world point to CSS-pixel screen coords in a `cssW`×`cssH` canvas.
-   * `behind` is true when the point is at or behind the camera plane (clip
-   * `w <= 0`), in which case `x`/`y` are meaningless and the caller should hide
+   * `behind` is true when the point is at or behind the camera plane (clip `w
+   * <= 0`), in which case `x`/`y` are meaningless and the caller should hide
    * whatever it's positioning. Used by the DOM 3D anchor and debug labels.
    */
   worldToScreen(
@@ -315,7 +325,9 @@ export class Camera3D {
   ): Promise<void> {
     const engine = this.engine
     if (!engine) {
-      throw new Error('Camera3D.animateProjection: camera is not attached to an Engine')
+      throw new Error(
+        'Camera3D.animateProjection: camera is not attached to an Engine',
+      )
     }
     const scratch = { t: this.#_projectionness }
     await engine.animation.tween(

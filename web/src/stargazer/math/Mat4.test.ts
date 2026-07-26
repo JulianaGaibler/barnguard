@@ -50,9 +50,10 @@ describe('mat4Invert', () => {
     const m = mat4Compose(mat4(), vec3(3, -2, 5), q, vec3(2, 0.5, 1.5))
     const inv = mat4()
     expect(mat4Invert(inv, m)).toBe(true)
-    expectMat4Close(mat4Multiply(mat4(), m, inv), [
-      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
-    ])
+    expectMat4Close(
+      mat4Multiply(mat4(), m, inv),
+      [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+    )
   })
 
   it('returns false and identity for a singular matrix', () => {

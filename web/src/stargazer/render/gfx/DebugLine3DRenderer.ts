@@ -99,8 +99,12 @@ export class DebugLine3DRenderer {
 
   /** A world-space segment. `overlay` draws it through geometry (no depth test). */
   line(
-    ax: number, ay: number, az: number,
-    bx: number, by: number, bz: number,
+    ax: number,
+    ay: number,
+    az: number,
+    bx: number,
+    by: number,
+    bz: number,
     color: LineColor,
     overlay = false,
   ): void {
@@ -111,14 +115,23 @@ export class DebugLine3DRenderer {
 
   /** Axis-aligned box wireframe (12 edges) spanning `min`→`max`. */
   box(
-    minX: number, minY: number, minZ: number,
-    maxX: number, maxY: number, maxZ: number,
+    minX: number,
+    minY: number,
+    minZ: number,
+    maxX: number,
+    maxY: number,
+    maxZ: number,
     color: LineColor,
     overlay = false,
   ): void {
     const c = color
     const L = (
-      x0: number, y0: number, z0: number, x1: number, y1: number, z1: number,
+      x0: number,
+      y0: number,
+      z0: number,
+      x1: number,
+      y1: number,
+      z1: number,
     ): void => this.line(x0, y0, z0, x1, y1, z1, c, overlay)
     // Bottom rectangle (min y), top rectangle (max y), then the 4 verticals.
     L(minX, minY, minZ, maxX, minY, minZ)
@@ -136,7 +149,13 @@ export class DebugLine3DRenderer {
   }
 
   /** RGB axes of length `size` from `(ox,oy,oz)`: X red, Y green, Z blue. */
-  axes(ox: number, oy: number, oz: number, size: number, overlay = false): void {
+  axes(
+    ox: number,
+    oy: number,
+    oz: number,
+    size: number,
+    overlay = false,
+  ): void {
     this.line(ox, oy, oz, ox + size, oy, oz, [1, 0.25, 0.25, 1], overlay)
     this.line(ox, oy, oz, ox, oy + size, oz, [0.3, 1, 0.35, 1], overlay)
     this.line(ox, oy, oz, ox, oy, oz + size, [0.35, 0.55, 1, 1], overlay)
@@ -146,7 +165,12 @@ export class DebugLine3DRenderer {
    * XZ ground grid centered at the origin: `divisions` cells each `step` wide,
    * with the two center axis lines accented.
    */
-  grid(step: number, divisions: number, color: LineColor, axisColor: LineColor): void {
+  grid(
+    step: number,
+    divisions: number,
+    color: LineColor,
+    axisColor: LineColor,
+  ): void {
     const half = (step * divisions) / 2
     for (let i = 0; i <= divisions; i++) {
       const p = -half + i * step
@@ -157,7 +181,10 @@ export class DebugLine3DRenderer {
     }
   }
 
-  /** Frustum wireframe from an inverse view-projection: unproject the 8 NDC corners. */
+  /**
+   * Frustum wireframe from an inverse view-projection: unproject the 8 NDC
+   * corners.
+   */
   frustum(invViewProj: Mat4, color: LineColor): void {
     const corners: number[][] = []
     for (const z of [-1, 1]) {
@@ -171,23 +198,53 @@ export class DebugLine3DRenderer {
     // Corner index bits: x=1, y=2, z=4. Near plane z=-1 (0..3), far z=1 (4..7).
     const edge = (a: number, b: number): void =>
       this.line(
-        corners[a][0], corners[a][1], corners[a][2],
-        corners[b][0], corners[b][1], corners[b][2],
-        color, true,
+        corners[a][0],
+        corners[a][1],
+        corners[a][2],
+        corners[b][0],
+        corners[b][1],
+        corners[b][2],
+        color,
+        true,
       )
-    edge(0, 1); edge(1, 3); edge(3, 2); edge(2, 0) // near
-    edge(4, 5); edge(5, 7); edge(7, 6); edge(6, 4) // far
-    edge(0, 4); edge(1, 5); edge(2, 6); edge(3, 7) // connectors
+    edge(0, 1)
+    edge(1, 3)
+    edge(3, 2)
+    edge(2, 0) // near
+    edge(4, 5)
+    edge(5, 7)
+    edge(7, 6)
+    edge(6, 4) // far
+    edge(0, 4)
+    edge(1, 5)
+    edge(2, 6)
+    edge(3, 7) // connectors
   }
 
-  /** A ray from `origin` along `dir` for `length` units (overlay, always visible). */
+  /**
+   * A ray from `origin` along `dir` for `length` units (overlay, always
+   * visible).
+   */
   ray(
-    ox: number, oy: number, oz: number,
-    dx: number, dy: number, dz: number,
+    ox: number,
+    oy: number,
+    oz: number,
+    dx: number,
+    dy: number,
+    dz: number,
     length: number,
     color: LineColor,
   ): void {
-    this.line(ox, oy, oz, ox + dx * length, oy + dy * length, oz + dz * length, color, true)
+    this.line(
+      ox,
+      oy,
+      oz,
+      ox + dx * length,
+      oy + dy * length,
+      oz + dz * length,
+      color,
+      true,
+    )
   }
 
   /** Upload the frame's segments and draw them, projected by `viewProj`. */

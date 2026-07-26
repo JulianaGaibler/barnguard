@@ -64,20 +64,20 @@ export interface DisplayManifest {
    */
   root: Component
   /**
-   * The `display` ids this kiosk display submits to `/api/leaderboard`
-   * under — NOT the manifest's own `id`. For the arcade that's one entry per
-   * game that opts in (`GameMeta.supportsLeaderboard`), e.g. `['jezzball']`,
-   * since the leaderboard is scoped per arcade game, not per kiosk display.
-   * Empty/omitted gates the attendant BoothMenu's "Leaderboard" panel toggle
-   * off entirely — Stallwächter has no name-entry concept.
+   * The `display` ids this kiosk display submits to `/api/leaderboard` under —
+   * NOT the manifest's own `id`. For the arcade that's one entry per game that
+   * opts in (`GameMeta.supportsLeaderboard`), e.g. `['jezzball']`, since the
+   * leaderboard is scoped per arcade game, not per kiosk display. Empty/omitted
+   * gates the attendant BoothMenu's "Leaderboard" panel toggle off entirely —
+   * Stallwächter has no name-entry concept.
    */
   leaderboardIds?: string[]
   /**
    * Render a game record's label to a JPEG blob for printing. Called by the
-   * attendant "Games" panel when the operator asks for a reprint. Omit
-   * entirely if nothing in this display ever prints — `formatGameRecord`'s
-   * `printable` decides, per record, whether the panel even offers the
-   * button, so this only needs to handle records it declared printable.
+   * attendant "Games" panel when the operator asks for a reprint. Omit entirely
+   * if nothing in this display ever prints — `formatGameRecord`'s `printable`
+   * decides, per record, whether the panel even offers the button, so this only
+   * needs to handle records it declared printable.
    */
   renderLabelForRecord?(
     record: GameRecord,

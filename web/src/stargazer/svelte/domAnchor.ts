@@ -1,7 +1,7 @@
 import type { Engine } from '../engine/Engine'
 import type { Node2D } from '../scene/Node2D'
 import type { Node3D } from '../scene/Node3D'
-import type { Camera3D } from '../camera/Camera3D'
+import type { CameraView3D } from '../camera/CameraView3D'
 import type {
   DomAttachment,
   DomAttachOptions,
@@ -72,8 +72,8 @@ export interface DomAnchor3dParams extends Dom3DAttachOptions {
   engine: Engine
   /** The 3D node whose projected screen position the element follows. */
   node: Node3D
-  /** The camera to project through (usually `engine.camera3d`). */
-  camera: Camera3D
+  /** The camera to project through (usually `engine.currentCamera3D`). */
+  camera: CameraView3D
 }
 
 /**
@@ -88,8 +88,8 @@ export interface DomAnchor3dParams extends Dom3DAttachOptions {
  *
  * @category Svelte
  * @example
- *   <div use:domAnchor3d={{ engine, node: cube, camera: engine.camera3d }}>
- *     <button onclick={fire}>Launch</button>
+ *   <div use:domAnchor3d={{ engine, node: cube, camera: engine.currentCamera3D }}>
+ *   <button onclick={fire}>Launch</button>
  *   </div>
  */
 export function domAnchor3d(
@@ -112,7 +112,12 @@ export function domAnchor3d(
         next.camera !== camera
       ) {
         handle.detach()
-        handle = next.engine.dom.attachWorld3d(next.node, element, next.camera, next)
+        handle = next.engine.dom.attachWorld3d(
+          next.node,
+          element,
+          next.camera,
+          next,
+        )
         node = next.node
         camera = next.camera
       } else {

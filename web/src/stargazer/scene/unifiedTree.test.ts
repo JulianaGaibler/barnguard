@@ -5,7 +5,7 @@ import { Node2D } from './Node2D'
 import { Node3D } from './Node3D'
 import { walkTree } from './traverse'
 
-// The unified tree holds 2D and 3D nodes together (Godot-style). These pin the
+// The unified tree holds 2D and 3D nodes together. These pin the
 // invariants that keep the two dimensions coherent within one tree: DFS order,
 // nearest-same-kind transform composition, kind-bucketed painter order, and
 // cross-dimension dirty isolation.

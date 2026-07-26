@@ -236,5 +236,6 @@ function propagate(
     w.f = pb * l.e + pd * l.f + pf
     node.markWorldClean()
   }
-  for (const c of node.children) propagate(c as Node2D, node.transform.world, nodeDirty)
+  for (const c of node.children)
+    propagate(c as Node2D, node.transform.world, nodeDirty)
 }

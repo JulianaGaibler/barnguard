@@ -1,6 +1,6 @@
 import {
   VectorParticleNode,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Vec2,
   type VectorParticleSpawnInit,
@@ -65,8 +65,8 @@ export interface DebrisBurstOptions {
  * never shrinks or despawns (`shouldDespawn` is left at `VectorParticleNode`'s
  * default), cleaned up externally by the session's level-reset sweep, not by
  * self-destruction. Two flavours driven by `DebrisBurstOptions`, radial
- * collision explosion vs cone border breach. Parallel typed-array storage,
- * zero per-frame allocation.
+ * collision explosion vs cone border breach. Parallel typed-array storage, zero
+ * per-frame allocation.
  */
 export class DebrisBurstNode extends VectorParticleNode {
   /** Transient spin, decays via `angInitialDampingPerSec`. */
@@ -128,7 +128,10 @@ export class DebrisBurstNode extends VectorParticleNode {
     }
   }
 
-  protected override spawnParticle(i: number, out: VectorParticleSpawnInit): void {
+  protected override spawnParticle(
+    i: number,
+    out: VectorParticleSpawnInit,
+  ): void {
     const opts = this.#opts
     const theta = this.#pendingTheta
     const [speedMin, speedMax] = opts.initialSpeedWorld
@@ -154,13 +157,15 @@ export class DebrisBurstNode extends VectorParticleNode {
     // to zero rotation. When the range is `[0, 0]`, sign is still ±1 but
     // magnitude is 0, so `angBase` stays 0.
     const baseSign = Math.random() < 0.5 ? -1 : 1
-    const baseMag = angBaseAbsMin + Math.random() * (angBaseAbsMax - angBaseAbsMin)
+    const baseMag =
+      angBaseAbsMin + Math.random() * (angBaseAbsMax - angBaseAbsMin)
     this.#angBase[i] = baseSign * baseMag
     this.#kind[i] = Math.random() < opts.triangleFraction ? 0 : 1
   }
 
   protected override updateExtra(i: number, dt: number): void {
-    const angDampFactor = this.#angDamping > 0 ? Math.exp(-this.#angDamping * dt) : 1
+    const angDampFactor =
+      this.#angDamping > 0 ? Math.exp(-this.#angDamping * dt) : 1
     this.angle[i] += (this.#angBase[i] + this.#angInitial[i]) * dt
     this.#angInitial[i] *= angDampFactor
   }
@@ -168,7 +173,11 @@ export class DebrisBurstNode extends VectorParticleNode {
   // `shouldDespawn` intentionally NOT overridden — these pieces settle into a
   // permanent ring, cleaned up externally (see class doc comment).
 
-  protected override drawParticle(gfx: Gfx2D, i: number, camera: Camera): void {
+  protected override drawParticle(
+    gfx: Gfx2D,
+    i: number,
+    camera: CameraView2D,
+  ): void {
     if (this.#kind[i] === 0) {
       const side = this.#triangleSide
       const height = side * (Math.sqrt(3) / 2)
