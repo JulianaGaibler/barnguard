@@ -1,5 +1,5 @@
 import {
-  SceneNode,
+  Node2D,
   type BitmapMask,
   type Camera,
   type Gfx2D,
@@ -69,7 +69,7 @@ const NUM_ALPHA_BUCKETS = 12
  * Cells precomputed at construction by iterating the mask's bounding box on
  * `cellSizeWorld` steps and keeping centre-or-corner hits.
  */
-export class GridOverlayNode extends SceneNode {
+export class GridOverlayNode extends Node2D {
   readonly #cellSize: number
   readonly #cellHalf: number
   /**

@@ -2,10 +2,12 @@ import { createTicker, type Ticker } from './Ticker'
 import type { Renderer } from '../render/Renderer'
 import { createEmitter, type Emitter } from '../events/Emitter'
 import type { EngineEvents } from '../events/EngineEvents'
-import type { Scene } from '../scene/Scene'
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node } from '../scene/Node'
+import type { SceneTree } from '../scene/SceneTree'
+import type { Node2D } from '../scene/Node2D'
 import { walkTree } from '../scene/traverse'
 import type { Camera } from '../camera/Camera'
+import type { Camera3D } from '../camera/Camera3D'
 import type { Rect } from '../math/Rect'
 import type { DebugController } from '../debug/DebugController'
 import { InputSystem } from '../input/InputSystem'
@@ -83,14 +85,14 @@ export interface RegisteredPhysicsWorld {
    * coordinates. `null` means physics space is scene space (identity). The
    * debug overlay uses it to draw a world in the right place.
    */
-  readonly spaceNode: SceneNode | null
+  readonly spaceNode: Node2D | null
   /** Short name shown in the debug HUD. */
   readonly label: string
 }
 
 /** Options for {@link Engine.registerPhysicsWorld}. */
 export interface RegisterPhysicsWorldOptions {
-  spaceNode?: SceneNode | null
+  spaceNode?: Node2D | null
   label?: string
 }
 
@@ -185,7 +187,8 @@ export class Engine {
     // there's one list to step and one list for the debugger to read.
     if (this.primaryStage.physics) {
       this.registerPhysicsWorld(this.primaryStage.physics, {
-        spaceNode: this.primaryStage.scene.root,
+        // The tree root is identity, so physics space is scene space (null).
+        spaceNode: null,
         label: this.primaryStage.name ?? 'stage',
       })
     }
@@ -276,15 +279,20 @@ export class Engine {
   }
 
   // Backwards-compat getters, external code keeps using `engine.renderer`,
-  // `engine.scene`, `engine.camera` unchanged.
+  // `engine.tree`, `engine.camera` unchanged.
   get renderer(): Renderer {
     return this.primaryStage.renderer
   }
-  get scene(): Scene {
-    return this.primaryStage.scene
+  /** The primary stage's one scene tree (2D + 3D). Add nodes under `tree.root`. */
+  get tree(): SceneTree {
+    return this.primaryStage.tree
   }
   get camera(): Camera {
     return this.primaryStage.camera
+  }
+  /** The primary stage's 3D camera. */
+  get camera3d(): Camera3D {
+    return this.primaryStage.camera3d
   }
 
   /** The camera currently driving rendering + input world-coord conversion. */
@@ -336,11 +344,11 @@ export class Engine {
    * The stage whose scene is `scene`, or `null` if none. Resolves a node back
    * to the camera that renders it (the primary stage, then any secondary).
    */
-  stageForScene(scene: Scene | null): Stage | null {
+  stageForScene(scene: SceneTree | null): Stage | null {
     if (!scene) return null
-    if (this.primaryStage.scene === scene) return this.primaryStage
+    if (this.primaryStage.tree === scene) return this.primaryStage
     for (const s of this.#stageManager.stages) {
-      if (s.scene === scene) return s
+      if (s.tree === scene) return s
     }
     return null
   }
@@ -498,9 +506,10 @@ export class Engine {
 
   #walkUpdate(stage: Stage, dt: number): void {
     const marks = this.perfMarks
-    walkTree(stage.scene.root, (node) => {
-      // Skip the body when the node has no update work. See
-      // SceneNode._hasUpdateWork.
+    // One walk over the unified tree; every field read (`_hasUpdateWork`,
+    // `onUpdate`, `behaviors`) is on the common `Node` base, so 2D and 3D nodes
+    // update through the same visitor.
+    const visit = (node: Node): void => {
       if (!node._hasUpdateWork) return
       const id = marks ? node.id : ''
       const startMark = marks ? `update-${id}:start` : ''
@@ -515,7 +524,8 @@ export class Engine {
         performance.mark(endMark)
         performance.measure(`update ${id}`, startMark, endMark)
       }
-    })
+    }
+    walkTree(stage.tree.root, visit)
   }
 
   /**
@@ -541,7 +551,7 @@ export class Engine {
    * AbortError). Additional `opts.signal` is combined in.
    */
   animate(
-    node: SceneNode,
+    node: Node2D,
     to: Partial<Transform2D>,
     opts: TweenOptions,
   ): Promise<void> {
@@ -572,13 +582,14 @@ export class Engine {
   }
 
   #stepScene(stage: Stage, fdt: number): void {
-    walkTree(stage.scene.root, (node) => {
+    const visit = (node: Node): void => {
       if (!node._hasFixedStepWork) return
       node.onFixedStep?.(fdt)
       const behaviors = node.behaviors
       for (let i = 0; i < behaviors.length; i++) {
         behaviors[i].onFixedStep?.(fdt)
       }
-    })
+    }
+    walkTree(stage.tree.root, visit)
   }
 }

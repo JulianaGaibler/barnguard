@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SceneNode, domAnchor, type Rect } from '@src/stargazer'
+  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
   import { coverView, gameVisibleRect, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import type { GameProps } from '../GameModule'
   import { BoardSession, type SessionState } from './game/session'
@@ -78,7 +78,7 @@
   }
 
   // Node the overlays are pinned to, so the whole surface rides the camera.
-  let anchor = $state<SceneNode | null>(null)
+  let anchor = $state<Node2D | null>(null)
   let gameRect = $state<Rect>({
     x: 0,
     y: 0,
@@ -122,11 +122,11 @@
   // Board content (backdrop + every session's HUD) lives under this node, so
   // it always paints under `chromeLayer` (pause button, frame chrome) below
   // regardless of when a session starts or restarts.
-  let contentLayer: SceneNode | null = null
+  let contentLayer: Node2D | null = null
 
   // Per-session HUD nodes, rebuilt by `startSolo`/`startVersus` and torn down
   // as one group (`hudLayer.destroy()`) by `teardownGame`.
-  let hudLayer: SceneNode | null = null
+  let hudLayer: Node2D | null = null
   let heartsA: HeartsNode | null = null
   let heartsB: HeartsNode | null = null
   let badgeLvl: BadgeNode | null = null
@@ -331,7 +331,7 @@
     // wall/ball nodes never paint over the countdown or other HUD overlays.
     contentLayer?.add(s.board.root)
 
-    const layer = new SceneNode('jb-hud-solo')
+    const layer = new Node2D('jb-hud-solo')
     contentLayer?.add(layer)
     hudLayer = layer
     heartsA = new HeartsNode({ max: RULES.maxLivesDisplay, color: COLORS.ink, align: 'center', sizePx: 38 })
@@ -375,7 +375,7 @@
     contentLayer?.add(m.a.board.root)
     contentLayer?.add(m.b.board.root)
 
-    const layer = new SceneNode('jb-hud-versus')
+    const layer = new Node2D('jb-hud-versus')
     contentLayer?.add(layer)
     hudLayer = layer
     heartsA = new HeartsNode({ max: RULES.maxLivesDisplay, color: ACCENT_VS[1].primary, align: 'left', sizePx: 22 })
@@ -457,7 +457,7 @@
     const px = host.engine.renderer.pixelSize
     const view = gameVisibleRect(px.w, px.h)
 
-    const uiAnchor = new SceneNode('jezzball-ui-anchor')
+    const uiAnchor = new Node2D('jezzball-ui-anchor')
     uiAnchor.transform.x = view.x
     uiAnchor.transform.y = view.y
     uiAnchor.debugBounds = {
@@ -466,7 +466,7 @@
       width: view.width,
       height: view.height,
     }
-    host.engine.scene.root.add(uiAnchor)
+    host.engine.tree.root.add(uiAnchor)
     anchor = uiAnchor
     gameRect = view
 
@@ -476,16 +476,16 @@
     // order, so this guarantees the chrome/pause button stay on top no matter
     // when a session (re)builds its HUD, rather than depending on which
     // happened to get added to the scene first.
-    const content = new SceneNode('jb-content')
-    host.engine.scene.root.add(content)
+    const content = new Node2D('jb-content')
+    host.engine.tree.root.add(content)
     contentLayer = content
 
     const bd = new BackdropNode(view)
     content.add(bd)
 
     // Always-on-top chrome: the pause toggle and the decorative frame.
-    const chromeLayer = new SceneNode('jb-chrome')
-    host.engine.scene.root.add(chromeLayer)
+    const chromeLayer = new Node2D('jb-chrome')
+    host.engine.tree.root.add(chromeLayer)
 
     // The pause toggle starts hidden — the component always mounts on the
     // splash screen, not mid-game.

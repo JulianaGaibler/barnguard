@@ -7,7 +7,7 @@
  * on-screen size regardless of the canvas' actual resolution — matching how
  * the original absolutely-positioned DOM version behaved.
  */
-import { SceneNode, easings, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, easings, type Camera, type Gfx2D } from '@src/stargazer'
 import type { Bounds } from '../types'
 import { COLORS } from '../tuning'
 
@@ -55,7 +55,7 @@ function quarterTurnAngle(elapsed: number, duration: number, delay: number): num
   return (deg * Math.PI) / 180
 }
 
-export class ChromeNode extends SceneNode {
+export class ChromeNode extends Node2D {
   #rect: Bounds
   #elapsed = 0
 

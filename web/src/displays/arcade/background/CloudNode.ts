@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
+import { Node2D, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
 import { REGION_HEIGHT, REGION_WIDTH, layout } from '../world'
 import type { RadialDef, SkyPalette } from './palette'
 import { StopsCache, visibleWorldRect } from './util'
@@ -28,7 +28,7 @@ export interface CloudOptions {
  * stays put in the scene and the clouds sweep through it, lighting up as they
  * cross and fading as they leave. Zero per-frame texture uploads.
  */
-export class CloudNode extends SceneNode {
+export class CloudNode extends Node2D {
   readonly #source: PaletteSource
   readonly #opts: CloudOptions
   /** Accumulated drift, wrapped into `[0, period)`. */

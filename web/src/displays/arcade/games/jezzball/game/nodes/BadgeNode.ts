@@ -6,7 +6,7 @@
  * change accent whenever a new `spinKey` arrives, easing to the next quarter
  * over half a second.
  */
-import { SceneNode, easings, measureText, type Gfx2D } from '@src/stargazer'
+import { Node2D, easings, measureText, type Gfx2D } from '@src/stargazer'
 import { COLORS } from '../tuning'
 
 export interface BadgeOptions {
@@ -20,7 +20,7 @@ export interface BadgeOptions {
 const SPIN_DURATION_SEC = 0.5
 const FONT_FAMILY = 'system-ui, sans-serif'
 
-export class BadgeNode extends SceneNode {
+export class BadgeNode extends Node2D {
   readonly #label: string
   readonly #color: string
   #size: number

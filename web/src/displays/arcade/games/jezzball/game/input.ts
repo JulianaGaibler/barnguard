@@ -10,7 +10,7 @@
  * side-by-side boards disambiguate by position), and debounces so one press
  * makes one wall.
  */
-import { Behavior, SceneNode, type EngineHost } from '@src/stargazer'
+import { Behavior, Node2D, type EngineHost } from '@src/stargazer'
 import type { BoardController } from './board'
 import { GESTURE } from './tuning'
 import type { Orientation } from './types'
@@ -54,7 +54,7 @@ export class InputController {
   readonly #host: EngineHost
   readonly #boards: BoardController[]
   readonly #states: BoardGestureState[]
-  readonly #holder: SceneNode
+  readonly #holder: Node2D
   #enabled = true
   #onPointerDown: ((e: PointerEvent) => void) | null = null
 
@@ -64,9 +64,9 @@ export class InputController {
     this.#states = boards.map(() => ({ armed: false, stable: 0 }))
 
     // Self-drive off the frame tick.
-    this.#holder = new SceneNode('jezzball-input')
+    this.#holder = new Node2D('jezzball-input')
     this.#holder.addBehavior(new PollBehavior(() => this.#pollTouch()))
-    host.engine.scene.root.add(this.#holder)
+    host.engine.tree.root.add(this.#holder)
 
     this.#attachMouse()
   }

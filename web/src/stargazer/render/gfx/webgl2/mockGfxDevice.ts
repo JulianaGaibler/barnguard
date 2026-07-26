@@ -2,10 +2,12 @@ import type {
   AttribBinding,
   BeginFrameOpts,
   BlitOpts,
+  CullMode,
   DeviceStats,
   GfxBlendMode,
   GfxDevice,
   IBuffer,
+  IndexType,
   Program,
   ProgramOpts,
   RenderTarget,
@@ -19,7 +21,7 @@ import type {
 } from '../GfxDevice'
 
 export interface DrawRecord {
-  kind: 'arrays' | 'instanced' | 'instancedRange' | 'elements'
+  kind: 'arrays' | 'lines' | 'instanced' | 'instancedRange' | 'elements'
   first: number
   count: number
   instanceCount?: number
@@ -130,6 +132,9 @@ export class MockGfxDevice implements GfxDevice {
   setUniformMat3(p: Program, n: string, m: Float32Array): void {
     this.#recordUniform(p, n, m)
   }
+  setUniformMat4(p: Program, n: string, m: Float32Array): void {
+    this.#recordUniform(p, n, m)
+  }
   setUniformTexture(_p: Program, _n: string, t: Texture, unit: number): void {
     if (this.#boundTex[unit] !== t) {
       this.#boundTex[unit] = t
@@ -198,15 +203,18 @@ export class MockGfxDevice implements GfxDevice {
   readonly indexBuffers: IBuffer[] = []
   /** Test-visible log of index-buffer uploads. */
   readonly indexUploads: Array<{ buffer: IBuffer; byteLength: number }> = []
-  createIndexBuffer(_byteSize: number): IBuffer {
+  /** Test-visible index widths, parallel to `indexBuffers`. */
+  readonly indexBufferTypes: IndexType[] = []
+  createIndexBuffer(_byteSize: number, type: IndexType = 'u16'): IBuffer {
     const b = { __gfxIndexBuffer: undefined as never }
     this.indexBuffers.push(b)
+    this.indexBufferTypes.push(type)
     return b
   }
   updateIndexBufferSubData(
     buffer: IBuffer,
     _byteOffset: number,
-    src: Uint16Array,
+    src: Uint16Array | Uint32Array,
   ): void {
     this.indexUploads.push({ buffer, byteLength: src.byteLength })
   }
@@ -276,6 +284,15 @@ export class MockGfxDevice implements GfxDevice {
       samples,
       // Test-visible: whether a depth-stencil attachment was requested.
       hasDepth: opts.depth === true,
+      // Test-visible: requested color space (`'srgb'` for a sampled 2D-in-3D
+      // target, else `'linear'`).
+      colorSpace: opts.colorSpace ?? 'linear',
+      // Single-sample targets expose a sampleable color texture, mirroring the
+      // real device, so `GpuGfx.colorTexture` resolves in tests.
+      color:
+        samples === 1
+          ? { __gfxTexture: undefined as never, width: opts.width, height: opts.height }
+          : undefined,
     }
     this.renderTargets.push(rt)
     return rt
@@ -304,9 +321,43 @@ export class MockGfxDevice implements GfxDevice {
     this.deviceStats.blendSwitches++
   }
 
+  /** Test-visible 3D render state, mirroring the real device's cache. */
+  depthTest = false
+  depthWrite = true
+  cull: CullMode = 'none'
+  /** Count of `resetToBaseline` calls, for asserting the pass boundary. */
+  resetToBaselineCount = 0
+  setDepthTest(enabled: boolean): void {
+    this.depthTest = enabled
+  }
+  setDepthWrite(enabled: boolean): void {
+    this.depthWrite = enabled
+  }
+  setCullFace(mode: CullMode): void {
+    this.cull = mode
+  }
+  resetToBaseline(): void {
+    this.resetToBaselineCount++
+    this.setDepthTest(false)
+    this.setDepthWrite(true)
+    this.setCullFace('none')
+    this.setBlend('source-over')
+  }
+
   drawArrays(first: number, count: number): void {
     this.draws.push({
       kind: 'arrays',
+      first,
+      count,
+      program: this.#curProgram,
+      blend: this.#curBlend,
+      texture: this.#curTexture,
+      bufferSnapshot: this.#lastBufferBytes ?? undefined,
+    })
+  }
+  drawLines(first: number, count: number): void {
+    this.draws.push({
+      kind: 'lines',
       first,
       count,
       program: this.#curProgram,
@@ -404,6 +455,10 @@ export class MockGfxDevice implements GfxDevice {
     this.#curTexture = null
     this.#boundTex = []
     this.#curVao = null
+    this.depthTest = false
+    this.depthWrite = true
+    this.cull = 'none'
+    this.resetToBaselineCount = 0
     // Note: index/uniform buffer lists persist across reset() — they're created
     // once at backend init, before the first frame's reset.
     this.deviceStats.programSwitches = 0

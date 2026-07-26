@@ -4,13 +4,13 @@
  * self-destructs once every shard has faded. Allocation-free (parallel typed
  * arrays), in the house style adapted from Orbo's explosion.
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 
 const DAMPING_PER_SEC = 3.4
 const MAX_LIFE_SEC = 0.9
 const STOP_SPEED = 12
 
-export class BurstNode extends SceneNode {
+export class BurstNode extends Node2D {
   readonly #n: number
   readonly #px: Float32Array
   readonly #py: Float32Array

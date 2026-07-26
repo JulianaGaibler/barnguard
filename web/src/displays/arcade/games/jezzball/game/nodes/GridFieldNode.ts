@@ -6,13 +6,13 @@
  * a parallel buffer so a freshly-captured region animates without touching the
  * logical grid.
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import type { Grid } from '../grid'
 import type { FieldGeom } from '../layout'
 import { CELL_FILLED, type CellRef } from '../types'
 import { ANIM, COLORS } from '../tuning'
 
-export class GridFieldNode extends SceneNode {
+export class GridFieldNode extends Node2D {
   readonly #geom: FieldGeom
   readonly #grid: Grid
   readonly #lineW: number

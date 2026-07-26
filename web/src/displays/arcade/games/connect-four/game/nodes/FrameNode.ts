@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Camera, type Gfx2D } from '@src/stargazer'
 import type { BoardLayout } from '../layout'
 import { FRAME } from '../tuning'
 
@@ -9,7 +9,7 @@ import { FRAME } from '../tuning'
  * (constant on screen as the camera zooms). The vertical technical labels are
  * separate TextNodes owned by the session.
  */
-export class FrameNode extends SceneNode {
+export class FrameNode extends Node2D {
   readonly #layout: BoardLayout
 
   constructor(layout: BoardLayout) {

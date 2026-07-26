@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { SceneNode } from './SceneNode'
+import { Node2D } from './Node2D'
 
-describe('SceneNode world/local coordinate mapping', () => {
+describe('Node2D world/local coordinate mapping', () => {
   it('round-trips through a translated + scaled node', () => {
-    const node = new SceneNode()
+    const node = new Node2D()
     node.transform.x = 96
     node.transform.y = 54
     node.transform.scaleX = 0.9
@@ -25,9 +25,9 @@ describe('SceneNode world/local coordinate mapping', () => {
   })
 
   it('composes a parent transform into the child mapping', () => {
-    const parent = new SceneNode()
+    const parent = new Node2D()
     parent.transform.x = 1080 // launcher region offset
-    const child = new SceneNode()
+    const child = new Node2D()
     child.transform.x = 96
     child.transform.scaleX = 0.5
     child.transform.scaleY = 0.5

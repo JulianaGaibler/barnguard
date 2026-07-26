@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
+import { Node2D, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
 
 export interface EyeNodeOptions {
   /**
@@ -46,7 +46,7 @@ export interface EyeNodeOptions {
  * Not hit-enabled. Not driven by any behavior, the scene owns the tween
  * lifecycle directly.
  */
-export class EyeNode extends SceneNode {
+export class EyeNode extends Node2D {
   readonly #outlinePath: Path2D
   readonly #outlineHalfWidth: number
   readonly #outlineHalfHeight: number

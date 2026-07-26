@@ -55,7 +55,8 @@ export class EngineStageManager {
       this.#physicsUnregister.set(
         stage,
         engine.registerPhysicsWorld(stage.physics, {
-          spaceNode: stage.scene.root,
+          // The tree root is identity, so physics space is scene space (null).
+          spaceNode: null,
           label: stage.name ?? 'stage',
         }),
       )

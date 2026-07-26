@@ -1,4 +1,4 @@
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node2D } from '../scene/Node2D'
 import type { Semantics } from './types'
 
 /**
@@ -10,13 +10,13 @@ import type { Semantics } from './types'
 
 /** Minimal view of a registered node the reconciler needs. */
 export interface ReconcileEntry {
-  node: SceneNode
+  node: Node2D
   element: HTMLElement
   semantics: Semantics
 }
 
 /** Whether `ancestor` is a strict scene-graph ancestor of `node`. */
-function isAncestor(ancestor: SceneNode, node: SceneNode): boolean {
+function isAncestor(ancestor: Node2D, node: Node2D): boolean {
   let p = node.parent
   while (p) {
     if (p === ancestor) return true

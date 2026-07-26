@@ -3,7 +3,7 @@
  * overlay: an ink headline chip over an accent sub chip, fading in over
  * 150ms like the original `transition:fade`.
  */
-import { SceneNode, measureText, type Gfx2D } from '@src/stargazer'
+import { Node2D, measureText, type Gfx2D } from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
 
 const FADE_SEC = 0.15
@@ -11,7 +11,7 @@ const FONT_FAMILY = 'system-ui, sans-serif'
 const HEAD_FONT_PX = 57.6
 const SUB_FONT_PX = 18.4
 
-export class WaitingNode extends SceneNode {
+export class WaitingNode extends Node2D {
   readonly #headline: string
   readonly #sub: string
   #visible = false

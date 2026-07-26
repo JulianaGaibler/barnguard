@@ -99,7 +99,7 @@ When Svelte destroys the component, the action calls `engine.detachStage(stage)`
 const svgPaths = await parseSvgPaths(svgSource)
 
 // Primary scene.
-engine.scene.root.add(new Path2DNode({ path: svgPaths.root.path, ... }))
+engine.tree.root.add(new Path2DNode({ path: svgPaths.root.path, ... }))
 
 // A secondary stage reuses the same Path2D in a different node.
 function buildScene(stage: Stage): void {

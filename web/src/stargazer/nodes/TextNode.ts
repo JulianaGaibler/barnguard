@@ -1,4 +1,4 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import type { Camera } from '../camera/Camera'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import { measureText } from '../render/gfx/rasterizeLabel'
@@ -97,7 +97,7 @@ function baselineAxis(baseline: CanvasTextBaseline): Align1D {
  *   // Multi-line, centered as a block on (x, y):
  *   new TextNode({ text: 'Game\nOver', align: 'center', baseline: 'middle' })
  */
-export class TextNode extends SceneNode implements Measurable {
+export class TextNode extends Node2D implements Measurable {
   text: string
   x: number
   y: number

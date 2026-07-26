@@ -128,15 +128,28 @@ export class GpuGfx implements Gfx2D {
    * context restore.
    */
   #samples: number
+  /**
+   * Whether the offscreen target carries a depth attachment for the 3D pass.
+   * Allocated once via {@link GpuGfx.enableDepth} and kept across resize and
+   * context restore; a pure-2D stage never sets it.
+   */
+  #depthEnabled = false
+  /**
+   * Whether `endFrame` blits the target to the canvas. `false` for an offscreen
+   * surface whose color texture is sampled elsewhere (a `Viewport2DNode`'s 2D
+   * render).
+   */
+  #present: boolean
 
   constructor(
     canvas: HTMLCanvasElement,
     device: GfxDevice,
-    opts: { samples?: number } = {},
+    opts: { samples?: number; present?: boolean } = {},
   ) {
     this.#canvas = canvas
     this.#device = device
     this.#samples = opts.samples ?? 4
+    this.#present = opts.present ?? true
     this.#targetWidth = canvas.width || 1
     this.#targetHeight = canvas.height || 1
     this.#target = null as unknown as RenderTarget
@@ -177,6 +190,7 @@ export class GpuGfx implements Gfx2D {
       width: this.#targetWidth,
       height: this.#targetHeight,
       samples: this.#samples,
+      depth: this.#depthEnabled,
     })
     // Reflect the effective (post-clamp) sample count in stats so the HUD
     // shows what the driver actually gave us, not what we asked for.
@@ -199,6 +213,31 @@ export class GpuGfx implements Gfx2D {
    */
   get textureInspector(): TextureInspector {
     return this.#textureManager
+  }
+
+  /** The backend device, for the 3D pass to draw through the same frame/target. */
+  get device(): GfxDevice {
+    return this.#device
+  }
+
+  /**
+   * Add a depth attachment to the offscreen target so a depth-tested 3D pass can
+   * run before the 2D layers, and clear it each frame from then on. Idempotent
+   * and permanent for the stage's lifetime (the attachment survives resize and
+   * context restore). No-op if already enabled.
+   */
+  enableDepth(): void {
+    if (this.#depthEnabled) return
+    this.#depthEnabled = true
+    this.#ctx.flushActive()
+    this.#device.deleteRenderTarget(this.#target)
+    this.#target = this.#device.createRenderTarget({
+      width: this.#targetWidth,
+      height: this.#targetHeight,
+      samples: this.#samples,
+      depth: true,
+    })
+    this.stats.msaaSamples = this.#target.samples
   }
 
   // --- frame lifecycle ------------------------------------------------------
@@ -237,7 +276,11 @@ export class GpuGfx implements Gfx2D {
     const clear: readonly [number, number, number, number] = opts.transparent
       ? [0, 0, 0, 0]
       : rgbaTuple(parseColor(opts.clearColor))
-    this.#device.beginFrame({ target: this.#target, clearColor: clear })
+    this.#device.beginFrame({
+      target: this.#target,
+      clearColor: clear,
+      clearDepth: this.#depthEnabled,
+    })
     this.#ctx.curBlend = 'source-over'
   }
 
@@ -266,13 +309,25 @@ export class GpuGfx implements Gfx2D {
     this.stats.programSwitches = dc.programSwitches
     this.stats.blendSwitches = dc.blendSwitches
     this.stats.textureBinds = dc.textureBinds
-    this.#device.blitToDefault(
-      this.#target,
-      this.#canvas.width,
-      this.#canvas.height,
-      { filter: 'linear' },
-    )
+    if (this.#present) {
+      this.#device.blitToDefault(
+        this.#target,
+        this.#canvas.width,
+        this.#canvas.height,
+        { filter: 'linear' },
+      )
+    }
     this.#device.endFrame()
+  }
+
+  /**
+   * Color texture backing this surface's target, for sampling elsewhere (a
+   * non-presenting offscreen surface). `null` when the target is a multisample
+   * renderbuffer (`samples > 1`), which cannot be sampled; use `samples: 1`.
+   */
+  get colorTexture(): Texture | null {
+    const t = this.#target as { color?: Texture }
+    return t.color ?? null
   }
 
   /**
@@ -397,6 +452,7 @@ export class GpuGfx implements Gfx2D {
       width: this.#targetWidth,
       height: this.#targetHeight,
       samples: this.#samples,
+      depth: this.#depthEnabled,
     })
     this.stats.msaaSamples = this.#target.samples
   }

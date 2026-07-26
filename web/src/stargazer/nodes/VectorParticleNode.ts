@@ -1,4 +1,4 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import type { Camera } from '../camera/Camera'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { Vec2 } from '../math/Vec2'
@@ -63,7 +63,7 @@ export interface VectorParticleNodeOptions {
  * with no override lives until something else destroys it (matches a
  * permanent-debris burst that settles forever and is cleaned up externally,
  * e.g. via a level-reset `destroyChildren()` sweep). Pair with
- * {@link SceneNode.autoDestroy} + {@link VectorParticleNode.waitUntilEmpty}
+ * {@link Node2D.autoDestroy} + {@link VectorParticleNode.waitUntilEmpty}
  * for a self-cleaning one-shot burst instead.
  *
  * @category Nodes
@@ -94,7 +94,7 @@ export interface VectorParticleNodeOptions {
  *     }
  *   }
  */
-export abstract class VectorParticleNode extends SceneNode {
+export abstract class VectorParticleNode extends Node2D {
   protected readonly capacity: number
   protected readonly x: Float32Array
   protected readonly y: Float32Array
@@ -267,7 +267,7 @@ export abstract class VectorParticleNode extends SceneNode {
    * if the particle were at `(0, 0)` facing angle 0 (e.g.
    * `gfx.fillConvexPoly(triPts, 3, color)`,
    * `gfx.strokeLine(-h, 0, h, 0, style)`). The base class calls `restore()`
-   * after this returns. `camera` is forwarded from `SceneNode.draw` for
+   * after this returns. `camera` is forwarded from `Node2D.draw` for
    * anything that needs `camera.strokeSpaceScale()` (e.g. a
    * screen-constant line width).
    */

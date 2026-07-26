@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { SceneNode } from './SceneNode'
+import { Node2D } from './Node2D'
 import { Behavior } from './Behavior'
-import { Scene } from './Scene'
+import { SceneTree } from './SceneTree'
 import { Animator } from '../anim/Animator'
 import type { Engine } from '../engine/Engine'
 import type { PointerEvent2D } from '../input/PointerState'
 
 /** Build a Scene with a working Animator on `scene.engine.animation`. */
-function makeSceneWithAnimator(): { scene: Scene; animator: Animator } {
-  const scene = new Scene()
+function makeSceneWithAnimator(): { scene: SceneTree; animator: Animator } {
+  const scene = new SceneTree(new Node2D('scene-root'))
   const animator = new Animator()
   scene.engine = { animation: animator } as unknown as Engine
   return { scene, animator }
@@ -18,9 +18,9 @@ class BehaviorA extends Behavior {}
 class BehaviorB extends Behavior {}
 class BehaviorC extends BehaviorA {}
 
-describe('SceneNode', () => {
+describe('Node2D', () => {
   it('destroy() aborts the abort signal', () => {
-    const node = new SceneNode()
+    const node = new Node2D()
     expect(node.abortSignal.aborted).toBe(false)
     node.destroy()
     expect(node.abortSignal.aborted).toBe(true)
@@ -28,9 +28,9 @@ describe('SceneNode', () => {
   })
 
   it('destroy() cascades to descendants', () => {
-    const root = new SceneNode('root')
-    const child = new SceneNode('child')
-    const grandchild = new SceneNode('grandchild')
+    const root = new Node2D('root')
+    const child = new Node2D('child')
+    const grandchild = new Node2D('grandchild')
     child.add(grandchild)
     root.add(child)
     root.destroy()
@@ -42,7 +42,7 @@ describe('SceneNode', () => {
   })
 
   it('destroy() emits destroy event', () => {
-    const node = new SceneNode()
+    const node = new Node2D()
     let fired = false
     node.events.on('destroy', () => {
       fired = true
@@ -52,8 +52,8 @@ describe('SceneNode', () => {
   })
 
   it('destroy() removes itself from parent', () => {
-    const parent = new SceneNode('p')
-    const child = new SceneNode('c')
+    const parent = new Node2D('p')
+    const child = new Node2D('c')
     parent.add(child)
     expect(parent.children.length).toBe(1)
     child.destroy()
@@ -61,7 +61,7 @@ describe('SceneNode', () => {
   })
 
   it('getBehavior<T> returns the first matching instance', () => {
-    const node = new SceneNode()
+    const node = new Node2D()
     const a = new BehaviorA()
     const b = new BehaviorB()
     node.addBehavior(a)
@@ -71,7 +71,7 @@ describe('SceneNode', () => {
   })
 
   it('getBehavior<T> supports subclass polymorphism', () => {
-    const node = new SceneNode()
+    const node = new Node2D()
     const c = new BehaviorC()
     node.addBehavior(c)
     // BehaviorC extends BehaviorA, lookup by BehaviorA returns it.
@@ -80,7 +80,7 @@ describe('SceneNode', () => {
   })
 
   it('getBehaviors<T> returns all matches in insertion order', () => {
-    const node = new SceneNode()
+    const node = new Node2D()
     const a1 = new BehaviorA()
     const a2 = new BehaviorA()
     const b = new BehaviorB()
@@ -92,8 +92,8 @@ describe('SceneNode', () => {
   })
 
   it('changing renderLayer to/from static invalidates the scene static cache', () => {
-    const scene = new Scene()
-    const node = new SceneNode()
+    const scene = new SceneTree(new Node2D('scene-root'))
+    const node = new Node2D()
     scene.root.add(node)
     scene.markStaticClean()
     expect(scene.staticInvalid).toBe(false)
@@ -105,8 +105,8 @@ describe('SceneNode', () => {
   })
 
   it('changing renderLayer between non-static values does NOT invalidate', () => {
-    const scene = new Scene()
-    const node = new SceneNode()
+    const scene = new SceneTree(new Node2D('scene-root'))
+    const node = new Node2D()
     node.renderLayer = 'dynamic'
     scene.root.add(node)
     scene.markStaticClean()
@@ -115,9 +115,9 @@ describe('SceneNode', () => {
   })
 
   it('adding a static-layer subtree invalidates static cache', () => {
-    const scene = new Scene()
+    const scene = new SceneTree(new Node2D('scene-root'))
     scene.markStaticClean()
-    const node = new SceneNode()
+    const node = new Node2D()
     node.renderLayer = 'static'
     scene.root.add(node)
     expect(scene.staticInvalid).toBe(true)
@@ -125,9 +125,9 @@ describe('SceneNode', () => {
 
   describe('_staticDescendantCount (P8)', () => {
     it('root count reflects a static grandchild added via a dynamic parent', () => {
-      const root = new SceneNode('root')
-      const mid = new SceneNode('mid')
-      const leaf = new SceneNode('leaf')
+      const root = new Node2D('root')
+      const mid = new Node2D('mid')
+      const leaf = new Node2D('leaf')
       leaf.renderLayer = 'static'
       mid.add(leaf)
       // leaf is static → mid._staticDescendantCount === 1
@@ -137,9 +137,9 @@ describe('SceneNode', () => {
     })
 
     it('changing a leaf to static propagates the count up to the root', () => {
-      const root = new SceneNode('root')
-      const mid = new SceneNode('mid')
-      const leaf = new SceneNode('leaf')
+      const root = new Node2D('root')
+      const mid = new Node2D('mid')
+      const leaf = new Node2D('leaf')
       root.add(mid)
       mid.add(leaf)
       // No static nodes yet.
@@ -150,9 +150,9 @@ describe('SceneNode', () => {
     })
 
     it('changing a leaf back to dynamic decrements every ancestor', () => {
-      const root = new SceneNode('root')
-      const mid = new SceneNode('mid')
-      const leaf = new SceneNode('leaf')
+      const root = new Node2D('root')
+      const mid = new Node2D('mid')
+      const leaf = new Node2D('leaf')
       root.add(mid)
       mid.add(leaf)
       leaf.renderLayer = 'static'
@@ -162,10 +162,10 @@ describe('SceneNode', () => {
     })
 
     it('removing a static-heavy subtree drops the ancestors count to zero', () => {
-      const root = new SceneNode('root')
-      const mid = new SceneNode('mid')
-      const a = new SceneNode('a')
-      const b = new SceneNode('b')
+      const root = new Node2D('root')
+      const mid = new Node2D('mid')
+      const a = new Node2D('a')
+      const b = new Node2D('b')
       a.renderLayer = 'static'
       b.renderLayer = 'static'
       mid.add(a)
@@ -179,12 +179,12 @@ describe('SceneNode', () => {
     })
 
     it('reparenting a static-heavy subtree moves the count between ancestors', () => {
-      const root = new SceneNode('root')
-      const leftBranch = new SceneNode('left')
-      const rightBranch = new SceneNode('right')
-      const staticSubtreeRoot = new SceneNode('staticRoot')
-      const c1 = new SceneNode('c1')
-      const c2 = new SceneNode('c2')
+      const root = new Node2D('root')
+      const leftBranch = new Node2D('left')
+      const rightBranch = new Node2D('right')
+      const staticSubtreeRoot = new Node2D('staticRoot')
+      const c1 = new Node2D('c1')
+      const c2 = new Node2D('c2')
       c1.renderLayer = 'static'
       c2.renderLayer = 'static'
       staticSubtreeRoot.add(c1)
@@ -200,9 +200,9 @@ describe('SceneNode', () => {
     })
 
     it('destroy cascade leaves parents with a zero count', () => {
-      const root = new SceneNode('root')
-      const mid = new SceneNode('mid')
-      const leaf = new SceneNode('leaf')
+      const root = new Node2D('root')
+      const mid = new Node2D('mid')
+      const leaf = new Node2D('leaf')
       leaf.renderLayer = 'static'
       mid.add(leaf)
       root.add(mid)
@@ -212,8 +212,8 @@ describe('SceneNode', () => {
     })
 
     it('_verifyStaticCount throws on a drifted count (regression detector)', () => {
-      const root = new SceneNode('root')
-      const leaf = new SceneNode('leaf')
+      const root = new Node2D('root')
+      const leaf = new Node2D('leaf')
       leaf.renderLayer = 'static'
       root.add(leaf)
       // Manually corrupt the count to simulate drift.
@@ -224,8 +224,8 @@ describe('SceneNode', () => {
 
   describe('Behavior.onSceneReady (C4)', () => {
     it('fires synchronously when the node is already scene-attached at addBehavior', () => {
-      const scene = new Scene()
-      const node = new SceneNode('n')
+      const scene = new SceneTree(new Node2D('scene-root'))
+      const node = new Node2D('n')
       scene.root.add(node)
       const seen: string[] = []
       class B extends Behavior {
@@ -242,7 +242,7 @@ describe('SceneNode', () => {
     })
 
     it('is deferred until scene attachment when node is standalone', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const seen: string[] = []
       class B extends Behavior {
         override onSceneReady(): void {
@@ -252,16 +252,16 @@ describe('SceneNode', () => {
       node.addBehavior(new B())
       // Not yet attached, onSceneReady has NOT fired.
       expect(seen).toEqual([])
-      const scene = new Scene()
+      const scene = new SceneTree(new Node2D('scene-root'))
       scene.root.add(node)
       // Attaching to a scene fires it.
       expect(seen).toEqual(['ready'])
     })
 
     it('fires only ONCE per addBehavior (detach + reattach does not refire)', () => {
-      const scene = new Scene()
-      const other = new Scene()
-      const node = new SceneNode('n')
+      const scene = new SceneTree(new Node2D('scene-root'))
+      const other = new SceneTree(new Node2D('scene-root'))
+      const node = new Node2D('n')
       scene.root.add(node)
       let readyCount = 0
       class B extends Behavior {
@@ -278,8 +278,8 @@ describe('SceneNode', () => {
     })
 
     it('removeBehavior + addBehavior again fires onSceneReady a second time', () => {
-      const scene = new Scene()
-      const node = new SceneNode('n')
+      const scene = new SceneTree(new Node2D('scene-root'))
+      const node = new Node2D('n')
       scene.root.add(node)
       let readyCount = 0
       class B extends Behavior {
@@ -296,12 +296,12 @@ describe('SceneNode', () => {
     })
   })
 
-  describe('SceneNode.destroyChildren (C6)', () => {
+  describe('Node2D.destroyChildren (C6)', () => {
     it('destroys every current child in a snapshot-safe cascade', () => {
-      const parent = new SceneNode('p')
-      const a = new SceneNode('a')
-      const b = new SceneNode('b')
-      const c = new SceneNode('c')
+      const parent = new Node2D('p')
+      const a = new Node2D('a')
+      const b = new Node2D('b')
+      const c = new Node2D('c')
       parent.add(a)
       parent.add(b)
       parent.add(c)
@@ -314,15 +314,15 @@ describe('SceneNode', () => {
     })
 
     it('is safe to call with no children', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       node.destroyChildren()
       expect(node.isDestroyed).toBe(false)
     })
   })
 
-  describe('SceneNode.bindPointer (C5)', () => {
+  describe('Node2D.bindPointer (C5)', () => {
     it('assigns handlers and the unbind clears them', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const down = (): void => {}
       const move = (): void => {}
       const unbind = node.bindPointer({ down, move })
@@ -334,7 +334,7 @@ describe('SceneNode', () => {
     })
 
     it('turns hitEnabled on when a down handler is provided', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       expect(node.hitEnabled).toBe(false)
       const unbind = node.bindPointer({ down: () => {} })
       expect(node.hitEnabled).toBe(true)
@@ -343,14 +343,14 @@ describe('SceneNode', () => {
     })
 
     it('respects hitEnabled: false override', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const unbind = node.bindPointer({ down: () => {}, hitEnabled: false })
       expect(node.hitEnabled).toBe(false)
       unbind()
     })
 
     it('unbind is idempotent', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const unbind = node.bindPointer({ down: () => {} })
       unbind()
       unbind()
@@ -358,10 +358,10 @@ describe('SceneNode', () => {
     })
   })
 
-  describe('SceneNode.tweenTo (C2)', () => {
+  describe('Node2D.tweenTo (C2)', () => {
     it('tweens numeric fields on an arbitrary target', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       scene.root.add(node)
       const target = { customAlpha: 0 }
       const p = node.tweenTo(target, { customAlpha: 1 }, { duration: 1 })
@@ -374,7 +374,7 @@ describe('SceneNode', () => {
 
     it('rejects with AbortError when the node is destroyed mid-tween', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       scene.root.add(node)
       const target = { v: 0 }
       const p = node.tweenTo(target, { v: 100 }, { duration: 1 })
@@ -384,17 +384,17 @@ describe('SceneNode', () => {
     })
 
     it('rejects when the node is not scene-attached', async () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       await expect(
         node.tweenTo({ v: 0 }, { v: 1 }, { duration: 1 }),
       ).rejects.toThrow(/not attached/i)
     })
   })
 
-  describe('SceneNode.autoDestroy (C3)', () => {
+  describe('Node2D.autoDestroy (C3)', () => {
     it('destroys the node when the promise resolves', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       scene.root.add(node)
       const p = node.tween({ x: 100 }, { duration: 0 })
       const done = node.autoDestroy(p)
@@ -405,7 +405,7 @@ describe('SceneNode', () => {
 
     it('destroys silently on AbortError', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       scene.root.add(node)
       const ctrl = new AbortController()
       const p = node.tween({ x: 100 }, { duration: 1, signal: ctrl.signal })
@@ -429,7 +429,7 @@ describe('SceneNode', () => {
     })
 
     it('destroys AND warns on non-abort rejection', async () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const warnings: string[] = []
       const origWarn = console.warn
       console.warn = (...args: unknown[]): void => {
@@ -445,10 +445,10 @@ describe('SceneNode', () => {
     })
   })
 
-  describe('SceneNode.tweenStatic (C3)', () => {
+  describe('Node2D.tweenStatic (C3)', () => {
     it('promotes a static-layer node to above-static for the tween and restores it', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       node.renderLayer = 'static'
       scene.root.add(node)
       const p = node.tweenStatic({ alpha: 0.5 }, { duration: 1 })
@@ -463,7 +463,7 @@ describe('SceneNode', () => {
 
     it('no-ops on non-static nodes (acts as a plain tween)', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       // dynamic by default
       scene.root.add(node)
       const p = node.tweenStatic({ alpha: 0.3 }, { duration: 1 })
@@ -475,10 +475,10 @@ describe('SceneNode', () => {
     })
   })
 
-  describe('SceneNode.loop (C1)', () => {
+  describe('Node2D.loop (C1)', () => {
     it('runs iterations until the node is destroyed', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       scene.root.add(node)
       const seen: number[] = []
       node.loop(
@@ -511,7 +511,7 @@ describe('SceneNode', () => {
 
     it('swallows AbortError silently when node is destroyed mid-await', async () => {
       const { scene, animator } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       scene.root.add(node)
       const errors: string[] = []
       const origErr = console.error
@@ -539,7 +539,7 @@ describe('SceneNode', () => {
 
     it('logs non-abort errors from body but never crashes the engine', async () => {
       const { scene } = makeSceneWithAnimator()
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       scene.root.add(node)
       const errors: string[] = []
       const origErr = console.error
@@ -562,7 +562,7 @@ describe('SceneNode', () => {
 
   describe('bindPointer + PointerEvent2D types line up', () => {
     it('accepts PointerEvent2D-typed handlers', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const seen: number[] = []
       const unbind = node.bindPointer({
         down: (e: PointerEvent2D) => {
@@ -582,7 +582,7 @@ describe('SceneNode', () => {
       ({ pointer: { id } }) as unknown as PointerEvent2D
 
     it('ignores a second pointer until the first releases', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const downs: number[] = []
       const moves: number[] = []
       const ups: number[] = []
@@ -606,7 +606,7 @@ describe('SceneNode', () => {
     })
 
     it('accepts a new pointer once the tracked one has released', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const downs: number[] = []
       node.bindPointer({
         singlePointer: true,
@@ -619,7 +619,7 @@ describe('SceneNode', () => {
     })
 
     it('frees the slot on cancel', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const downs: number[] = []
       node.bindPointer({
         singlePointer: true,
@@ -635,27 +635,27 @@ describe('SceneNode', () => {
 
   describe('fluent API', () => {
     it('add is variadic and preserves order, returning this', () => {
-      const parent = new SceneNode('p')
-      const a = new SceneNode('a')
-      const b = new SceneNode('b')
-      const c = new SceneNode('c')
+      const parent = new Node2D('p')
+      const a = new Node2D('a')
+      const b = new Node2D('b')
+      const c = new Node2D('c')
       const ret = parent.add(a, b, c)
       expect(ret).toBe(parent)
       expect(parent.children.map((n) => n.id)).toEqual(['a', 'b', 'c'])
     })
 
     it('add still accepts a single child', () => {
-      const parent = new SceneNode('p')
-      const a = new SceneNode('a')
+      const parent = new Node2D('p')
+      const a = new Node2D('a')
       expect(parent.add(a)).toBe(parent)
       expect(parent.children).toEqual([a])
     })
 
     it('remove is variadic and returns this', () => {
-      const parent = new SceneNode('p')
-      const a = new SceneNode('a')
-      const b = new SceneNode('b')
-      const c = new SceneNode('c')
+      const parent = new Node2D('p')
+      const a = new Node2D('a')
+      const b = new Node2D('b')
+      const c = new Node2D('c')
       parent.add(a, b, c)
       const ret = parent.remove(a, c)
       expect(ret).toBe(parent)
@@ -665,7 +665,7 @@ describe('SceneNode', () => {
     })
 
     it('setVisible / setHitEnabled / setRenderLayer mutate and chain', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const ret = node
         .setVisible(false)
         .setHitEnabled(true)
@@ -677,12 +677,12 @@ describe('SceneNode', () => {
     })
 
     it('removeBehavior and destroyChildren return this', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       const behavior = new BehaviorA()
       node.addBehavior(behavior)
       expect(node.removeBehavior(behavior)).toBe(node)
 
-      const child = new SceneNode('c')
+      const child = new Node2D('c')
       node.add(child)
       expect(node.destroyChildren()).toBe(node)
       expect(child.isDestroyed).toBe(true)
@@ -690,7 +690,7 @@ describe('SceneNode', () => {
     })
 
     it('a11y() returns the node and is inert on a detached node', () => {
-      const node = new SceneNode('n')
+      const node = new Node2D('n')
       // No scene/engine yet: semantics are held, nothing throws.
       const ret = node.a11y({ role: 'button', label: 'Go' })
       expect(ret).toBe(node)

@@ -6,7 +6,8 @@
  * @module
  * @category Layout
  */
-import { SceneNode } from '../scene/SceneNode'
+import type { Node } from '../scene/Node'
+import { Node2D } from '../scene/Node2D'
 import { BoxConstraints, type Size } from './constraints'
 
 /**
@@ -40,18 +41,18 @@ export interface Measurable {
 }
 
 /**
- * A scene node that participates in layout: a {@link SceneNode} that also
+ * A scene node that participates in layout: a {@link Node2D} that also
  * implements {@link Measurable}. This is the child type the layout containers
  * accept.
  *
  * @category Layout
  */
-export type MeasurableNode = SceneNode & Measurable
+export type MeasurableNode = Node2D & Measurable
 
 /**
  * Base class for layout containers. Extend it and implement {@link measure} and
  * {@link arrange}; it wires the shared pieces (a preallocated `measuredSize` and
- * {@link markLayoutDirty}) onto a normal {@link SceneNode}, so a layout node
+ * {@link markLayoutDirty}) onto a normal {@link Node2D}, so a layout node
  * composes with transforms, culling, hit-testing, behaviors, and tweens like
  * any other node.
  *
@@ -82,7 +83,7 @@ export type MeasurableNode = SceneNode & Measurable
  *     }
  *   }
  */
-export abstract class LayoutNode extends SceneNode implements Measurable {
+export abstract class LayoutNode extends Node2D implements Measurable {
   /**
    * Preallocated per node; `measure` writes into it (see
    * {@link Measurable.measuredSize}).
@@ -100,7 +101,7 @@ export abstract class LayoutNode extends SceneNode implements Measurable {
    */
   markLayoutDirty(): void {
     // A LayoutNode is never itself the host, so start at the parent.
-    let n: SceneNode | null = this.parent
+    let n: Node | null = this.parent
     while (n) {
       if (isLayoutHost(n)) {
         n.requestLayout()
@@ -134,7 +135,7 @@ export function isLayoutHost(n: unknown): n is LayoutHost {
  * {@link Measurable}). The pass and containers use it to decide whether to
  * measure/arrange a child or treat it as a fixed, unmanaged node.
  */
-export function isMeasurable(n: SceneNode): n is SceneNode & Measurable {
+export function isMeasurable(n: Node): n is Node2D & Measurable {
   const m = n as unknown as Partial<Measurable>
   return typeof m.measure === 'function' && typeof m.arrange === 'function'
 }
@@ -145,7 +146,7 @@ export function isMeasurable(n: SceneNode): n is SceneNode & Measurable {
  * instead of shrink-wrapping; catching it here turns a silent poisoned
  * transform into a clear failure.
  */
-export function assertFiniteSize(node: SceneNode, size: Size): void {
+export function assertFiniteSize(node: Node2D, size: Size): void {
   if (!Number.isFinite(size.w) || !Number.isFinite(size.h)) {
     throw new Error(
       `[stargazer] layout: ${node.constructor.name}('${node.id}') produced a ` +

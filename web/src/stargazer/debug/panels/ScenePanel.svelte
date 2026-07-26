@@ -2,7 +2,11 @@
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
   import type { DebugController, DebugStatsSnapshot } from '../DebugController'
-  import type { SceneNode } from '../../scene/SceneNode'
+  import type { Node, NodeKind } from '../../scene/Node'
+  import type { Node2D, RenderLayer } from '../../scene/Node2D'
+  import type { Node3D } from '../../scene/Node3D'
+  import { MeshNode } from '../../nodes/MeshNode'
+  import { Viewport2DNode } from '../../nodes/Viewport2DNode'
   import { PhysicsWorldBehavior } from '../../physics/PhysicsWorldBehavior'
   import { RigidBodyBehavior } from '../../physics/RigidBodyBehavior'
   import { DebugSection, DebugRow, DebugTree, type TreeNode } from '../ui'
@@ -25,12 +29,24 @@
 
   /** Metadata attached to each tree row, read by the row snippet. */
   interface NodeMeta {
-    node: SceneNode
+    node: Node
+    /**
+     * What the overlay highlights when this row is selected. Usually `node`, but
+     * for a node inside a `Viewport2DNode`'s embedded scene it's the containing
+     * viewport quad — that node lives in an offscreen texture space, so its own
+     * outline can't be drawn in the main overlay.
+     */
+    highlightTarget: Node
     type: string
+    kind: NodeKind
     dot: string
-    layer: string
     visible: boolean
+    /** 2D render layer, or `null` for 3D/group nodes. */
+    layer: RenderLayer | null
+    /** Alive particles (2D emitters); 0 otherwise. */
     particleCount: number
+    /** Triangle count (3D meshes); 0 otherwise. */
+    tris: number
     isWorldHost: boolean
     hasRigidBody: boolean
     behaviors: string[]
@@ -41,12 +57,18 @@
 
   // Dot color per built-in node type.
   const TYPE_COLORS: Record<string, string> = {
-    SceneNode: '#94a3b8',
+    Node2D: '#94a3b8',
     ShapeNode: '#38bdf8',
     Path2DNode: '#a78bfa',
     PolylineNode: '#34d399',
     TextNode: '#fbbf24',
     ParticleEmitterNode: '#fb7185',
+    // 3D node types read as a purple/violet family.
+    Node3D: '#c4b5fd',
+    MeshNode: '#c084fc',
+    Viewport2DNode: '#e879f9',
+    // Neutral grouping.
+    GroupNode: '#64748b',
     // Layout containers read as a teal/green family, apart from the primitives.
     LayoutRoot: '#059669',
     Box: '#10b981',
@@ -75,6 +97,13 @@
     '#f59e0b',
   ]
 
+  /** Human-readable ortho<->perspective blend for the 3D camera readout. */
+  function fmtProjection(t: number): string {
+    if (t <= 0.001) return 'orthographic'
+    if (t >= 0.999) return 'perspective'
+    return `blend ${Math.round(t * 100)}%`
+  }
+
   function colorForType(type: string): string {
     const known = TYPE_COLORS[type]
     if (known) return known
@@ -88,32 +117,56 @@
   const treeExpanded = new SvelteSet<string>()
   let treeNodes = $state<TreeNode[]>([])
   let lastTreeUpdate = 0
-
   let selectedId = $state<string | null>(null)
 
-  function buildSceneTree(root: SceneNode, expanded: Set<string>): TreeNode[] {
+  /**
+   * Build one flat, depth-tagged list from the whole tree (2D, 3D, and group
+   * nodes together), mirroring Godot's single scene-tree view. A
+   * `Viewport2DNode`'s embedded 2D scene is shown nested under it (the
+   * SubViewport bridge). Rows are keyed by tree path, not `node.id` (ids aren't
+   * unique; a duplicate key would cross-link expansion/selection).
+   */
+  function buildTree(root: Node, expanded: Set<string>): TreeNode[] {
     const out: TreeNode[] = []
-    // Key rows by tree path, not node.id: ids aren't unique, and a duplicate
-    // key breaks the keyed `{#each}` and cross-links expansion/selection.
-    visit(root, 0, 'r')
+    const roots = root.children
+    for (let i = 0; i < roots.length; i++) visit(roots[i], 0, `r${i}`, null)
     return out
 
-    function visit(node: SceneNode, depth: number, key: string): void {
+    // `embeddedIn` is the containing Viewport2DNode when walking its embedded 2D
+    // scene, so those rows highlight the viewport quad instead of themselves.
+    function visit(
+      node: Node,
+      depth: number,
+      key: string,
+      embeddedIn: Node | null,
+    ): void {
       const type = node.constructor.name
-      const isWorldHost = node.getBehavior(PhysicsWorldBehavior) !== null
+      const is2d = node.kind === '2d'
+      const n2 = is2d ? (node as Node2D) : null
+      const isWorldHost = n2 ? n2.getBehavior(PhysicsWorldBehavior) !== null : false
       const meta: NodeMeta = {
         node,
+        highlightTarget: embeddedIn ?? node,
         type,
+        kind: node.kind,
         dot: colorForType(type),
-        layer: node.renderLayer,
         visible: node.visible,
-        particleCount: node.particleCount,
+        layer: n2 ? n2.renderLayer : null,
+        particleCount: n2 ? n2.particleCount : 0,
+        tris:
+          node instanceof MeshNode && node.geometry
+            ? node.geometry.indices.length / 3
+            : 0,
         isWorldHost,
-        hasRigidBody: node.getBehavior(RigidBodyBehavior) !== null,
+        hasRigidBody: n2 ? n2.getBehavior(RigidBodyBehavior) !== null : false,
         behaviors: node.behaviors.map((b) => b.constructor.name),
-        accent: isWorldHost ? debug.overlayAccentForNode(node) : null,
+        accent: isWorldHost && n2 ? debug.overlayAccentForNode(n2) : null,
       }
-      const hasChildren = node.children.length > 0
+      // Regular children, plus a Viewport2DNode's embedded 2D scene root.
+      const kids = node.children
+      const innerKids =
+        node instanceof Viewport2DNode ? node.scene.root.children : []
+      const hasChildren = kids.length > 0 || innerKids.length > 0
       const isExpanded = expanded.has(key)
       out.push({
         id: key,
@@ -124,19 +177,23 @@
         metadata: meta,
       })
       if (hasChildren && isExpanded) {
-        const children = node.children
-        for (let i = 0; i < children.length; i++) {
-          visit(children[i], depth + 1, `${key}.${i}`)
+        for (let i = 0; i < kids.length; i++) {
+          visit(kids[i], depth + 1, `${key}.${i}`, embeddedIn)
+        }
+        // Descendants of a Viewport2DNode's embedded scene highlight the viewport.
+        const innerOwner = node instanceof Viewport2DNode ? node : embeddedIn
+        for (let i = 0; i < innerKids.length; i++) {
+          visit(innerKids[i], depth + 1, `${key}.s${i}`, innerOwner)
         }
       }
     }
   }
 
   function rebuild(): void {
-    treeNodes = buildSceneTree(debug.activeStage.scene.root, treeExpanded)
+    treeNodes = buildTree(debug.activeStage.tree.root, treeExpanded)
   }
 
-  function nodeOf(id: string | null): SceneNode | null {
+  function nodeOf(id: string | null): Node | null {
     if (!id) return null
     const row = treeNodes.find((n) => n.id === id)
     return row ? (row.metadata as NodeMeta).node : null
@@ -151,40 +208,58 @@
 
   function selectNode(id: string): void {
     selectedId = selectedId === id ? null : id
-    debug.setHighlightedNode(nodeOf(selectedId))
+    const row = selectedId
+      ? treeNodes.find((n) => n.id === selectedId)
+      : null
+    const target = row ? (row.metadata as NodeMeta).highlightTarget : null
+    debug.setHighlighted(target)
   }
 
   function clearSelection(): void {
     selectedId = null
-    debug.setHighlightedNode(null)
+    debug.setHighlighted(null)
   }
 
-  // Live properties of the selected node, refreshed on the hub tick.
+  // Live properties of the selected node, refreshed on the hub tick. Shape
+  // varies by kind: 2D nodes show affine transform + layer, 3D nodes show the
+  // 3D transform, group nodes just identity + visibility.
   const selected = $derived.by(() => {
     void revision
     const node = nodeOf(selectedId)
     if (!node) return null
-    const t = node.transform
     const type = node.constructor.name
-    return {
+    const base = {
       id: node.id,
       type,
       dot: colorForType(type),
-      x: t.x,
-      y: t.y,
-      rotation: t.rotation,
-      rotationDeg: (t.rotation * 180) / Math.PI,
-      scaleX: t.scaleX,
-      scaleY: t.scaleY,
-      alpha: t.alpha,
       visible: node.visible,
-      layer: node.renderLayer,
-      bounds: node.debugBounds,
-      measured: isMeasurable(node)
-        ? { w: node.measuredSize.w, h: node.measuredSize.h }
-        : null,
       behaviors: node.behaviors.map((b) => b.constructor.name),
     }
+    if (node.kind === '2d') {
+      const n = node as Node2D
+      const t = n.transform
+      return {
+        ...base,
+        kind: '2d' as const,
+        x: t.x,
+        y: t.y,
+        rotation: t.rotation,
+        rotationDeg: (t.rotation * 180) / Math.PI,
+        scaleX: t.scaleX,
+        scaleY: t.scaleY,
+        alpha: t.alpha,
+        layer: n.renderLayer,
+        bounds: n.debugBounds,
+        measured: isMeasurable(n)
+          ? { w: n.measuredSize.w, h: n.measuredSize.h }
+          : null,
+      }
+    }
+    if (node.kind === '3d') {
+      const t = (node as Node3D).transform
+      return { ...base, kind: '3d' as const, pos: t.position, scale3: t.scale, alpha: t.alpha }
+    }
+    return { ...base, kind: 'group' as const }
   })
 
   // Throttled (~1 Hz) tree rebuild, only while the tree section is open. The
@@ -213,7 +288,7 @@
     })
     return () => {
       offStage()
-      debug.setHighlightedNode(null)
+      debug.setHighlighted(null)
     }
   })
 </script>
@@ -233,6 +308,32 @@
   <DebugRow label="Viewport w" value={fmtCoord(stats.viewport.width)} />
   <DebugRow label="Viewport h" value={fmtCoord(stats.viewport.height)} />
   <DebugRow label="px / world" value={stats.screenPxPerWorldUnit.toFixed(3)} />
+
+  {#if stats.world3d}
+    <div class="cam-sub">3D</div>
+    <DebugRow
+      label="Mode"
+      value={stats.world3d.cameraMode}
+      tone={stats.world3d.cameraMode === 'debug' ? 'accent' : 'default'}
+    />
+    <DebugRow
+      label="Projection"
+      value={fmtProjection(stats.world3d.camera.projectionness)}
+    />
+    <DebugRow label="FOV" value={`${stats.world3d.camera.fovY.toFixed(0)}°`} />
+    <DebugRow
+      label="Near / Far"
+      value={`${stats.world3d.camera.near} / ${stats.world3d.camera.far}`}
+    />
+    <DebugRow
+      label="Focal dist"
+      value={stats.world3d.camera.focalDistance.toFixed(1)}
+    />
+    <DebugRow
+      label="Eye"
+      value={`${stats.world3d.camera.position.x.toFixed(1)}, ${stats.world3d.camera.position.y.toFixed(1)}, ${stats.world3d.camera.position.z.toFixed(1)}`}
+    />
+  {/if}
 </DebugSection>
 
 <DebugSection title="Scene" bind:open={sceneOpen}>
@@ -260,7 +361,10 @@
     ></button>
     <span class="node-id">{node.label}</span>
     <span class="node-type">{meta.type}</span>
-    {#if meta.layer !== 'dynamic'}
+    {#if meta.kind !== '2d'}
+      <span class="chip kind">{meta.kind === '3d' ? '3D' : 'group'}</span>
+    {/if}
+    {#if meta.layer && meta.layer !== 'dynamic'}
       <span class="chip">{meta.layer}</span>
     {/if}
     {#if !meta.visible}
@@ -278,6 +382,9 @@
     {/if}
     {#if meta.particleCount > 0}
       <span class="chip">{meta.particleCount}p</span>
+    {/if}
+    {#if meta.tris > 0}
+      <span class="chip">{meta.tris}▲</span>
     {/if}
   </span>
 {/snippet}
@@ -302,44 +409,70 @@
       <span class="head-type">{selected.type}</span>
     </div>
 
-    <DebugRow
-      label="Position"
-      value={`${fmtCoord(selected.x)}, ${fmtCoord(selected.y)}`}
-      tone={selected.x === 0 && selected.y === 0 ? 'muted' : 'default'}
-    />
-    <DebugRow
-      label="Scale"
-      value={`${selected.scaleX.toFixed(2)}, ${selected.scaleY.toFixed(2)}`}
-      tone={selected.scaleX === 1 && selected.scaleY === 1
-        ? 'muted'
-        : 'default'}
-    />
-    <div class="info-row">
-      <span class="label">Rotation:</span>
-      <span class="value rot-value" class:muted={selected.rotation === 0}>
-        <svg class="dial" viewBox="0 0 24 24" width="16" height="16">
-          <circle class="dial-ring" cx="12" cy="12" r="10" />
-          <line
-            class="dial-needle"
-            x1="12"
-            y1="12"
-            x2={12 + 9 * Math.cos(selected.rotation)}
-            y2={12 + 9 * Math.sin(selected.rotation)}
-          />
-        </svg>
-        {selected.rotationDeg.toFixed(1)}°
-      </span>
-    </div>
-    <DebugRow
-      label="Alpha"
-      value={selected.alpha.toFixed(2)}
-      tone={selected.alpha === 1 ? 'muted' : 'default'}
-    />
-    {#if selected.measured}
+    {#if selected.kind === '2d'}
       <DebugRow
-        label="Measured"
-        value={`${selected.measured.w.toFixed(0)} × ${selected.measured.h.toFixed(0)}`}
-        tone="accent"
+        label="Position"
+        value={`${fmtCoord(selected.x)}, ${fmtCoord(selected.y)}`}
+        tone={selected.x === 0 && selected.y === 0 ? 'muted' : 'default'}
+      />
+      <DebugRow
+        label="Scale"
+        value={`${selected.scaleX.toFixed(2)}, ${selected.scaleY.toFixed(2)}`}
+        tone={selected.scaleX === 1 && selected.scaleY === 1
+          ? 'muted'
+          : 'default'}
+      />
+      <div class="info-row">
+        <span class="label">Rotation:</span>
+        <span class="value rot-value" class:muted={selected.rotation === 0}>
+          <svg class="dial" viewBox="0 0 24 24" width="16" height="16">
+            <circle class="dial-ring" cx="12" cy="12" r="10" />
+            <line
+              class="dial-needle"
+              x1="12"
+              y1="12"
+              x2={12 + 9 * Math.cos(selected.rotation)}
+              y2={12 + 9 * Math.sin(selected.rotation)}
+            />
+          </svg>
+          {selected.rotationDeg.toFixed(1)}°
+        </span>
+      </div>
+      <DebugRow
+        label="Alpha"
+        value={selected.alpha.toFixed(2)}
+        tone={selected.alpha === 1 ? 'muted' : 'default'}
+      />
+      {#if selected.measured}
+        <DebugRow
+          label="Measured"
+          value={`${selected.measured.w.toFixed(0)} × ${selected.measured.h.toFixed(0)}`}
+          tone="accent"
+        />
+      {/if}
+      <div class="info-row">
+        <span class="label">Layer:</span>
+        <span class="badge layer">{selected.layer}</span>
+      </div>
+      {#if selected.bounds}
+        <DebugRow
+          label="Bounds"
+          value={`${fmtCoord(selected.bounds.width)} × ${fmtCoord(selected.bounds.height)}`}
+        />
+      {/if}
+    {:else if selected.kind === '3d'}
+      <DebugRow
+        label="Position"
+        value={`${selected.pos.x.toFixed(2)}, ${selected.pos.y.toFixed(2)}, ${selected.pos.z.toFixed(2)}`}
+      />
+      <DebugRow
+        label="Scale"
+        value={`${selected.scale3.x.toFixed(2)}, ${selected.scale3.y.toFixed(2)}, ${selected.scale3.z.toFixed(2)}`}
+      />
+      <DebugRow
+        label="Alpha"
+        value={selected.alpha.toFixed(2)}
+        tone={selected.alpha === 1 ? 'muted' : 'default'}
       />
     {/if}
 
@@ -353,17 +486,6 @@
         {selected.visible ? 'visible' : 'hidden'}
       </span>
     </div>
-    <div class="info-row">
-      <span class="label">Layer:</span>
-      <span class="badge layer">{selected.layer}</span>
-    </div>
-
-    {#if selected.bounds}
-      <DebugRow
-        label="Bounds"
-        value={`${fmtCoord(selected.bounds.width)} × ${fmtCoord(selected.bounds.height)}`}
-      />
-    {/if}
     {#if selected.behaviors.length > 0}
       <DebugRow label="Behaviors" value={selected.behaviors.join(', ')} />
     {/if}
@@ -402,6 +524,15 @@
     &[aria-pressed='true']
       box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85)
 
+  .cam-sub
+    margin: 4px 0 2px
+    padding-top: 4px
+    border-top: 1px solid rgba(148, 163, 184, 0.25)
+    font-size: 9px
+    font-weight: 600
+    letter-spacing: 0.06em
+    color: rgba(192, 132, 252, 0.9)
+
   .node-id
     color: rgba(226, 232, 240, 0.95)
 
@@ -421,6 +552,10 @@
 
     &.world
       font-weight: 600
+
+    &.kind
+      color: rgba(196, 181, 253, 0.95)
+      border-color: rgba(196, 181, 253, 0.55)
 
   .deselect
     margin-top: 6px

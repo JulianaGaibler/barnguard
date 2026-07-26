@@ -4,7 +4,7 @@
  * `fill="none"` too): a lit heart uses the player's color at a thicker
  * stroke, an empty slot uses a muted ink tint at a thinner one.
  */
-import { SceneNode, parseSvgPaths, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, parseSvgPaths, type Camera, type Gfx2D } from '@src/stargazer'
 import heartSvgRaw from '../../assets/heart.svg?raw'
 
 const HEART = Array.from(
@@ -23,7 +23,7 @@ export interface HeartsOptions {
   sizePx: number
 }
 
-export class HeartsNode extends SceneNode {
+export class HeartsNode extends Node2D {
   readonly #max: number
   readonly #color: string
   readonly #align: HeartsAlign

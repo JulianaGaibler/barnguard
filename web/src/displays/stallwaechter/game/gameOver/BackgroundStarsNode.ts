@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Camera, type Gfx2D } from '@src/stargazer'
 
 export interface BackgroundStarsOptions {
   /** Star count. ~500 is a comfortable ceiling for a 4K kiosk canvas. */
@@ -28,7 +28,7 @@ export interface BackgroundStarsOptions {
  * camera pan further, either bump `halfExtent` or add a "wrapping" mode that
  * regenerates stars ahead of the packet.
  */
-export class BackgroundStarsNode extends SceneNode {
+export class BackgroundStarsNode extends Node2D {
   readonly #count: number
   /** Interleaved `[x, y, size, alpha]`, 4 floats per star. */
   readonly #data: Float32Array

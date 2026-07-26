@@ -21,7 +21,7 @@ export function drawLayoutOutlines(
   const stroke = { color: 'rgba(45, 212, 191, 0.85)', width: 1.5 }
   const pts = new Float32Array(8)
 
-  walkTree(stage.scene.root, (node) => {
+  walkTree(stage.tree.root, (node) => {
     if (!node.visible || !(node instanceof LayoutNode)) return
     const b = node.debugBounds
     if (!b) return

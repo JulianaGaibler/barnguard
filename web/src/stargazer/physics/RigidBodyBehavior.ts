@@ -1,12 +1,12 @@
 /**
- * Binds a {@link Body} to a {@link SceneNode}'s transform. The engine steps the
+ * Binds a {@link Body} to a {@link Node2D}'s transform. The engine steps the
  * body's world once per fixed tick; this behavior mirrors the body's position
  * and rotation onto the node each frame, interpolating between fixed steps so
  * rendering stays smooth at any display rate.
  */
 
 import { Behavior } from '../scene/Behavior'
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node } from '../scene/Node'
 import { lerp, lerpAngle } from '../math/scalar'
 import { Body, type BodyDef } from './Body'
 import type { PhysicsWorld } from './PhysicsWorld'
@@ -54,7 +54,7 @@ export interface RigidBodyBehaviorOptions {
  *
  * @category Physics
  * @example
- *   const node = new SceneNode('crate')
+ *   const node = new Node2D('crate')
  *   node.transform.x = 100
  *   node.transform.y = 50
  *   node.addBehavior(
@@ -142,7 +142,7 @@ export class RigidBodyBehavior extends Behavior {
    * world that hosts it.
    */
   #nearestWorld(): PhysicsWorld | null {
-    let node: SceneNode | null = this.node
+    let node: Node | null = this.node
     while (node) {
       const host = node.getBehavior(PhysicsWorldBehavior)
       if (host) return host.world

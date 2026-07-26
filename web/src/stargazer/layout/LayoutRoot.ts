@@ -7,8 +7,8 @@
  * @module
  * @category Layout
  */
-import { SceneNode } from '../scene/SceneNode'
-import type { Scene } from '../scene/Scene'
+import { Node2D } from '../scene/Node2D'
+import type { SceneTree } from '../scene/SceneTree'
 import type { Camera } from '../camera/Camera'
 import type { Rect } from '../math/Rect'
 import { BoxConstraints } from './constraints'
@@ -51,7 +51,7 @@ export interface LayoutRootOptions {
  *   children: [header, new Expanded({ child: body }), footer],
  *   }),
  *   )
- *   host.engine.scene.root.add(root)
+ *   host.engine.tree.root.add(root)
  *
  *   The root finds its engine from the scene when you add it, the way a behavior
  *   does, so there is nothing else to wire up. By default the content fills the
@@ -63,10 +63,10 @@ export interface LayoutRootOptions {
  *   flag: quiet frames cost nothing, and an engine with no `LayoutRoot` pays a
  *   single empty-set check per frame.
  */
-export class LayoutRoot extends SceneNode {
+export class LayoutRoot extends Node2D {
   readonly #boundsFn?: () => Rect
   readonly #camera?: Camera
-  #content: (SceneNode & Measurable) | null = null
+  #content: (Node2D & Measurable) | null = null
   #dirty = true
   readonly #constraints = new BoxConstraints()
   readonly #boundsScratch: Rect = { x: 0, y: 0, width: 0, height: 0 }
@@ -83,7 +83,7 @@ export class LayoutRoot extends SceneNode {
    * Register with the engine (reached through the scene) and begin reflowing on
    * resize. Runs when the root is added to a scene that belongs to an engine.
    */
-  override onAttachedToScene(scene: Scene): void {
+  override onAttachedToScene(scene: SceneTree): void {
     super.onAttachedToScene(scene)
     const engine = scene.engine
     if (!engine || this.#unregister) return
@@ -105,7 +105,7 @@ export class LayoutRoot extends SceneNode {
    * (removed from the tree, not destroyed) and schedules a pass. Returns `node`
    * for chaining.
    */
-  setContent<T extends SceneNode & Measurable>(node: T): T {
+  setContent<T extends Node2D & Measurable>(node: T): T {
     if (this.#content && this.#content !== node) this.remove(this.#content)
     this.#content = node
     if (node.parent !== this) this.add(node)
@@ -114,7 +114,7 @@ export class LayoutRoot extends SceneNode {
   }
 
   /** The current content node, or `null`. */
-  get content(): (SceneNode & Measurable) | null {
+  get content(): (Node2D & Measurable) | null {
     return this.#content
   }
 

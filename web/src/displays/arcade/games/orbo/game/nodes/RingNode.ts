@@ -5,11 +5,11 @@
  * it. It owns no state of its own — it mirrors its `OrbNode`'s placement
  * (position + bounce scale) and reads the animated ring width straight off it.
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import type { OrbNode } from './OrbNode'
 import { RING } from '../tuning'
 
-export class RingNode extends SceneNode {
+export class RingNode extends Node2D {
   readonly #orb: OrbNode
 
   constructor(orb: OrbNode) {

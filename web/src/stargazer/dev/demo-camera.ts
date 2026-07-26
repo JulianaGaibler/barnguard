@@ -1,5 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import { Path2DNode } from '../nodes/Path2DNode'
 import { parseSvgPaths } from '../assets/SvgPathMap'
 import { AssetLoader } from '../assets/AssetLoader'
@@ -76,7 +76,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
 
   await host.loadScene((scene) => {
     if (!assets) return
-    const mapGroup = new SceneNode('map')
+    const mapGroup = new Node2D('map')
     mapGroup.renderLayer = 'static'
     scene.root.add(mapGroup)
 

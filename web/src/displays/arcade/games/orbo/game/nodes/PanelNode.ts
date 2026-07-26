@@ -1,4 +1,4 @@
-import { SceneNode, type BitmapMask, type Gfx2D } from '@src/stargazer'
+import { Node2D, type BitmapMask, type Gfx2D } from '@src/stargazer'
 import { PANEL } from '../tuning'
 
 /**
@@ -14,7 +14,7 @@ interface RevealRef {
   frac: number
 }
 
-export class PanelNode extends SceneNode {
+export class PanelNode extends Node2D {
   readonly #px: number
   readonly #py: number
   readonly #pw: number

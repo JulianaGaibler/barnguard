@@ -136,10 +136,10 @@ descendants reattach to the nearest registered ancestor. So a menu built like
 this:
 
 ```
-panel        (SceneNode)
+panel        (Node2D)
 ├─ background (ShapeNode)   ← decorative
 ├─ titleText  (TextNode)
-└─ buttonRow  (SceneNode)   ← pure layout wrapper
+└─ buttonRow  (Node2D)   ← pure layout wrapper
    ├─ startBtn   (ShapeNode)
    └─ optionsBtn (ShapeNode)
 ```
@@ -148,7 +148,7 @@ is made accessible by describing just the four meaningful nodes as you build
 them (and `add` takes as many children as you like):
 
 ```ts
-const panel = new SceneNode().a11y({ role: 'group', label: 'Main menu' })
+const panel = new Node2D().a11y({ role: 'group', label: 'Main menu' })
 const titleText = new TextNode({ text: 'Barn Guard' }).a11y({
   role: 'heading',
   headingLevel: 1,

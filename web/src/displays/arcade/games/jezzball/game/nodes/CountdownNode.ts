@@ -2,13 +2,13 @@
  * The big countdown digit/GO text — engine port of the `.count` overlay,
  * fading in/out over 120ms exactly like the original `transition:fade`.
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import { COLORS } from '../tuning'
 
 const FADE_SEC = 0.12
 const FONT_FAMILY = 'system-ui, sans-serif'
 
-export class CountdownNode extends SceneNode {
+export class CountdownNode extends Node2D {
   #label = ''
   #visible = false
 

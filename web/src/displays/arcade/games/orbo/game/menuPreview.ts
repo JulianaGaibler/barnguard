@@ -12,7 +12,7 @@ import {
   Body,
   BodyType,
   PhysicsWorldBehavior,
-  SceneNode,
+  Node2D,
   aabbShape,
   ignoreAbort,
   lerp,
@@ -38,7 +38,7 @@ const START_DELAY_SEC = 0.5
 type InZone = (x: number, y: number) => boolean
 
 /** A filled convex polygon — the translucent scoring zone. */
-class PolyPanel extends SceneNode {
+class PolyPanel extends Node2D {
   readonly #pts: Float32Array
   readonly #color: string
   constructor(pts: number[], color: string) {
@@ -57,7 +57,7 @@ class PolyPanel extends SceneNode {
  * that appears once the body is inside the zone (`inZone`). A small custom node
  * rather than the game `OrbNode` so the ring can be semi-transparent.
  */
-class PreviewOrb extends SceneNode {
+class PreviewOrb extends Node2D {
   readonly #body: Orb
   readonly #radius: number
   readonly #ringWidth: number
@@ -95,7 +95,7 @@ export function buildOrboMenuPreview(
   const vw = view.width
   const vh = view.height
 
-  const root = new SceneNode('orbo-menu-preview')
+  const root = new Node2D('orbo-menu-preview')
   root.transform.x = view.x
   root.transform.y = view.y
 
@@ -110,7 +110,7 @@ export function buildOrboMenuPreview(
   const inZone: InZone = (x, y) => abx * (y - ay) - aby * (x - ax) > 0
   root.add(new PolyPanel([ax, ay, bx, by, vw, vh], ZONE_COLOR))
 
-  const orbLayer = new SceneNode('preview-orbs')
+  const orbLayer = new Node2D('preview-orbs')
   const world = orbLayer.addBehavior(
     new PhysicsWorldBehavior({
       config: createOrboPhysicsConfig(),
@@ -121,7 +121,7 @@ export function buildOrboMenuPreview(
   const leftX = vw * 0.5
   addWalls(world, leftX, vw, vh)
   root.add(orbLayer)
-  host.engine.scene.root.add(root)
+  host.engine.tree.root.add(root)
 
   const makeOrb = (x: number, y: number, radius: number, mass: number): Orb => {
     const body = new Orb({

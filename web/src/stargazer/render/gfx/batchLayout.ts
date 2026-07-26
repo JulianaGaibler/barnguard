@@ -103,11 +103,17 @@ export const TEXT_QUAD_BUFFER_BYTES = 128 * 1024 // 128 KB → ~2.9k label insta
 export const RING_SIZE = 2
 
 /**
- * Binding index for the shared per-frame `Frame` uniform block (holds
- * `u_proj`). Every program declares the block at this index, so one
- * `bindUniformBufferBase` feeds them all.
+ * Uniform-block binding registry. Binding indices are global per GL context, so
+ * every uniform block picks a distinct slot here to keep them from colliding.
+ *
+ * - 0 `Frame` — the 2D per-frame block (`u_proj`, device-px → clip).
+ * - 1 `Camera3D` — the 3D per-frame view-projection block.
+ *
+ * Add new blocks (per-material, per-object) at the next free index.
  */
 export const FRAME_UBO_BINDING = 0
+/** Binding index for the 3D pass's view-projection uniform block. */
+export const CAMERA3D_UBO_BINDING = 1
 /**
  * `Frame` UBO size in floats. std140 lays a `mat3` out as 3 vec4-aligned
  * columns = 12 floats = 48 B, so the 9-float `projMat` is staged with a padding

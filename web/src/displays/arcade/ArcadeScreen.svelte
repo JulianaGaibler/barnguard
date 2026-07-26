@@ -4,7 +4,7 @@
     mountEngine,
     easings,
     ignoreAbort,
-    SceneNode,
+    Node2D,
     domAnchor,
     type EngineHost,
     type Rect,
@@ -46,7 +46,7 @@
   // Node the launcher UI is pinned to, at the launcher region's origin. The
   // launcher rides the camera, so a pan slides it on/off screen instead of the
   // old fade-out-then-move; `cull` hides it once it's fully off the canvas.
-  let launcherAnchor = $state<SceneNode | null>(null)
+  let launcherAnchor = $state<Node2D | null>(null)
   // The launcher overlay is sized to the launcher region's VISIBLE rect (the
   // full canvas area, adopting its aspect) rather than a fixed 1920×1080 box, so
   // the menu uses the whole window and reflows on resize instead of scaling a
@@ -89,12 +89,12 @@
       // A node at the launcher visible rect's top-left; the launcher UI attaches
       // to it and covers the whole visible area. Its position + the overlay size
       // are re-fit on resize so the menu tracks the window aspect.
-      const anchor = new SceneNode('launcher-ui-anchor')
+      const anchor = new Node2D('launcher-ui-anchor')
       const lr = launcherVisibleRect(px.w, px.h)
       anchor.transform.x = lr.x
       anchor.transform.y = lr.y
       anchor.debugBounds = { x: 0, y: 0, width: lr.width, height: lr.height }
-      h.engine.scene.root.add(anchor)
+      h.engine.tree.root.add(anchor)
       launcherAnchor = anchor
       launcherRect = lr
       offResize = h.engine.events.on('resize', (e) => {

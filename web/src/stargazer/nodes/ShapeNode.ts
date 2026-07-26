@@ -1,4 +1,4 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import { hitTestCircle } from '../scene/hitTest'
 import type { Camera } from '../camera/Camera'
 import type { Rect } from '../math/Rect'
@@ -76,7 +76,7 @@ export interface ShapeNodeOptions {
  *   dot.transform.x = 200
  *   scene.root.add(dot)
  */
-export class ShapeNode extends SceneNode implements Measurable {
+export class ShapeNode extends Node2D implements Measurable {
   geometry: ShapeGeometry
   fill: string | null
   stroke: string | null

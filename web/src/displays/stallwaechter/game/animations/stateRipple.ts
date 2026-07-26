@@ -2,7 +2,6 @@ import {
   Path2DNode,
   easings,
   ignoreAbort,
-  type SceneNode,
 } from '@src/stargazer'
 import { bfsLayers } from '../data/adjacency'
 import type { StateId } from '../data/states'
@@ -46,7 +45,7 @@ async function pulseState(
   delaySec: number,
 ): Promise<void> {
   const cfg = TUNING.stateRipple
-  const parent: SceneNode | null = stateNode.parent
+  const parent = stateNode.parent
   if (!parent) return
 
   try {

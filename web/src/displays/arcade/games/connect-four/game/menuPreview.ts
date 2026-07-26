@@ -7,7 +7,7 @@
  * `DiscNode.drop` animation, then it rests.
  */
 import {
-  SceneNode,
+  Node2D,
   ignoreAbort,
   type EngineHost,
   type Rect,
@@ -40,12 +40,12 @@ export function buildConnectFourMenuPreview(
 ): MenuPreview {
   const abort = new AbortController()
 
-  const root = new SceneNode('cf-menu-preview')
+  const root = new Node2D('cf-menu-preview')
   root.transform.x = view.x
   root.transform.y = view.y
-  const discLayer = new SceneNode('preview-discs')
+  const discLayer = new Node2D('preview-discs')
   root.add(discLayer)
-  host.engine.scene.root.add(root)
+  host.engine.tree.root.add(root)
 
   // Big cells anchored past the middle so the 4×4 runs off the right + bottom.
   const cell = view.height * 0.23

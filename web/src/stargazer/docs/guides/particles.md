@@ -146,13 +146,13 @@ Particles live in the emitter's local coord space. If the emitter node sits at t
 
 ## Reading state
 
-`emitter.aliveCount` is the current live count, and `pool.availableCount` is the free-slot count. `SceneNode.particleCount` is a getter (overridden on `ParticleEmitterNode` to return `aliveCount`) for tooling that sums particles across the scene.
+`emitter.aliveCount` is the current live count, and `pool.availableCount` is the free-slot count. `Node2D.particleCount` is a getter (overridden on `ParticleEmitterNode` to return `aliveCount`) for tooling that sums particles across the scene.
 
 ## Cleanup
 
 `emitter.clear()` returns every slot to the freelist and resets the emission accumulator. `ParticleEmitterNode.destroy()` removes the node from its parent, and the emitter's typed arrays are dropped for GC.
 
-For a one-shot burst that should remove its own node once it's done, pair `emitter.waitUntilEmpty()` with the existing `SceneNode.autoDestroy` idiom:
+For a one-shot burst that should remove its own node once it's done, pair `emitter.waitUntilEmpty()` with the existing `Node2D.autoDestroy` idiom:
 
 ```ts
 const burst = new ParticleEmitterNode({ config })

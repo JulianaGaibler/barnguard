@@ -113,12 +113,12 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     )
     const color = PALETTE[colorIdx % PALETTE.length]
     colorIdx++
-    host.engine.scene.root.add(new ShrapnelBurst(w, color, e.shiftKey))
+    host.engine.tree.root.add(new ShrapnelBurst(w, color, e.shiftKey))
   }
   // "r" clears every permanent burst still lingering (self-destroying bursts
   // are already gone by the time this matters).
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'r') host.engine.scene.root.destroyChildren()
+    if (e.key === 'r') host.engine.tree.root.destroyChildren()
   }
   canvas.addEventListener('pointerdown', onDown)
   window.addEventListener('keydown', onKeyDown)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Scene } from '../scene/Scene'
-import { SceneNode } from '../scene/SceneNode'
+import { SceneTree } from '../scene/SceneTree'
+import { Node2D } from '../scene/Node2D'
 import type { Engine, RegisteredPhysicsWorld } from '../engine/Engine'
 import { Body } from './Body'
 import { circleShape } from './Collider'
@@ -20,7 +20,7 @@ function fakeEngine(): {
     registerPhysicsWorld(
       world: RegisteredPhysicsWorld['world'],
       opts: {
-        spaceNode?: SceneNode | null
+        spaceNode?: Node2D | null
         label?: string
       },
     ) {
@@ -39,9 +39,9 @@ function fakeEngine(): {
 describe('PhysicsWorldBehavior', () => {
   it('registers its world with the engine on scene attach', () => {
     const { engine, registered } = fakeEngine()
-    const scene = new Scene()
+    const scene = new SceneTree(new Node2D('scene-root'))
     scene.engine = engine
-    const arena = new SceneNode('arena')
+    const arena = new Node2D('arena')
     scene.root.add(arena)
     const physics = arena.addBehavior(new PhysicsWorldBehavior())
 
@@ -53,9 +53,9 @@ describe('PhysicsWorldBehavior', () => {
 
   it('unregisters and clears an owned world on detach', () => {
     const { engine, unregistered } = fakeEngine()
-    const scene = new Scene()
+    const scene = new SceneTree(new Node2D('scene-root'))
     scene.engine = engine
-    const arena = new SceneNode('arena')
+    const arena = new Node2D('arena')
     scene.root.add(arena)
     const physics = arena.addBehavior(new PhysicsWorldBehavior())
     physics.world.addBody(new Body({ colliders: [{ shape: circleShape(5) }] }))
@@ -68,11 +68,11 @@ describe('PhysicsWorldBehavior', () => {
 
   it('does not clear an adopted world on detach', () => {
     const { engine } = fakeEngine()
-    const scene = new Scene()
+    const scene = new SceneTree(new Node2D('scene-root'))
     scene.engine = engine
     const world = new PhysicsWorld()
     world.addBody(new Body({ colliders: [{ shape: circleShape(5) }] }))
-    const arena = new SceneNode('arena')
+    const arena = new Node2D('arena')
     scene.root.add(arena)
     const physics = arena.addBehavior(new PhysicsWorldBehavior({ world }))
 

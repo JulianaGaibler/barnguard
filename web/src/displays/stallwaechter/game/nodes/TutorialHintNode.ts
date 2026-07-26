@@ -1,5 +1,5 @@
 import {
-  SceneNode,
+  Node2D,
   easings,
   lerp,
   type Camera,
@@ -95,7 +95,7 @@ function resolvePhase(elapsed: number): {
  * canvas resize so the arch keeps tracking the packet + epicenter positions
  * even if the world viewport reshapes.
  */
-export class TutorialHintNode extends SceneNode {
+export class TutorialHintNode extends Node2D {
   readonly #pathBlack: Path2D
   readonly #pathWhite: Path2D
   /** Dashed bezier arch, rebuilt whenever `setGeometry` runs. */

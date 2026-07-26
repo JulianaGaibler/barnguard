@@ -2,7 +2,7 @@
  * Async tweens and sequencing. {@link Animator} owns the active tween/wait set
  * and ticks in engine time; {@link Timeline} chains steps in sequence or
  * parallel. Most game code reaches these through the scoped helpers
- * (`SceneNode.tween`, `SceneNode.wait`, `Camera.animateTo`). The abort helpers
+ * (`Node2D.tween`, `Node2D.wait`, `Camera.animateTo`). The abort helpers
  * ({@link combineAbortSignals}, {@link isAbortError}) implement the cancel
  * contract, tweens reject with `AbortError` when their node is destroyed.
  *

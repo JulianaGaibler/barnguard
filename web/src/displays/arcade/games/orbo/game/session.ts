@@ -12,7 +12,7 @@
  * awaiting step unwinds on its own — no generation-counter guards.
  */
 import {
-  SceneNode,
+  Node2D,
   PhysicsWorldBehavior,
   bindRegionGesture,
   clamp,
@@ -163,7 +163,7 @@ export async function startGame(
   // Shared by reference with the panel + field nodes, tweened on match start.
   const reveal = { frac: 0 }
 
-  const orbLayer = new SceneNode('orb-layer')
+  const orbLayer = new Node2D('orb-layer')
   // orbLayer owns the orbo physics world. Orb nodes are its children with
   // transform = body position, so its world transform maps field coords to
   // scene world for the debug overlay. Attaching the behavior registers the
@@ -174,9 +174,9 @@ export async function startGame(
   ).world
   // White scoring rings live in their own layer BELOW the orbs so a ring never
   // obstructs a neighbouring orb it touches — the orb bodies paint over it.
-  const ringLayer = new SceneNode('ring-layer')
-  const indicatorLayer = new SceneNode('indicator-layer')
-  const scoreLayer = new SceneNode('score-layer')
+  const ringLayer = new Node2D('ring-layer')
+  const indicatorLayer = new Node2D('indicator-layer')
+  const scoreLayer = new Node2D('score-layer')
   const fieldNode = new FieldNode(layout, reveal, fieldMask)
   const nodesByBody = new Map<number, OrbNode>()
   let indicators: IndicatorNode[] = [] // indexed by player id
@@ -185,11 +185,11 @@ export async function startGame(
   // uses local coordinates 0..bounds.width × 0..bounds.height; `gameGroup` just
   // translates them to the bounds origin (no scaling, so the field takes the
   // bounds' aspect — not a fixed 16:9). A light rounded panel sits behind it.
-  const orboRoot = new SceneNode('orbo-root')
+  const orboRoot = new Node2D('orbo-root')
   // `fieldGroup` wraps the panel + game. Both the open and the close are
   // horizontal clip reveals driven by `reveal.frac` (no scaling), so the group
   // keeps an identity transform.
-  const fieldGroup = new SceneNode('orbo-field')
+  const fieldGroup = new Node2D('orbo-field')
   const panel = new PanelNode(
     bounds.x,
     bounds.y,
@@ -198,7 +198,7 @@ export async function startGame(
     reveal,
     fieldMask,
   )
-  const gameGroup = new SceneNode('orbo-game')
+  const gameGroup = new Node2D('orbo-game')
   gameGroup.transform.x = bounds.x
   gameGroup.transform.y = bounds.y
 
@@ -233,7 +233,7 @@ export async function startGame(
   fieldGroup.add(panel) // behind the field
   fieldGroup.add(gameGroup)
   orboRoot.add(fieldGroup)
-  host.engine.scene.root.add(orboRoot)
+  host.engine.tree.root.add(orboRoot)
 
   // Physics runs on the deterministic fixed-step ticker (120 Hz) via the
   // registered world; the engine steps it automatically. Cheap when idle (no

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SceneNode, domAnchor, type Rect } from '@src/stargazer'
+  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
   import {
     coverView,
     gameVisibleRect,
@@ -45,7 +45,7 @@
   let bumpTeam = $state<TeamId | null>(null)
   // Node the menu overlay is pinned to, so it pans with the game region when the
   // arcade camera moves between the game and the launcher.
-  let anchor = $state<SceneNode | null>(null)
+  let anchor = $state<Node2D | null>(null)
   // Overlay bounds = the game region's visible rect (full canvas, adopting its
   // aspect), so the splash/pause menus fill the window and reflow on resize.
   let gameRect = $state<Rect>({
@@ -83,7 +83,7 @@
     // A UI-only node at the game region's visible-rect top-left; the overlays
     // attach to it and cover the whole visible area, so the menus fill the
     // window and ride the camera through pans. `domAnchor` keeps it flush.
-    const uiAnchor = new SceneNode('orbo-ui-anchor')
+    const uiAnchor = new Node2D('orbo-ui-anchor')
     uiAnchor.transform.x = view.x
     uiAnchor.transform.y = view.y
     uiAnchor.debugBounds = {
@@ -92,7 +92,7 @@
       width: view.width,
       height: view.height,
     }
-    host.engine.scene.root.add(uiAnchor)
+    host.engine.tree.root.add(uiAnchor)
     anchor = uiAnchor
     gameRect = view
 

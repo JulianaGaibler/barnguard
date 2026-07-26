@@ -1,7 +1,7 @@
 import { Engine, type EngineOptions } from './Engine'
 import type { Emitter } from '../events/Emitter'
 import type { EngineEvents } from '../events/EngineEvents'
-import type { Scene } from '../scene/Scene'
+import type { SceneTree } from '../scene/SceneTree'
 import { DebugController } from '../debug/DebugController'
 
 /**
@@ -59,7 +59,7 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
  *   }
  */
 export type SceneBuilder = (
-  scene: Scene,
+  scene: SceneTree,
   engine: Engine,
 ) => void | Promise<void>
 
@@ -266,9 +266,9 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
       engine.destroy()
     },
     async loadScene(build) {
-      const existing = engine.scene.root.children.slice()
+      const existing = engine.tree.root.children.slice()
       for (const child of existing) child.destroy()
-      await build(engine.scene, engine)
+      await build(engine.tree, engine)
     },
   }
 

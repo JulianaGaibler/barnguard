@@ -6,10 +6,10 @@
  * anchored side is pinned at the seed center, giving the placed wall its
  * two-tone split there (primary on one half, variant on the other).
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import type { Bounds, Orientation } from '../types'
 
-export class WallSegmentNode extends SceneNode {
+export class WallSegmentNode extends Node2D {
   readonly #anchorX: number
   readonly #anchorY: number
   readonly #halfThick: number

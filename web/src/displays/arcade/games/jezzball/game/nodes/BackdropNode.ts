@@ -4,11 +4,11 @@
  * layer and is added to the scene before the boards so it paints over the sky
  * but under the play content.
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import type { Bounds } from '../types'
 import { COLORS } from '../tuning'
 
-export class BackdropNode extends SceneNode {
+export class BackdropNode extends Node2D {
   #rect: Bounds
 
   constructor(rect: Bounds) {

@@ -12,7 +12,7 @@
 import {
   Behavior,
   ShapeNode,
-  SceneNode,
+  Node2D,
   easings,
   type Stage,
 } from '@src/stargazer'
@@ -38,28 +38,28 @@ const GAP_SEC = 0.5
 
 /** A grid + its rendered field, shared setup for all three demos. */
 interface DemoField {
-  root: SceneNode
+  root: Node2D
   grid: Grid
   geom: FieldGeom
   field: GridFieldNode
-  wallLayer: SceneNode
+  wallLayer: Node2D
 }
 
 function buildDemoField(stage: Stage, name: string): DemoField {
-  const root = new SceneNode(name)
+  const root = new Node2D(name)
   const grid = createGrid(COLS, ROWS)
   const geom = computeFieldGeom(BOARD, COLS, ROWS)
   const field = new GridFieldNode(geom, grid)
-  const wallLayer = new SceneNode(`${name}-walls`)
+  const wallLayer = new Node2D(`${name}-walls`)
   root.add(field)
   root.add(wallLayer)
-  stage.scene.root.add(root)
+  stage.tree.root.add(root)
   return { root, grid, geom, field, wallLayer }
 }
 
 /** Build the (up to) two growing segments for a wall placed at `seed`. */
 function spawnSegments(
-  wallLayer: SceneNode,
+  wallLayer: Node2D,
   geom: FieldGeom,
   orientation: Orientation,
   seed: CellRef,

@@ -1,5 +1,5 @@
 /**
- * A `SceneNode`'s local transform: position, per-axis scale, rotation, a pivot
+ * A `Node2D`'s local transform: position, per-axis scale, rotation, a pivot
  * origin, and alpha. Set the fields directly (`node.transform.x = 100`); each
  * setter marks the node dirty so the scene walk rebuilds the matrices and
  * propagates to descendants.
@@ -20,7 +20,7 @@ export class Transform2D {
   /** World matrix (`local` × parent chain), filled by the scene walk. Read-only. */
   readonly world: DOMMatrix = new DOMMatrix()
 
-  /** Internal, the owning `SceneNode` hooks this to mark itself dirty. */
+  /** Internal, the owning `Node2D` hooks this to mark itself dirty. */
   onDirty: (() => void) | null = null
 
   #_x = 0

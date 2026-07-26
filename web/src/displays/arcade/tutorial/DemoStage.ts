@@ -87,7 +87,7 @@ export class DemoStage implements DemoStageController {
     if (this.#destroyed) return
     this.#handle?.destroy()
     this.#handle = null
-    this.#stage.scene.root.destroyChildren()
+    this.#stage.tree.root.destroyChildren()
     this.#pendingBuild = build
     this.#built = false
     this.#tryBuild()
@@ -112,7 +112,7 @@ export class DemoStage implements DemoStageController {
     this.#handle = null
     this.#pendingBuild = null
     this.#built = false
-    this.#stage.scene.root.destroyChildren()
+    this.#stage.tree.root.destroyChildren()
     this.#stage.setActive(false)
     // Park the canvas back off-screen so the context stays warm for reuse.
     this.#holder.appendChild(this.#canvas)

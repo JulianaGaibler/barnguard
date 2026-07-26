@@ -12,7 +12,7 @@ until you enable it on a stage.
 - `Body`, a rigid body: position, rotation, velocity, mass, and its colliders.
 - `Collider` plus the `Shape` union (`circleShape`, `aabbShape`, `polygonShape`).
 - `RigidBodyBehavior`, the scene-graph binding: mirrors a body onto a
-  `SceneNode` transform each frame with interpolation.
+  `Node2D` transform each frame with interpolation.
 - `PhysicsWorldBehavior`, which gives a subtree its own world so a self-contained
   simulation can sit anywhere in the tree (see Isolated sub-worlds).
 - `BroadPhase` with two implementations, `BruteForceBroadPhase` and
@@ -51,8 +51,8 @@ simulation boundary: `RigidBodyBehavior`s below it bind to that world instead of
 the stage world, the engine steps it each fixed tick, and the debug HUD lists it.
 
 ```ts
-function buildArena(): SceneNode {
-  const arena = new SceneNode('arena')
+function buildArena(): Node2D {
+  const arena = new Node2D('arena')
   arena.addBehavior(
     new PhysicsWorldBehavior({ config: { gravity: { x: 0, y: 0 } } }),
   )
@@ -162,7 +162,7 @@ rendered position between fixed steps using the ticker's `fixedAlpha`, so motion
 stays smooth at any display rate.
 
 ```ts
-const node = new SceneNode('crate')
+const node = new Node2D('crate')
 node.transform.x = 100
 node.transform.y = 50
 node.addBehavior(

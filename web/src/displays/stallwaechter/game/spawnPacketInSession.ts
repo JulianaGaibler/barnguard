@@ -1,5 +1,5 @@
 import {
-  SceneNode,
+  Node2D,
   ParticleEmitterNode,
   Path2DNode,
   easings,
@@ -26,7 +26,7 @@ import { TUNING } from './data/tuning'
 export interface SpawnPacketOpts {
   host: EngineHost
   /** Where the packet's hex + trail + hex-particle emitter mount. */
-  packetLayer: SceneNode
+  packetLayer: Node2D
   /** Session-hook surface consumed by `PacketBehavior`. */
   hooks: PacketSessionHooks
   /** Session-hook surface consumed by `PathDrawBehavior`. */
@@ -212,7 +212,7 @@ export function spawnPacketInSession(
 }
 
 function spawnEmergencePulse(
-  packetLayer: SceneNode,
+  packetLayer: Node2D,
   center: Vec2,
   packetId: string,
 ): void {

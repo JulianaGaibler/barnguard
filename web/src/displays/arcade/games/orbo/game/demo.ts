@@ -11,7 +11,7 @@
  * (horizontal travel ≈ 0.83·v₀); they're feel knobs, adjust visually.
  */
 import {
-  SceneNode,
+  Node2D,
   PhysicsWorldBehavior,
   easings,
   ignoreAbort,
@@ -70,10 +70,10 @@ function getFieldMask(bounds: Bounds): Promise<BitmapMask> {
 }
 
 interface OrboScene {
-  root: SceneNode
-  gameGroup: SceneNode
-  orbLayer: SceneNode
-  ringLayer: SceneNode
+  root: Node2D
+  gameGroup: Node2D
+  orbLayer: Node2D
+  ringLayer: Node2D
   layout: FieldLayout
   world: PhysicsWorld
   abort: AbortController
@@ -101,17 +101,17 @@ function buildOrboScene(stage: Stage, host: EngineHost): OrboScene {
   const reveal = { frac: 1 }
   const abort = new AbortController()
 
-  const root = new SceneNode('orbo-demo')
-  const fieldGroup = new SceneNode('orbo-demo-field')
+  const root = new Node2D('orbo-demo')
+  const fieldGroup = new Node2D('orbo-demo-field')
   // Empty holders keep draw order correct: the panel sits behind everything and
   // the field behind the orbs, even though both mount after the async mask.
-  const panelHolder = new SceneNode('orbo-demo-panel')
-  const gameGroup = new SceneNode('orbo-demo-game')
+  const panelHolder = new Node2D('orbo-demo-panel')
+  const gameGroup = new Node2D('orbo-demo-game')
   gameGroup.transform.x = bounds.x
   gameGroup.transform.y = bounds.y
-  const fieldHolder = new SceneNode('orbo-demo-field-holder')
-  const ringLayer = new SceneNode('orbo-demo-rings')
-  const orbLayer = new SceneNode('orbo-demo-orbs')
+  const fieldHolder = new Node2D('orbo-demo-field-holder')
+  const ringLayer = new Node2D('orbo-demo-rings')
+  const orbLayer = new Node2D('orbo-demo-orbs')
 
   fieldGroup.add(panelHolder)
   fieldGroup.add(gameGroup)
@@ -119,7 +119,7 @@ function buildOrboScene(stage: Stage, host: EngineHost): OrboScene {
   gameGroup.add(ringLayer)
   gameGroup.add(orbLayer)
   root.add(fieldGroup)
-  stage.scene.root.add(root)
+  stage.tree.root.add(root)
 
   const world = orbLayer.addBehavior(
     new PhysicsWorldBehavior({

@@ -10,7 +10,7 @@
  * unwinds on its own — no generation-counter guards.
  */
 import {
-  SceneNode,
+  Node2D,
   TextNode,
   ParticleEmitterNode,
   bindRegionGesture,
@@ -123,13 +123,13 @@ export async function startGame(
   // render walk doesn't cascade group alpha), so the front-of-board chrome is
   // toggled by `visible` on the play/menu transition instead.
   const MENU_ALPHA = 0
-  const root = new SceneNode('cf-root')
+  const root = new Node2D('cf-root')
   const background = new GradientBackgroundNode({
     rect: view,
     topLeft: BACKGROUND.topLeft,
     bottomRight: BACKGROUND.bottomRight,
   })
-  const discLayer = new SceneNode('cf-discs')
+  const discLayer = new Node2D('cf-discs')
   const boardNode = new BoardNode(layout)
   boardNode.transform.alpha = MENU_ALPHA // hidden behind the menu
   const preview = new PreviewNode(discRadius)
@@ -150,7 +150,7 @@ export async function startGame(
     layout.panelX + layout.panelW + cell * 0.32,
     layout.panelY + layout.panelH - cell * 1.1,
   )
-  const winLayer = new SceneNode('cf-wins')
+  const winLayer = new Node2D('cf-wins')
 
   root.add(background)
   root.add(boardNode)
@@ -163,7 +163,7 @@ export async function startGame(
   root.add(leftTab)
   root.add(rightTab)
   root.add(winLayer)
-  host.engine.scene.root.add(root)
+  host.engine.tree.root.add(root)
 
   setChromeVisible(false)
 

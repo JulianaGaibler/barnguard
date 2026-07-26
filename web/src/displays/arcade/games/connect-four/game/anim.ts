@@ -1,5 +1,5 @@
 import {
-  SceneNode,
+  Node2D,
   ParticleEmitterNode,
   easings,
   ignoreAbort,
@@ -30,7 +30,7 @@ export async function playWinHighlight(opts: {
   /** Lighter shade the winning discs + bursts take. */
   glowColor: string
   discRadius: number
-  winLayer: SceneNode
+  winLayer: Node2D
   shouldAbort: () => boolean
 }): Promise<void> {
   const {

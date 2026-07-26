@@ -1,4 +1,4 @@
-import { SceneNode, parseSvgPaths, type Gfx2D } from '@src/stargazer'
+import { Node2D, parseSvgPaths, type Gfx2D } from '@src/stargazer'
 import handSvgRaw from './hand.svg?raw'
 
 /**
@@ -29,7 +29,7 @@ const HAND_PATHS = Array.from(
  * origin, so a demo positions it with `transform.x/y` and fades it with
  * `transform.alpha`. Starts hidden.
  */
-export class FingerHintNode extends SceneNode {
+export class FingerHintNode extends Node2D {
   constructor() {
     super('finger-hint')
     this.renderLayer = 'dynamic'

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { Camera } from '../camera/Camera'
-import { Scene } from '../scene/Scene'
+import { SceneTree } from '../scene/SceneTree'
+import { Node2D } from '../scene/Node2D'
 import { LayoutRoot } from './LayoutRoot'
 import { Column, Expanded } from './nodes/Flex'
 import { SizedBox, Box } from './nodes/Box'
@@ -15,7 +16,7 @@ describe('LayoutRoot', () => {
       { w: 400, h: 300 },
     )
     const root = new LayoutRoot({ camera })
-    const scene = new Scene()
+    const scene = new SceneTree(new Node2D('scene-root'))
     scene.root.add(root)
 
     const header = new SizedBox({ width: 400, height: 50 })
@@ -38,7 +39,7 @@ describe('LayoutRoot', () => {
       { w: 200, h: 200 },
     )
     const root = new LayoutRoot({ camera })
-    const scene = new Scene()
+    const scene = new SceneTree(new Node2D('scene-root'))
     scene.root.add(root)
     const child = new Box()
     root.setContent(child)

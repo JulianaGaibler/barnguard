@@ -29,17 +29,20 @@ export { searchBestMove } from './ai/minimax'
 export type { AdversarialGame, SearchOptions, SearchResult } from './ai/minimax'
 
 // scene
-export { Scene } from './scene/Scene'
-export type {
-  RenderLayer,
-  NodeEvents,
-  PointerHandlers,
-} from './scene/SceneNode'
+export { SceneTree } from './scene/SceneTree'
+export { Node } from './scene/Node'
+export type { NodeOwner, NodeEvents, NodeKind } from './scene/Node'
+export { GroupNode } from './scene/GroupNode'
+export { Node3D } from './scene/Node3D'
+export type { Node3DTweenTo } from './scene/Node3D'
+export type { RenderLayer, PointerHandlers } from './scene/Node2D'
 export { Behavior } from './scene/Behavior'
 export type { BehaviorCtor } from './scene/Behavior'
 export { PointerBehavior } from './scene/PointerBehavior'
 export { walkTree } from './scene/traverse'
 export { hitTestCircle } from './scene/hitTest'
+export { raycastWorld3D, raycastMesh, makeRay } from './scene/raycast3d'
+export type { Raycast3DHit } from './scene/raycast3d'
 
 // math
 export { Transform2D } from './math/Transform2D'
@@ -84,6 +87,51 @@ export {
   invertMatrix2D,
   transformPoint2D,
 } from './math/matrix'
+// 3D math
+export { Transform3D } from './math/Transform3D'
+export type { Vec3 } from './math/Vec3'
+export {
+  vec3,
+  vec3Set,
+  vec3Copy,
+  vec3Add,
+  vec3Sub,
+  vec3Scale,
+  vec3Length,
+  vec3Distance,
+  vec3DistanceSq,
+  vec3Lerp,
+  vec3Dot,
+  vec3Cross,
+  vec3Normalize,
+  vec3Negate,
+} from './math/Vec3'
+export type { Quat } from './math/Quat'
+export {
+  quat,
+  quatIdentity,
+  quatCopy,
+  quatFromAxisAngle,
+  quatMultiply,
+  quatNormalize,
+  quatSlerp,
+} from './math/Quat'
+export type { Ray } from './math/Ray'
+export { ray, rayAt } from './math/Ray'
+export type { Mat4 } from './math/Mat4'
+export {
+  mat4,
+  mat4Identity,
+  mat4Copy,
+  mat4Multiply,
+  mat4Invert,
+  mat4Perspective,
+  mat4Ortho,
+  mat4LookAt,
+  mat4Compose,
+  mat4TransformPoint,
+  mat4TransformDir,
+} from './math/Mat4'
 export { clamp, clampAbs, lerp, lerpAngle } from './math/scalar'
 export type { Easing } from './math/easings'
 /**
@@ -97,6 +145,11 @@ export * as easings from './math/easings'
 // camera
 export { Camera } from './camera/Camera'
 export type { ScreenTransform, CameraAnimateOptions } from './camera/Camera'
+export { Camera3D } from './camera/Camera3D'
+export type {
+  Projectionness,
+  ProjectionAnimateOptions,
+} from './camera/Camera3D'
 
 // render internals (mostly for advanced users / tests)
 export { Stage } from './render/Stage'
@@ -139,7 +192,7 @@ export { DebugCamera } from './debug/DebugCamera'
 export { FrameStats } from './debug/FrameStats'
 
 // primitives
-export { SceneNode } from './scene/SceneNode'
+export { Node2D } from './scene/Node2D'
 export { ShapeNode } from './nodes/ShapeNode'
 export type { ShapeGeometry, ShapeNodeOptions } from './nodes/ShapeNode'
 export { PolylineNode } from './nodes/PolylineNode'
@@ -158,6 +211,10 @@ export type {
 } from './nodes/VectorParticleNode'
 export { TextNode } from './nodes/TextNode'
 export type { TextNodeOptions } from './nodes/TextNode'
+export { MeshNode, createBoxGeometry } from './nodes/MeshNode'
+export type { MeshGeometry, MeshMaterial } from './nodes/MeshNode'
+export { Viewport2DNode } from './nodes/Viewport2DNode'
+export type { Viewport2DOptions } from './nodes/Viewport2DNode'
 export { measureText } from './render/gfx/rasterizeLabel'
 export type { LabelStyle, LabelMetrics } from './render/gfx/rasterizeLabel'
 
@@ -250,6 +307,7 @@ export type {
 } from './assets/SvgPathMap'
 export { buildBitmapMask } from './assets/BitmapMask'
 export type { BitmapMask, BitmapMaskOptions } from './assets/BitmapMask'
+export { loadGltf, parseGltf } from './assets/gltf'
 
 // input
 export { InputSystem } from './input/InputSystem'
@@ -281,6 +339,8 @@ export { DomTransformSync, projectWorldToCss } from './dom/DomTransformSync'
 export type {
   DomAttachment,
   DomAttachOptions,
+  Dom3DAttachment,
+  Dom3DAttachOptions,
   CssMatrix,
 } from './dom/DomTransformSync'
 
@@ -301,8 +361,8 @@ export { mountEngine } from './svelte/mountEngine'
 export type { MountEngineActionParams } from './svelte/mountEngine'
 export { mountStage } from './svelte/mountStage'
 export type { MountStageParams } from './svelte/mountStage'
-export { domAnchor } from './svelte/domAnchor'
-export type { DomAnchorParams } from './svelte/domAnchor'
+export { domAnchor, domAnchor3d } from './svelte/domAnchor'
+export type { DomAnchorParams, DomAnchor3dParams } from './svelte/domAnchor'
 export { a11yRoot } from './svelte/a11yRoot'
 export type { A11yRootParams } from './svelte/a11yRoot'
 export { emitterStore, latestEventStore } from './svelte/emitterStore'

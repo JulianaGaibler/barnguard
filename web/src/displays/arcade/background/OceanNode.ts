@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
+import { Node2D, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
 import { layout } from '../world'
 import { rgbaStr } from './palette'
 import { visibleWorldRect } from './util'
@@ -13,7 +13,7 @@ const BAND_HEIGHT = 218
  * the band) down to transparent, so it stays confined to the water. Spans the
  * visible width and down to the visible bottom to cover any letterbox.
  */
-export class OceanNode extends SceneNode {
+export class OceanNode extends Node2D {
   readonly #vr: Rect = { x: 0, y: 0, width: 0, height: 0 }
   readonly #pts = new Float32Array(8)
   readonly #source: PaletteSource

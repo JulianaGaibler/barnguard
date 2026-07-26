@@ -5,8 +5,8 @@
 
 import type { Camera } from '../camera/Camera'
 import type { Vec2 } from '../math/Vec2'
-import type { Scene } from '../scene/Scene'
-import type { RenderLayer, SceneNode } from '../scene/SceneNode'
+import type { SceneTree } from '../scene/SceneTree'
+import type { RenderLayer, Node2D } from '../scene/Node2D'
 import type { Gfx2D } from './gfx/Gfx2D'
 import type { Renderer } from './Renderer'
 
@@ -28,7 +28,7 @@ export class StageLayerRenderer {
   readonly #cullBR: Vec2 = { x: 0, y: 0 }
 
   drawLayer(
-    scene: Scene,
+    scene: SceneTree,
     renderer: Renderer,
     layer: RenderLayer,
     gfx: Gfx2D,
@@ -105,7 +105,7 @@ export class StageLayerRenderer {
    * off-screen doesn't get its visible stroke clipped.
    */
   #isOutsideView(
-    node: SceneNode,
+    node: Node2D,
     strokeScale: number,
     visLeft: number,
     visRight: number,

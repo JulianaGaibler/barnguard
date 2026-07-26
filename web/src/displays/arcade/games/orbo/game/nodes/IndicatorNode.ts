@@ -12,11 +12,11 @@
  * - Removed orbs (spawned from the front) fade out and slide off to the left.
  * - Survivors slide horizontally to fill the gap / make space, staying centered.
  */
-import { SceneNode, ShapeNode, easings, ignoreAbort } from '@src/stargazer'
+import { Node2D, ShapeNode, easings, ignoreAbort } from '@src/stargazer'
 import { INDICATOR, ORB_SIZES } from '../tuning'
 import type { OrbSize, QueuedOrbView } from '../types'
 
-export class IndicatorNode extends SceneNode {
+export class IndicatorNode extends Node2D {
   readonly #color: string
   readonly #cx: number
   readonly #cy: number

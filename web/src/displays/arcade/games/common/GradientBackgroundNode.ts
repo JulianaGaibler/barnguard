@@ -1,4 +1,4 @@
-import { SceneNode, type Gfx2D, type Rect } from '@src/stargazer'
+import { Node2D, type Gfx2D, type Rect } from '@src/stargazer'
 
 /** Construction options for {@link GradientBackgroundNode}. */
 export interface GradientBackgroundOptions {
@@ -24,7 +24,7 @@ export interface GradientBackgroundOptions {
  * region's visible rect so it covers the viewport at any aspect; call
  * {@link setRect} to refit it.
  */
-export class GradientBackgroundNode extends SceneNode {
+export class GradientBackgroundNode extends Node2D {
   readonly #rect: Rect = { x: 0, y: 0, width: 0, height: 0 }
   readonly #pts = new Float32Array(8)
   #topLeft: string

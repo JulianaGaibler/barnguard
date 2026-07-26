@@ -10,7 +10,7 @@
  * is visible — it's just two `fillRect`s per frame.
  */
 import {
-  SceneNode,
+  Node2D,
   easings,
   ignoreAbort,
   parseColor,
@@ -48,7 +48,7 @@ function rgba(c: Rgb, alpha: number): string {
   return `rgba(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)}, ${alpha})`
 }
 
-export class FieldNode extends SceneNode {
+export class FieldNode extends Node2D {
   // leftCenter is Team R's (team 1) band; rightCenter is Team L's (team 0).
   readonly #leftBand = parseHex(TEAM_COLORS[1])
   readonly #rightBand = parseHex(TEAM_COLORS[0])

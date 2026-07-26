@@ -1,10 +1,10 @@
 # Scene graph
 
-A `Scene` belongs to a `Stage`. The primary engine has one, and each `engine.attachStage(...)` returns a stage with its own. Everything below applies per stage: `engine.scene` is a shortcut for the primary; secondary stages get their scene via `stage.scene`. See [Stages](/guides/stages) for how to attach a second canvas.
+A `SceneTree` belongs to a `Stage` and holds one tree of both 2D (`Node2D`) and 3D (`Node3D`) nodes (Godot-style), rooted at `tree.root`. The primary engine has one, and each `engine.attachStage(...)` returns a stage with its own. Everything below applies per stage: `engine.tree` is a shortcut for the primary; secondary stages get theirs via `stage.tree`. See [Stages](/guides/stages) for how to attach a second canvas.
 
-## SceneNode
+## Node2D
 
-Everything in the scene is a `SceneNode`: a transform, a parent, children, and optional behaviors. Use it directly as a transform-only container to group children. The drawable primitives extend it:
+Everything in the scene is a `Node2D`: a transform, a parent, children, and optional behaviors. Use it directly as a transform-only container to group children. The drawable primitives extend it:
 
 - `ShapeNode`, a circle or rect with optional fill and stroke. Circles hit-test as circles; rects fall back to their bounding box.
 - `Path2DNode`, an arbitrary `Path2D` fill or stroke. It hit-tests via `isPointInPath`, or a bounding circle when `hitMode: 'circle'`.
@@ -19,8 +19,8 @@ Composition happens through `parent.add(child)` and `parent.remove(child)`. The 
 A subtree is the unit of reuse. There's no separate scene or prefab type: to reuse a chunk of the tree, write a function that builds and returns it, then call it wherever you need a copy. A builder can call other builders, so a `buildArena()` can compose a `buildOrb()`, and calling it twice gives two independent instances.
 
 ```ts
-function buildArena(): SceneNode {
-  const arena = new SceneNode('arena')
+function buildArena(): Node2D {
+  const arena = new Node2D('arena')
   arena.add(buildOrb())
   return arena
 }
@@ -108,7 +108,7 @@ Override the optional `onPointerDetach()` for cleanup that should run after the 
 
 `destroy()` is idempotent: the first call marks the node destroyed and every later call returns immediately, so there's no need to guard it with `if (!node.isDestroyed) node.destroy()` — just call `destroy()`.
 
-Every `SceneNode` has a private `AbortController`; `node.abortSignal` exposes it read-only. `node.destroy()`:
+Every `Node2D` has a private `AbortController`; `node.abortSignal` exposes it read-only. `node.destroy()`:
 
 1. Marks the node destroyed.
 2. Destroys every child first, bottom-up.
@@ -137,7 +137,7 @@ Each concrete node type has its own hit test:
 
 - `ShapeNode`, a radius check for circles and a bounding-box check for rects, in local coords.
 - `Path2DNode`, driven by `hitMode: 'fill' | 'stroke' | 'circle' | 'none'`. `'fill'` and `'stroke'` transform the world point into local coords and call `isPointInPath` / `isPointInStroke`; `'circle'` is a radius check against `hitRadiusWorld`.
-- Base `SceneNode`, the bounding box from `node.debugBounds` (or false when it's null).
+- Base `Node2D`, the bounding box from `node.debugBounds` (or false when it's null).
 
 Override `hitTest` in a subclass if you need something else: world-space in, boolean out.
 
@@ -186,7 +186,7 @@ The default (`strokeSpace: 'screen'`) mirrors how CSS `stroke-width` behaves und
 
 ```ts
 await host.loadScene((scene, engine) => {
-  const map = new SceneNode('map')
+  const map = new Node2D('map')
   map.renderLayer = 'static'
   scene.root.add(map)
 

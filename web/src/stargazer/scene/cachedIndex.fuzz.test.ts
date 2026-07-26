@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SceneNode, type RenderLayer } from './SceneNode'
-import { Scene } from './Scene'
+import { Node2D, type RenderLayer } from './Node2D'
+import { SceneTree } from './SceneTree'
 import { walkTree } from './traverse'
 
 /**
@@ -32,14 +32,14 @@ class Mulberry32 {
 }
 
 /** Deep DFS truth for each cached invariant. */
-function truePainterOrder(root: SceneNode): SceneNode[] {
-  const out: SceneNode[] = []
+function truePainterOrder(root: Node2D): Node2D[] {
+  const out: Node2D[] = []
   walkTree(root, (n) => out.push(n))
   return out
 }
 
-function trueLayerNodes(root: SceneNode, layer: RenderLayer): SceneNode[] {
-  const out: SceneNode[] = []
+function trueLayerNodes(root: Node2D, layer: RenderLayer): Node2D[] {
+  const out: Node2D[] = []
   walkTree(root, (n) => {
     if (n.renderLayer === layer) out.push(n)
   })
@@ -51,9 +51,9 @@ function trueLayerNodes(root: SceneNode, layer: RenderLayer): SceneNode[] {
  * a Map<nodeId, [a, b, c, d, e, f]> so we can assert equality against the
  * incremental transform pass.
  */
-function trueWorlds(root: SceneNode): Map<string, number[]> {
+function trueWorlds(root: Node2D): Map<string, number[]> {
   const m = new Map<string, number[]>()
-  function walk(n: SceneNode, parent: number[] | null): void {
+  function walk(n: Node2D, parent: number[] | null): void {
     n.transform.updateLocal()
     const l = n.transform.local
     let w: number[]
@@ -71,7 +71,7 @@ function trueWorlds(root: SceneNode): Map<string, number[]> {
       w = [l.a, l.b, l.c, l.d, l.e, l.f]
     }
     m.set(n.id, w)
-    for (const c of n.children) walk(c, w)
+    for (const c of n.children) walk(c as Node2D, w)
   }
   walk(root, null)
   return m
@@ -82,14 +82,15 @@ const LAYERS: readonly RenderLayer[] = ['static', 'above-static', 'dynamic']
 describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
   it('holds every invariant under 500 random ops on a 50-node tree', () => {
     const rng = new Mulberry32(0xdeadbeef)
-    const scene = new Scene()
-    const nodes: SceneNode[] = []
+    const root = new Node2D('scene-root')
+    const scene = new SceneTree(root)
+    const nodes: Node2D[] = []
     // Seed 50 nodes, each attached under a randomly-chosen prior node
     // (or root).
     for (let i = 0; i < 50; i++) {
-      const n = new SceneNode(`fuzz-${i}`)
+      const n = new Node2D(`fuzz-${i}`)
       n.renderLayer = LAYERS[rng.int(3)]
-      const parent = nodes.length > 0 ? rng.choice(nodes) : scene.root
+      const parent = nodes.length > 0 ? rng.choice(nodes) : root
       parent.add(n)
       nodes.push(n)
     }
@@ -100,10 +101,10 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
       // 0: add a new node; 1: reparent; 2: remove; 3: setRenderLayer;
       // 4: setPosition
       if (op === 0) {
-        const n = new SceneNode(`fuzz-late-${step}`)
+        const n = new Node2D(`fuzz-late-${step}`)
         n.renderLayer = LAYERS[rng.int(3)]
         const parent =
-          nodes.length > 0 && rng.next() < 0.9 ? rng.choice(nodes) : scene.root
+          nodes.length > 0 && rng.next() < 0.9 ? rng.choice(nodes) : root
         // Skip if parent was destroyed in a prior op.
         if (!parent.isDestroyed) {
           parent.add(n)
@@ -119,14 +120,14 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
           // Guard against cycles: if target is a descendant of child,
           // skip. (Add throws for self-add; this prevents the subtler
           // ancestor-loop case.)
-          let cur: SceneNode | null = target
+          let cur: Node2D | null = target
           let isDescendant = false
           while (cur) {
             if (cur === child) {
               isDescendant = true
               break
             }
-            cur = cur.parent
+            cur = cur.parent as Node2D | null
           }
           if (!isDescendant) target.add(child)
         }
@@ -153,7 +154,7 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
       if (step % 10 !== 9) continue
 
       // (P4) Painter order matches a fresh DFS.
-      const painterTrue = truePainterOrder(scene.root)
+      const painterTrue = truePainterOrder(root)
       const painterCache = scene.getPainterOrder()
       expect(painterCache.map((n) => n.id)).toEqual(
         painterTrue.map((n) => n.id),
@@ -161,20 +162,20 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
 
       // (P1) Per-layer index matches DFS filtered by layer.
       for (const layer of LAYERS) {
-        const layerTrue = trueLayerNodes(scene.root, layer)
+        const layerTrue = trueLayerNodes(root, layer)
         const layerCache = scene.getLayerNodes(layer)
         expect(layerCache.map((n) => n.id)).toEqual(layerTrue.map((n) => n.id))
       }
 
       // (P8) Static descendant count.
-      scene.root._verifyStaticCount()
+      root._verifyStaticCount()
 
       // (P3) After a fresh updateTransforms pass, every node's world
       // matrix must match a from-scratch composition.
       // Simulate what Stage.updateTransforms does: compose down.
       // Since we don't have a Stage here, do it manually.
-      composeAllWorlds(scene.root)
-      const truthMap = trueWorlds(scene.root)
+      composeAllWorlds(root)
+      const truthMap = trueWorlds(root)
       for (const n of painterCache) {
         const truth = truthMap.get(n.id)!
         const w = n.transform.world
@@ -193,7 +194,7 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
  * Mimic `Stage.updateTransforms`, dirty-aware compose from root down. Uses each
  * node's cached world where clean; recomputes where dirty.
  */
-function composeAllWorlds(root: SceneNode): void {
+function composeAllWorlds(root: Node2D): void {
   // Root: honor the dirty flag ourselves.
   if (root.worldDirty) {
     root.transform.updateLocal()
@@ -208,11 +209,11 @@ function composeAllWorlds(root: SceneNode): void {
     root.markWorldClean()
   }
   const rw = root.transform.world
-  for (const c of root.children) propagate(c, rw, root.worldDirty)
+  for (const c of root.children) propagate(c as Node2D, rw, root.worldDirty)
 }
 
 function propagate(
-  node: SceneNode,
+  node: Node2D,
   parentWorld: DOMMatrix,
   parentDirty: boolean,
 ): void {
@@ -235,5 +236,5 @@ function propagate(
     w.f = pb * l.e + pd * l.f + pf
     node.markWorldClean()
   }
-  for (const c of node.children) propagate(c, node.transform.world, nodeDirty)
+  for (const c of node.children) propagate(c as Node2D, node.transform.world, nodeDirty)
 }

@@ -23,7 +23,7 @@
  * }
  * ```
  *
- * Optionally bound to a parent signal (see {@link SceneNode.scope}): when the
+ * Optionally bound to a parent signal (see {@link Node2D.scope}): when the
  * parent aborts, the current epoch aborts and the scope disposes itself.
  *
  * @category Animation

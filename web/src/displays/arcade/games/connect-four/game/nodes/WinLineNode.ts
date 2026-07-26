@@ -1,4 +1,4 @@
-import { SceneNode, easings, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, easings, type Camera, type Gfx2D } from '@src/stargazer'
 import { ANIM, WIN } from '../tuning'
 
 interface Point {
@@ -16,7 +16,7 @@ interface Point {
  */
 const RING_POP_DURATION = 0.12
 
-export class WinLineNode extends SceneNode {
+export class WinLineNode extends Node2D {
   readonly #centers: readonly Point[]
   readonly #ringRadius: number
   readonly #dotRadius: number

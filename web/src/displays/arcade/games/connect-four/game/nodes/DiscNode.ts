@@ -1,4 +1,4 @@
-import { SceneNode, easings, type Gfx2D } from '@src/stargazer'
+import { Node2D, easings, type Gfx2D } from '@src/stargazer'
 import { ANIM } from '../tuning'
 
 /**
@@ -8,7 +8,7 @@ import { ANIM } from '../tuning'
  * (`y` for the fall, `scaleX`/`scaleY` for the shrink-away on close). The fill
  * color can change (a winning disc recolors to its glow shade).
  */
-export class DiscNode extends SceneNode {
+export class DiscNode extends Node2D {
   readonly #radius: number
   #color: string
 

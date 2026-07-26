@@ -54,7 +54,7 @@
  *
  * ## Design principles
  *
- * Layout nodes are ordinary persistent `SceneNode`s. stargazer is retained
+ * Layout nodes are ordinary persistent `Node2D`s. stargazer is retained
  * mode: you build the tree once and mutate it in place. Only the
  * measure-and-place algorithm is borrowed from declarative toolkits, not their
  * rebuild-the-tree step, which in a retained engine would throw away the state

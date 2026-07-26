@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SceneNode, domAnchor, type Rect } from '@src/stargazer'
+  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
   import {
     coverView,
     gameVisibleRect,
@@ -39,7 +39,7 @@
   // Player whose score just ticked up, so the splash bumps it on return.
   let bumpTeam = $state<Player | null>(null)
   // Node the overlays are pinned to, so the whole surface rides the camera.
-  let anchor = $state<SceneNode | null>(null)
+  let anchor = $state<Node2D | null>(null)
   // Overlay bounds = the game region's visible rect (full canvas, adopting its
   // aspect), so the splash/pause menus fill the window and reflow on resize.
   let gameRect = $state<Rect>({
@@ -76,7 +76,7 @@
 
     // UI-only node at the game region's visible-rect top-left; the overlays
     // attach to it and cover the whole visible area so the menus fill the window.
-    const uiAnchor = new SceneNode('connect-four-ui-anchor')
+    const uiAnchor = new Node2D('connect-four-ui-anchor')
     uiAnchor.transform.x = view.x
     uiAnchor.transform.y = view.y
     uiAnchor.debugBounds = {
@@ -85,7 +85,7 @@
       width: view.width,
       height: view.height,
     }
-    host.engine.scene.root.add(uiAnchor)
+    host.engine.tree.root.add(uiAnchor)
     anchor = uiAnchor
     gameRect = view
 

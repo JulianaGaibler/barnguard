@@ -109,7 +109,7 @@ describe('PolylineNode', () => {
   it('draw with fewer than 2 points is a no-op (does not throw)', () => {
     const p = new PolylineNode()
     const { gfx, calls } = recordingGfx()
-    // p.draw isn't declared on `SceneNode` mandatorily; access via optional call.
+    // p.draw isn't declared on `Node2D` mandatorily; access via optional call.
     expect(() => p.draw?.(gfx, unitCamera(), 0)).not.toThrow()
     expect(calls).toHaveLength(0)
     p.push(1, 1)

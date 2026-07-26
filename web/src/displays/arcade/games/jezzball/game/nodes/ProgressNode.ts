@@ -4,7 +4,7 @@
  * small accent dot and "of N%". Versus: both players' percentages flank a
  * shared vertical "of N%" pill, each growing its own vertical meter.
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
 
 const FONT_FAMILY = 'system-ui, sans-serif'
@@ -19,7 +19,7 @@ export interface ProgressOptions {
   width: number
 }
 
-export class ProgressNode extends SceneNode {
+export class ProgressNode extends Node2D {
   readonly #mode: ProgressMode
   readonly #target: number
   #width: number

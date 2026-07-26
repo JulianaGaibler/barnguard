@@ -1,5 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { PolylineNode } from '../nodes/PolylineNode'
 import { Behavior } from '../scene/Behavior'
@@ -86,7 +86,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   attach?.(host)
 
   await host.loadScene((scene) => {
-    const group = new SceneNode('group')
+    const group = new Node2D('group')
     group.transform.x = 700
     group.transform.y = 640
     group.addBehavior(new SpinBehavior(0.6))
@@ -100,7 +100,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     box.transform.x = 90
     group.add(box)
 
-    const nestedGroup = new SceneNode('nested')
+    const nestedGroup = new Node2D('nested')
     nestedGroup.addBehavior(new SpinBehavior(2.0))
     const nestedShape = new ShapeNode({
       geometry: { kind: 'circle', radius: 18 },
@@ -135,7 +135,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
 
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 't' || e.key === 'T') {
-      const children = host.engine.scene.root.children.slice()
+      const children = host.engine.tree.root.children.slice()
       for (const c of children) c.destroy()
       console.info('[demo-debug] destroyed scene tree')
     }

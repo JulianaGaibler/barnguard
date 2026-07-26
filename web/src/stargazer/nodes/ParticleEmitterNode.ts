@@ -1,4 +1,4 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import type { Camera } from '../camera/Camera'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import {
@@ -20,7 +20,7 @@ export interface ParticleEmitterNodeOptions {
 
 /**
  * Scene-graph wrapper around a {@link ParticleEmitter}. Advances the emitter in
- * {@link SceneNode.onUpdate} and draws its sprites in {@link SceneNode.draw}.
+ * {@link Node2D.onUpdate} and draws its sprites in {@link Node2D.draw}.
  * Reach the emitter through {@link ParticleEmitterNode.emitter} to emit, burst,
  * or move the origin.
  *
@@ -45,7 +45,7 @@ export interface ParticleEmitterNodeOptions {
  *   scene.root.add(trail)
  *   trail.emitter.setOrigin(worldX, worldY) // update the emission point each frame
  */
-export class ParticleEmitterNode extends SceneNode {
+export class ParticleEmitterNode extends Node2D {
   readonly emitter: ParticleEmitter
 
   constructor(opts: ParticleEmitterNodeOptions) {

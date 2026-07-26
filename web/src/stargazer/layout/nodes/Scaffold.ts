@@ -38,7 +38,7 @@ export interface ScaffoldOptions {
  *       footer: toolbar,
  *     }),
  *   )
- *   host.engine.scene.root.add(root)
+ *   host.engine.tree.root.add(root)
  */
 export class Scaffold extends LayoutNode {
   readonly #column: Column

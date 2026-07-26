@@ -100,16 +100,16 @@ its region, and switch by panning the camera:
 
 ```svelte
 <script lang="ts">
-  import { SceneNode, domAnchor } from '@src/stargazer'
+  import { Node2D, domAnchor } from '@src/stargazer'
 
   const { engine } = $props()
 
   // Two regions side by side: menu at x=0, game at x=2000.
-  const menuAnchor = new SceneNode('menu-region')
-  const gameAnchor = new SceneNode('game-region')
+  const menuAnchor = new Node2D('menu-region')
+  const gameAnchor = new Node2D('game-region')
   gameAnchor.transform.x = 2000
-  engine.scene.root.add(menuAnchor)
-  engine.scene.root.add(gameAnchor)
+  engine.tree.root.add(menuAnchor)
+  engine.tree.root.add(gameAnchor)
 
   const size = { width: 1920, height: 1080 }
 

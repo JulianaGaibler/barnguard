@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
+import { Node2D, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
 import { rgbaStr } from './palette'
 import { visibleWorldRect } from './util'
 import type { PaletteSource } from './BackgroundController'
@@ -10,7 +10,7 @@ import type { PaletteSource } from './BackgroundController'
  * always spans a complete `skyTop`→`skyBottom` gradient with no seam during the
  * camera pan.
  */
-export class SkyGradientNode extends SceneNode {
+export class SkyGradientNode extends Node2D {
   readonly #vr: Rect = { x: 0, y: 0, width: 0, height: 0 }
   readonly #pts = new Float32Array(8)
   readonly #source: PaletteSource

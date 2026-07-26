@@ -1,6 +1,6 @@
 import type { Engine } from '../engine/Engine'
-import type { Scene } from '../scene/Scene'
-import type { SceneNode } from '../scene/SceneNode'
+import type { SceneTree } from '../scene/SceneTree'
+import type { Node2D } from '../scene/Node2D'
 import type { Politeness, Semantics, SemanticsHandle } from './types'
 import {
   announceInto,
@@ -54,7 +54,7 @@ import {
  */
 export class AccessibilityTree {
   readonly #engine: Engine
-  readonly #entries = new Map<SceneNode, Entry>()
+  readonly #entries = new Map<Node2D, Entry>()
   /** Node id → entry, for mapping delegated DOM events back to a node. */
   readonly #byId = new Map<string, Entry>()
   /** Composite node id → active member node id, for roving tabindex. */
@@ -112,7 +112,7 @@ export class AccessibilityTree {
    * Register `node` with accessibility `semantics`. Returns a handle to update
    * or detach it. The proxy detaches automatically when the node is destroyed.
    */
-  attach(node: SceneNode, semantics: Semantics): SemanticsHandle {
+  attach(node: Node2D, semantics: Semantics): SemanticsHandle {
     if (this.#disposed)
       throw new Error('stargazer: attach after a11y dispose()')
     const existing = this.#entries.get(node)
@@ -283,14 +283,14 @@ export class AccessibilityTree {
    * node's ancestors share its scene and precede it, keeping the reconciler's
    * ancestor-stack invariant.
    */
-  #computeOrder(): Map<SceneNode, number> {
-    const scenes = new Set<Scene>()
-    const primary = this.#engine.scene
+  #computeOrder(): Map<Node2D, number> {
+    const scenes = new Set<SceneTree>()
+    const primary = this.#engine.tree
     scenes.add(primary)
     for (const entry of this.#entries.values()) {
       if (entry.node.scene) scenes.add(entry.node.scene)
     }
-    const order = new Map<SceneNode, number>()
+    const order = new Map<Node2D, number>()
     let i = 0
     for (const scene of scenes) {
       for (const node of scene.getPainterOrder()) order.set(node, i++)
@@ -300,7 +300,7 @@ export class AccessibilityTree {
 }
 
 interface Entry {
-  node: SceneNode
+  node: Node2D
   element: HTMLElement
   semantics: Semantics
   offDestroy: () => void

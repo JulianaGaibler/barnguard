@@ -1,5 +1,5 @@
 import {
-  SceneNode,
+  Node2D,
   ignoreAbort,
   parseSvgPaths,
   type EngineHost,
@@ -92,9 +92,9 @@ const NO_TURNAROUND_VIEWPORT: Rect = {
 export class TutorialSession {
   readonly #host: EngineHost
   readonly #stage: Stage
-  readonly #packetLayer = new SceneNode('tutorial-packets')
-  readonly #pathLayer = new SceneNode('tutorial-paths')
-  readonly #handleLayer = new SceneNode('tutorial-handles')
+  readonly #packetLayer = new Node2D('tutorial-packets')
+  readonly #pathLayer = new Node2D('tutorial-paths')
+  readonly #handleLayer = new Node2D('tutorial-handles')
   readonly #epicenterNode: EpicenterNode
   readonly #viewport: Rect
   readonly #rectMask: RectMask
@@ -129,11 +129,11 @@ export class TutorialSession {
 
     // Layer order matches the main game, paths under packets so trails
     // don't occlude the finger's target.
-    this.#stage.scene.root.add(this.#pathLayer)
-    this.#stage.scene.root.add(this.#packetLayer)
+    this.#stage.tree.root.add(this.#pathLayer)
+    this.#stage.tree.root.add(this.#packetLayer)
     // Handles ride above packets so the small circle sits on top of the
     // hex when the two overlap at drag release.
-    this.#stage.scene.root.add(this.#handleLayer)
+    this.#stage.tree.root.add(this.#handleLayer)
 
     this.#epicenterNode = new EpicenterNode({
       center: {
@@ -149,13 +149,13 @@ export class TutorialSession {
       },
     })
     this.#epicenterNode.addBehavior(new EpicenterBehavior())
-    this.#stage.scene.root.add(this.#epicenterNode)
+    this.#stage.tree.root.add(this.#epicenterNode)
 
     // Hint sits above every gameplay layer so the arch + hand paint on
     // top of packet, trail, and endpoint handles. Auto-stops on first
     // pointerdown inside the canvas (subscription below).
     this.#hint = buildHintNode()
-    this.#stage.scene.root.add(this.#hint)
+    this.#stage.tree.root.add(this.#hint)
     this.#offStagePointerDown = this.#stage.events.on('pointerDown', () => {
       this.#hint.stop()
       this.#offStagePointerDown?.()

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Engine } from '../engine/Engine'
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import { MockGfxDevice } from '../render/gfx/webgl2/mockGfxDevice'
 
 /**
@@ -45,8 +45,8 @@ describe('AccessibilityTree', () => {
   })
 
   it('holds registrations until a mount, then builds the tree', () => {
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     const h = engine.a11y.attach(node, { role: 'button', label: 'Go' })
     frame(engine) // no mount yet: nothing in the document
     expect(document.querySelector('button')).toBeNull()
@@ -61,8 +61,8 @@ describe('AccessibilityTree', () => {
 
   it('patches attributes in place, preserving element identity and focus', () => {
     const root = mount(engine)
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     const h = engine.a11y.attach(node, { role: 'button', label: 'Go' })
     frame(engine)
     const btn = h.element
@@ -76,8 +76,8 @@ describe('AccessibilityTree', () => {
 
   it('replaces the element when the role changes', () => {
     const root = mount(engine)
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     const h = engine.a11y.attach(node, { role: 'button', label: 'X' })
     frame(engine)
 
@@ -91,10 +91,10 @@ describe('AccessibilityTree', () => {
 
   it('nests cells under a grid and applies roving tabindex', () => {
     const root = mount(engine)
-    const board = new SceneNode('board')
-    const c0 = new SceneNode('c0')
-    const c1 = new SceneNode('c1')
-    engine.scene.root.add(board)
+    const board = new Node2D('board')
+    const c0 = new Node2D('c0')
+    const c1 = new Node2D('c1')
+    engine.tree.root.add(board)
     board.add(c0)
     board.add(c1)
     engine.a11y.attach(board, { role: 'grid', label: 'Board' })
@@ -113,8 +113,8 @@ describe('AccessibilityTree', () => {
 
   it('activates via a delegated click', () => {
     const root = mount(engine)
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     let activated = 0
     const h = engine.a11y.attach(node, {
       role: 'button',
@@ -129,8 +129,8 @@ describe('AccessibilityTree', () => {
 
   it('fires focus/blur callbacks via delegation', () => {
     mount(engine)
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     let focused = false
     const h = engine.a11y.attach(node, {
       role: 'button',
@@ -147,8 +147,8 @@ describe('AccessibilityTree', () => {
 
   it('activates a non-native widget on Enter', () => {
     mount(engine)
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     let activated = 0
     const h = engine.a11y.attach(node, {
       role: 'checkbox',
@@ -164,10 +164,10 @@ describe('AccessibilityTree', () => {
 
   it('moves focus between roving members on arrow keys', () => {
     const root = mount(engine)
-    const board = new SceneNode('board')
-    const c0 = new SceneNode('c0')
-    const c1 = new SceneNode('c1')
-    engine.scene.root.add(board)
+    const board = new Node2D('board')
+    const c0 = new Node2D('c0')
+    const c1 = new Node2D('c1')
+    engine.tree.root.add(board)
     board.add(c0)
     board.add(c1)
     engine.a11y.attach(board, { role: 'grid', label: 'Board' })
@@ -185,8 +185,8 @@ describe('AccessibilityTree', () => {
 
   it('emits relationship attributes for links', () => {
     const root = mount(engine)
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     engine.a11y.attach(node, {
       role: 'button',
       label: 'Help',
@@ -207,10 +207,10 @@ describe('AccessibilityTree', () => {
 
   it('prunes on detach and on node destroy', () => {
     const root = mount(engine)
-    const a = new SceneNode('a')
-    const b = new SceneNode('b')
-    engine.scene.root.add(a)
-    engine.scene.root.add(b)
+    const a = new Node2D('a')
+    const b = new Node2D('b')
+    engine.tree.root.add(a)
+    engine.tree.root.add(b)
     const ha = engine.a11y.attach(a, { role: 'button', label: 'A' })
     engine.a11y.attach(b, { role: 'button', label: 'B' })
     frame(engine)
@@ -228,14 +228,14 @@ describe('AccessibilityTree', () => {
   it('empties the tree when a scene swap destroys its nodes', () => {
     const root = mount(engine)
     for (const id of ['a', 'b', 'c']) {
-      const n = new SceneNode(id)
-      engine.scene.root.add(n)
+      const n = new Node2D(id)
+      engine.tree.root.add(n)
       engine.a11y.attach(n, { role: 'button', label: id })
     }
     frame(engine)
     expect(root.querySelectorAll('button')).toHaveLength(3)
 
-    for (const child of engine.scene.root.children.slice()) child.destroy()
+    for (const child of engine.tree.root.children.slice()) child.destroy()
     frame(engine)
     expect(root.querySelectorAll('button')).toHaveLength(0)
   })
@@ -250,8 +250,8 @@ describe('AccessibilityTree', () => {
 
   it('clears the mount on dispose', () => {
     const root = mount(engine)
-    const node = new SceneNode('n1')
-    engine.scene.root.add(node)
+    const node = new Node2D('n1')
+    engine.tree.root.add(node)
     engine.a11y.attach(node, { role: 'button', label: 'Go' })
     frame(engine)
     expect(root.children.length).toBeGreaterThan(0)
@@ -263,8 +263,8 @@ describe('AccessibilityTree', () => {
   describe('node.a11y() chainable sugar', () => {
     it('registers a node already in the scene', () => {
       const root = mount(engine)
-      const node = new SceneNode('n1')
-      engine.scene.root.add(node)
+      const node = new Node2D('n1')
+      engine.tree.root.add(node)
       const ret = node.a11y({ role: 'button', label: 'Go' })
       expect(ret).toBe(node) // chainable
       frame(engine)
@@ -275,11 +275,11 @@ describe('AccessibilityTree', () => {
 
     it('defers registration until the node joins a scene', () => {
       const root = mount(engine)
-      const node = new SceneNode('n1').a11y({ role: 'button', label: 'Go' })
+      const node = new Node2D('n1').a11y({ role: 'button', label: 'Go' })
       frame(engine)
       expect(root.querySelector('button')).toBeNull() // not in a scene yet
 
-      engine.scene.root.add(node)
+      engine.tree.root.add(node)
       frame(engine)
       expect(root.querySelector('button')?.getAttribute('aria-label')).toBe(
         'Go',
@@ -288,8 +288,8 @@ describe('AccessibilityTree', () => {
 
     it('merges on a second call and patches in place', () => {
       const root = mount(engine)
-      const node = new SceneNode('n1')
-      engine.scene.root.add(node)
+      const node = new Node2D('n1')
+      engine.tree.root.add(node)
       node.a11y({ role: 'button', label: 'Mute', states: { pressed: false } })
       frame(engine)
       const btn = root.querySelector('button')!

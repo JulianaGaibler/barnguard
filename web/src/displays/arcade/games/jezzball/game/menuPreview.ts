@@ -15,7 +15,7 @@ import {
   Body,
   BodyType,
   PhysicsWorldBehavior,
-  SceneNode,
+  Node2D,
   aabbShape,
   circleShape,
   lerp,
@@ -125,7 +125,7 @@ function clipSegment(a: Vec2, b: Vec2, rect: Rect): [Vec2, Vec2] | null {
 
 /** The static outline: square border, decorative circle, and corner spokes,
  * all clipped to `clip` since they're free to run past it. */
-class DecorNode extends SceneNode {
+class DecorNode extends Node2D {
   readonly #square: readonly Vec2[]
   readonly #circle: Readonly<{ x: number; y: number; r: number }>
   readonly #spokes: ReadonlyArray<readonly [Vec2, Vec2]>
@@ -195,14 +195,14 @@ export function buildJezzballMenuPreview(
     { x: lerp(c.x, cx, SPOKE_REACH_FRAC), y: lerp(c.y, cy, SPOKE_REACH_FRAC) },
   ])
 
-  const root = new SceneNode('jezzball-menu-preview')
+  const root = new Node2D('jezzball-menu-preview')
   root.transform.x = view.x
   root.transform.y = view.y
   root.add(
     new DecorNode(corners, { x: cx, y: cy, r: side * CIRCLE_RADIUS_FRAC }, spokes, clip),
   )
 
-  const physicsLayer = new SceneNode('jezzball-menu-physics')
+  const physicsLayer = new Node2D('jezzball-menu-physics')
   const world = physicsLayer.addBehavior(
     new PhysicsWorldBehavior({
       config: { gravity: { x: 0, y: 0 } },
@@ -245,7 +245,7 @@ export function buildJezzballMenuPreview(
   )
 
   root.add(physicsLayer)
-  host.engine.scene.root.add(root)
+  host.engine.tree.root.add(root)
 
   const ballRadius = side * BALL_RADIUS_FRAC
   const spawnBall = (xFrac: number, yFrac: number, angleDeg: number): void => {

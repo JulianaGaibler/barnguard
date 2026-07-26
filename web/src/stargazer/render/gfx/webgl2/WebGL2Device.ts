@@ -15,10 +15,12 @@ import type {
   AttribBinding,
   BeginFrameOpts,
   BlitOpts,
+  CullMode,
   DeviceStats,
   GfxBlendMode,
   GfxDevice,
   IBuffer,
+  IndexType,
   Program,
   ProgramOpts,
   RenderTarget,
@@ -53,6 +55,7 @@ interface WebGL2UniformBuffer extends UBuffer {
 interface WebGL2IndexBuffer extends IBuffer {
   gl: WebGLBuffer
   byteSize: number
+  indexType: IndexType
 }
 
 interface WebGL2Texture extends Texture {
@@ -65,6 +68,8 @@ interface WebGL2Texture extends Texture {
 
 interface WebGL2Vao extends Vao {
   gl: WebGLVertexArrayObject
+  /** Element width of the captured index buffer, read by `drawElements`. */
+  indexType?: IndexType
 }
 
 /**
@@ -101,6 +106,12 @@ export class WebGL2Device implements GfxDevice {
   #curVao: WebGL2Vao | null = null
   #curBlend: GfxBlendMode | null = null
   #curFbo: WebGLFramebuffer | null = null
+  // 3D-pass render state, cached like the rest so the 3D pass and
+  // `resetToBaseline` skip redundant driver calls. Initial values match the
+  // constructor's GL setup (depth off, writes on, no culling).
+  #curDepthTest = false
+  #curDepthWrite = true
+  #curCull: CullMode = 'none'
   /** Texture bound per unit, so `setUniformTexture` elides redundant binds. */
   #boundTex: (WebGLTexture | null)[] = []
   /** Currently-bound `ARRAY_BUFFER`, so uploads stop bind/unbinding each call. */
@@ -342,6 +353,12 @@ export class WebGL2Device implements GfxDevice {
     if (loc !== null) this.#gl.uniformMatrix3fv(loc, false, m)
   }
 
+  setUniformMat4(p: Program, name: string, m: Float32Array): void {
+    const w = p as WebGL2Program
+    const loc = this.#locOf(w, name)
+    if (loc !== null) this.#gl.uniformMatrix4fv(loc, false, m)
+  }
+
   setUniformTexture(
     p: Program,
     name: string,
@@ -493,7 +510,7 @@ export class WebGL2Device implements GfxDevice {
     }
   }
 
-  createIndexBuffer(byteSize: number): IBuffer {
+  createIndexBuffer(byteSize: number, type: IndexType = 'u16'): IBuffer {
     const gl = this.#gl
     const buf = gl.createBuffer()
     if (!buf)
@@ -509,13 +526,14 @@ export class WebGL2Device implements GfxDevice {
       __gfxIndexBuffer: undefined as never,
       gl: buf,
       byteSize,
+      indexType: type,
     } as WebGL2IndexBuffer
   }
 
   updateIndexBufferSubData(
     buf: IBuffer,
     byteOffset: number,
-    src: Uint16Array,
+    src: Uint16Array | Uint32Array,
   ): void {
     const gl = this.#gl
     this.#detachVaoForElementOp()
@@ -711,7 +729,13 @@ export class WebGL2Device implements GfxDevice {
     // re-bind. `bindVertexArray(null)` also cleared the element binding on the
     // default VAO, so no leak.
     this.#curVao = null
-    return { __gfxVao: undefined as never, gl: vao } as WebGL2Vao
+    return {
+      __gfxVao: undefined as never,
+      gl: vao,
+      indexType: indexBuffer
+        ? (indexBuffer as WebGL2IndexBuffer).indexType
+        : undefined,
+    } as WebGL2Vao
   }
 
   bindVao(vao: Vao): void {
@@ -776,15 +800,32 @@ export class WebGL2Device implements GfxDevice {
         samples,
       } as WebGL2RenderTarget
     } else {
-      // Single-sample texture path, same as the pre-MSAA implementation.
-      // Kept alive both for `samples: 1` opt-outs and for the (future)
-      // resolve-target case where callers need to sample the target.
+      // Single-sample texture path, usable both for `samples: 1` opt-outs and
+      // for a sampled resolve target (a `Viewport2DNode` reads it back in the
+      // 3D pass).
       const color = this.createTexture2D({
         width: clampedW,
         height: clampedH,
         filter: 'linear',
         wrap: 'clamp',
       }) as WebGL2Texture
+      if (opts.colorSpace === 'srgb') {
+        // Re-specify storage as sRGB so a shader sampling this target decodes
+        // to linear and the gamma matches the on-screen surface.
+        gl.bindTexture(gl.TEXTURE_2D, color.gl)
+        gl.texImage2D(
+          gl.TEXTURE_2D,
+          0,
+          gl.SRGB8_ALPHA8,
+          clampedW,
+          clampedH,
+          0,
+          gl.RGBA,
+          gl.UNSIGNED_BYTE,
+          null,
+        )
+        gl.bindTexture(gl.TEXTURE_2D, null)
+      }
       gl.framebufferTexture2D(
         gl.FRAMEBUFFER,
         gl.COLOR_ATTACHMENT0,
@@ -935,12 +976,19 @@ export class WebGL2Device implements GfxDevice {
       this.#curFbo = r.fbo
     }
     gl.viewport(0, 0, r.width, r.height)
+    let mask = 0
     if (opts.clearColor) {
       const [cr, cg, cb, ca] = opts.clearColor
       // clearColor takes premultiplied color for premultiplied surfaces.
       gl.clearColor(cr * ca, cg * ca, cb * ca, ca)
-      gl.clear(gl.COLOR_BUFFER_BIT)
+      mask |= gl.COLOR_BUFFER_BIT
     }
+    if (opts.clearDepth) {
+      // Depth writes must be enabled for the clear to reach the buffer.
+      this.setDepthWrite(true)
+      mask |= gl.DEPTH_BUFFER_BIT
+    }
+    if (mask !== 0) gl.clear(mask)
   }
 
   endFrame(): void {
@@ -967,15 +1015,54 @@ export class WebGL2Device implements GfxDevice {
     this.deviceStats.blendSwitches++
   }
 
+  setDepthTest(enabled: boolean): void {
+    if (this.#curDepthTest === enabled) return
+    const gl = this.#gl
+    if (enabled) gl.enable(gl.DEPTH_TEST)
+    else gl.disable(gl.DEPTH_TEST)
+    this.#curDepthTest = enabled
+  }
+
+  setDepthWrite(enabled: boolean): void {
+    if (this.#curDepthWrite === enabled) return
+    this.#gl.depthMask(enabled)
+    this.#curDepthWrite = enabled
+  }
+
+  setCullFace(mode: CullMode): void {
+    if (this.#curCull === mode) return
+    const gl = this.#gl
+    if (mode === 'none') {
+      gl.disable(gl.CULL_FACE)
+    } else {
+      gl.enable(gl.CULL_FACE)
+      gl.cullFace(mode === 'back' ? gl.BACK : gl.FRONT)
+    }
+    this.#curCull = mode
+  }
+
+  resetToBaseline(): void {
+    this.setDepthTest(false)
+    this.setDepthWrite(true)
+    this.setCullFace('none')
+    this.setBlend('source-over')
+  }
+
   // --- draw -----------------------------------------------------------------
 
   drawArrays(first: number, count: number): void {
     this.#gl.drawArrays(this.#gl.TRIANGLES, first, count)
   }
 
+  drawLines(first: number, count: number): void {
+    this.#gl.drawArrays(this.#gl.LINES, first, count)
+  }
+
   drawElements(count: number, byteOffset: number): void {
     const gl = this.#gl
-    gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_SHORT, byteOffset)
+    const glType =
+      this.#curVao?.indexType === 'u32' ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT
+    gl.drawElements(gl.TRIANGLES, count, glType, byteOffset)
   }
 
   drawArraysInstanced(

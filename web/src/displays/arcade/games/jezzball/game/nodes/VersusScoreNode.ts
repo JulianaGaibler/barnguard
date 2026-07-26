@@ -4,14 +4,14 @@
  * Two `TextNode`s rather than one multi-line node, since the number and the
  * label render at different font sizes.
  */
-import { SceneNode, TextNode } from '@src/stargazer'
+import { Node2D, TextNode } from '@src/stargazer'
 
 const FONT_FAMILY = 'system-ui, sans-serif'
 const NUM_FONT_PX = 44.8 // 2.8rem
 const LABEL_FONT_PX = 12.8 // 0.8rem
 const LABEL_GAP_PX = 8 // space below the number, matching the original `.vs__pts` gap
 
-export class VersusScoreNode extends SceneNode {
+export class VersusScoreNode extends Node2D {
   readonly #numNode: TextNode
 
   constructor(color: string, label: string) {

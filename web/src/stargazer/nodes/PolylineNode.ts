@@ -1,4 +1,4 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import type { Camera } from '../camera/Camera'
 import type { Vec2 } from '../math/Vec2'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
@@ -60,7 +60,7 @@ export interface PolylineNodeOptions {
  *   // On each pointer move, extend the path, skipping near-duplicate samples.
  *   trail.pushIfFar(worldX, worldY, 4)
  */
-export class PolylineNode extends SceneNode {
+export class PolylineNode extends Node2D {
   strokeStyle: string
   lineWidth: number
   lineJoin: CanvasLineJoin

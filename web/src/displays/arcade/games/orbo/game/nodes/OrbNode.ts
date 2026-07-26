@@ -22,7 +22,7 @@
  * with no lag) and `syncEnabled` (off during a slide-off tween).
  */
 import {
-  SceneNode,
+  Node2D,
   RigidBodyBehavior,
   easings,
   mixColor,
@@ -38,7 +38,7 @@ import { RingNode } from './RingNode'
 
 const RING_POP = easings.makeOutBack(RING.overshoot)
 
-export class OrbNode extends SceneNode {
+export class OrbNode extends Node2D {
   readonly body: Orb
   readonly #layout: FieldLayout
   readonly #color: string
@@ -69,7 +69,7 @@ export class OrbNode extends SceneNode {
      */
     captureColorFor: (team: TeamId) => string,
     /** Layer (below the orbs) the companion ring node is attached to. */
-    ringLayer: SceneNode,
+    ringLayer: Node2D,
   ) {
     super(`orb-${body.id}`)
     this.body = body

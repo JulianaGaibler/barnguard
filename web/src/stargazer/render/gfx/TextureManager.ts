@@ -184,6 +184,21 @@ export interface TextureInspector {
   renderLabelPreview(key: string): HTMLCanvasElement | null
 }
 
+/**
+ * One inspectable render target on a stage: the screen, or a `Viewport2DNode`'s
+ * offscreen surface. Each has its own {@link TextureManager}, so the debug HUD
+ * lists them as separate labeled sources. Produced by `Stage.textureSources`.
+ *
+ * @category Debug
+ */
+export interface TextureSource {
+  /** Stable id: `'screen'`, or the `Viewport2DNode`'s node id. */
+  id: string
+  /** Human-readable label for the source dropdown. */
+  label: string
+  inspector: TextureInspector
+}
+
 export class TextureManager implements TextureInspector {
   #device: GfxDevice
 

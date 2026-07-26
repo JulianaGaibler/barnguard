@@ -1,4 +1,4 @@
-import { SceneNode, type EngineHost } from '@src/stargazer'
+import { Node2D, type EngineHost } from '@src/stargazer'
 import cloudUrl from '../assets/arcade-cloud.svg?url'
 import { REGION_HEIGHT } from '../world'
 import { SUNSET, lerpPalette, type SkyPalette } from './palette'
@@ -36,7 +36,7 @@ export class BackgroundController implements PaletteSource {
   palette: SkyPalette = SUNSET
   version = 0
 
-  readonly #group = new SceneNode('background')
+  readonly #group = new Node2D('background')
   #offFrame: (() => void) | null = null
   readonly #host: EngineHost
 
@@ -87,7 +87,7 @@ export class BackgroundController implements PaletteSource {
 
     // The whole background group is added first to the scene root, so it draws
     // behind any game subtree added later.
-    this.#host.engine.scene.root.add(this.#group)
+    this.#host.engine.tree.root.add(this.#group)
   }
 
   /** Cross-lerp the palette to `next` over `seconds` (time-of-day changes). */

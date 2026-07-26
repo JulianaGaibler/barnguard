@@ -7,7 +7,7 @@
  * @module
  * @category Layout
  */
-import type { SceneNode } from '../../scene/SceneNode'
+import type { Node2D } from '../../scene/Node2D'
 import { BoxConstraints, type Size } from '../constraints'
 import { LayoutNode, isMeasurable, type MeasurableNode } from '../LayoutNode'
 
@@ -118,7 +118,7 @@ export class Spacer extends Flexible {
   }
 }
 
-function flexOf(node: SceneNode): number {
+function flexOf(node: Node2D): number {
   return node instanceof Flexible ? node.flex : 0
 }
 
@@ -157,21 +157,21 @@ export class Flex extends LayoutNode {
   }
 
   /** Append one or more children and schedule a relayout. */
-  override add(...children: SceneNode[]): this {
+  override add(...children: Node2D[]): this {
     super.add(...children)
     this.markLayoutDirty()
     return this
   }
 
   /** Remove one or more children (not destroyed) and schedule a relayout. */
-  override remove(...children: SceneNode[]): this {
+  override remove(...children: Node2D[]): this {
     super.remove(...children)
     this.markLayoutDirty()
     return this
   }
 
   /** Insert a child at `index` in main-axis order and schedule a relayout. */
-  insert(index: number, child: SceneNode): this {
+  insert(index: number, child: Node2D): this {
     super.add(child)
     const arr = this._children
     const from = arr.indexOf(child)

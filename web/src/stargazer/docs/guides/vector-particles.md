@@ -1,6 +1,6 @@
 # Vector particles
 
-`VectorParticleNode` is a `SceneNode` base class for physics-driven particle bursts whose pieces need custom vector shapes — mixed triangles and line shards in one burst, multi-stage spin, or a despawn rule that isn't a simple speed threshold. It's the open counterpart to the baked, sprite-based [particle system](./particles.md): `ParticleEmitterNode` draws one raster sprite style per emitter, `VectorParticleNode` calls back into your own per-particle draw code, in local space, for anything `Gfx2D` can draw.
+`VectorParticleNode` is a `Node2D` base class for physics-driven particle bursts whose pieces need custom vector shapes — mixed triangles and line shards in one burst, multi-stage spin, or a despawn rule that isn't a simple speed threshold. It's the open counterpart to the baked, sprite-based [particle system](./particles.md): `ParticleEmitterNode` draws one raster sprite style per emitter, `VectorParticleNode` calls back into your own per-particle draw code, in local space, for anything `Gfx2D` can draw.
 
 Reach for `ParticleEmitterNode` first. Reach for `VectorParticleNode` when a burst genuinely needs heterogeneous shapes or per-piece kinematics beyond a single spin + speed-coupled shrink.
 
@@ -13,7 +13,7 @@ What it does NOT own: rotation speed, shape kind, or any other per-burst-specifi
 ## The four hooks
 
 ```ts
-abstract class VectorParticleNode extends SceneNode {
+abstract class VectorParticleNode extends Node2D {
   protected abstract spawnParticle(i: number, out: VectorParticleSpawnInit): void
   protected abstract drawParticle(gfx: Gfx2D, i: number, camera: Camera): void
   protected updateExtra(i: number, dt: number): void // default no-op
@@ -28,7 +28,7 @@ abstract class VectorParticleNode extends SceneNode {
 
 ## Two lifecycle shapes
 
-**Self-destroying burst** — override `shouldDespawn` (e.g. a speed-threshold check), then pair with `waitUntilEmpty()` and the existing `SceneNode.autoDestroy` idiom, exactly like the baked system:
+**Self-destroying burst** — override `shouldDespawn` (e.g. a speed-threshold check), then pair with `waitUntilEmpty()` and the existing `Node2D.autoDestroy` idiom, exactly like the baked system:
 
 ```ts
 class ShrapnelBurst extends VectorParticleNode {

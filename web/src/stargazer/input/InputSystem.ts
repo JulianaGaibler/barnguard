@@ -1,14 +1,16 @@
 import type { Vec2 } from '../math/Vec2'
 import type { Engine } from '../engine/Engine'
 import type { Camera } from '../camera/Camera'
+import type { Camera3D } from '../camera/Camera3D'
 import type { Stage } from '../render/Stage'
-import type { SceneNode } from '../scene/SceneNode'
 import type {
   PointerEvent2D,
   PointerPhase,
   PointerStateSnapshot,
+  PointerTarget,
 } from './PointerState'
 import { findHitNode } from './hit'
+import { raycastWorld3D } from '../scene/raycast3d'
 
 /** Internal mutable pointer record. Structurally satisfies PointerStateSnapshot. */
 interface PointerRecord {
@@ -17,7 +19,7 @@ interface PointerRecord {
   screen: Vec2
   world: Vec2
   startedAtMs: number
-  capturedBy: SceneNode | null
+  capturedBy: PointerTarget | null
   /** Un-subscribes from `capturedBy.events.on('destroy', …)`. */
   destroyUnsub: (() => void) | null
   /** True if a native `pointermove` was dispatched for this pointer this frame. */
@@ -97,6 +99,30 @@ export class InputSystem {
     return (
       this.#engine.debug?.activeCameraFor(this.#stage) ?? this.#stage.camera
     )
+  }
+
+  /** Active 3D camera (debug fly-cam when engaged, else the stage's game cam). */
+  #getActiveCamera3d(): Camera3D {
+    return (
+      this.#engine.debug?.activeCamera3dFor(this.#stage) ?? this.#stage.camera3d
+    )
+  }
+
+  /**
+   * Hit-test the 3D world for a pointer at canvas-CSS `(sx, sy)`: convert to NDC
+   * (full-canvas — the 3D camera fills the canvas, unlike the letterboxed 2D
+   * camera), cast a ray, and return the nearest hit-enabled mesh, or `null`.
+   */
+  #pick3d(sx: number, sy: number): PointerTarget | null {
+    if (!this.#stage.tree.has3D) return null
+    const cssW = this.#stage.renderer.cssSize.w
+    const cssH = this.#stage.renderer.cssSize.h
+    if (cssW <= 0 || cssH <= 0) return null
+    const ndcX = (2 * sx) / cssW - 1
+    const ndcY = 1 - (2 * sy) / cssH
+    const ray = this.#getActiveCamera3d().screenToRay(ndcX, ndcY)
+    const hit = raycastWorld3D(this.#stage.tree, ray, (n) => n.hitEnabled)
+    return hit?.node ?? null
   }
 
   /**
@@ -221,13 +247,15 @@ export class InputSystem {
     }
 
     // Node-level hit-test in world coords through the ACTIVE camera on the
-    // owning stage's scene.
-    const hit = findHitNode(
-      this.#stage.scene.root,
-      world.x,
-      world.y,
-      this.touchSlopWorld,
-    )
+    // owning stage's scene. The 2D overlay wins over 3D (it composites on top);
+    // only when nothing 2D is hit do we ray-pick the 3D world.
+    const hit: PointerTarget | null =
+      findHitNode(
+        this.#stage.tree.root,
+        world.x,
+        world.y,
+        this.touchSlopWorld,
+      ) ?? this.#pick3d(screen.x, screen.y)
     if (hit) {
       record.capturedBy = hit
       // If the node dies while capturing, synthesise cancel + release.

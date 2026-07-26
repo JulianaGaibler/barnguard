@@ -1,5 +1,9 @@
 <script lang="ts">
-  import type { DebugController, DebugStatsSnapshot } from '../DebugController'
+  import type {
+    DebugController,
+    DebugStatsSnapshot,
+    DebugRenderMode as MeshRenderMode,
+  } from '../DebugController'
   import type { DebugRenderMode } from '../../render/gfx/GpuGfx'
   import {
     DebugSection,
@@ -21,24 +25,42 @@
 
   let renderOpen = $state(true)
   let gpuOpen = $state(true)
+  let threeOpen = $state(true)
   let texturesOpen = $state(false)
 
   // Render-mode / MSAA / perf-marks are per-stage engine state; mirror the
   // active stage's live values so an external toggle or a stage switch stays in
   // sync. Re-synced each tick (see the `revision` effect below).
-  let renderMode = $state<DebugRenderMode>('normal')
+  // One render-mode control drives both pipelines: the 2D batch modes
+  // (`DebugRenderMode`, GpuGfx) and the 3D mesh views (`MeshRenderMode`,
+  // DebugController). Only one is active at a time; picking one resets the
+  // other to `normal`. `'normal'` is shared.
+  type CombinedRenderMode = DebugRenderMode | Exclude<MeshRenderMode, 'normal'>
+  let renderMode = $state<CombinedRenderMode>('normal')
   let msaaSamples = $state<number>(4)
   let perfMarks = $state(false)
   let fpsCap = $state(0)
   let smoothTimestep = $state(true)
 
-  const RENDER_MODE_OPTIONS: readonly DebugSelectOption<DebugRenderMode>[] = [
+  const RENDER_MODE_OPTIONS_2D: readonly DebugSelectOption<CombinedRenderMode>[] = [
     { value: 'normal', label: 'Normal' },
-    { value: 'polygons', label: 'Polygon outlines' },
-    { value: 'overdraw', label: 'Overdraw heatmap' },
-    { value: 'batch-color', label: 'Batch coloring' },
-    { value: 'clip-mask', label: 'Show clip mask' },
+    { value: 'polygons', label: '2D polygon outlines' },
+    { value: 'overdraw', label: '2D overdraw heatmap' },
+    { value: 'batch-color', label: '2D batch coloring' },
+    { value: 'clip-mask', label: '2D clip mask' },
   ]
+  const RENDER_MODE_OPTIONS_3D: readonly DebugSelectOption<CombinedRenderMode>[] = [
+    { value: 'wireframe', label: '3D wireframe' },
+    { value: 'unshaded', label: '3D unshaded (albedo)' },
+    { value: 'normals', label: '3D normals' },
+  ]
+  // 3D views only offered when the scene has 3D content.
+  const renderModeOptions = $derived(
+    stats.world3d
+      ? [...RENDER_MODE_OPTIONS_2D, ...RENDER_MODE_OPTIONS_3D]
+      : RENDER_MODE_OPTIONS_2D,
+  )
+  const MESH_MODES = new Set<CombinedRenderMode>(['wireframe', 'unshaded', 'normals'])
 
   const MSAA_OPTIONS: readonly DebugSelectOption<number>[] = [
     { value: 0, label: 'Off (1×)' },
@@ -59,7 +81,10 @@
   $effect(() => {
     void revision
     const active = debug.activeStage
-    const liveMode = active.getDebugRenderMode()
+    // The 3D mesh view wins the dropdown when non-normal, else the 2D mode.
+    const live3d = debug.renderMode
+    const live2d = active.getDebugRenderMode()
+    const liveMode: CombinedRenderMode = live3d !== 'normal' ? live3d : live2d
     if (liveMode !== renderMode) renderMode = liveMode
     const liveSamples = active.getMsaaSamples()
     if (liveSamples !== msaaSamples) msaaSamples = liveSamples
@@ -70,9 +95,17 @@
       smoothTimestep = debug.smoothTimestep
   })
 
-  function handleRenderModeChange(mode: DebugRenderMode): void {
+  function handleRenderModeChange(mode: CombinedRenderMode): void {
     renderMode = mode
-    debug.activeStage.setDebugRenderMode(mode)
+    if (MESH_MODES.has(mode)) {
+      // A 3D mesh view; leave the 2D pipeline normal.
+      debug.setRenderMode(mode as MeshRenderMode)
+      debug.activeStage.setDebugRenderMode('normal')
+    } else {
+      // A 2D batch mode (or 'normal'); leave the 3D pass normal.
+      debug.activeStage.setDebugRenderMode(mode as DebugRenderMode)
+      debug.setRenderMode('normal')
+    }
   }
 
   function handleMsaaChange(samples: number): void {
@@ -118,7 +151,7 @@
     <DebugSelect
       label="Render mode"
       value={renderMode}
-      options={RENDER_MODE_OPTIONS}
+      options={renderModeOptions}
       onChange={handleRenderModeChange}
     />
     <DebugSelect
@@ -155,6 +188,19 @@
     tone={stats.gpu.overflowWarns > 0 ? 'error' : 'default'}
   />
 </DebugSection>
+
+{#if stats.world3d}
+  <DebugSection title="3D" bind:open={threeOpen}>
+    <DebugRow label="Nodes" value={stats.world3d.nodeCount} />
+    <DebugRow label="Meshes" value={stats.world3d.meshCount} />
+    {#if stats.world3d.rttSurfaces > 0}
+      <DebugRow label="RTT surfaces" value={stats.world3d.rttSurfaces} />
+    {/if}
+    <DebugRow label="Draw calls / frame" value={stats.world3d.drawCalls} />
+    <DebugRow label="Visible / frame" value={stats.world3d.visible} />
+    <DebugRow label="Triangles" value={stats.world3d.triangleCount} />
+  </DebugSection>
+{/if}
 
 <DebugSection title="Textures" bind:open={texturesOpen}>
   <TextureInspector {debug} open={texturesOpen} {revision} />

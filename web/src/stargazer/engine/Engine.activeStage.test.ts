@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Engine } from './Engine'
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import { MockGfxDevice } from '../render/gfx/webgl2/mockGfxDevice'
 
 /**
@@ -58,10 +58,10 @@ describe('Engine per-stage active flag', () => {
 
     // A child with fixed-step work so `#fixedStep`'s walk actually visits it.
     const stepFn = vi.fn()
-    const stepNode = new SceneNode()
+    const stepNode = new Node2D()
     stepNode.onFixedStep = stepFn
     stepNode._recomputeHasWork()
-    stage.scene.root.add(stepNode)
+    stage.tree.root.add(stepNode)
 
     const secondaryRender = vi.spyOn(stage, 'render')
     const secondaryTransforms = vi.spyOn(stage, 'updateTransforms')

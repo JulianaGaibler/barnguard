@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Camera, type Gfx2D } from '@src/stargazer'
 import { COLS, ROWS } from '../board'
 import { cellCenter, type BoardLayout } from '../layout'
 import { BOARD } from '../tuning'
@@ -12,7 +12,7 @@ import { BOARD } from '../tuning'
  * reveal/return. Discs render on a layer IN FRONT, so a dropped chip sits over
  * its well (a ring of well shows around it) and covers the slot's X.
  */
-export class BoardNode extends SceneNode {
+export class BoardNode extends Node2D {
   readonly #layout: BoardLayout
 
   constructor(layout: BoardLayout) {

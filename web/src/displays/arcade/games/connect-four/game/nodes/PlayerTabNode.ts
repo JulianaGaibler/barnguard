@@ -1,4 +1,4 @@
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import { TAB } from '../tuning'
 
 export type PlayerTabState = 'active' | 'inactive' | 'won' | 'lost'
@@ -35,7 +35,7 @@ export interface PlayerTabOptions {
  * a runtime path draws nothing. Sizes are world units so the tab scales with
  * the board.
  */
-export class PlayerTabNode extends SceneNode {
+export class PlayerTabNode extends Node2D {
   readonly #w: number
   readonly #h: number
   readonly #rounded: 'tl' | 'tr'

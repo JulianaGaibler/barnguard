@@ -1,6 +1,6 @@
 /**
  * Gives a subtree its own {@link PhysicsWorld}. Attach it to any node (usually a
- * `SceneNode` that roots the subtree) and that node becomes a simulation
+ * `Node2D` that roots the subtree) and that node becomes a simulation
  * boundary: `RigidBodyBehavior`s below it bind to this world instead of the
  * stage world, and the engine steps it each fixed tick. Drop the same subtree
  * in twice and you get two independent worlds.
@@ -45,7 +45,7 @@ export interface PhysicsWorldBehaviorOptions {
  *
  * @category Physics
  * @example
- *   const arena = new SceneNode('arena')
+ *   const arena = new Node2D('arena')
  *   const physics = arena.addBehavior(
  *     new PhysicsWorldBehavior({ config: { gravity: { x: 0, y: 0 } } }),
  *   )

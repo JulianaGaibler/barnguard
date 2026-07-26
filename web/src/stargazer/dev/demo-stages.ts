@@ -90,7 +90,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       lineWidth: 2,
     })
     secondaryHero.transform.y = -40
-    secondaryStage.scene.root.add(secondaryHero)
+    secondaryStage.tree.root.add(secondaryHero)
 
     // Trail emitter tracks the background hero every frame.
     secondaryEmitter = new ParticleEmitterNode({
@@ -106,7 +106,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
         alphaOverLife: [1, 0],
       },
     })
-    secondaryStage.scene.root.add(secondaryEmitter)
+    secondaryStage.tree.root.add(secondaryEmitter)
 
     // Target zone, dashed rectangle. Not hit-enabled; the drop test is a
     // point-in-rect check on release.
@@ -125,7 +125,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     zone.transform.y = ZONE_RECT.y + ZONE_RECT.height / 2
     zone.transform.originX = ZONE_RECT.width / 2
     zone.transform.originY = ZONE_RECT.height / 2
-    secondaryStage.scene.root.add(zone)
+    secondaryStage.tree.root.add(zone)
 
     // Draggable "data packet", the actual tutorial element.
     packet = new ShapeNode({
@@ -142,7 +142,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     packet.onPointerMove = onPacketMove
     packet.onPointerUp = onPacketUp
     packet.onPointerCancel = onPacketCancel
-    secondaryStage.scene.root.add(packet)
+    secondaryStage.tree.root.add(packet)
   }
 
   function onPacketDown(e: PointerEvent2D): void {

@@ -1,4 +1,4 @@
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 
 /**
  * A small horizontal capsule above the board that marks the active drop column.
@@ -6,7 +6,7 @@ import { SceneNode, type Gfx2D } from '@src/stargazer'
  * player's color; it's hidden when no column is being chosen. Drawn centered on
  * the node's origin.
  */
-export class DropIndicatorNode extends SceneNode {
+export class DropIndicatorNode extends Node2D {
   readonly #width: number
   readonly #height: number
   #color = '#ffffff'

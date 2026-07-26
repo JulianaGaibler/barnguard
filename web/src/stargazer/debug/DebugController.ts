@@ -5,7 +5,15 @@ import type { Stage } from '../render/Stage'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { BitmapMask } from '../assets/BitmapMask'
 import { DebugCamera } from './DebugCamera'
+import { DebugCamera3D } from './DebugCamera3D'
 import { FrameStats } from './FrameStats'
+import type { Camera3D } from '../camera/Camera3D'
+import type { Node3D } from '../scene/Node3D'
+import { MeshNode } from '../nodes/MeshNode'
+import { Viewport2DNode } from '../nodes/Viewport2DNode'
+import type { DebugLine3DRenderer } from '../render/gfx/DebugLine3DRenderer'
+import { mat4TransformPoint } from '../math/Mat4'
+import { vec3 } from '../math/Vec3'
 import { walkTree } from '../scene/traverse'
 import { drawGrid } from './DebugGridRenderer'
 import { drawNodeOutlines } from './DebugOutlineRenderer'
@@ -17,7 +25,8 @@ import {
 } from './DebugPhysicsRenderer'
 import { BodyType } from '../physics/types'
 import type { PhysicsWorld } from '../physics/PhysicsWorld'
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node } from '../scene/Node'
+import type { Node2D } from '../scene/Node2D'
 import { get, writable, type Readable } from 'svelte/store'
 import type { Component } from 'svelte'
 // Global debug UI styles, imported by the module that owns debug so we get
@@ -33,9 +42,32 @@ import './ui/debug-ui.sass'
  *
  * @category Debug
  */
+/**
+ * Which camera drives the debug view. `active` is the engine's normal cameras
+ * (no override); `debug-2d` swaps in the free 2D pan/zoom camera; `debug-3d`
+ * swaps in the free 3D fly camera. The grid, outlines, and camera pad follow the
+ * selected mode's space.
+ *
+ * @category Debug
+ */
+export type DebugCameraMode = 'active' | 'debug-2d' | 'debug-3d'
+
+/**
+ * Debug render view for the 3D mesh pass. `normal` is the shaded scene;
+ * `wireframe` overlays triangle edges; `unshaded` shows flat albedo (no
+ * lighting); `normals` colors fragments by world normal.
+ */
+export type DebugRenderMode = 'normal' | 'wireframe' | 'unshaded' | 'normals'
+
 export interface DebugToggleState {
   hud: boolean
   camera: boolean
+  /** Space the debug camera / grid / pad act on. */
+  space: '2d' | '3d'
+  /** The selected camera mode (drives the HUD dropdown). */
+  cameraMode: DebugCameraMode
+  /** The selected 3D render view (drives the HUD dropdown). */
+  renderMode: DebugRenderMode
   outlines: boolean
   layoutOutlines: boolean
   follow: boolean
@@ -139,6 +171,38 @@ export interface DebugStatsSnapshot {
   activeHasInput: boolean
   /** One entry per physics world in the active stage; empty when it has none. */
   physics: PhysicsWorldReadout[]
+  /** 3D world stats for the active stage, or `null` when it has no 3D content. */
+  world3d: World3DReadout | null
+}
+
+/**
+ * 3D world + camera metrics for the active stage, shown in the HUD's Rendering
+ * (3D subsection) and Camera panels.
+ *
+ * @category Debug
+ */
+export interface World3DReadout {
+  nodeCount: number
+  meshCount: number
+  /** RTT surfaces (Viewport2DNodes) in the world. */
+  rttSurfaces: number
+  /** Total triangles across all mesh geometry (not culled). */
+  triangleCount: number
+  /** Meshes + surfaces actually drawn last frame. */
+  visible: number
+  /** 3D draw calls last frame (meshes + RTT quads). */
+  drawCalls: number
+  /** Whether the 3D fly-camera is inspecting the scene. */
+  cameraMode: 'game' | 'debug'
+  camera: {
+    position: { x: number; y: number; z: number }
+    projectionness: number
+    fovY: number
+    near: number
+    far: number
+    aspect: number
+    focalDistance: number
+  }
 }
 
 /**
@@ -269,6 +333,16 @@ export class DebugController {
   #_followGameCamera = false
   #_gridVisible = false
   #_pointerOverlayVisible = false
+  /**
+   * Which space the debug camera, grid, and camera pad act on. One mode at a
+   * time, so the 2D and 3D grids never draw together and the pad/keys drive the
+   * matching debug camera.
+   */
+  #_debugSpace: '2d' | '3d' = '2d'
+  /** 3D fly-camera, created lazily the first time 3D mode's camera activates. */
+  #debugCamera3d: DebugCamera3D | null = null
+  /** 3D node whose bounds the gizmo pass highlights, driven by the Scene panel. */
+  #highlightedNode3d: Node3D | null = null
   #_physicsFlags: PhysicsOverlayFlags = {
     colliders: false,
     aabbs: false,
@@ -284,7 +358,7 @@ export class DebugController {
    */
   readonly #worldAccents = new Map<PhysicsWorld, string>()
   /** Node whose bounds the overlay highlights, driven by the Scene panel. */
-  #highlightedNode: SceneNode | null = null
+  #highlightedNode: Node2D | null = null
   #_activeStage: Stage | null = null // null → primary
 
   #_pointerScreen: { x: number; y: number } | null = null
@@ -357,13 +431,16 @@ export class DebugController {
     // camera doesn't drag pointer state behind by one frame. Sized against
     // the active stage so pan feel is consistent regardless of canvas.
     const offBefore = engine.onBeforeFrame((dt) => {
-      if (this.#_cameraActive) {
+      if (!this.#_cameraActive) return
+      if (this.#_debugSpace === '2d') {
         const active = this.activeStage
         this.camera.setPixelSize(
           active.renderer.cssSize.w,
           active.renderer.cssSize.h,
         )
         this.camera.step(dt)
+      } else if (this.#debugCamera3d) {
+        this.#debugCamera3d.step(dt)
       }
     })
     // Frame-time sample: push the CPU work-time recorded by
@@ -524,23 +601,116 @@ export class DebugController {
     this.#emitToggle()
   }
 
+  /**
+   * Toggle the debug camera for the current {@link DebugController.debugSpace}.
+   * In 2D mode it swaps in the pan/zoom `DebugCamera`; in 3D mode the fly
+   * `DebugCamera3D`. Only one is ever active, matching the space.
+   */
   toggleCamera(): void {
     this.#_cameraActive = !this.#_cameraActive
+    if (this.#_cameraActive) this.#prepareDebugCamera()
+    else this.#stopDebugCameras()
+    this.#emitToggle()
+  }
+
+  /** The space the debug camera / grid / pad currently act on. */
+  get debugSpace(): '2d' | '3d' {
+    return this.#_debugSpace
+  }
+
+  /**
+   * Switch the debug space (2D pan/zoom vs 3D fly). Carries an active debug
+   * camera across: the old space's camera stops, the new space's camera engages
+   * and snaps to its game camera.
+   */
+  setDebugSpace(space: '2d' | '3d'): void {
+    if (this.#_debugSpace === space) return
+    this.#_debugSpace = space
     if (this.#_cameraActive) {
-      const active = this.activeStage
-      // Make sure the debug camera is anchored to the current active stage
-      // before we snap its viewport, matters when the user switched stages
-      // while debug camera was off.
-      this.camera.setGameCamera(active.camera)
-      this.camera.reset()
-      this.camera.setPixelSize(
-        active.renderer.cssSize.w,
-        active.renderer.cssSize.h,
-      )
-    } else {
-      this.camera.clearKeys()
+      this.#stopDebugCameras()
+      this.#prepareDebugCamera()
     }
     this.#emitToggle()
+  }
+
+  toggleDebugSpace(): void {
+    this.setDebugSpace(this.#_debugSpace === '2d' ? '3d' : '2d')
+  }
+
+  #_renderMode: DebugRenderMode = 'normal'
+
+  /** The selected 3D render view; see {@link DebugRenderMode}. */
+  get renderMode(): DebugRenderMode {
+    return this.#_renderMode
+  }
+
+  /** Select the 3D render view (the HUD dropdown's setter). */
+  setRenderMode(mode: DebugRenderMode): void {
+    if (mode === this.#_renderMode) return
+    this.#_renderMode = mode
+    this.#emitToggle()
+  }
+
+  /** Mesh-shader debug mode uniform: 0 = normal/wireframe, 1 = unshaded, 2 = normals. */
+  get meshShaderMode(): number {
+    return this.#_renderMode === 'unshaded' ? 1 : this.#_renderMode === 'normals' ? 2 : 0
+  }
+
+  /** The camera driving the debug view; see {@link DebugCameraMode}. */
+  get cameraMode(): DebugCameraMode {
+    if (!this.#_cameraActive) return 'active'
+    return this.#_debugSpace === '3d' ? 'debug-3d' : 'debug-2d'
+  }
+
+  /**
+   * Select the debug view camera. `active` clears any debug camera; `debug-2d`
+   * / `debug-3d` engage the free camera for that space (and set the space so the
+   * grid + pad follow). This is the HUD dropdown's setter.
+   */
+  setCameraMode(mode: DebugCameraMode): void {
+    if (mode === this.cameraMode) return
+    if (mode === 'active') {
+      this.#stopDebugCameras()
+      this.#_cameraActive = false
+    } else {
+      const space = mode === 'debug-3d' ? '3d' : '2d'
+      // Switching directly between 2D and 3D debug: drop the old camera's keys.
+      if (this.#_cameraActive && this.#_debugSpace !== space) this.#stopDebugCameras()
+      this.#_debugSpace = space
+      this.#_cameraActive = true
+      this.#prepareDebugCamera()
+    }
+    this.#emitToggle()
+  }
+
+  /** Engage the current-space debug camera against the active stage. */
+  #prepareDebugCamera(): void {
+    const active = this.activeStage
+    if (this.#_debugSpace === '2d') {
+      this.camera.setGameCamera(active.camera)
+      this.camera.reset()
+      this.camera.setPixelSize(active.renderer.cssSize.w, active.renderer.cssSize.h)
+    } else {
+      if (!this.#debugCamera3d) this.#debugCamera3d = new DebugCamera3D(active.camera3d)
+      else this.#debugCamera3d.setGameCamera(active.camera3d)
+      this.#debugCamera3d.reset()
+    }
+  }
+
+  #stopDebugCameras(): void {
+    this.camera.clearKeys()
+    this.#debugCamera3d?.clearKeys()
+  }
+
+  /**
+   * Route a camera-pad button to the current-space debug camera, auto-engaging
+   * it on the first press so the pad works without first toggling the camera.
+   * `code` is a `KeyW`/`KeyA`/… control key; `pressed` mirrors button down/up.
+   */
+  padKey(code: string, pressed: boolean): void {
+    if (pressed && !this.#_cameraActive) this.toggleCamera()
+    if (this.#_debugSpace === '2d') this.camera.setKey(code, pressed)
+    else this.#debugCamera3d?.setKey(code, pressed)
   }
 
   toggleOutlines(): void {
@@ -583,13 +753,31 @@ export class DebugController {
    * Highlight a node's bounds in the overlay, or pass `null` to clear. The
    * Scene panel calls this as the selection changes.
    */
-  setHighlightedNode(node: SceneNode | null): void {
+  setHighlightedNode(node: Node2D | null): void {
     this.#highlightedNode = node
   }
 
   /** The node currently highlighted in the overlay, or null. */
-  get highlightedNode(): SceneNode | null {
+  get highlightedNode(): Node2D | null {
     return this.#highlightedNode
+  }
+
+  /**
+   * Highlight any node from the unified scene tree, routing to the 2D overlay or
+   * the 3D gizmo pass by the node's {@link Node.kind}. Selecting one clears the
+   * other, so only the picked node outlines. The Scene panel calls this.
+   */
+  setHighlighted(node: Node | null): void {
+    if (node && node.kind === '3d') {
+      this.#highlightedNode3d = node as Node3D
+      this.#highlightedNode = null
+    } else if (node && node.kind === '2d') {
+      this.#highlightedNode = node as Node2D
+      this.#highlightedNode3d = null
+    } else {
+      this.#highlightedNode = null
+      this.#highlightedNode3d = null
+    }
   }
 
   /**
@@ -597,7 +785,7 @@ export class DebugController {
    * `PhysicsWorldBehavior`), or null when the node hosts none. The Scene panel
    * uses it to tint a world boundary the same color as the overlay.
    */
-  overlayAccentForNode(node: SceneNode): string | null {
+  overlayAccentForNode(node: Node2D): string | null {
     for (const entry of this.engine.physicsWorlds) {
       if (entry.spaceNode === node) return this.#accentFor(entry.world)
     }
@@ -606,7 +794,7 @@ export class DebugController {
 
   /** Registered worlds anchored in `stage`'s scene. */
   #worldsForStage(stage: Stage): RegisteredPhysicsWorld[] {
-    const scene = stage.scene
+    const scene = stage.tree
     return this.engine.physicsWorlds.filter(
       (e) => (e.spaceNode?.scene ?? null) === scene,
     )
@@ -632,6 +820,7 @@ export class DebugController {
 
   resetDebugCamera(): void {
     this.camera.reset()
+    this.#debugCamera3d?.reset()
   }
 
   /**
@@ -640,9 +829,35 @@ export class DebugController {
    * otherwise the stage's own game camera. Called by `Engine.frame()`.
    */
   activeCameraFor(stage: Stage): Camera {
-    return this.#_cameraActive && stage === this.activeStage
+    return this.#_cameraActive &&
+      this.#_debugSpace === '2d' &&
+      stage === this.activeStage
       ? this.camera
       : stage.camera
+  }
+
+  /** Whether the debug camera is engaged in 3D mode (fly-camera inspecting). */
+  get camera3dActive(): boolean {
+    return this.#_cameraActive && this.#_debugSpace === '3d'
+  }
+
+  /**
+   * Which 3D camera renders `stage`'s world this frame: the 3D fly-camera when
+   * the debug camera is active in 3D mode on the active stage, else the stage's
+   * game `camera3d`. Mirrors {@link DebugController.activeCameraFor}.
+   */
+  activeCamera3dFor(stage: Stage): Camera3D {
+    return this.camera3dActive && stage === this.activeStage && this.#debugCamera3d
+      ? this.#debugCamera3d
+      : stage.camera3d
+  }
+
+  /** Highlight a 3D node's bounds in the gizmo pass, or `null` to clear. */
+  setHighlightedNode3d(node: Node3D | null): void {
+    this.#highlightedNode3d = node
+  }
+  get highlightedNode3d(): Node3D | null {
+    return this.#highlightedNode3d
   }
 
   snapshotStats(): DebugStatsSnapshot {
@@ -651,7 +866,9 @@ export class DebugController {
     const active = this.activeStage
     const counts = { static: 0, aboveStatic: 0, dynamic: 0, total: 0 }
     let aliveParticles = 0
-    walkTree(active.scene.root, (n) => {
+    walkTree(active.tree.root, (node) => {
+      if (node.kind !== '2d') return
+      const n = node as Node2D
       counts.total++
       if (n.renderLayer === 'static') counts.static++
       else if (n.renderLayer === 'above-static') counts.aboveStatic++
@@ -680,6 +897,7 @@ export class DebugController {
     }
     const gpu = { ...active.gpuStats }
     const physics = this.#snapshotPhysics(active)
+    const world3d = this.#snapshotWorld3d(active)
     return {
       p50: p.p50,
       p95: p.p95,
@@ -707,6 +925,48 @@ export class DebugController {
       activeIsPrimary: this.activeIsPrimary,
       activeHasInput: stageInput !== null,
       physics,
+      world3d,
+    }
+  }
+
+  /** Tally 3D world + camera stats for a stage, or `null` when it has no 3D. */
+  #snapshotWorld3d(stage: Stage): World3DReadout | null {
+    const hasContent = stage.tree.root.children.length > 0
+    if (!hasContent && !this.camera3dActive) return null
+    let nodeCount = 0
+    let meshCount = 0
+    let rttSurfaces = 0
+    let triangleCount = 0
+    walkTree(stage.tree.root, (n) => {
+      nodeCount++
+      if (n instanceof MeshNode) {
+        meshCount++
+        const g = n.geometry
+        if (g) triangleCount += g.indices.length / 3
+      } else if (n instanceof Viewport2DNode) {
+        rttSurfaces++
+      }
+    })
+    const s = stage.render3dStats
+    const cam = this.activeCamera3dFor(stage)
+    const eye = cam.eyePosition()
+    return {
+      nodeCount,
+      meshCount,
+      rttSurfaces,
+      triangleCount,
+      visible: s?.visible ?? 0,
+      drawCalls: s?.draws ?? 0,
+      cameraMode: this.camera3dActive ? 'debug' : 'game',
+      camera: {
+        position: { x: eye.x, y: eye.y, z: eye.z },
+        projectionness: cam.projectionness,
+        fovY: cam.fovY,
+        near: cam.near,
+        far: cam.far,
+        aspect: cam.aspect,
+        focalDistance: cam.focalDistance,
+      },
     }
   }
 
@@ -817,7 +1077,9 @@ export class DebugController {
     gfx.setAlpha(1)
     gfx.setBaseTransform(dpr, 0, 0, dpr, 0, 0)
 
-    if (this.#_gridVisible) {
+    // The 2D screen grid draws only in 2D mode; 3D mode uses the ground grid in
+    // `drawOverlay3D`, so the two never overlap.
+    if (this.#_gridVisible && this.#_debugSpace === '2d') {
       drawGrid(gfx, activeCamera, renderer.cssSize.w, renderer.cssSize.h)
     }
 
@@ -846,7 +1108,7 @@ export class DebugController {
       }
     }
 
-    if (this.#highlightedNode && this.#highlightedNode.scene === stage.scene) {
+    if (this.#highlightedNode && this.#highlightedNode.scene === stage.tree) {
       this.#drawNodeHighlight(gfx, activeCamera, this.#highlightedNode)
     }
 
@@ -855,6 +1117,159 @@ export class DebugController {
     if (this.#_cameraActive) {
       this.#drawGameCameraRect(gfx, activeCamera, stage.camera)
     }
+  }
+
+  /**
+   * Collect 3D gizmos into `lines` for the stage's world, viewed through
+   * `cam3d`. Called by `Stage.render` in the depth-tested 3D pass (between the
+   * mesh pass and `resetToBaseline`). Grid + world axes ride the grid toggle
+   * (`X`); mesh/quad bounds ride the outlines toggle (`O`); the highlighted node
+   * draws as an always-visible overlay; the game camera frustum shows while the
+   * 3D fly-camera is active.
+   */
+  drawOverlay3D(stage: Stage, cam3d: Camera3D, lines: DebugLine3DRenderer): void {
+    void cam3d
+    // The ground grid draws only in 3D mode, so it never coexists with the 2D
+    // screen grid (which the 2D overlay draws in 2D mode).
+    if (this.#_gridVisible && this.#_debugSpace === '3d') {
+      lines.grid(1, 20, [1, 1, 1, 0.12], [1, 1, 1, 0.35])
+      lines.axes(0, 0, 0, 1.5)
+    }
+    if (this.#_outlinesVisible) {
+      walkTree(stage.tree.root, (n) => {
+        if (n instanceof MeshNode) {
+          const b = n.localBounds()
+          if (b) this.#pushObb(lines, b.min, b.max, n.worldMatrix, [0.4, 0.9, 1, 0.9], false)
+        } else if (n instanceof Viewport2DNode) {
+          this.#pushObb(
+            lines,
+            { x: -0.5, y: -0.5, z: 0 },
+            { x: 0.5, y: 0.5, z: 0 },
+            n.worldMatrix,
+            [1, 0.7, 0.2, 0.9],
+            false,
+          )
+        }
+      })
+    }
+    // Wireframe render view: triangle edges over the shaded fill, depth-tested
+    // so hidden edges are occluded (a clean "mesh view").
+    if (this.#_renderMode === 'wireframe') {
+      walkTree(stage.tree.root, (n) => {
+        if (n instanceof MeshNode && n.geometry && n.visible) {
+          this.#pushWireframe(lines, n)
+        } else if (n instanceof Viewport2DNode && n.visible) {
+          // The viewport quad is two triangles; show its border + diagonal.
+          this.#pushQuadWireframe(lines, n.worldMatrix)
+        }
+      })
+    }
+
+    const hi = this.#highlightedNode3d
+    if (hi) {
+      const c: [number, number, number, number] = [1, 1, 0.3, 1]
+      if (hi instanceof MeshNode) {
+        const b = hi.localBounds()
+        if (b) this.#pushObb(lines, b.min, b.max, hi.worldMatrix, c, true)
+      } else if (hi instanceof Viewport2DNode) {
+        // Flat quad, matching the viewport surface (also used when a node inside
+        // its embedded 2D scene is selected in the tree).
+        this.#pushObb(
+          lines,
+          { x: -0.5, y: -0.5, z: 0 },
+          { x: 0.5, y: 0.5, z: 0 },
+          hi.worldMatrix,
+          c,
+          true,
+        )
+      } else {
+        this.#pushObb(
+          lines,
+          { x: -0.5, y: -0.5, z: -0.5 },
+          { x: 0.5, y: 0.5, z: 0.5 },
+          hi.worldMatrix,
+          c,
+          true,
+        )
+      }
+    }
+    if (this.camera3dActive) {
+      lines.frustum(stage.camera3d.invViewProjection, [1, 0.8, 0.3, 0.8])
+    }
+  }
+
+  /** Push the 12 edges of a local AABB transformed by `world` (an oriented box). */
+  #pushObb(
+    lines: DebugLine3DRenderer,
+    min: { x: number; y: number; z: number },
+    max: { x: number; y: number; z: number },
+    world: import('../math/Mat4').Mat4,
+    color: readonly [number, number, number, number],
+    overlay: boolean,
+  ): void {
+    const c: Array<{ x: number; y: number; z: number }> = []
+    for (const z of [min.z, max.z]) {
+      for (const y of [min.y, max.y]) {
+        for (const x of [min.x, max.x]) {
+          c.push({ ...mat4TransformPoint(vec3(), world, x, y, z) })
+        }
+      }
+    }
+    // Corner index bits: x=1, y=2, z=4.
+    const e = (a: number, b: number): void =>
+      lines.line(c[a].x, c[a].y, c[a].z, c[b].x, c[b].y, c[b].z, color, overlay)
+    e(0, 1); e(1, 3); e(3, 2); e(2, 0) // z=min face
+    e(4, 5); e(5, 7); e(7, 6); e(6, 4) // z=max face
+    e(0, 4); e(1, 5); e(2, 6); e(3, 7) // connectors
+  }
+
+  /**
+   * Push a mesh's triangle edges as world-space lines (the wireframe/"mesh"
+   * view). Occluded (depth-tested), so the shaded fill hides back-facing edges.
+   * O(triangles); only runs while the HUD is open in wireframe mode.
+   */
+  #pushWireframe(lines: DebugLine3DRenderer, mesh: MeshNode): void {
+    const g = mesh.geometry
+    if (!g) return
+    const pos = g.positions
+    const idx = g.indices
+    const w = mesh.worldMatrix
+    const color: readonly [number, number, number, number] = [0.5, 1, 0.65, 0.85]
+    const a = vec3()
+    const b = vec3()
+    const c = vec3()
+    for (let t = 0; t + 2 < idx.length; t += 3) {
+      const i0 = idx[t] * 3
+      const i1 = idx[t + 1] * 3
+      const i2 = idx[t + 2] * 3
+      mat4TransformPoint(a, w, pos[i0], pos[i0 + 1], pos[i0 + 2])
+      mat4TransformPoint(b, w, pos[i1], pos[i1 + 1], pos[i1 + 2])
+      mat4TransformPoint(c, w, pos[i2], pos[i2 + 1], pos[i2 + 2])
+      lines.line(a.x, a.y, a.z, b.x, b.y, b.z, color)
+      lines.line(b.x, b.y, b.z, c.x, c.y, c.z, color)
+      lines.line(c.x, c.y, c.z, a.x, a.y, a.z, color)
+    }
+  }
+
+  /**
+   * Wireframe for a unit quad (a `Viewport2DNode` surface): the 4 border edges
+   * plus one diagonal, showing its two triangles. Local corners span
+   * `[-0.5, 0.5]` in x/y at z = 0, transformed by `world`.
+   */
+  #pushQuadWireframe(
+    lines: DebugLine3DRenderer,
+    world: import('../math/Mat4').Mat4,
+  ): void {
+    const color: readonly [number, number, number, number] = [0.5, 1, 0.65, 0.85]
+    const tl = mat4TransformPoint(vec3(), world, -0.5, 0.5, 0)
+    const tr = mat4TransformPoint(vec3(), world, 0.5, 0.5, 0)
+    const br = mat4TransformPoint(vec3(), world, 0.5, -0.5, 0)
+    const bl = mat4TransformPoint(vec3(), world, -0.5, -0.5, 0)
+    lines.line(tl.x, tl.y, tl.z, tr.x, tr.y, tr.z, color)
+    lines.line(tr.x, tr.y, tr.z, br.x, br.y, br.z, color)
+    lines.line(br.x, br.y, br.z, bl.x, bl.y, bl.z, color)
+    lines.line(bl.x, bl.y, bl.z, tl.x, tl.y, tl.z, color)
+    lines.line(tl.x, tl.y, tl.z, br.x, br.y, br.z, color) // diagonal
   }
 
   /**
@@ -903,6 +1318,9 @@ export class DebugController {
     this.events.emit('toggle', {
       hud: this.hudVisible,
       camera: this.#_cameraActive,
+      space: this.#_debugSpace,
+      cameraMode: this.cameraMode,
+      renderMode: this.#_renderMode,
       outlines: this.#_outlinesVisible,
       layoutOutlines: this.#_layoutOutlinesVisible,
       follow: this.#_followGameCamera,
@@ -923,19 +1341,36 @@ export class DebugController {
     ) {
       return
     }
-    // Debug camera key state (WASD Q E), feed the DebugCamera when it's active.
-    if (this.#_cameraActive && DebugCamera.isControlKey(e.code)) {
-      this.camera.setKey(e.code, true)
-      e.preventDefault()
-      return
+    // Feed control keys to whichever debug camera the current space engages.
+    if (this.#_cameraActive) {
+      if (this.#_debugSpace === '2d' && DebugCamera.isControlKey(e.code)) {
+        this.camera.setKey(e.code, true)
+        e.preventDefault()
+        return
+      }
+      if (
+        this.#_debugSpace === '3d' &&
+        this.#debugCamera3d &&
+        DebugCamera3D.isControlKey(e.code)
+      ) {
+        this.#debugCamera3d.setKey(e.code, true)
+        e.preventDefault()
+        return
+      }
     }
     switch (e.code) {
+      case 'KeyV':
+        // Toggle the 3D fly camera (from any mode back to active if already on).
+        this.setCameraMode(this.cameraMode === 'debug-3d' ? 'active' : 'debug-3d')
+        e.preventDefault()
+        return
       case 'KeyY':
         this.toggleHud()
         e.preventDefault()
         return
       case 'KeyC':
-        this.toggleCamera()
+        // Toggle the 2D pan/zoom debug camera.
+        this.setCameraMode(this.cameraMode === 'debug-2d' ? 'active' : 'debug-2d')
         e.preventDefault()
         return
       case 'KeyO':
@@ -974,8 +1409,15 @@ export class DebugController {
   }
 
   #onKeyUp(e: KeyboardEvent): void {
-    if (this.#_cameraActive && DebugCamera.isControlKey(e.code)) {
+    if (!this.#_cameraActive) return
+    if (this.#_debugSpace === '2d' && DebugCamera.isControlKey(e.code)) {
       this.camera.setKey(e.code, false)
+    } else if (
+      this.#_debugSpace === '3d' &&
+      this.#debugCamera3d &&
+      DebugCamera3D.isControlKey(e.code)
+    ) {
+      this.#debugCamera3d.setKey(e.code, false)
     }
   }
 
@@ -1010,7 +1452,7 @@ export class DebugController {
    * node id. Falls back to a small ring at the node origin when the node has no
    * `debugBounds`.
    */
-  #drawNodeHighlight(gfx: Gfx2D, cam: Camera, node: SceneNode): void {
+  #drawNodeHighlight(gfx: Gfx2D, cam: Camera, node: Node2D): void {
     // Bright line over a dark halo so the highlight reads on any background.
     const color = 'rgba(255, 255, 255, 0.98)'
     const halo = 'rgba(0, 0, 0, 0.85)'

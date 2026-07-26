@@ -1,4 +1,4 @@
-import { SceneNode, withAlpha, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, withAlpha, type Camera, type Gfx2D } from '@src/stargazer'
 import { TUNING } from '../data/tuning'
 
 export interface PacketMotionTrailOptions {
@@ -30,7 +30,7 @@ export interface PacketMotionTrailOptions {
  * Draw order: this node is expected to render BEFORE the packet (session adds
  * trail to the packet layer FIRST so tree DFS draws it under the hex).
  */
-export class PacketMotionTrailNode extends SceneNode {
+export class PacketMotionTrailNode extends Node2D {
   readonly capacity: number
   readonly maxHalfWidthWorld: number
   readonly minSampleDistWorldSq: number

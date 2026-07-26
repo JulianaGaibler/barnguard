@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { BoxConstraints, edgeInsets } from '../constraints'
-import { SceneNode } from '../../scene/SceneNode'
+import { Node2D } from '../../scene/Node2D'
 import { Box, SizedBox, Padding, Center, Align } from './Box'
 import { Row, Column, Expanded, Spacer } from './Flex'
 
@@ -10,7 +10,7 @@ const tight = (w: number, h: number) => BoxConstraints.tight(w, h)
 describe('freeform children', () => {
   it('a Row lays out measurable children and leaves a plain node alone', () => {
     const a = new SizedBox({ width: 100, height: 40 })
-    const freeform = new SceneNode('freeform')
+    const freeform = new Node2D('freeform')
     freeform.transform.x = 7
     freeform.transform.y = 9
     const b = new SizedBox({ width: 50, height: 40 })

@@ -18,7 +18,7 @@ import {
   easings,
   ignoreAbort,
   type PointerEvent2D,
-  type SceneNode,
+  type Node2D,
 } from '@src/stargazer'
 import type { OrbNode } from './nodes/OrbNode'
 import { launchBoundary, type FieldLayout } from './layout'
@@ -51,7 +51,7 @@ export class FlickController {
    * maps a world pointer into field units (which body position + release
    * velocity use, matching the tuning).
    */
-  readonly #localNode: SceneNode
+  readonly #localNode: Node2D
   readonly #unbind: () => void
   readonly #samples: Sample[] = []
   #dragging = false
@@ -65,7 +65,7 @@ export class FlickController {
     layout: FieldLayout,
     cb: FlickCallbacks,
     /** Node whose local space maps `e.localTo(...)` into field units. */
-    localNode: SceneNode,
+    localNode: Node2D,
   ) {
     this.#node = node
     this.#body = body

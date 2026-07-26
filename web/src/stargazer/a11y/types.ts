@@ -1,4 +1,4 @@
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node2D } from '../scene/Node2D'
 
 /**
  * ARIA role a semantic node maps to. Determines the generated element's tag or
@@ -75,7 +75,7 @@ export interface A11yStates {
 }
 
 /**
- * Optional accessibility description of a {@link SceneNode}. Attach it with
+ * Optional accessibility description of a {@link Node2D}. Attach it with
  * {@link AccessibilityTree.attach}; the subsystem mirrors every attached node
  * into a hidden, screen-reader-readable HTML element so a canvas scene reads
  * like a normal accessibility tree. A node with no attached `Semantics` is
@@ -136,7 +136,7 @@ export interface Semantics {
  */
 export interface SemanticsHandle {
   /** The node these semantics describe. */
-  readonly node: SceneNode
+  readonly node: Node2D
   /** The generated proxy element. Reference stays stable unless `role` changes. */
   readonly element: HTMLElement
   /** Merge `next` into the current semantics and schedule a reconcile. */

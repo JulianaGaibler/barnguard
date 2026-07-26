@@ -17,7 +17,7 @@ import {
   Body,
   BodyType,
   PhysicsWorldBehavior,
-  SceneNode,
+  Node2D,
   aabbShape,
   circleShape,
   type EngineHost,
@@ -126,7 +126,7 @@ export function planWallPlacement(
 
 export class BoardController {
   readonly geom: FieldGeom
-  readonly root: SceneNode
+  readonly root: Node2D
 
   readonly #grid: Grid
   readonly #world: PhysicsWorld
@@ -135,10 +135,10 @@ export class BoardController {
   readonly #radius: number
 
   readonly #field: GridFieldNode
-  readonly #wallLayer: SceneNode
-  readonly #ballLayer: SceneNode
+  readonly #wallLayer: Node2D
+  readonly #ballLayer: Node2D
   /** Every wall node (growing + solidified), for teardown on level reset. */
-  readonly #wallNodes = new Set<SceneNode>()
+  readonly #wallNodes = new Set<Node2D>()
 
   readonly #balls: Body[] = []
   readonly #ballNodes = new Map<number, BallNode>()
@@ -162,7 +162,7 @@ export class BoardController {
     this.#radius = ballRadiusWorld(this.geom.cell)
     this.#grid = createGrid(cols, rows)
 
-    this.root = new SceneNode('jezzball-board')
+    this.root = new Node2D('jezzball-board')
     const physics = this.root.addBehavior(
       new PhysicsWorldBehavior({
         config: {
@@ -174,15 +174,15 @@ export class BoardController {
     this.#world = physics.world
 
     this.#field = new GridFieldNode(this.geom, this.#grid)
-    this.#wallLayer = new SceneNode('walls')
-    this.#ballLayer = new SceneNode('balls')
+    this.#wallLayer = new Node2D('walls')
+    this.#ballLayer = new Node2D('balls')
     this.root.add(this.#field)
     this.root.add(this.#wallLayer)
     this.root.add(this.#ballLayer)
     this.root.addBehavior(new BoardTickBehavior(this))
 
     this.#rebuildColliders()
-    host.engine.scene.root.add(this.root)
+    host.engine.tree.root.add(this.root)
   }
 
   // --- Level lifecycle ---
@@ -394,7 +394,7 @@ export class BoardController {
     this.#wallNodes.clear()
   }
 
-  #removeWallNode(node: SceneNode): void {
+  #removeWallNode(node: Node2D): void {
     this.#wallNodes.delete(node)
     if (!node.isDestroyed) node.destroy()
   }

@@ -1,9 +1,14 @@
 import { Renderer } from './Renderer'
 import { GpuGfx } from './gfx/GpuGfx'
-import type { TextureInspector } from './gfx/TextureManager'
+import type { TextureInspector, TextureSource } from './gfx/TextureManager'
 import { WebGL2Device } from './gfx/webgl2/WebGL2Device'
-import { Scene } from '../scene/Scene'
+import { SceneTree } from '../scene/SceneTree'
 import { Camera } from '../camera/Camera'
+import { Camera3D } from '../camera/Camera3D'
+import { MeshRenderer } from './gfx/MeshRenderer'
+import { DebugLine3DRenderer } from './gfx/DebugLine3DRenderer'
+import { Viewport2DNode } from '../nodes/Viewport2DNode'
+import { walkTree } from '../scene/traverse'
 import type { Rect } from '../math/Rect'
 import type { Engine } from '../engine/Engine'
 import { InputSystem } from '../input/InputSystem'
@@ -97,8 +102,15 @@ const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1000, height: 1000 }
  */
 export class Stage {
   readonly renderer: Renderer
-  readonly scene: Scene
+  /**
+   * The one scene tree holding both 2D and 3D content (Godot-style). Add nodes
+   * under `tree.root`; the 2D and 3D render passes read from it, bucketed by
+   * node kind.
+   */
+  readonly tree: SceneTree
   readonly camera: Camera
+  /** Camera for the 3D pass. Position it via `camera3d.transform`. */
+  readonly camera3d: Camera3D
   /** Owning canvas. Public so the debug controller / demos can reference it. */
   readonly canvas: HTMLCanvasElement
   /** Optional label shown in the debug HUD's stage selector. */
@@ -124,6 +136,11 @@ export class Stage {
 
   /** Per-layer node walk: viewport cull, transform compose, draw. */
   readonly #layerRenderer = new StageLayerRenderer()
+
+  /** Created lazily the first frame the stage has 3D content. */
+  #meshRenderer: MeshRenderer | null = null
+  /** Created lazily the first frame a 3D debug overlay is drawn. */
+  #debugLines: DebugLine3DRenderer | null = null
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -153,10 +170,12 @@ export class Stage {
       this.renderer.pixelSize.w,
       this.renderer.pixelSize.h,
     )
-    this.scene = new Scene()
-    this.scene.engine = engine
+    this.tree = new SceneTree()
+    this.tree.engine = engine
     this.camera = new Camera(opts.initialViewport ?? DEFAULT_VIEWPORT)
     this.camera.engine = engine
+    this.camera3d = new Camera3D()
+    this.camera3d.engine = engine
 
     // Kiosk hygiene, touch/selection suppression on every canvas. Applied
     // here so Svelte-mounted secondary canvases inherit it.
@@ -186,64 +205,11 @@ export class Stage {
   }
 
   /**
-   * Recompute local + world transforms across the scene. Skips clean subtrees
-   * (both `_worldDirty` false AND parent world unchanged). See
-   * `SceneNode.ensureWorldTransform` for the mid-frame escape hatch.
+   * Recompose local + world transforms across the tree (2D in painter order,
+   * then 3D), skipping clean nodes. See {@link SceneTree.updateTransforms}.
    */
   updateTransforms(): void {
-    const root = this.scene.root
-    const rootDirty = root.worldDirty
-    if (rootDirty) {
-      root.transform.updateLocal()
-      const rl = root.transform.local
-      const rw = root.transform.world
-      rw.a = rl.a
-      rw.b = rl.b
-      rw.c = rl.c
-      rw.d = rl.d
-      rw.e = rl.e
-      rw.f = rl.f
-      root.markWorldClean()
-    }
-    const rw = root.transform.world
-    const children = root.children
-    for (let i = 0; i < children.length; i++) {
-      this.#propagateTransform(children[i], rw, rootDirty)
-    }
-  }
-
-  #propagateTransform(
-    node: import('../scene/SceneNode').SceneNode,
-    parentWorld: DOMMatrix,
-    parentDirty: boolean,
-  ): void {
-    // If neither this node nor its parent changed since last frame, the
-    // world matrix is still correct, skip the multiply.
-    const nodeDirty = node.worldDirty || parentDirty
-    if (nodeDirty) {
-      node.transform.updateLocal()
-      const l = node.transform.local
-      const w = node.transform.world
-      const pa = parentWorld.a
-      const pb = parentWorld.b
-      const pc = parentWorld.c
-      const pd = parentWorld.d
-      const pe = parentWorld.e
-      const pf = parentWorld.f
-      w.a = pa * l.a + pc * l.b
-      w.b = pb * l.a + pd * l.b
-      w.c = pa * l.c + pc * l.d
-      w.d = pb * l.c + pd * l.d
-      w.e = pa * l.e + pc * l.f + pe
-      w.f = pb * l.e + pd * l.f + pf
-      node.markWorldClean()
-    }
-    const children = node.children
-    if (children.length === 0) return
-    const w = node.transform.world
-    for (let i = 0; i < children.length; i++) {
-      this.#propagateTransform(children[i], w, nodeDirty)
-    }
+    this.tree.updateTransforms()
   }
 
   /**
@@ -272,9 +238,32 @@ export class Stage {
     // Frame-phase perf marks, same `engine.perfMarks` opt-in as the per-node
     // marks in `drawLayer`, so `?debug=perf` brackets each render phase
     // (clear / static / above-static / dynamic) as a `performance.measure`.
-    const marks = this.scene.engine?.perfMarks ?? false
+    const marks = this.tree.engine?.perfMarks ?? false
 
     const screen = this.#screenGfx
+
+    // Lazily stand up the 3D pass the first frame it's needed — either the world
+    // has content or the 3D debug camera is active — adding the depth attachment
+    // before the frame's clear so its first depth clear lands.
+    const has3D = this.tree.has3D
+    const debug = this.tree.engine?.debug ?? null
+    const show3D = has3D || (debug?.camera3dActive ?? false)
+    if (show3D) screen.enableDepth()
+    if (has3D && !this.#meshRenderer) {
+      this.#meshRenderer = new MeshRenderer(screen.device)
+    }
+
+    // Viewport2D pre-passes: render each embedded 2D scene to its own offscreen
+    // target before the main frame begins, so the 3D pass can sample the result.
+    if (has3D) {
+      this.#phaseBegin(marks, '3d-rtt')
+      walkTree(this.tree.root, (n) => {
+        if (n instanceof Viewport2DNode && n.visible) {
+          n.renderOffscreen(screen.device, this.canvas, dt)
+        }
+      })
+      this.#phaseEnd(marks, '3d-rtt')
+    }
 
     this.#phaseBegin(marks, 'clear')
     screen.beginFrame({
@@ -285,13 +274,39 @@ export class Stage {
     })
     this.#phaseEnd(marks, 'clear')
 
+    // Depth-tested 3D pass, drawn immediately into the freshly-cleared target
+    // so the record/submit 2D layers replay on top. `resetToBaseline` returns
+    // the device to the 2D pipeline's expected state (depth off, cull off,
+    // blend source-over) before those layers draw.
+    if (show3D) {
+      this.#phaseBegin(marks, '3d')
+      const ph = renderer.pixelSize.h
+      this.camera3d.setAspect(ph > 0 ? renderer.pixelSize.w / ph : 1)
+      // The 3D fly-camera (when active) drives the pass, leaving the game camera
+      // untouched so its frustum gizmo reflects the real view.
+      const cam3d = debug?.activeCamera3dFor(this) ?? this.camera3d
+      if (has3D && this.#meshRenderer) {
+        // World matrices were composed in the engine's transform pass (or the
+        // caller's) before render; just draw.
+        this.#meshRenderer.render(cam3d, this.tree.root, debug?.meshShaderMode ?? 0)
+      }
+      if (debug) {
+        if (!this.#debugLines) this.#debugLines = new DebugLine3DRenderer(screen.device)
+        this.#debugLines.begin()
+        debug.drawOverlay3D(this, cam3d, this.#debugLines)
+        this.#debugLines.flush(cam3d.viewProjection)
+      }
+      screen.device.resetToBaseline()
+      this.#phaseEnd(marks, '3d')
+    }
+
     // Map Path2Ds are tessellated at asset load, so rendering the static
     // layer live every frame is one colored-tri batch (~5K tris). Sharper
     // than a bake + reproject and avoids CLAMP_TO_EDGE artifacts when the
     // viewport strays outside a stale bake's coverage.
     this.#phaseBegin(marks, 'static-render')
     this.#layerRenderer.drawLayer(
-      this.scene,
+      this.tree,
       this.renderer,
       'static',
       screen,
@@ -306,7 +321,7 @@ export class Stage {
 
     this.#phaseBegin(marks, 'above-static')
     this.#layerRenderer.drawLayer(
-      this.scene,
+      this.tree,
       this.renderer,
       'above-static',
       screen,
@@ -321,7 +336,7 @@ export class Stage {
 
     this.#phaseBegin(marks, 'dynamic')
     this.#layerRenderer.drawLayer(
-      this.scene,
+      this.tree,
       this.renderer,
       'dynamic',
       screen,
@@ -335,8 +350,7 @@ export class Stage {
     screen.flush()
 
     // Debug overlays draw INSIDE the frame so they composite on top of the
-    // dynamic layer through the same gfx pipeline.
-    const debug = this.scene.engine?.debug
+    // dynamic layer through the same gfx pipeline. `debug` was resolved above.
     const activeDebugStage = debug?.activeStage ?? this
     if (debug && activeDebugStage === this) {
       this.#phaseBegin(marks, 'debug-overlay')
@@ -349,6 +363,19 @@ export class Stage {
     screen.flush()
 
     screen.endFrame()
+  }
+
+  /**
+   * Last-frame 3D mesh draw counts (draws/visible/vertices/triangles), or `null`
+   * when no 3D pass has run on this stage. Read by the debug HUD.
+   */
+  get render3dStats(): {
+    draws: number
+    visible: number
+    vertices: number
+    triangles: number
+  } | null {
+    return this.#meshRenderer?.stats ?? null
   }
 
   /** Per-frame GPU pipeline stats. Read by the debug HUD. */
@@ -372,6 +399,24 @@ export class Stage {
    */
   get textureInspector(): TextureInspector {
     return this.#screenGfx.textureInspector
+  }
+
+  /**
+   * Every inspectable render target on this stage: the screen plus each
+   * `Viewport2DNode`'s offscreen surface (once it has rendered). Each keeps its
+   * own {@link TextureManager}, so the debug HUD lists them as labeled sources.
+   */
+  get textureSources(): TextureSource[] {
+    const out: TextureSource[] = [
+      { id: 'screen', label: 'Screen', inspector: this.#screenGfx.textureInspector },
+    ]
+    walkTree(this.tree.root, (n) => {
+      if (n instanceof Viewport2DNode) {
+        const inspector = n.textureInspector
+        if (inspector) out.push({ id: n.id, label: `Viewport2D · ${n.id}`, inspector })
+      }
+    })
+    return out
   }
 
   /**
@@ -419,7 +464,7 @@ export class Stage {
   reacquireContext(): void {
     this.#screenGfx.reacquireContext()
     this.#screenGfx.rebuildResources()
-    this.scene.invalidateStatic()
+    this.tree.invalidateStatic()
   }
 
   #applyResize = (): void => {
@@ -442,7 +487,7 @@ export class Stage {
       this.renderer.pixelSize.h,
     )
     this.camera.setPixelSize(cssW, cssH)
-    this.scene.invalidateStatic()
+    this.tree.invalidateStatic()
     this.#onResize?.({
       cssSize: { ...this.renderer.cssSize },
       pixelSize: { ...this.renderer.pixelSize },
@@ -483,7 +528,11 @@ export class Stage {
     this.#resizeObserver?.disconnect()
     this.#resizeObserver = null
     window.removeEventListener('resize', this.#onWindowResize)
-    this.scene.root.destroy()
+    this.tree.destroy()
+    this.#meshRenderer?.destroy()
+    this.#meshRenderer = null
+    this.#debugLines?.destroy()
+    this.#debugLines = null
     // Tear down the WebGL2 device last, canvas listeners live on it.
     this.#device.destroy()
   }

@@ -5,7 +5,7 @@
  * @module
  * @category Layout
  */
-import type { SceneNode } from '../../scene/SceneNode'
+import type { Node2D } from '../../scene/Node2D'
 import { BoxConstraints, type Size } from '../constraints'
 import { LayoutNode, isMeasurable, type MeasurableNode } from '../LayoutNode'
 import { alignOffset, type Align1D } from '../align'
@@ -56,14 +56,14 @@ export class Stack extends LayoutNode {
   }
 
   /** Append one or more children and schedule a relayout. */
-  override add(...children: SceneNode[]): this {
+  override add(...children: Node2D[]): this {
     super.add(...children)
     this.markLayoutDirty()
     return this
   }
 
   /** Remove one or more children (not destroyed) and schedule a relayout. */
-  override remove(...children: SceneNode[]): this {
+  override remove(...children: Node2D[]): this {
     super.remove(...children)
     this.markLayoutDirty()
     return this

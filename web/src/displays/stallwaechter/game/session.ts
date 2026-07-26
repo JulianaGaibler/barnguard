@@ -1,5 +1,5 @@
 import {
-  SceneNode,
+  Node2D,
   Path2DNode,
   AbortScope,
   createEmitter,
@@ -186,9 +186,9 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   const stateNodes = new Map<StateId, Path2DNode>()
   const outlineNode = buildOutlineNode(assets)
-  const packetLayer = new SceneNode('packet-layer')
-  const pathLayer = new SceneNode('path-layer')
-  const handleLayer = new SceneNode('handle-layer')
+  const packetLayer = new Node2D('packet-layer')
+  const pathLayer = new Node2D('path-layer')
+  const handleLayer = new Node2D('handle-layer')
   const activePackets: PacketNode[] = []
   const gridOverlay = new GridOverlayNode({
     mask: assets.mask,
@@ -240,7 +240,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   // --- Scene build ---------------------------------------------------------
   await host.loadScene((scene) => {
-    const mapGroup = new SceneNode('map')
+    const mapGroup = new Node2D('map')
     mapGroup.renderLayer = 'static'
     scene.root.add(mapGroup)
 
@@ -349,7 +349,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
       epicenter.transform.alpha = 0
       epicenter.renderLayer = 'dynamic'
       epicenter.addBehavior(new EpicenterBehavior())
-      host.engine.scene.root.add(epicenter)
+      host.engine.tree.root.add(epicenter)
       // Fade the epicenter in as the camera zooms.
       void epicenter
         .tween({ alpha: 1 }, { duration: 0.5, easing: easings.outCubic })

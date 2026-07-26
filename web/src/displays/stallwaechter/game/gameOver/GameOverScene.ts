@@ -1,6 +1,6 @@
 import {
   Path2DNode,
-  SceneNode,
+  Node2D,
   easings,
   ignoreAbort,
   type Camera,
@@ -354,8 +354,8 @@ export class GameOverScene {
     this.#leftTrail = new PacketMotionTrailNode()
     this.#rightTrail = new PacketMotionTrailNode()
     // Trails first (behind), then packets on top.
-    this.#stage.scene.root.add(this.#leftTrail)
-    this.#stage.scene.root.add(this.#rightTrail)
+    this.#stage.tree.root.add(this.#leftTrail)
+    this.#stage.tree.root.add(this.#rightTrail)
 
     this.#leftPacket = new PacketNode({ id: 'gameover-collide-left' })
     this.#leftPacket.transform.x = -spawnX
@@ -367,8 +367,8 @@ export class GameOverScene {
     this.#rightPacket.transform.y = 0
     this.#rightPacket.transform.rotation = Math.PI + Math.PI / 2 // heading = π (-x)
     this.#rightPacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.#stage.scene.root.add(this.#leftPacket)
-    this.#stage.scene.root.add(this.#rightPacket)
+    this.#stage.tree.root.add(this.#leftPacket)
+    this.#stage.tree.root.add(this.#rightPacket)
 
     // Seed the trails' live-head + one sample so the ribbon starts
     // glued to each hex from frame 1 rather than snapping in on the
@@ -397,20 +397,20 @@ export class GameOverScene {
       alphaRange: [0.15, 0.5],
       color: '#ffffff',
     })
-    this.#stage.scene.root.add(stars)
+    this.#stage.tree.root.add(stars)
 
     // Motion trail behind the packet, added after stars so it renders
     // above them but under the hex. Same shooting-star ribbon the live
     // packets use.
     this.#escapeTrail = new PacketMotionTrailNode()
-    this.#stage.scene.root.add(this.#escapeTrail)
+    this.#stage.tree.root.add(this.#escapeTrail)
 
     // Single packet at world origin, the camera keeps it centred as it
     // drifts. Pre-orient so the top vertex points along the heading.
     this.#escapePacket = new PacketNode({ id: 'gameover-escape-packet' })
     this.#escapePacket.transform.rotation = this.#escapeHeadingRad + Math.PI / 2
     this.#escapePacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.#stage.scene.root.add(this.#escapePacket)
+    this.#stage.tree.root.add(this.#escapePacket)
 
     // Seed trail so the ribbon is anchored to the hex on frame 1.
     this.#escapeTrail.setLiveHead(0, 0)
@@ -427,7 +427,7 @@ export class GameOverScene {
     )
     this.#borderLine.transform.x = this.#escapeDirX * BORDER_LINE_OFFSET_WORLD
     this.#borderLine.transform.y = this.#escapeDirY * BORDER_LINE_OFFSET_WORLD
-    this.#stage.scene.root.add(this.#borderLine)
+    this.#stage.tree.root.add(this.#borderLine)
 
     // Wait for `tickEscape` to detect the crossing (sets
     // `this.borderCrossed = true` and calls `onBorderCrossed`), then
@@ -457,7 +457,7 @@ export class GameOverScene {
           outlineFill: EYE_OUTLINE_FILL,
           irisFill: EYE_IRIS_FILL,
         })
-        this.#stage.scene.root.add(eye)
+        this.#stage.tree.root.add(eye)
         this.#eyes.push(eye)
       }
 
@@ -531,7 +531,7 @@ export class GameOverScene {
       lineWidthCssPx: c.lineWidthCssPx,
       color: c.color,
     })
-    this.#stage.scene.root.add(burst)
+    this.#stage.tree.root.add(burst)
 
     // Fade the border line out.
     const line = this.#borderLine
@@ -574,7 +574,7 @@ export class GameOverScene {
       color: c.color,
       equidistantEmission: c.equidistantEmission,
     })
-    this.#stage.scene.root.add(burst)
+    this.#stage.tree.root.add(burst)
   }
 
   /**
@@ -594,7 +594,7 @@ export class GameOverScene {
     flash.transform.y = at.y
     flash.transform.scaleX = cfg.scaleFrom
     flash.transform.scaleY = cfg.scaleFrom
-    this.#stage.scene.root.add(flash)
+    this.#stage.tree.root.add(flash)
     flash
       .tween(
         { scaleX: cfg.scaleTo, scaleY: cfg.scaleTo, alpha: 0 },
@@ -674,7 +674,7 @@ export class GameOverScene {
  * transform origin. All state fits in `readonly` fields; no per-frame
  * allocations.
  */
-class BorderLineNode extends SceneNode {
+class BorderLineNode extends Node2D {
   readonly #nx: number
   readonly #ny: number
   readonly #halfLength: number

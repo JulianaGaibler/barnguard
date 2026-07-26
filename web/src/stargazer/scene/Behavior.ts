@@ -1,13 +1,17 @@
-import type { SceneNode } from './SceneNode'
+import type { Node } from './Node'
+import type { Node2D } from './Node2D'
 
 /**
- * Reusable game logic attached to a {@link SceneNode}. Subclass it, override the
- * hooks you need, and attach an instance with {@link SceneNode.addBehavior}.
- * Keeping logic in behaviors (rather than node subclasses) lets one node
- * combine several independent behaviors and keeps the engine's node types
- * game-agnostic.
+ * Reusable game logic attached to a node. Subclass it, override the hooks you
+ * need, and attach an instance with {@link Node.addBehavior}. Keeping logic in
+ * behaviors (rather than node subclasses) lets one node combine several
+ * independent behaviors and keeps the engine's node types game-agnostic.
  *
- * The attached node is available as `this.node` from `onAttach` onward.
+ * The attached node is available as `this.node` from `onAttach` onward. The
+ * type parameter `N` is the node kind it attaches to; it defaults to
+ * {@link Node2D}, so a plain `extends Behavior` targets 2D nodes. A behavior for
+ * the 3D tree declares `extends Behavior<Node3D>` (or `Behavior<Node>` for
+ * either).
  *
  * @category Scene
  * @example
@@ -24,12 +28,12 @@ import type { SceneNode } from './SceneNode'
  *
  *   node.addBehavior(new Spin(Math.PI))
  */
-export abstract class Behavior {
+export abstract class Behavior<N extends Node = Node2D> {
   /**
-   * The node this behavior is attached to. Set by {@link SceneNode.addBehavior}
+   * The node this behavior is attached to. Set by {@link Node.addBehavior}
    * before `onAttach` fires; reading it before attach is a bug.
    */
-  node!: SceneNode
+  node!: N
 
   /** Internal, guards `onSceneReady`. Reset by `removeBehavior`. */
   _sceneReadyFired = false
@@ -61,4 +65,4 @@ export abstract class Behavior {
  *
  * @category Scene
  */
-export type BehaviorCtor<T extends Behavior> = new (...args: never[]) => T
+export type BehaviorCtor<T extends Behavior<Node>> = new (...args: never[]) => T

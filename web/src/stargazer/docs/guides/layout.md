@@ -28,7 +28,7 @@ root.setContent(
     ],
   }),
 )
-host.engine.scene.root.add(root)
+host.engine.tree.root.add(root)
 ```
 
 The root fills the camera's visible world rect by default, so the content tracks the canvas as it resizes. To pin the content to a fixed region instead of the live view, pass `bounds`:
@@ -136,7 +136,7 @@ To make a custom node layout-aware, implement `Measurable`, a preallocated `meas
 
 Not everything under a `LayoutRoot` has to be laid out. There are two ways to keep content freeform, positioned by its own `transform`, while the tree around it reflows.
 
-The first is to add a node that is not `Measurable` to a `Row`, `Column`, or `Stack`. Those containers lay out their measurable children and leave the rest alone: a plain `SceneNode` sibling still draws, culls, and hit-tests, but the layout does not size or move it, so it stays wherever its own `transform` puts it.
+The first is to add a node that is not `Measurable` to a `Row`, `Column`, or `Stack`. Those containers lay out their measurable children and leave the rest alone: a plain `Node2D` sibling still draws, culls, and hit-tests, but the layout does not size or move it, so it stays wherever its own `transform` puts it.
 
 The second is `LayoutBuilder`, for when freeform content still needs to know the box it should fill, a physics field, a grid drawn from its own geometry, a `domAnchor`ed overlay. It takes a slot like any other node but, instead of laying out a subtree, reports the rect it was arranged into. The rect is in world coords, so content living elsewhere in the scene can read it directly.
 
@@ -181,6 +181,6 @@ await card.tween({ scaleX: 1.1, scaleY: 1.1 }, { duration: 0.15 })
 
 ## Where to go next
 
-- [Scene graph](/guides/scene), the `SceneNode` tree layout builds on
+- [Scene graph](/guides/scene), the `Node2D` tree layout builds on
 - [Camera](/guides/camera), the viewport whose visible rect a `LayoutRoot` fills
 - [Animation](/guides/animation), `tween` and the abort contract

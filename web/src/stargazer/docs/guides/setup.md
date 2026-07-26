@@ -175,7 +175,7 @@ Everything hangs off `host.engine`:
 ```ts
 const engine = host.engine
 
-engine.scene // the primary Scene; engine.scene.root is where nodes go
+engine.tree // the primary Scene; engine.tree.root is where nodes go
 engine.camera // the game Camera (viewport, animateTo)
 engine.input // the primary InputSystem (pointers, touch slop)
 engine.animation // the Animator behind tween / wait

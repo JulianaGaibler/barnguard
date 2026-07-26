@@ -137,12 +137,26 @@ export interface RenderTargetOpts {
    * attachments.)
    */
   depth?: boolean
+  /**
+   * Color-attachment color space. `'linear'` (default) allocates `RGBA8`;
+   * `'srgb'` allocates `SRGB8_ALPHA8` so a target sampled by a later 3D shader
+   * decodes to linear on read and matches the on-screen surface's gamma. Only
+   * the single-sample texture path honors this (an offscreen `Viewport2DNode`
+   * target); the multisample renderbuffer path stays `RGBA8`.
+   */
+  colorSpace?: 'linear' | 'srgb'
 }
 
 export interface BeginFrameOpts {
   target: RenderTarget
   /** RGBA in `0..1`. Clears the target at frame start. */
   clearColor?: readonly [number, number, number, number]
+  /**
+   * Clear the depth buffer at frame start. Set only when a depth-tested 3D
+   * pass follows and the target carries a depth attachment; a pure-2D frame
+   * leaves it unset so no depth clear is issued.
+   */
+  clearDepth?: boolean
 }
 
 export interface BlitOpts {
@@ -152,6 +166,20 @@ export interface BlitOpts {
 // --- state -----------------------------------------------------------------
 
 export type GfxBlendMode = 'source-over' | 'lighter'
+
+/**
+ * Face-culling mode for the 3D pass. `'none'` draws both faces (the 2D
+ * baseline, since 2D geometry has mixed winding). `'back'`/`'front'` cull the
+ * back/front faces of CCW-front (glTF) triangles.
+ */
+export type CullMode = 'none' | 'back' | 'front'
+
+/**
+ * Index element width for an {@link IBuffer}. `'u16'` (`UNSIGNED_SHORT`, ≤ 65
+ * 535 vertices) is the retained-2D default; `'u32'` (`UNSIGNED_INT`) covers
+ * large 3D meshes.
+ */
+export type IndexType = 'u16' | 'u32'
 
 /**
  * Per-frame counts of _real_ GL state changes — incremented by the device only
@@ -187,6 +215,8 @@ export interface GfxDevice {
     w: number,
   ): void
   setUniformMat3(p: Program, name: string, m: Float32Array): void
+  /** Set a `mat4` uniform (column-major 16-float array), e.g. a 3D view-proj. */
+  setUniformMat4(p: Program, name: string, m: Float32Array): void
   /**
    * Bind `tex` to the given texture unit and set the sampler uniform to that
    * unit. Idempotent state hygiene, never relies on the default `TEXTURE0`.
@@ -229,13 +259,20 @@ export interface GfxDevice {
   deleteUniformBuffer(buf: UBuffer): void
 
   // Index buffers ------------------------------------------------------------
-  /** Allocate an index buffer of `byteSize` (`UNSIGNED_SHORT` indices). */
-  createIndexBuffer(byteSize: number): IBuffer
-  /** Write `src` (a `Uint16Array`) into `buf` at `byteOffset`. */
+  /**
+   * Allocate an index buffer of `byteSize`. `type` picks the element width and
+   * is captured on the buffer, so a VAO built with it draws with the matching
+   * `drawElements` index type; defaults to `'u16'`.
+   */
+  createIndexBuffer(byteSize: number, type?: IndexType): IBuffer
+  /**
+   * Write indices into `buf` at `byteOffset`. Pass a `Uint16Array` for a
+   * `'u16'` buffer, a `Uint32Array` for a `'u32'` one.
+   */
   updateIndexBufferSubData(
     buf: IBuffer,
     byteOffset: number,
-    src: Uint16Array,
+    src: Uint16Array | Uint32Array,
   ): void
   deleteIndexBuffer(buf: IBuffer): void
 
@@ -291,9 +328,27 @@ export interface GfxDevice {
 
   // State --------------------------------------------------------------------
   setBlend(mode: GfxBlendMode): void
+  /**
+   * Enable/disable depth testing. Cached; the 3D pass turns it on, then
+   * {@link GfxDevice.resetToBaseline} turns it off before the 2D layers draw.
+   */
+  setDepthTest(enabled: boolean): void
+  /** Enable/disable depth-buffer writes (`depthMask`). Cached. */
+  setDepthWrite(enabled: boolean): void
+  /** Set face culling. Cached. See {@link CullMode}. */
+  setCullFace(mode: CullMode): void
+  /**
+   * Restore the state the 2D pipeline expects at the start of a layer pass:
+   * depth test off, depth writes on, cull off, blend `source-over`. Routes
+   * through the cached setters so the internal state cache stays truthful.
+   * Call between the 3D pass and the 2D layers.
+   */
+  resetToBaseline(): void
 
   // Draw ---------------------------------------------------------------------
   drawArrays(first: number, count: number): void
+  /** Non-indexed `LINES` draw of `count` vertices from `first` (debug gizmos). */
+  drawLines(first: number, count: number): void
   drawArraysInstanced(first: number, count: number, instanceCount: number): void
   /**
    * Indexed draw of `count` `UNSIGNED_SHORT` indices starting at `byteOffset`

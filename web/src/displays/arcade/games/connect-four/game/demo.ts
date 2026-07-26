@@ -6,7 +6,7 @@
  * a demo builds a subtree and drops scripted discs directly.
  */
 import {
-  SceneNode,
+  Node2D,
   ignoreAbort,
   type EngineHost,
   type Stage,
@@ -39,9 +39,9 @@ import type { Player } from './types'
 const FIELD_PADDING = 32
 
 interface Scene {
-  root: SceneNode
-  discLayer: SceneNode
-  winLayer: SceneNode
+  root: Node2D
+  discLayer: Node2D
+  winLayer: Node2D
   layout: BoardLayout
   discRadius: number
   abort: AbortController
@@ -57,14 +57,14 @@ function buildScene(stage: Stage): Scene {
   })
   const discRadius = layout.cell * BOARD.discRadiusFrac
 
-  const root = new SceneNode('cf-demo')
-  const discLayer = new SceneNode('cf-demo-discs')
-  const winLayer = new SceneNode('cf-demo-wins')
+  const root = new Node2D('cf-demo')
+  const discLayer = new Node2D('cf-demo-discs')
+  const winLayer = new Node2D('cf-demo-wins')
   // Discs behind the board so its holes frame them; win bursts on top.
   root.add(discLayer)
   root.add(new BoardNode(layout))
   root.add(winLayer)
-  stage.scene.root.add(root)
+  stage.tree.root.add(root)
 
   return {
     root,

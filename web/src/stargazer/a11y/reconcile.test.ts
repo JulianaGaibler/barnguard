@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { Scene } from '../scene/Scene'
-import { SceneNode } from '../scene/SceneNode'
+import { SceneTree } from '../scene/SceneTree'
+import { Node2D } from '../scene/Node2D'
 import {
   reconcileChildren,
   reconcileTree,
@@ -8,12 +8,12 @@ import {
 } from './reconcile'
 import type { Semantics } from './types'
 
-function entry(node: SceneNode, semantics: Semantics): ReconcileEntry {
+function entry(node: Node2D, semantics: Semantics): ReconcileEntry {
   return { node, element: document.createElement('div'), semantics }
 }
 
 /** Registered entries in scene painter pre-order (as the subsystem passes them). */
-function ordered(scene: Scene, entries: ReconcileEntry[]): ReconcileEntry[] {
+function ordered(scene: SceneTree, entries: ReconcileEntry[]): ReconcileEntry[] {
   const byNode = new Map(entries.map((e) => [e.node, e]))
   const out: ReconcileEntry[] = []
   for (const n of scene.getPainterOrder()) {
@@ -50,10 +50,10 @@ describe('reconcileChildren', () => {
 
 describe('reconcileTree', () => {
   it('nests each node under its nearest registered ancestor, skipping the rest', () => {
-    const scene = new Scene()
-    const group = new SceneNode('group')
-    const mid = new SceneNode('mid') // not registered
-    const leaf = new SceneNode('leaf')
+    const scene = new SceneTree(new Node2D('scene-root'))
+    const group = new Node2D('group')
+    const mid = new Node2D('mid') // not registered
+    const leaf = new Node2D('leaf')
     scene.root.add(group)
     group.add(mid)
     mid.add(leaf)
@@ -68,9 +68,9 @@ describe('reconcileTree', () => {
   })
 
   it('orders siblings by painter order, with `order` as a tiebreak', () => {
-    const scene = new Scene()
-    const a = new SceneNode('a')
-    const b = new SceneNode('b')
+    const scene = new SceneTree(new Node2D('scene-root'))
+    const a = new Node2D('a')
+    const b = new Node2D('b')
     scene.root.add(a)
     scene.root.add(b)
 
@@ -89,10 +89,10 @@ describe('reconcileTree', () => {
   })
 
   it('moves an element on reparent, preserving its identity', () => {
-    const scene = new Scene()
-    const g1 = new SceneNode('g1')
-    const g2 = new SceneNode('g2')
-    const leaf = new SceneNode('leaf')
+    const scene = new SceneTree(new Node2D('scene-root'))
+    const g1 = new Node2D('g1')
+    const g2 = new Node2D('g2')
+    const leaf = new Node2D('leaf')
     scene.root.add(g1)
     scene.root.add(g2)
     g1.add(leaf)

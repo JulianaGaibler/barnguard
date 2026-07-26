@@ -1,4 +1,4 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import type { Camera } from '../camera/Camera'
 import type { Rect } from '../math/Rect'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
@@ -65,7 +65,7 @@ export interface Path2DNodeOptions {
  *
  * @category Nodes
  */
-export class Path2DNode extends SceneNode {
+export class Path2DNode extends Node2D {
   path: Path2D
   fill: string | null
   stroke: string | null

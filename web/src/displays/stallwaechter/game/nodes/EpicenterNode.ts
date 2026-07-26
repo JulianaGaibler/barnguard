@@ -1,5 +1,5 @@
 import {
-  SceneNode,
+  Node2D,
   withAlpha,
   type Camera,
   type Gfx2D,
@@ -40,7 +40,7 @@ interface EpicenterNodeOptions {
  * `pulseScale`) then a white apex dot. Passive, packets read `center` /
  * `axisRad` / radii directly.
  */
-export class EpicenterNode extends SceneNode {
+export class EpicenterNode extends Node2D {
   readonly captureRadius: number
   readonly visualRadius: number
   readonly coneRadius: number

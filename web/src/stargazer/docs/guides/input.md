@@ -17,7 +17,7 @@ interface PointerStateSnapshot {
   screen: Readonly<Vec2> // CSS px, canvas-local
   world: Readonly<Vec2> // reprojected each frame
   startedAtMs: number
-  capturedBy: SceneNode | null
+  capturedBy: Node2D | null
 }
 ```
 
@@ -79,7 +79,7 @@ shape.onPointerCancel = (e) => {
 }
 ```
 
-`Path2DNode` and `ShapeNode` set `hitEnabled = true` automatically when constructed with a hit mode other than `'none'`. `SceneNode`, `PolylineNode`, and plain `SceneNode` don't hit-test until you flip the flag.
+`Path2DNode` and `ShapeNode` set `hitEnabled = true` automatically when constructed with a hit mode other than `'none'`. `Node2D`, `PolylineNode`, and plain `Node2D` don't hit-test until you flip the flag.
 
 ### bindPointer
 
