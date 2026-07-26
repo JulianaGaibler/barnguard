@@ -12,7 +12,7 @@ until you enable it on a stage.
 - `Body`, a rigid body: position, rotation, velocity, mass, and its colliders.
 - `Collider` plus the `Shape` union (`circleShape`, `aabbShape`, `polygonShape`).
 - `RigidBodyBehavior`, the scene-graph binding: mirrors a body onto a
-  `SceneNode` transform each frame with interpolation.
+  `Node2D` transform each frame with interpolation.
 - `PhysicsWorldBehavior`, which gives a subtree its own world so a self-contained
   simulation can sit anywhere in the tree (see Isolated sub-worlds).
 - `BroadPhase` with two implementations, `BruteForceBroadPhase` and
@@ -51,8 +51,8 @@ simulation boundary: `RigidBodyBehavior`s below it bind to that world instead of
 the stage world, the engine steps it each fixed tick, and the debug HUD lists it.
 
 ```ts
-function buildArena(): SceneNode {
-  const arena = new SceneNode('arena')
+function buildArena(): Node2D {
+  const arena = new Node2D('arena')
   arena.addBehavior(
     new PhysicsWorldBehavior({ config: { gravity: { x: 0, y: 0 } } }),
   )
@@ -162,7 +162,7 @@ rendered position between fixed steps using the ticker's `fixedAlpha`, so motion
 stays smooth at any display rate.
 
 ```ts
-const node = new SceneNode('crate')
+const node = new Node2D('crate')
 node.transform.x = 100
 node.transform.y = 50
 node.addBehavior(
@@ -181,6 +181,50 @@ With no `world` option the behavior resolves the nearest world at or above the
 node: it walks up the ancestors for a `PhysicsWorldBehavior` (see Isolated
 sub-worlds) and, finding none, falls back to the stage world. Pass `world`
 explicitly to override. The body is the source of truth; the node follows it.
+
+### Suspending the sync
+
+Sometimes the node transform needs to break away from the body — a tween slides
+the node off-screen, or a finger drags it directly and you want no interpolation
+lag. Rather than hand-rolling the body→node mirror in your own `onUpdate`, gate
+the behavior's sync:
+
+- Set `rb.syncEnabled = false` to stop the per-frame sync entirely (a tween now
+  owns the transform); set it back to `true` to resume mirroring.
+- Pass `shouldSync: () => boolean` to gate each frame declaratively (e.g. return
+  `false` while `body.isBeingDragged`).
+- Toggle `rb.interpolate` to drop from smoothed tracking to hard-tracking the
+  body's current position (useful while a finger drives the body directly).
+
+```ts
+const rb = new RigidBodyBehavior({
+  bodyDef,
+  shouldSync: () => !body.isBeingDragged, // finger owns the transform while dragging
+})
+node.addBehavior(rb)
+// ...
+rb.syncEnabled = false // a slide-off tween takes over
+```
+
+### Sync-only mode
+
+When the game adds and removes bodies from the world itself (an imperative loop
+that spawns and retires bodies on its own schedule), pass `manageBody: false`
+with an explicit `body`. The behavior then skips world resolution and
+registration and only mirrors the body onto the node — you keep full control of
+the body's lifetime, the behavior just handles the (suspendable, interpolated)
+transform sync:
+
+```ts
+node.addBehavior(
+  new RigidBodyBehavior({
+    body, // already added to the world by the game
+    manageBody: false,
+    syncRotation: false,
+    shouldSync: () => !detached, // a tween owns the transform while this is true
+  }),
+)
+```
 
 ## Raycasting and queries
 

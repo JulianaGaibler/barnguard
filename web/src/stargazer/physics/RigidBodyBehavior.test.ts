@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import { PhysicsWorld } from './PhysicsWorld'
 import { PhysicsWorldBehavior } from './PhysicsWorldBehavior'
 import { RigidBodyBehavior } from './RigidBodyBehavior'
@@ -7,15 +7,15 @@ import { circleShape } from './Collider'
 
 // Drive the behavior lifecycle by hand (no full Engine): step the world, then
 // mirror onFixedStep + onUpdate the way the engine loop would.
-function attach(node: SceneNode, b: RigidBodyBehavior): void {
-  ;(b as unknown as { node: SceneNode }).node = node
+function attach(node: Node2D, b: RigidBodyBehavior): void {
+  ;(b as unknown as { node: Node2D }).node = node
   b.onSceneReady()
 }
 
 describe('RigidBodyBehavior', () => {
   it('creates a body seeded from the node transform', () => {
     const world = new PhysicsWorld()
-    const node = new SceneNode()
+    const node = new Node2D()
     node.transform.x = 30
     node.transform.y = -12
     node.transform.rotation = 0.25
@@ -32,7 +32,7 @@ describe('RigidBodyBehavior', () => {
 
   it('mirrors the stepped body position onto the node transform', () => {
     const world = new PhysicsWorld({ gravity: { x: 0, y: 100 } })
-    const node = new SceneNode()
+    const node = new Node2D()
     const b = new RigidBodyBehavior({
       world,
       interpolate: false,
@@ -50,9 +50,9 @@ describe('RigidBodyBehavior', () => {
 
   it('binds to the nearest ancestor world when none is passed', () => {
     const arenaWorld = new PhysicsWorld()
-    const arena = new SceneNode('arena')
+    const arena = new Node2D('arena')
     arena.addBehavior(new PhysicsWorldBehavior({ world: arenaWorld }))
-    const child = new SceneNode()
+    const child = new Node2D()
     arena.add(child)
 
     const b = new RigidBodyBehavior({
@@ -64,7 +64,7 @@ describe('RigidBodyBehavior', () => {
 
   it('resolves a world hosted on the body node itself', () => {
     const arenaWorld = new PhysicsWorld()
-    const arena = new SceneNode('arena')
+    const arena = new Node2D('arena')
     arena.addBehavior(new PhysicsWorldBehavior({ world: arenaWorld }))
 
     // Body and world share a node: resolution starts at the node itself.
@@ -77,7 +77,7 @@ describe('RigidBodyBehavior', () => {
 
   it('removes the body on detach', () => {
     const world = new PhysicsWorld()
-    const node = new SceneNode()
+    const node = new Node2D()
     const b = new RigidBodyBehavior({
       world,
       bodyDef: { colliders: [{ shape: circleShape(5) }] },

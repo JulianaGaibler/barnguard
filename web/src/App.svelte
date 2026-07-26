@@ -7,6 +7,7 @@
   import BoothMenu from '@src/core/attendant/BoothMenu.svelte'
   import PrinterPanel from '@src/core/attendant/PrinterPanel.svelte'
   import GamesPanel from '@src/core/attendant/GamesPanel.svelte'
+  import LeaderboardPanel from '@src/core/attendant/LeaderboardPanel.svelte'
   import BackgroundLayer from '@src/core/ui/BackgroundLayer.svelte'
   import TopBar from '@src/core/attendant/TopBar.svelte'
   import DemoRouter from './stargazer/dev/DemoRouter.svelte'
@@ -47,3 +48,6 @@
 <BoothMenu />
 <PrinterPanel />
 <GamesPanel />
+{#if display.leaderboardIds?.length}
+  <LeaderboardPanel />
+{/if}

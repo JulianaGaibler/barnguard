@@ -16,3 +16,4 @@ export type {
 } from '../assets/SvgPathMap'
 export { buildBitmapMask } from '../assets/BitmapMask'
 export type { BitmapMask, BitmapMaskOptions } from '../assets/BitmapMask'
+export { loadGltf, parseGltf } from '../assets/gltf'

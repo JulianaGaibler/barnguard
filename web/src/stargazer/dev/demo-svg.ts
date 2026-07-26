@@ -1,5 +1,6 @@
 import { createEngineHost } from '../engine/EngineHost'
-import { SceneNode } from '../scene/SceneNode'
+import { addDemoCamera } from './demoCamera'
+import { Node2D } from '../scene/Node2D'
 import { Path2DNode } from '../nodes/Path2DNode'
 import { parseSvgPaths } from '../assets/SvgPathMap'
 import { buildBitmapMask, type BitmapMask } from '../assets/BitmapMask'
@@ -51,9 +52,8 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    // Use the shapes SVG viewBox as the world viewport, the Camera's
+    // Use the shapes SVG viewBox as the world viewport, the CameraView2D's
     // uniform-fit centers the map in whatever landscape canvas we have.
-    initialViewport: { x: 0, y: 0, width: 661, height: 899 },
   })
   attach?.(host)
 
@@ -72,8 +72,9 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
 
   const stateNodes = new Map<string, Path2DNode>()
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: 0, y: 0, width: 661, height: 899 })
     if (!assets) return
-    const mapGroup = new SceneNode('map')
+    const mapGroup = new Node2D('map')
     scene.root.add(mapGroup)
 
     for (const [id, entry] of assets.states.paths) {
@@ -126,7 +127,10 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     const rect = canvas.getBoundingClientRect()
     const cssX = e.clientX - rect.left
     const cssY = e.clientY - rect.top
-    const world = host.engine.camera.screenToWorld(cssX, cssY)
+    const world = host.engine.currentCamera2D?.screenToWorld(cssX, cssY) ?? {
+      x: 0,
+      y: 0,
+    }
     // 1) Test each state's Path2DNode.hitTest (uses isPointInPath internally).
     let hit: string | null = null
     for (const [id, node] of stateNodes) {

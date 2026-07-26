@@ -24,10 +24,10 @@ import { AI_LEVELS } from './tuning'
 const WIN = 100_000
 
 const game: AdversarialGame<Board, number> = {
-  moves: (b) => legalColumns(b),
-  makeMove: (b, col) => makeMove(b, col),
-  unmakeMove: (b, col) => unmakeMove(b, col),
-  isTerminal: (b) => b.winner !== 0 || isFull(b),
+  moves: (board) => legalColumns(board),
+  makeMove: (board, col) => makeMove(board, col),
+  unmakeMove: (board, col) => unmakeMove(board, col),
+  isTerminal: (board) => board.winner !== 0 || isFull(board),
   evaluate,
 }
 
@@ -37,36 +37,36 @@ const game: AdversarialGame<Board, number> = {
  * offset by `ply` so a faster loss is worse (and, negated up the tree, a faster
  * win is better). See the stargazer AI guide.
  */
-function evaluate(b: Board): number {
-  if (b.winner !== 0) return -(WIN - b.ply)
-  if (isFull(b)) return 0
-  const me = b.turn
+function evaluate(board: Board): number {
+  if (board.winner !== 0) return -(WIN - board.ply)
+  if (isFull(board)) return 0
+  const me = board.turn
   const opp = me === 1 ? 2 : 1
-  return heuristic(b, me) - heuristic(b, opp)
+  return heuristic(board, me) - heuristic(board, opp)
 }
 
 /** Sum of open-window potential for `player`, plus a center-column bias. */
-function heuristic(b: Board, player: number): number {
+function heuristic(board: Board, player: number): number {
   let score = 0
   // Center column control is worth a little on its own.
   const center = (COLS - 1) / 2
   for (let row = 0; row < ROWS; row++) {
-    if (cellAt(b, center, row) === player) score += 3
+    if (cellAt(board, center, row) === player) score += 3
   }
   // Every length-CONNECT window, in all four directions.
   for (let row = 0; row < ROWS; row++) {
     for (let col = 0; col < COLS; col++) {
-      score += windowScore(b, col, row, 1, 0, player)
-      score += windowScore(b, col, row, 0, 1, player)
-      score += windowScore(b, col, row, 1, 1, player)
-      score += windowScore(b, col, row, 1, -1, player)
+      score += windowScore(board, col, row, 1, 0, player)
+      score += windowScore(board, col, row, 0, 1, player)
+      score += windowScore(board, col, row, 1, 1, player)
+      score += windowScore(board, col, row, 1, -1, player)
     }
   }
   return score
 }
 
 function windowScore(
-  b: Board,
+  board: Board,
   col: number,
   row: number,
   dc: number,
@@ -79,9 +79,9 @@ function windowScore(
   let mine = 0
   let empty = 0
   for (let i = 0; i < CONNECT; i++) {
-    const v = cellAt(b, col + dc * i, row + dr * i)
-    if (v === player) mine += 1
-    else if (v === 0) empty += 1
+    const cell = cellAt(board, col + dc * i, row + dr * i)
+    if (cell === player) mine += 1
+    else if (cell === 0) empty += 1
     else return 0 // window blocked by the opponent, no potential
   }
   if (mine === 3 && empty === 1) return 50

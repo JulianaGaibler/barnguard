@@ -13,5 +13,7 @@ export { DomTransformSync, projectWorldToCss } from '../dom/DomTransformSync'
 export type {
   DomAttachment,
   DomAttachOptions,
+  Dom3DAttachment,
+  Dom3DAttachOptions,
   CssMatrix,
 } from '../dom/DomTransformSync'

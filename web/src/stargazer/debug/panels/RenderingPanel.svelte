@@ -1,6 +1,10 @@
 <script lang="ts">
-  import type { DebugController, DebugStatsSnapshot } from '../DebugController'
-  import type { DebugRenderMode } from '../../render/gfx/gpu/GpuGfx'
+  import type {
+    DebugController,
+    DebugStatsSnapshot,
+    DebugRenderMode as MeshRenderMode,
+  } from '../DebugController'
+  import type { DebugRenderMode } from '../../render/gfx/GpuGfx'
   import {
     DebugSection,
     DebugRow,
@@ -21,24 +25,53 @@
 
   let renderOpen = $state(true)
   let gpuOpen = $state(true)
+  let threeOpen = $state(true)
   let texturesOpen = $state(false)
 
   // Render-mode / MSAA / perf-marks are per-stage engine state; mirror the
   // active stage's live values so an external toggle or a stage switch stays in
   // sync. Re-synced each tick (see the `revision` effect below).
-  let renderMode = $state<DebugRenderMode>('normal')
+  // One render-mode control drives both pipelines: the 2D batch modes
+  // (`DebugRenderMode`, GpuGfx) and the 3D mesh views (`MeshRenderMode`,
+  // DebugController). Only one is active at a time; picking one resets the
+  // other to `normal`. `'normal'` is shared.
+  type CombinedRenderMode = DebugRenderMode | Exclude<MeshRenderMode, 'normal'>
+  let renderMode = $state<CombinedRenderMode>('normal')
   let msaaSamples = $state<number>(4)
   let perfMarks = $state(false)
   let fpsCap = $state(0)
   let smoothTimestep = $state(true)
+  // 3D quality overrides (engine.quality), mirrored live like the rest.
+  let shadowsOn = $state(true)
+  let shadowSize = $state(1024)
+  let anisotropy = $state(8)
+  let shadowSoftness = $state(4)
 
-  const RENDER_MODE_OPTIONS: readonly DebugSelectOption<DebugRenderMode>[] = [
-    { value: 'normal', label: 'Normal' },
-    { value: 'polygons', label: 'Polygon outlines' },
-    { value: 'overdraw', label: 'Overdraw heatmap' },
-    { value: 'batch-color', label: 'Batch coloring' },
-    { value: 'clip-mask', label: 'Show clip mask' },
-  ]
+  const RENDER_MODE_OPTIONS_2D: readonly DebugSelectOption<CombinedRenderMode>[] =
+    [
+      { value: 'normal', label: 'Normal' },
+      { value: 'polygons', label: '2D polygon outlines' },
+      { value: 'overdraw', label: '2D overdraw heatmap' },
+      { value: 'batch-color', label: '2D batch coloring' },
+      { value: 'clip-mask', label: '2D clip mask' },
+    ]
+  const RENDER_MODE_OPTIONS_3D: readonly DebugSelectOption<CombinedRenderMode>[] =
+    [
+      { value: 'wireframe', label: '3D wireframe' },
+      { value: 'unshaded', label: '3D unshaded (albedo)' },
+      { value: 'normals', label: '3D normals' },
+    ]
+  // 3D views only offered when the scene has 3D content.
+  const renderModeOptions = $derived(
+    stats.world3d
+      ? [...RENDER_MODE_OPTIONS_2D, ...RENDER_MODE_OPTIONS_3D]
+      : RENDER_MODE_OPTIONS_2D,
+  )
+  const MESH_MODES = new Set<CombinedRenderMode>([
+    'wireframe',
+    'unshaded',
+    'normals',
+  ])
 
   const MSAA_OPTIONS: readonly DebugSelectOption<number>[] = [
     { value: 0, label: 'Off (1×)' },
@@ -56,24 +89,60 @@
     { value: 144, label: '144' },
   ]
 
+  const SHADOW_SIZE_OPTIONS: readonly DebugSelectOption<number>[] = [
+    { value: 256, label: '256' },
+    { value: 512, label: '512' },
+    { value: 1024, label: '1024' },
+    { value: 2048, label: '2048' },
+    { value: 4096, label: '4096' },
+  ]
+  const ANISO_OPTIONS: readonly DebugSelectOption<number>[] = [
+    { value: 1, label: 'Off' },
+    { value: 2, label: '2×' },
+    { value: 4, label: '4×' },
+    { value: 8, label: '8×' },
+    { value: 16, label: '16×' },
+  ]
+  const SOFTNESS_OPTIONS: readonly DebugSelectOption<number>[] = [
+    { value: 1, label: 'Hard' },
+    { value: 4, label: 'Soft' },
+    { value: 9, label: 'Softer' },
+    { value: 16, label: 'Softest' },
+  ]
+
   $effect(() => {
     void revision
     const active = debug.activeStage
-    const liveMode = active.getDebugRenderMode()
-    if (liveMode !== null && liveMode !== renderMode) renderMode = liveMode
+    // The 3D mesh view wins the dropdown when non-normal, else the 2D mode.
+    const live3d = debug.renderMode
+    const live2d = active.getDebugRenderMode()
+    const liveMode: CombinedRenderMode = live3d !== 'normal' ? live3d : live2d
+    if (liveMode !== renderMode) renderMode = liveMode
     const liveSamples = active.getMsaaSamples()
-    if (liveSamples !== null && liveSamples !== msaaSamples)
-      msaaSamples = liveSamples
+    if (liveSamples !== msaaSamples) msaaSamples = liveSamples
     if (debug.perfMarks !== perfMarks) perfMarks = debug.perfMarks
     const liveCap = Math.round(debug.maxFps)
     if (liveCap !== fpsCap) fpsCap = liveCap
     if (debug.smoothTimestep !== smoothTimestep)
       smoothTimestep = debug.smoothTimestep
+    const q = debug.quality
+    if (q.shadowsEnabled !== shadowsOn) shadowsOn = q.shadowsEnabled
+    if (q.shadowMapSize !== shadowSize) shadowSize = q.shadowMapSize
+    if (q.anisotropy !== anisotropy) anisotropy = q.anisotropy
+    if (q.shadowSoftness !== shadowSoftness) shadowSoftness = q.shadowSoftness
   })
 
-  function handleRenderModeChange(mode: DebugRenderMode): void {
+  function handleRenderModeChange(mode: CombinedRenderMode): void {
     renderMode = mode
-    debug.activeStage.setDebugRenderMode(mode)
+    if (MESH_MODES.has(mode)) {
+      // A 3D mesh view; leave the 2D pipeline normal.
+      debug.setRenderMode(mode as MeshRenderMode)
+      debug.activeStage.setDebugRenderMode('normal')
+    } else {
+      // A 2D batch mode (or 'normal'); leave the 3D pass normal.
+      debug.activeStage.setDebugRenderMode(mode as DebugRenderMode)
+      debug.setRenderMode('normal')
+    }
   }
 
   function handleMsaaChange(samples: number): void {
@@ -96,28 +165,28 @@
     smoothTimestep = debug.smoothTimestep
   }
 
-  function reloadWithRenderer(mode: 'canvas2d' | 'gpu'): void {
-    const url = new URL(window.location.href)
-    url.searchParams.set('renderer', mode)
-    window.location.href = url.toString()
+  function handleShadowsToggle(): void {
+    debug.quality.shadowsEnabled = !shadowsOn
+    shadowsOn = debug.quality.shadowsEnabled
   }
 
-  function noFocus(e: PointerEvent): void {
-    e.preventDefault()
+  function handleShadowSizeChange(v: number): void {
+    debug.quality.shadowMapSize = v
+    shadowSize = debug.quality.shadowMapSize
+  }
+
+  function handleAnisotropyChange(v: number): void {
+    debug.quality.anisotropy = v
+    anisotropy = debug.quality.anisotropy
+  }
+
+  function handleSoftnessChange(v: number): void {
+    debug.quality.shadowSoftness = v
+    shadowSoftness = debug.quality.shadowSoftness
   }
 </script>
 
 <DebugSection title="Rendering" bind:open={renderOpen}>
-  <DebugRow
-    label="Render scale"
-    value={`${(stats.renderScale * 100).toFixed(0)}%`}
-    tone={stats.renderScale < 1 ? 'accent' : 'default'}
-  />
-  <DebugRow
-    label="Active bitmaps"
-    value={stats.activeBitmaps}
-    tone={stats.activeBitmaps > 2 ? 'error' : 'default'}
-  />
   <div class="debug-controls">
     <DebugSelect
       label="FPS cap"
@@ -136,106 +205,82 @@
 <DebugSection title="GPU" bind:open={gpuOpen}>
   <!-- Controls first (the operator's primary use), read-only stats below. -->
   <div class="debug-controls with-divider">
-    {#if stats.gpu}
-      <DebugSelect
-        label="Render mode"
-        value={renderMode}
-        options={RENDER_MODE_OPTIONS}
-        onChange={handleRenderModeChange}
-      />
-      <DebugSelect
-        label="MSAA"
-        value={msaaSamples}
-        options={MSAA_OPTIONS}
-        onChange={handleMsaaChange}
-      />
-    {/if}
+    <DebugSelect
+      label="Render mode"
+      value={renderMode}
+      options={renderModeOptions}
+      onChange={handleRenderModeChange}
+    />
+    <DebugSelect
+      label="MSAA"
+      value={msaaSamples}
+      options={MSAA_OPTIONS}
+      onChange={handleMsaaChange}
+    />
     <ToggleButton
       active={perfMarks}
       onToggle={handlePerfMarksToggle}
       label="Perf marks (User Timing)"
     />
-    <div class="renderer-swap">
-      <span class="rs-label">Reload as</span>
-      <button
-        type="button"
-        class="rs-btn"
-        class:active={!stats.gpu}
-        onpointerdown={noFocus}
-        onclick={() => reloadWithRenderer('canvas2d')}
-      >
-        canvas2d
-      </button>
-      <button
-        type="button"
-        class="rs-btn"
-        class:active={stats.gpu !== null}
-        onpointerdown={noFocus}
-        onclick={() => reloadWithRenderer('gpu')}
-      >
-        gpu
-      </button>
-    </div>
   </div>
 
-  {#if stats.gpu}
-    <DebugRow label="Draw calls / frame" value={stats.gpu.drawCalls} />
-    <DebugRow label="Program switches" value={stats.gpu.programSwitches} />
-    <DebugRow label="Texture binds" value={stats.gpu.textureBinds} />
-    <DebugRow label="Blend switches" value={stats.gpu.blendSwitches} />
-    <DebugRow label="SDF instances" value={stats.gpu.sdfInstances} />
-    <DebugRow label="Stroke instances" value={stats.gpu.strokeInstances} />
-    <DebugRow
-      label="MSAA"
-      value={stats.gpu.msaaSamples > 1 ? `${stats.gpu.msaaSamples}×` : 'off'}
-      tone={stats.gpu.msaaSamples > 1 ? 'accent' : 'default'}
-    />
-    <DebugRow
-      label="Overflow warns"
-      value={stats.gpu.overflowWarns}
-      tone={stats.gpu.overflowWarns > 0 ? 'error' : 'default'}
-    />
-  {:else}
-    <DebugRow label="Backend" value="Canvas 2D" tone="accent" />
-  {/if}
+  <DebugRow label="Draw calls / frame" value={stats.gpu.drawCalls} />
+  <DebugRow label="Program switches" value={stats.gpu.programSwitches} />
+  <DebugRow label="Texture binds" value={stats.gpu.textureBinds} />
+  <DebugRow label="Blend switches" value={stats.gpu.blendSwitches} />
+  <DebugRow label="SDF instances" value={stats.gpu.sdfInstances} />
+  <DebugRow label="Stroke instances" value={stats.gpu.strokeInstances} />
+  <DebugRow label="Round-rect instances" value={stats.gpu.roundRectInstances} />
+  <DebugRow
+    label="MSAA"
+    value={stats.gpu.msaaSamples > 1 ? `${stats.gpu.msaaSamples}×` : 'off'}
+    tone={stats.gpu.msaaSamples > 1 ? 'accent' : 'default'}
+  />
+  <DebugRow
+    label="Overflow warns"
+    value={stats.gpu.overflowWarns}
+    tone={stats.gpu.overflowWarns > 0 ? 'error' : 'default'}
+  />
 </DebugSection>
+
+{#if stats.world3d}
+  <DebugSection title="3D" bind:open={threeOpen}>
+    <div class="debug-controls with-divider">
+      <ToggleButton
+        active={shadowsOn}
+        onToggle={handleShadowsToggle}
+        label="Shadows"
+      />
+      <DebugSelect
+        label="Shadow resolution"
+        value={shadowSize}
+        options={SHADOW_SIZE_OPTIONS}
+        onChange={handleShadowSizeChange}
+      />
+      <DebugSelect
+        label="Shadow softness"
+        value={shadowSoftness}
+        options={SOFTNESS_OPTIONS}
+        onChange={handleSoftnessChange}
+      />
+      <DebugSelect
+        label="Anisotropy"
+        value={anisotropy}
+        options={ANISO_OPTIONS}
+        onChange={handleAnisotropyChange}
+      />
+    </div>
+    <DebugRow label="Nodes" value={stats.world3d.nodeCount} />
+    <DebugRow label="Meshes" value={stats.world3d.meshCount} />
+    {#if stats.world3d.rttSurfaces > 0}
+      <DebugRow label="RTT surfaces" value={stats.world3d.rttSurfaces} />
+    {/if}
+    <DebugRow label="Draw calls / frame" value={stats.world3d.drawCalls} />
+    <DebugRow label="Visible / frame" value={stats.world3d.visible} />
+    <DebugRow label="Triangles" value={stats.world3d.triangleCount} />
+  </DebugSection>
+{/if}
 
 <DebugSection title="Textures" bind:open={texturesOpen}>
   <TextureInspector {debug} open={texturesOpen} {revision} />
 </DebugSection>
-
-<style lang="sass">
-  .renderer-swap
-    display: flex
-    align-items: center
-    gap: 6px
-    padding: 6px 8px
-    background: rgba(255, 255, 255, 0.03)
-    border: 1px solid rgba(255, 255, 255, 0.12)
-    border-radius: 4px
-
-  .rs-label
-    font-size: 11px
-    color: rgba(255, 255, 255, 0.65)
-    flex: 1
-
-  .rs-btn
-    background: rgba(255, 255, 255, 0.05)
-    border: 1px solid rgba(255, 255, 255, 0.2)
-    color: #fff
-    font: inherit
-    font-size: 10px
-    padding: 3px 8px
-    border-radius: 3px
-    cursor: pointer
-    touch-action: manipulation
-
-    &:hover
-      background: rgba(255, 255, 255, 0.12)
-      border-color: rgba(255, 255, 255, 0.35)
-
-    &.active
-      background: rgba(96, 165, 250, 0.2)
-      border-color: rgba(96, 165, 250, 0.55)
-      color: #dbeafe
-</style>

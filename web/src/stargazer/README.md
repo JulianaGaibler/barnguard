@@ -1,10 +1,13 @@
 # Stargazer
 
-A 2D game engine with a scene graph, camera, input, animation, particles, and opt-in physics. TypeScript, with a Svelte 5 host.
+A game engine with a scene graph, camera, input, animation, particles, and opt-in physics. High-quality 2D rendering, plus a 3D scene (posed camera with an animated orthographic<->perspective blend, meshes, glTF loading, and 2D content placed on quads in 3D). TypeScript, with a Svelte 5 host. It's game-agnostic: it knows nodes, transforms, and pixels, and your game owns the rest.
 
-Rendering runs on WebGL2 (`GpuGfx`): MSAA, bitmap-mask clipping, and batched draw programs for fills, textured quads, strokes, SDF glyphs, radial gradients, and cached text labels. A Canvas 2D backend (`Canvas2DGfx`) exists as a visual-parity oracle for debugging and as a fallback; opt into it with `?renderer=canvas2d`. Nodes draw through the shared `Gfx2D` facade and never see which backend is live.
+## Design
 
-The engine is game-agnostic. It knows about nodes, transforms, and pixels; your game code owns everything else.
+- **You build a node tree.** Everything on screen is a `Node2D`: a transform, children, and optional behaviors. A drawable node implements a `draw(gfx)` hook and paints through an immediate-mode `Gfx2D` facade, so a custom node is just a class that knows how to draw itself. Reuse is a plain builder function that returns a subtree.
+- **Render layers decide what's cached.** Each node picks a layer. `static` content is baked once and reused until it changes; `dynamic` redraws every frame; `above-static` composites over the baked layer. You write plain per-frame draw code and the engine decides what to actually re-render, so a mostly-still scene re-renders almost nothing.
+- **GPU renderer.** A WebGL2 backend records a frame's draws into a command list and submits once: instanced draw programs, SDF analytic anti-aliasing, texture and label atlases, and retained geometry for static meshes. A typical frame is a handful of draw calls. MSAA and bitmap-mask clipping are built in, and a thin `GfxDevice` seam leaves room for a WebGPU backend.
+- **Past the canvas.** Pin HTML elements to nodes and they track the camera's pan and zoom; opt into an accessibility layer that mirrors chosen nodes into a hidden ARIA tree for screen readers and keyboard nav; and reach for the built-in adversarial game search (negamax with alpha-beta) for turn-based opponents.
 
 ## Getting started
 
@@ -55,8 +58,11 @@ The Svelte host is the only part that touches the DOM. Everything else runs on t
 
 - [Engine setup](/guides/setup), host vs engine, options, lifecycle, context loss
 - [Architecture](/guides/architecture), how the pieces fit together and the per-frame order
-- [Scene graph](/guides/scene), SceneNode, Behavior, transforms, render layers
+- [Scene graph](/guides/scene), Node2D, Behavior, transforms, render layers
+- [Layout](/guides/layout), opt-in constraints-based boxes, Row/Column, LayoutRoot, resize
 - [Camera](/guides/camera), viewport, uniform aspect fit, `animateTo`
+- [3D](/guides/3d), the 3D world, `Camera3D`, meshes, glTF, 2D-in-3D, picking
+- [Post-processing](/guides/post-processing), screen-space effects — vignette, chromatic aberration, edge blur, custom passes
 - [Input](/guides/input), pointer capture, hit testing, world reprojection
 - [Animation](/guides/animation), `tween`, `wait`, `Timeline`, the abort contract
 - [Text](/guides/text), `fillText`, `TextNode`, label caching and animation cost

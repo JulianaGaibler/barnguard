@@ -1,11 +1,11 @@
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 
 /**
  * A translucent disc hovering above a column while the player is choosing where
  * to drop. Renders in front of the board (above its top edge). The session sets
  * its color, x (column), and visibility.
  */
-export class PreviewNode extends SceneNode {
+export class PreviewNode extends Node2D {
   readonly #radius: number
   #color = '#ffffff'
 

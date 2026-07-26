@@ -1,9 +1,10 @@
 import {
   Path2DNode,
-  SceneNode,
+  Node2D,
+  CameraNode2D,
   easings,
   ignoreAbort,
-  type Camera,
+  type CameraView2D,
   type EngineHost,
   type Gfx2D,
   type Rect,
@@ -29,7 +30,7 @@ import type { GameOverReason } from '../session'
 // ----------------------------------------------------------------------------
 
 /**
- * Camera viewport (portrait), tuned to the loss card's aspect. Zoomed ~6×
+ * CameraView2D viewport (portrait), tuned to the loss card's aspect. Zoomed ~6×
  * closer than the initial `300 × 400` so the packet reads big enough to be the
  * focal point. Eyes' world size shrinks in tandem below so their on-screen
  * dimensions stay in the "right size" the user landed on.
@@ -54,8 +55,8 @@ const BORDER_LINE_OFFSET_WORLD = 44
 /**
  * Full length of the border line perpendicular to the heading, extends far past
  * the camera's visible slice so the wall reads as a boundary that stretches
- * "off in both directions" rather than a fixed segment. Camera only ever sees
- * the central strip.
+ * "off in both directions" rather than a fixed segment. CameraView2D only ever
+ * sees the central strip.
  */
 const BORDER_LINE_LENGTH_WORLD = 1200
 /** Fade-out of the border line after the packet crosses. */
@@ -146,6 +147,7 @@ export interface GameOverSceneOptions {
 export class GameOverScene {
   readonly #host: EngineHost
   readonly #stage: Stage
+  readonly #camera: CameraNode2D
   readonly #reason: GameOverReason
   readonly #escapeHeadingRad: number
   readonly #eyeOutlinePath: Path2D
@@ -200,13 +202,17 @@ export class GameOverScene {
       // over it. `clearColor` is ignored while `transparent` is true.
       transparent: true,
       clearColor: '#010612',
-      initialViewport: {
-        x: -CAM_W / 2,
-        y: -CAM_H / 2,
-        width: CAM_W,
-        height: CAM_H,
-      },
     })
+    // The scene's own camera, centered on the origin.
+    this.#camera = new CameraNode2D('gameover-camera')
+    this.#camera.setViewport({
+      x: -CAM_W / 2,
+      y: -CAM_H / 2,
+      width: CAM_W,
+      height: CAM_H,
+    })
+    this.#stage.tree.root.add(this.#camera)
+    this.#camera.makeCurrent()
 
     // Kick off the per-reason async choreography. Both flows finish by
     // idling; on destroy the shared abort signal cancels every await.
@@ -305,8 +311,8 @@ export class GameOverScene {
       this.#escapeTrail.setLiveHead(packet.transform.x, packet.transform.y)
       this.#escapeTrail.sample(packet.transform.x, packet.transform.y)
     }
-    // Camera keeps the packet centred.
-    this.#stage.camera.setViewport({
+    // Keep the packet centred.
+    this.#camera.setViewport({
       x: packet.transform.x - CAM_W / 2,
       y: packet.transform.y - CAM_H / 2,
       width: CAM_W,
@@ -354,8 +360,8 @@ export class GameOverScene {
     this.#leftTrail = new PacketMotionTrailNode()
     this.#rightTrail = new PacketMotionTrailNode()
     // Trails first (behind), then packets on top.
-    this.#stage.scene.root.add(this.#leftTrail)
-    this.#stage.scene.root.add(this.#rightTrail)
+    this.#stage.tree.root.add(this.#leftTrail)
+    this.#stage.tree.root.add(this.#rightTrail)
 
     this.#leftPacket = new PacketNode({ id: 'gameover-collide-left' })
     this.#leftPacket.transform.x = -spawnX
@@ -367,8 +373,8 @@ export class GameOverScene {
     this.#rightPacket.transform.y = 0
     this.#rightPacket.transform.rotation = Math.PI + Math.PI / 2 // heading = π (-x)
     this.#rightPacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.#stage.scene.root.add(this.#leftPacket)
-    this.#stage.scene.root.add(this.#rightPacket)
+    this.#stage.tree.root.add(this.#leftPacket)
+    this.#stage.tree.root.add(this.#rightPacket)
 
     // Seed the trails' live-head + one sample so the ribbon starts
     // glued to each hex from frame 1 rather than snapping in on the
@@ -397,20 +403,20 @@ export class GameOverScene {
       alphaRange: [0.15, 0.5],
       color: '#ffffff',
     })
-    this.#stage.scene.root.add(stars)
+    this.#stage.tree.root.add(stars)
 
     // Motion trail behind the packet, added after stars so it renders
     // above them but under the hex. Same shooting-star ribbon the live
     // packets use.
     this.#escapeTrail = new PacketMotionTrailNode()
-    this.#stage.scene.root.add(this.#escapeTrail)
+    this.#stage.tree.root.add(this.#escapeTrail)
 
     // Single packet at world origin, the camera keeps it centred as it
     // drifts. Pre-orient so the top vertex points along the heading.
     this.#escapePacket = new PacketNode({ id: 'gameover-escape-packet' })
     this.#escapePacket.transform.rotation = this.#escapeHeadingRad + Math.PI / 2
     this.#escapePacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.#stage.scene.root.add(this.#escapePacket)
+    this.#stage.tree.root.add(this.#escapePacket)
 
     // Seed trail so the ribbon is anchored to the hex on frame 1.
     this.#escapeTrail.setLiveHead(0, 0)
@@ -427,7 +433,7 @@ export class GameOverScene {
     )
     this.#borderLine.transform.x = this.#escapeDirX * BORDER_LINE_OFFSET_WORLD
     this.#borderLine.transform.y = this.#escapeDirY * BORDER_LINE_OFFSET_WORLD
-    this.#stage.scene.root.add(this.#borderLine)
+    this.#stage.tree.root.add(this.#borderLine)
 
     // Wait for `tickEscape` to detect the crossing (sets
     // `this.borderCrossed = true` and calls `onBorderCrossed`), then
@@ -457,7 +463,7 @@ export class GameOverScene {
           outlineFill: EYE_OUTLINE_FILL,
           irisFill: EYE_IRIS_FILL,
         })
-        this.#stage.scene.root.add(eye)
+        this.#stage.tree.root.add(eye)
         this.#eyes.push(eye)
       }
 
@@ -531,7 +537,7 @@ export class GameOverScene {
       lineWidthCssPx: c.lineWidthCssPx,
       color: c.color,
     })
-    this.#stage.scene.root.add(burst)
+    this.#stage.tree.root.add(burst)
 
     // Fade the border line out.
     const line = this.#borderLine
@@ -574,7 +580,7 @@ export class GameOverScene {
       color: c.color,
       equidistantEmission: c.equidistantEmission,
     })
-    this.#stage.scene.root.add(burst)
+    this.#stage.tree.root.add(burst)
   }
 
   /**
@@ -594,7 +600,7 @@ export class GameOverScene {
     flash.transform.y = at.y
     flash.transform.scaleX = cfg.scaleFrom
     flash.transform.scaleY = cfg.scaleFrom
-    this.#stage.scene.root.add(flash)
+    this.#stage.tree.root.add(flash)
     flash
       .tween(
         { scaleX: cfg.scaleTo, scaleY: cfg.scaleTo, alpha: 0 },
@@ -674,7 +680,7 @@ export class GameOverScene {
  * transform origin. All state fits in `readonly` fields; no per-frame
  * allocations.
  */
-class BorderLineNode extends SceneNode {
+class BorderLineNode extends Node2D {
   readonly #nx: number
   readonly #ny: number
   readonly #halfLength: number
@@ -699,7 +705,7 @@ class BorderLineNode extends SceneNode {
     this.#dashCssPx = dashCssPx
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const a = this.transform.alpha
     if (a <= 0.001) return
     const s = camera.strokeSpaceScale()

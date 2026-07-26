@@ -1,6 +1,9 @@
 import type { Component } from 'svelte'
 import type { EngineHost } from '@src/stargazer'
 import type { ThemePalette } from '@src/core/theme'
+import type { LabelRenderContext, PreviewLabelContext } from '@src/core/display'
+import type { GameRecord } from '@src/core/game-log/gameLogClient'
+import type { DemoStageController } from '../tutorial/types'
 
 /** Card metadata shown in the launcher. */
 export interface GameMeta {
@@ -10,14 +13,21 @@ export interface GameMeta {
   description: string
   /** Player-count blurb, e.g. "2-4" or "1". */
   players: string
-  /** Solid thumbnail color (placeholder until real art). */
+  /** Solid thumbnail color, shown behind/instead of `thumbImage`. */
   thumbColor: string
+  /** Thumbnail artwork shown on the launcher card, cropped to cover. */
+  thumbImage?: string
   /**
    * Optional per-game color overrides. Scoped to the game's container (see
    * `themeScope`), so a game can restyle accents/team colors without changing
    * the arcade display theme.
    */
   themeTokens?: ThemePalette
+  /**
+   * Whether this game submits to and shows `displays/arcade/leaderboard`, keyed
+   * by `id`.
+   */
+  supportsLeaderboard?: boolean
 }
 
 /** Props the arcade passes to every game component. */
@@ -35,6 +45,12 @@ export interface GameProps {
    * handshake is needed.
    */
   onExit: () => void
+  /**
+   * Shared, pre-warmed demo stage powering the "How to play" tutorial. `null`
+   * if the stage couldn't be created (e.g. no WebGL2); games hide the tutorial
+   * affordance in that case.
+   */
+  demoStage: DemoStageController | null
 }
 
 /**
@@ -45,4 +61,22 @@ export interface GameProps {
 export interface GameModule {
   meta: GameMeta
   component: Component<GameProps>
+  /**
+   * Render a finished game's record to a printable JPEG label. Each game owns
+   * its own label design (Jezzball's badge won't look like Connect Four's), so
+   * this lives per-game rather than once for the whole arcade display. Omit
+   * entirely if this game doesn't print — the arcade display's
+   * `formatGameRecord` gates the attendant "Games" panel's Print button on
+   * whether this is present, and dispatches here by `record.gameId` when it
+   * is.
+   */
+  renderLabelForRecord?(
+    record: GameRecord,
+    ctx: LabelRenderContext,
+  ): Promise<Blob>
+  /**
+   * Render a representative preview label for the attendant printer panel. Omit
+   * alongside `renderLabelForRecord` if this game doesn't print.
+   */
+  renderPreviewLabel?(ctx: PreviewLabelContext): Promise<Blob>
 }

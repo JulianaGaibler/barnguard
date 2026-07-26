@@ -5,53 +5,59 @@
  * radius, and only the outer edge (the stroke width) animates — easing out past
  * the final width, then snapping back with a bit of bounce (`RING.overshoot`).
  * The ring shows/hides on band enter/leave immediately, not on settle. While
- * its lifetime is down to 1 the whole orb pulses its alpha as an "about to
- * expire" warning.
+ * its lifetime is down to 1, the fill oscillates between the orb's color and
+ * black — an "about to expire" warning using the same treatment as the capture
+ * glow below, just toward black instead of the capturing team's color.
  *
  * The ring itself is DRAWN by a companion `RingNode` in a separate, lower layer
  * (so it's painted over by — never obstructs — a neighbouring orb's body); this
  * node owns the ring's animated width and lifecycle, the RingNode just reads +
  * renders it.
  *
- * The physics `body` is the source of truth for position — `onUpdate` mirrors
- * `body.x/y` into the transform each frame, so position tweens run on the body
- * and only scale is tweened on the node.
+ * The physics `body` is the source of truth for position — a sync-only
+ * {@link RigidBodyBehavior} mirrors `body.x/y` into the transform each frame
+ * (the session owns the body's world membership, so `manageBody: false`), so
+ * position tweens run on the body and only scale is tweened on the node. This
+ * node toggles the behavior's `interpolate` (off while a finger drags, to track
+ * with no lag) and `syncEnabled` (off during a slide-off tween).
  */
 import {
-  SceneNode,
-  ignoreAbort,
+  Node2D,
+  RigidBodyBehavior,
   easings,
   mixColor,
   hitTestCircle,
-  lerp,
   type Gfx2D,
 } from '@src/stargazer'
 import type { FieldLayout } from '../layout'
 import { isInOwnScoringBand, returnTeamForZone, zoneAtX } from '../layout'
 import type { Orb } from '../Orb'
 import type { TeamId } from '../types'
-import { CAPTURE_GLOW, PULSE, RING } from '../tuning'
+import { CAPTURE_GLOW, LOW_LIFE_GLOW, RING } from '../tuning'
 import { RingNode } from './RingNode'
 
 const RING_POP = easings.makeOutBack(RING.overshoot)
 
-export class OrbNode extends SceneNode {
+export class OrbNode extends Node2D {
   readonly body: Orb
   readonly #layout: FieldLayout
   readonly #color: string
   readonly #captureColorFor: (team: TeamId) => string
   #pulseClock = 0
+  /** While sliding off screen, position is tweened directly, not mirrored. */
+  #slidingOff = false
   /**
    * Animated outline width (world units): 0 = hidden, overshoots past final
    * mid-pop.
    */
   readonly #ring = { width: 0 }
   #ringScoring = false
-  #ringCtrl: AbortController | null = null
   /** Color this orb would become if taken now (resolved on capture-zone entry). */
   #captureColor: string | null = null
   /** Companion node that draws the ring in a higher layer (see class doc). */
   readonly #ringNode: RingNode
+  /** Sync-only physics mirror; this node toggles its interpolate/syncEnabled. */
+  readonly #rb: RigidBodyBehavior
 
   constructor(
     body: Orb,
@@ -63,7 +69,7 @@ export class OrbNode extends SceneNode {
      */
     captureColorFor: (team: TeamId) => string,
     /** Layer (below the orbs) the companion ring node is attached to. */
-    ringLayer: SceneNode,
+    ringLayer: Node2D,
   ) {
     super(`orb-${body.id}`)
     this.body = body
@@ -78,6 +84,17 @@ export class OrbNode extends SceneNode {
 
     this.#ringNode = new RingNode(this)
     ringLayer.add(this.#ringNode)
+
+    // The body already lives in the session-owned world (manageBody:false); this
+    // behavior only mirrors it onto the transform, interpolating between fixed
+    // steps. `onUpdate` (which runs before behaviors) sets the flags below.
+    this.#rb = new RigidBodyBehavior({
+      body,
+      manageBody: false,
+      syncRotation: false,
+      shouldSync: () => !this.#slidingOff,
+    })
+    this.addBehavior(this.#rb)
   }
 
   /** Current animated ring width (world units); read by the companion RingNode. */
@@ -86,21 +103,16 @@ export class OrbNode extends SceneNode {
   }
 
   override destroy(): void {
-    if (!this.#ringNode.isDestroyed) this.#ringNode.destroy()
+    this.#ringNode.destroy()
     super.destroy()
   }
 
   override onUpdate(dt: number): void {
-    // Interpolate between the body's last two fixed-step positions by the
-    // ticker's fixedAlpha so orbs render smoothly regardless of the display
-    // rate vs the 120 Hz sim. A held orb tracks the finger directly (no lag).
-    const alpha = this.body.isBeingDragged
-      ? 1
-      : (this.scene?.engine?.ticker.fixedAlpha ?? 1)
-    const prev = this.body.prevPosition
-    this.transform.x = lerp(prev.x, this.body.x, alpha)
-    this.transform.y = lerp(prev.y, this.body.y, alpha)
     this.#pulseClock += dt
+    // Drive the sync-only physics mirror (its onUpdate runs right after this):
+    // a held orb tracks the finger directly (no interpolation lag), and a
+    // slide-off tween owns the transform outright (sync off, via `shouldSync`).
+    this.#rb.interpolate = !this.body.isBeingDragged
 
     // Show as soon as the orb is inside its own scoring band — no wait for it
     // to settle. Toggles on band enter/leave.
@@ -114,43 +126,56 @@ export class OrbNode extends SceneNode {
 
     // Capture glow: resting in the OTHER team's launch strip with the lifetime
     // left to survive being taken means it's about to change hands. Resolve the
-    // target color once on entry; `draw` blends toward it.
-    const rt = returnTeamForZone(zoneAtX(this.#layout, this.body.x))
+    // target color once on entry; `draw` blends toward it. Excluding the last
+    // life here also keeps this mutually exclusive with the low-life glow: an
+    // orb on its last life explodes on return instead of being captured, so it
+    // should never flash the other team's color.
+    const returnTeam = returnTeamForZone(zoneAtX(this.#layout, this.body.x))
     const capturing =
       !this.body.markedForRemoval &&
       this.body.lifetimeRemaining > 1 &&
-      rt !== null &&
-      rt !== this.body.team
+      returnTeam !== null &&
+      returnTeam !== this.body.team
     if (capturing) {
       if (this.#captureColor === null)
-        this.#captureColor = this.#captureColorFor(rt)
+        this.#captureColor = this.#captureColorFor(returnTeam)
     } else {
       this.#captureColor = null
     }
   }
 
   #animateRing(show: boolean): void {
-    this.#ringCtrl?.abort()
-    const ctrl = new AbortController()
-    this.#ringCtrl = ctrl
-    if (show) {
-      this.#ring.width = 0
-      this.tweenTo(
-        this.#ring,
-        { width: RING.widthWorld },
-        { duration: RING.popInSec, easing: RING_POP, signal: ctrl.signal },
-      ).catch(ignoreAbort)
-    } else {
-      this.tweenTo(
-        this.#ring,
-        { width: 0 },
-        {
-          duration: RING.popOutSec,
-          easing: easings.outCubic,
-          signal: ctrl.signal,
-        },
-      ).catch(ignoreAbort)
-    }
+    // Keyed so each show/hide cleanly replaces the in-flight ring tween — no
+    // hand-held AbortController. Fire-and-forget: the width is cosmetic.
+    if (show) this.#ring.width = 0
+    this.playTo(
+      this.#ring,
+      { width: show ? RING.widthWorld : 0 },
+      {
+        duration: show ? RING.popInSec : RING.popOutSec,
+        easing: show ? RING_POP : easings.outCubic,
+        key: 'ring',
+      },
+    )
+  }
+
+  /**
+   * Slide the orb off whichever screen edge it's nearest (left or right,
+   * decided by its side of the center line), then resolve. Sets `#slidingOff`
+   * so the physics mirror (via `shouldSync`) yields the transform to this
+   * tween. Rejects with `AbortError` if `signal` fires, so the caller's
+   * sequence unwinds.
+   */
+  slideOff(durationSec: number, signal?: AbortSignal): Promise<void> {
+    this.#slidingOff = true
+    const goLeft = this.body.x < this.#layout.centerX
+    const offX = goLeft
+      ? -this.body.radius * 2
+      : this.#layout.width + this.body.radius * 2
+    return this.tween(
+      { x: offX },
+      { duration: durationSec, easing: easings.inCubic, signal },
+    )
   }
 
   override hitTest(
@@ -164,20 +189,40 @@ export class OrbNode extends SceneNode {
   override draw(gfx: Gfx2D): void {
     const r = this.body.radius
 
-    if (this.body.lifetimeRemaining === 1) {
-      const phase = (this.#pulseClock % PULSE.periodSec) / PULSE.periodSec
-      const s = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2)
-      gfx.setAlpha(PULSE.minAlpha + (PULSE.maxAlpha - PULSE.minAlpha) * s)
-    }
-
     // While in a capture zone, oscillate the fill between the orb's color and
-    // the color it's about to become.
+    // the color it's about to become. Otherwise, on its last life, oscillate
+    // toward black as an "about to expire" warning. `capturing` already
+    // excludes the last life (see `onUpdate`), so these never overlap.
     let fill = this.#color
     if (this.#captureColor !== null) {
       const phase =
         (this.#pulseClock % CAPTURE_GLOW.periodSec) / CAPTURE_GLOW.periodSec
-      const s = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2)
-      fill = mixColor(this.#color, this.#captureColor, s * CAPTURE_GLOW.maxMix)
+      const mix = 0.5 + 0.5 * Math.sin(phase * Math.PI * 2)
+      fill = mixColor(
+        this.#color,
+        this.#captureColor,
+        mix * CAPTURE_GLOW.maxMix,
+      )
+    } else if (this.body.lifetimeRemaining === 1) {
+      const phase =
+        (this.#pulseClock % LOW_LIFE_GLOW.periodSec) / LOW_LIFE_GLOW.periodSec
+      // Rest on the orb's color, then dip to black and back over the final
+      // `blackFraction` of the period. A raised-cosine over that window keeps
+      // the excursion smooth at both ends (zero slope where it meets the rest).
+      const rest = 1 - LOW_LIFE_GLOW.blackFraction
+      const mix =
+        phase < rest
+          ? 0
+          : 0.5 -
+            0.5 *
+              Math.cos(
+                ((phase - rest) / LOW_LIFE_GLOW.blackFraction) * Math.PI * 2,
+              )
+      fill = mixColor(
+        this.#color,
+        LOW_LIFE_GLOW.color,
+        mix * LOW_LIFE_GLOW.maxMix,
+      )
     }
 
     gfx.fillCircle(0, 0, r, fill)

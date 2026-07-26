@@ -9,7 +9,7 @@
 // offset/rotated from world space (e.g. a field group translated to a panel
 // origin). When null, bodies are assumed to live directly in world space.
 
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { Gfx2D, GfxStrokeStyle } from '../render/gfx/Gfx2D'
 import type { Vec2 } from '../math/Vec2'
 import { lerp, lerpAngle } from '../math/scalar'
@@ -49,7 +49,7 @@ const polyPts = new Float32Array(64)
 
 /** Per-call transform context so points map physics space → world → screen. */
 interface Ctx {
-  cam: Camera
+  cam: CameraView2D
   /** Physics-space → world affine, or null when physics is in world space. */
   space: DOMMatrix | null
   /** Linear scale of `space` (1 when null), for radii and vector lengths. */
@@ -101,7 +101,7 @@ function projectInto(ctx: Ctx, px: number, py: number, i: number): void {
 export function drawPhysicsOverlay(
   gfx: Gfx2D,
   world: PhysicsWorld,
-  cam: Camera,
+  cam: CameraView2D,
   flags: PhysicsOverlayFlags,
   space: DOMMatrix | null = null,
   alpha = 1,

@@ -1,8 +1,12 @@
 import { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 
 const PAN_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD'] as const
 const ZOOM_IN_KEY = 'KeyE'
 const ZOOM_OUT_KEY = 'KeyQ'
+
+// Used when the inspected stage has no current 2D camera to mirror.
+const FALLBACK_VIEWPORT = { x: 0, y: 0, width: 1000, height: 1000 }
 
 /**
  * Free camera controlled by keyboard. Extends the base Camera so the renderer
@@ -14,10 +18,14 @@ const ZOOM_OUT_KEY = 'KeyQ'
 export class DebugCamera extends Camera {
   readonly #held = new Set<string>()
   #_follow = false
-  #gameCamera: Camera
+  // Null when the inspected stage has no current 2D camera; follow/reset then
+  // fall back to a default viewport so the debug view is still usable.
+  #gameCamera: CameraView2D | null
 
-  constructor(gameCamera: Camera) {
-    super({ ...gameCamera.viewport }, { ...gameCamera.pixelSize })
+  constructor(gameCamera: CameraView2D | null) {
+    // Mirror the game camera's framing rect; pixel size is synced by the
+    // DebugController each frame (the CameraView2D surface exposes no pixel size).
+    super({ ...(gameCamera?.viewport ?? FALLBACK_VIEWPORT) })
     this.#gameCamera = gameCamera
   }
 
@@ -26,22 +34,23 @@ export class DebugCamera extends Camera {
   }
   setFollow(v: boolean): void {
     this.#_follow = v
-    if (v) this.setViewport({ ...this.#gameCamera.viewport })
+    if (v && this.#gameCamera)
+      this.setViewport({ ...this.#gameCamera.viewport })
   }
 
   /**
-   * Retarget the debug camera to a new game camera. Called when the debug HUD's
-   * active stage changes, the debug camera should now follow / reset against
-   * the new stage's camera. Callers usually invoke `reset()` after.
+   * Retarget the debug camera to a new game camera (or `null` when the stage
+   * has none). Called when the debug HUD's active stage changes. Callers
+   * usually invoke `reset()` after.
    */
-  setGameCamera(cam: Camera): void {
+  setGameCamera(cam: CameraView2D | null): void {
     this.#gameCamera = cam
-    if (this.#_follow) this.setViewport({ ...cam.viewport })
+    if (this.#_follow && cam) this.setViewport({ ...cam.viewport })
   }
 
-  /** Snap to whatever the game camera currently shows. */
+  /** Snap to whatever the game camera currently shows (no-op without one). */
   reset(): void {
-    this.setViewport({ ...this.#gameCamera.viewport })
+    if (this.#gameCamera) this.setViewport({ ...this.#gameCamera.viewport })
   }
 
   /** Report a key state change (down / up). */
@@ -60,7 +69,7 @@ export class DebugCamera extends Camera {
    */
   step(dt: number): void {
     if (this.#_follow) {
-      this.setViewport({ ...this.#gameCamera.viewport })
+      if (this.#gameCamera) this.setViewport({ ...this.#gameCamera.viewport })
       return
     }
     if (this.#held.size === 0) return

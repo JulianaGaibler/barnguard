@@ -2,6 +2,7 @@ import type { Rect } from '../math/Rect'
 import type { Vec2 } from '../math/Vec2'
 import type { Engine } from '../engine/Engine'
 import type { Easing } from '../math/easings'
+import type { Affine2x3, CameraView2D } from './CameraView2D'
 
 /**
  * Uniform aspect-preserving screen transform. All three fields are in CSS pixel
@@ -42,12 +43,16 @@ export interface CameraAnimateOptions {
  * Convert between coordinate spaces with {@link Camera.worldToScreen} and
  * {@link Camera.screenToWorld}.
  *
- * Each `Stage` owns one camera. The debug HUD can swap in its own camera to
- * inspect a stage without disturbing the game camera.
+ * Internal view-math helper. A `CameraNode2D` owns one of these and composes
+ * its output with the node's world transform; the debug HUD can swap in its own
+ * to inspect a stage without disturbing the game camera. Not part of the public
+ * API — scene code works with camera nodes and the {@link CameraView2D}
+ * surface.
  *
  * @category Camera
+ * @internal
  */
-export class Camera {
+export class Camera implements CameraView2D {
   /**
    * World-space rect the camera frames. Change it through
    * {@link Camera.setViewport} rather than mutating in place, the setter bumps
@@ -77,6 +82,18 @@ export class Camera {
     offsetY: 0,
   }
   #_cachedScreenTransformFrameNum = -1
+
+  // Same cache discipline as the screen transform: a plain Camera's screen
+  // affine is uniform-scale + translate, a direct expansion of the memoised
+  // ScreenTransform.
+  readonly #_cachedScreenAffine: Affine2x3 = {
+    a: 0,
+    b: 0,
+    c: 0,
+    d: 0,
+    e: 0,
+    f: 0,
+  }
 
   constructor(
     viewport: Rect,
@@ -147,6 +164,24 @@ export class Camera {
     return t
   }
 
+  /**
+   * The world→screen mapping as a full CSS-pixel affine. A plain Camera never
+   * rotates or skews, so this is the uniform screen transform expanded to `{a:
+   * scale, d: scale, e: offsetX, f: offsetY}`. Without `out`, returns a cached
+   * object the caller MUST treat as read-only.
+   */
+  getScreenAffine(out?: Affine2x3): Affine2x3 {
+    const t = this.getScreenTransform()
+    const r = out ?? this.#_cachedScreenAffine
+    r.a = t.scale
+    r.b = 0
+    r.c = 0
+    r.d = t.scale
+    r.e = t.offsetX
+    r.f = t.offsetY
+    return r
+  }
+
   /** Map a world-space point to CSS-pixel canvas coordinates. */
   worldToScreen(x: number, y: number, out?: Vec2): Vec2 {
     const t = this.getScreenTransform()
@@ -183,6 +218,37 @@ export class Camera {
       return out
     }
     return { x: wx, y: wy }
+  }
+
+  /**
+   * The world-space rect currently mapped onto the FULL canvas. Because the
+   * viewport is fit `contain`-style, on an off-aspect canvas this is larger
+   * than {@link Camera.viewport} — the surrounding area is what the clear color
+   * or a background layer fills. Returns the viewport itself while the
+   * transform is degenerate (zero-size viewport or canvas, during initial
+   * resize). Writes into `out` (no allocation) when given.
+   *
+   * @example
+   *   // Fill a layout to whatever the camera currently shows.
+   *   const area = camera.visibleWorldRect()
+   */
+  visibleWorldRect(out?: Rect): Rect {
+    const t = this.getScreenTransform()
+    const pw = this.pixelSize.w
+    const ph = this.pixelSize.h
+    const r = out ?? { x: 0, y: 0, width: 0, height: 0 }
+    if (t.scale <= 0 || pw <= 0 || ph <= 0) {
+      r.x = this.viewport.x
+      r.y = this.viewport.y
+      r.width = this.viewport.width
+      r.height = this.viewport.height
+      return r
+    }
+    r.x = -t.offsetX / t.scale
+    r.y = -t.offsetY / t.scale
+    r.width = pw / t.scale
+    r.height = ph / t.scale
+    return r
   }
 
   /** Uniform screen-CSS-px per world unit, same on both axes. */

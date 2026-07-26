@@ -41,37 +41,37 @@ export function createBoard(): Board {
   }
 }
 
-export function cloneBoard(b: Board): Board {
+export function cloneBoard(board: Board): Board {
   return {
-    cells: b.cells.slice(),
-    heights: b.heights.slice(),
-    turn: b.turn,
-    ply: b.ply,
-    winner: b.winner,
+    cells: board.cells.slice(),
+    heights: board.heights.slice(),
+    turn: board.turn,
+    ply: board.ply,
+    winner: board.winner,
   }
 }
 
-export function cellAt(b: Board, col: number, row: number): number {
-  return b.cells[row * COLS + col]
+export function cellAt(board: Board, col: number, row: number): number {
+  return board.cells[row * COLS + col]
 }
 
-export function isFull(b: Board): boolean {
-  return b.ply >= CELL_COUNT
+export function isFull(board: Board): boolean {
+  return board.ply >= CELL_COUNT
 }
 
 /**
  * The row a disc dropped in `col` would land on, or null when the column is
  * full.
  */
-export function dropRow(b: Board, col: number): number | null {
-  const h = b.heights[col]
+export function dropRow(board: Board, col: number): number | null {
+  const h = board.heights[col]
   return h < ROWS ? h : null
 }
 
 /** Columns that still have room, center-first. */
-export function legalColumns(b: Board): number[] {
+export function legalColumns(board: Board): number[] {
   const out: number[] = []
-  for (const col of CENTER_FIRST) if (b.heights[col] < ROWS) out.push(col)
+  for (const col of CENTER_FIRST) if (board.heights[col] < ROWS) out.push(col)
   return out
 }
 
@@ -80,24 +80,24 @@ export function legalColumns(b: Board): number[] {
  * the piece completed a line. Assumes the column has room (guard with
  * `dropRow`).
  */
-export function makeMove(b: Board, col: number): void {
-  const row = b.heights[col]
-  const player = b.turn
-  b.cells[row * COLS + col] = player
-  b.heights[col] = row + 1
-  b.ply += 1
-  b.turn = player === 1 ? 2 : 1
-  if (winningLineAt(b, col, row)) b.winner = player
+export function makeMove(board: Board, col: number): void {
+  const row = board.heights[col]
+  const player = board.turn
+  board.cells[row * COLS + col] = player
+  board.heights[col] = row + 1
+  board.ply += 1
+  board.turn = player === 1 ? 2 : 1
+  if (winningLineAt(board, col, row)) board.winner = player
 }
 
-/** Exactly reverse the matching `makeMove(b, col)`. */
-export function unmakeMove(b: Board, col: number): void {
-  const row = b.heights[col] - 1
-  b.cells[row * COLS + col] = 0
-  b.heights[col] = row
-  b.ply -= 1
-  b.turn = b.turn === 1 ? 2 : 1
-  b.winner = 0
+/** Exactly reverse the matching `makeMove(board, col)`. */
+export function unmakeMove(board: Board, col: number): void {
+  const row = board.heights[col] - 1
+  board.cells[row * COLS + col] = 0
+  board.heights[col] = row
+  board.ply -= 1
+  board.turn = board.turn === 1 ? 2 : 1
+  board.winner = 0
 }
 
 const DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
@@ -108,20 +108,20 @@ const DIRECTIONS: ReadonlyArray<readonly [number, number]> = [
 ]
 
 /** True when the piece at (col, row) sits in a run of `CONNECT` of its owner. */
-function winningLineAt(b: Board, col: number, row: number): boolean {
-  const player = b.cells[row * COLS + col]
+function winningLineAt(board: Board, col: number, row: number): boolean {
+  const player = board.cells[row * COLS + col]
   if (player === 0) return false
   for (const [dc, dr] of DIRECTIONS) {
     let run = 1
-    run += countRun(b, col, row, dc, dr, player)
-    run += countRun(b, col, row, -dc, -dr, player)
+    run += countRun(board, col, row, dc, dr, player)
+    run += countRun(board, col, row, -dc, -dr, player)
     if (run >= CONNECT) return true
   }
   return false
 }
 
 function countRun(
-  b: Board,
+  board: Board,
   col: number,
   row: number,
   dc: number,
@@ -136,7 +136,7 @@ function countRun(
     c < COLS &&
     r >= 0 &&
     r < ROWS &&
-    b.cells[r * COLS + c] === player
+    board.cells[r * COLS + c] === player
   ) {
     n += 1
     c += dc
@@ -151,15 +151,15 @@ function countRun(
  * cells).
  */
 export function winningCells(
-  b: Board,
+  board: Board,
   col: number,
   row: number,
 ): CellRef[] | null {
-  const player = b.cells[row * COLS + col]
+  const player = board.cells[row * COLS + col]
   if (player === 0) return null
   for (const [dc, dr] of DIRECTIONS) {
-    const back = collectRun(b, col, row, -dc, -dr, player)
-    const fwd = collectRun(b, col, row, dc, dr, player)
+    const back = collectRun(board, col, row, -dc, -dr, player)
+    const fwd = collectRun(board, col, row, dc, dr, player)
     if (back.length + 1 + fwd.length >= CONNECT) {
       return [...back.reverse(), { col, row }, ...fwd]
     }
@@ -168,7 +168,7 @@ export function winningCells(
 }
 
 function collectRun(
-  b: Board,
+  board: Board,
   col: number,
   row: number,
   dc: number,
@@ -183,7 +183,7 @@ function collectRun(
     c < COLS &&
     r >= 0 &&
     r < ROWS &&
-    b.cells[r * COLS + c] === player
+    board.cells[r * COLS + c] === player
   ) {
     out.push({ col: c, row: r })
     c += dc

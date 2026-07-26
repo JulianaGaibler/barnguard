@@ -10,7 +10,7 @@
  * is visible — it's just two `fillRect`s per frame.
  */
 import {
-  SceneNode,
+  Node2D,
   easings,
   ignoreAbort,
   parseColor,
@@ -40,15 +40,15 @@ interface Rgb {
 // 0..255 channels for the tweenable band colors, parsed through the engine's
 // cached `parseColor` (which returns 0..1).
 function parseHex(hex: string): Rgb {
-  const c = parseColor(hex)
-  return { r: c.r * 255, g: c.g * 255, b: c.b * 255 }
+  const rgb01 = parseColor(hex)
+  return { r: rgb01.r * 255, g: rgb01.g * 255, b: rgb01.b * 255 }
 }
 
 function rgba(c: Rgb, alpha: number): string {
   return `rgba(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)}, ${alpha})`
 }
 
-export class FieldNode extends SceneNode {
+export class FieldNode extends Node2D {
   // leftCenter is Team R's (team 1) band; rightCenter is Team L's (team 0).
   readonly #leftBand = parseHex(TEAM_COLORS[1])
   readonly #rightBand = parseHex(TEAM_COLORS[0])

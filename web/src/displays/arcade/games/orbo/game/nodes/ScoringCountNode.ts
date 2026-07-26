@@ -8,10 +8,10 @@
  * The node is positioned at its anchor via its transform and draws the number
  * centered on the origin; a world-unit font keeps it in scale with the field.
  */
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Gfx2D } from '@src/stargazer'
 import { SCORE_TEXT } from '../tuning'
 
-export class ScoringCountNode extends SceneNode {
+export class ScoringCountNode extends Node2D {
   readonly #count: () => number
   readonly #color: string
   readonly #font = `${SCORE_TEXT.fontWeight} ${SCORE_TEXT.fontPx}px ${SCORE_TEXT.fontFamily}`

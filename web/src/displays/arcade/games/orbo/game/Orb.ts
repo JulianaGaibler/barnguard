@@ -41,7 +41,7 @@ export class Orb extends Body {
   homeY: number
   /** Excluded from collisions + tally while its removal animation plays. */
   markedForRemoval = false
-  #_dragging = false
+  #dragging = false
 
   constructor(params: OrbParams) {
     super({
@@ -104,11 +104,11 @@ export class Orb extends Body {
    * mask.
    */
   get isBeingDragged(): boolean {
-    return this.#_dragging
+    return this.#dragging
   }
   set isBeingDragged(v: boolean) {
-    if (this.#_dragging === v) return
-    this.#_dragging = v
+    if (this.#dragging === v) return
+    this.#dragging = v
     this.mask = v ? 0 : LAYER_ALL
     if (v) this.wake()
   }

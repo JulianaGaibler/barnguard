@@ -499,9 +499,9 @@
     line-height: 1
 
   // White-then-black flash on the record readouts. Runs once; the class
-  // is added and stays, but the keyframe returns to the base colour on
+  // is added and stays, but the keyframe returns to the base color on
   // its own so the final rest state matches the initial one. `forwards`
-  // guarantees we hold on that rest colour even if the browser rounds
+  // guarantees we hold on that rest color even if the browser rounds
   // the last frame.
   :global(.game-over__score-big--flashing)
     animation: score-flash 650ms ease-in-out forwards

@@ -17,7 +17,7 @@ interface PointerStateSnapshot {
   screen: Readonly<Vec2> // CSS px, canvas-local
   world: Readonly<Vec2> // reprojected each frame
   startedAtMs: number
-  capturedBy: SceneNode | null
+  capturedBy: Node2D | null
 }
 ```
 
@@ -79,7 +79,44 @@ shape.onPointerCancel = (e) => {
 }
 ```
 
-`Path2DNode` and `ShapeNode` set `hitEnabled = true` automatically when constructed with a hit mode other than `'none'`. `SceneNode`, `PolylineNode`, and plain `SceneNode` don't hit-test until you flip the flag.
+`Path2DNode` and `ShapeNode` set `hitEnabled = true` automatically when constructed with a hit mode other than `'none'`. `Node2D`, `PolylineNode`, and plain `Node2D` don't hit-test until you flip the flag.
+
+### bindPointer
+
+`node.bindPointer({ down, move, up, cancel })` sets those handlers atomically and returns an `unbind()` that clears exactly them (firing a synthetic cancel if a capture is live). Prefer it over assigning `onPointerDown` etc. by hand, especially from a behavior's `onAttach`/`onDetach` — or extend `PointerBehavior`, which does the bind/unbind for you (see [Scene graph](/guides/scene#pointerbehavior)).
+
+Pass `singlePointer: true` to track only the first press: while it's held, other pointers' down/move/up/cancel are ignored and the slot frees on its up/cancel. That turns a multi-touch-capable node into a single-drag target without tracking an active pointer id yourself.
+
+```ts
+node.bindPointer({
+  singlePointer: true,
+  down: (e) => startDrag(e),
+  move: (e) => drag(e.localTo(node)), // local coords, see below
+  up: () => endDrag(),
+})
+```
+
+### Local coordinates
+
+`e.pointer.world` is in world space. When the captured node lives under a scaled or translated ancestor, convert with `e.localTo(node)` (a thin wrapper over `node.worldToLocal`) instead of threading a bespoke conversion closure — it returns the pointer position in that node's local space, and takes an optional `out` `Vec2` to reuse.
+
+### Region gestures
+
+When a whole region of the stage should respond to a single-pointer gesture — a board you tap to drop, a strip you flick from — reach for `bindRegionGesture(engine, opts)` rather than wiring four `engine.events.on('pointer…')` handlers and tracking the active pointer id by hand. It applies a `hitTest` (world-rect predicate) and an `enabled` state gate on press, tracks one pointer through move/up/cancel, and routes rejected presses to `onReject`:
+
+```ts
+const off = bindRegionGesture(host.engine, {
+  hitTest: (w) => insideBoard(w.x, w.y),
+  enabled: () => state === 'playing' && !paused,
+  down: (e) => beginPreview(e),
+  move: (e) => movePreview(e),
+  up: (e) => commitDrop(e),
+  onReject: () => pause(), // a press outside the board opens the menu
+})
+// off() to unsubscribe (e.g. in the session's destroy)
+```
+
+Set `singlePointer: false` for a multi-touch region. The gesture rides the primary stage's pointer stream (`engine.events`), including its synthetic-move reprojection during camera moves.
 
 ## Two pointers, two shapes
 

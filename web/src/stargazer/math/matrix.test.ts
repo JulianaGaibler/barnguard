@@ -212,7 +212,7 @@ describe('multiplyMatrix2D ↔ DOMMatrix post-multiply parity', () => {
 
   it('T × R × S × O (full Transform2D chain, 90° with origin offset)', () => {
     // Origin offset O uses translateSelf(-ox, -oy) at the end of the chain
-    //, same as SceneNode's origin handling.
+    //, same as Node2D's origin handling.
     const chain = new DOMMatrix()
       .translateSelf(100, 200)
       .rotateSelf(90)

@@ -1,4 +1,4 @@
-import { SceneNode, type Camera, type Gfx2D } from '@src/stargazer'
+import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
 
 export interface BackgroundStarsOptions {
   /** Star count. ~500 is a comfortable ceiling for a 4K kiosk canvas. */
@@ -14,7 +14,7 @@ export interface BackgroundStarsOptions {
   sizeWorld: readonly [number, number]
   /** Random per-star fill alpha range. */
   alphaRange: readonly [number, number]
-  /** Fill colour. */
+  /** Fill color. */
   color: string
 }
 
@@ -28,7 +28,7 @@ export interface BackgroundStarsOptions {
  * camera pan further, either bump `halfExtent` or add a "wrapping" mode that
  * regenerates stars ahead of the packet.
  */
-export class BackgroundStarsNode extends SceneNode {
+export class BackgroundStarsNode extends Node2D {
   readonly #count: number
   /** Interleaved `[x, y, size, alpha]`, 4 floats per star. */
   readonly #data: Float32Array
@@ -52,7 +52,7 @@ export class BackgroundStarsNode extends SceneNode {
     }
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera): void {
+  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
     const n = this.#count
     const d = this.#data
     const color = this.#color

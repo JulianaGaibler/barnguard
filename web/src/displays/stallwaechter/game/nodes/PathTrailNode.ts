@@ -1,6 +1,6 @@
 import {
   PolylineNode,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Vec2,
 } from '@src/stargazer'
@@ -32,7 +32,7 @@ export class PathTrailNode extends PolylineNode {
   constructor() {
     super({
       capacity: 256,
-      // Base colour is fully opaque; per-segment alpha is applied via
+      // Base color is fully opaque; per-segment alpha is applied via
       // `ctx.globalAlpha` in `draw`.
       strokeStyle: '#fdf6e3',
       lineWidth: 1,
@@ -60,7 +60,7 @@ export class PathTrailNode extends PolylineNode {
     this.#consumedCount++
   }
 
-  override push(x: number, y: number): void {
+  override push(x: number, y: number): this {
     const wasCap = this.capacity
     super.push(x, y)
     if (this.capacity > wasCap) {
@@ -76,6 +76,7 @@ export class PathTrailNode extends PolylineNode {
     // settled interior corners don't keep drifting. Consumed points are
     // skipped so the packet never sees a waypoint move under it.
     this.#smoothTail()
+    return this
   }
 
   #smoothTail(): void {
@@ -104,13 +105,14 @@ export class PathTrailNode extends PolylineNode {
     }
   }
 
-  override clear(): void {
+  override clear(): this {
     super.clear()
     this.#pointConsumedAt.fill(-1)
     this.#consumedCount = 0
+    return this
   }
 
-  override dropHead(count: number): void {
+  override dropHead(count: number): this {
     const before = this.pointCount
     super.dropHead(count)
     const dropped = before - this.pointCount
@@ -119,6 +121,7 @@ export class PathTrailNode extends PolylineNode {
       this.#pointConsumedAt.fill(-1, this.pointCount)
       this.#consumedCount = Math.max(0, this.#consumedCount - dropped)
     }
+    return this
   }
 
   override onUpdate(_dt: number): void {
@@ -140,7 +143,7 @@ export class PathTrailNode extends PolylineNode {
     }
   }
 
-  override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D, _dt: number): void {
     const n = this.pointCount
     if (n < 2) return
     const fade = TUNING.path.fadeSec

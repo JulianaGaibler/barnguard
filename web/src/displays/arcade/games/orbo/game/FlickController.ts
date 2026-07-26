@@ -18,6 +18,7 @@ import {
   easings,
   ignoreAbort,
   type PointerEvent2D,
+  type Node2D,
 } from '@src/stargazer'
 import type { OrbNode } from './nodes/OrbNode'
 import { launchBoundary, type FieldLayout } from './layout'
@@ -44,10 +45,13 @@ export class FlickController {
   readonly #body: Orb
   readonly #layout: FieldLayout
   readonly #cb: FlickCallbacks
-  readonly #toLocal: (p: { x: number; y: number }) => {
-    x: number
-    y: number
-  }
+  /**
+   * Node whose local space the field's coordinates live in. The arcade nests
+   * the field in a scaled/translated group, so `e.localTo(this.#localNode)`
+   * maps a world pointer into field units (which body position + release
+   * velocity use, matching the tuning).
+   */
+  readonly #localNode: Node2D
   readonly #unbind: () => void
   readonly #samples: Sample[] = []
   #dragging = false
@@ -60,23 +64,16 @@ export class FlickController {
     body: Orb,
     layout: FieldLayout,
     cb: FlickCallbacks,
-    /**
-     * Maps a WORLD pointer point into the game's LOCAL space. The arcade nests
-     * the field in a scaled/translated group, so raw `pointer.world` must be
-     * converted before it drives body position + release velocity (which are in
-     * local units, matching the tuning).
-     */
-    toLocal: (p: { x: number; y: number }) => {
-      x: number
-      y: number
-    },
+    /** Node whose local space maps `e.localTo(...)` into field units. */
+    localNode: Node2D,
   ) {
     this.#node = node
     this.#body = body
     this.#layout = layout
     this.#cb = cb
-    this.#toLocal = toLocal
+    this.#localNode = localNode
     this.#unbind = node.bindPointer({
+      singlePointer: true, // one finger owns the flick; ignore extra touches
       down: (e) => this.#onDown(e),
       move: (e) => this.#onMove(e),
       up: (e) => this.#onUp(e),
@@ -95,13 +92,13 @@ export class FlickController {
     this.#body.isBeingDragged = true
     this.#body.isSleeping = false
     this.#samples.length = 0
-    const w = this.#toLocal(e.pointer.world)
+    const w = e.localTo(this.#localNode)
     this.#samples.push({ x: w.x, y: w.y, t: performance.now() })
   }
 
   #onMove(e: PointerEvent2D): void {
     if (!this.#dragging) return
-    const w = this.#toLocal(e.pointer.world)
+    const w = e.localTo(this.#localNode)
     // Glue to finger, clamped inside the field so it can't be dragged off-screen.
     this.#body.x = clamp(
       w.x,
@@ -124,7 +121,7 @@ export class FlickController {
 
   #onUp(e: PointerEvent2D): void {
     if (!this.#dragging) return
-    const w = this.#toLocal(e.pointer.world)
+    const w = e.localTo(this.#localNode)
     this.#pushSample(w.x, w.y)
     this.#release()
   }
@@ -188,12 +185,12 @@ export class FlickController {
 
   /** Velocity (world u/s) over the trailing `sampleWindowMs`. */
   #windowedVelocity(): { vx: number; vy: number } {
-    const n = this.#samples.length
-    if (n < 2) return { vx: 0, vy: 0 }
-    const last = this.#samples[n - 1]
+    const count = this.#samples.length
+    if (count < 2) return { vx: 0, vy: 0 }
+    const last = this.#samples[count - 1]
     // Oldest sample still inside the window (fall back to the earliest we have).
     let ref = this.#samples[0]
-    for (let i = n - 1; i >= 0; i--) {
+    for (let i = count - 1; i >= 0; i--) {
       if (last.t - this.#samples[i].t >= FLICK.sampleWindowMs) {
         ref = this.#samples[i]
         break

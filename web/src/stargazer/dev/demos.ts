@@ -10,6 +10,8 @@ export const demos: Record<string, () => Promise<DemoFn>> = {
   input: () => import('./demo-input').then((m) => m.default),
   anim: () => import('./demo-anim').then((m) => m.default),
   particles: () => import('./demo-particles').then((m) => m.default),
+  'particles-custom': () =>
+    import('./demo-particles-custom').then((m) => m.default),
   camera: () => import('./demo-camera').then((m) => m.default),
   stages: () => import('./demo-stages').then((m) => m.default),
 }

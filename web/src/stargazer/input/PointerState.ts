@@ -1,6 +1,16 @@
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node2D } from '../scene/Node2D'
+import type { Node3D } from '../scene/Node3D'
 import type { Stage } from '../render/Stage'
 import type { Vec2 } from '../math/Vec2'
+
+/**
+ * A node that can capture a pointer: a 2D {@link Node2D} (bounds hit) or a 3D
+ * {@link Node3D} (ray pick). The input system dispatches pointer callbacks to
+ * whichever captured on `down`.
+ *
+ * @category Input
+ */
+export type PointerTarget = Node2D | Node3D
 
 /**
  * Snapshot of a single active pointer's state. `world` is re-projected each
@@ -17,8 +27,11 @@ export interface PointerStateSnapshot {
   /** World coords via `activeCamera.screenToWorld(screen)`. */
   readonly world: Readonly<Vec2>
   readonly startedAtMs: number
-  /** The node that captured this pointer on `down`, or `null` for untargeted. */
-  readonly capturedBy: SceneNode | null
+  /**
+   * The node that captured this pointer on `down`, or `null` for untargeted. A
+   * `Node2D` for a 2D hit, a `Node3D` for a 3D ray pick.
+   */
+  readonly capturedBy: PointerTarget | null
 }
 
 /**
@@ -50,4 +63,12 @@ export interface PointerEvent2D {
    * consumers filter by canvas of origin.
    */
   readonly stage: Stage
+  /**
+   * The pointer's `world` position converted into `node`'s local space via
+   * {@link Node2D.worldToLocal}. Convenience for drag handlers whose target sits
+   * under a scaled/translated ancestor, so they read local coords directly
+   * instead of threading a bespoke world→local closure. Pass `out` to reuse a
+   * scratch {@link Vec2}.
+   */
+  localTo(node: Node2D, out?: Vec2): Vec2
 }

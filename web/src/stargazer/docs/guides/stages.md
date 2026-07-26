@@ -52,7 +52,7 @@ marker.onPointerMove = (e) => {
 stage.scene.root.add(marker)
 ```
 
-`stage.events: Emitter<StagePointerEvents>` fires `pointerDown/Move/Up/Cancel` for that stage only. Nothing from a secondary stage reaches `engine.events`; the primary's events forward there for backward compatibility, so a tap on a secondary can't trigger the main game's global handlers. See [Input](/guides/input#per-stage-event-bus-vs-engineevents).
+`stage.events: Emitter<StagePointerEvents>` fires `pointerDown/Move/Up/Cancel` for that stage only. Nothing from a secondary stage reaches `engine.events`; the primary's events also forward there, so a tap on a secondary can't trigger the main game's global handlers. See [Input](/guides/input#per-stage-event-bus-vs-engineevents).
 
 Browser pointer capture is per element and per pointer, so a finger dragging on the primary and another on a secondary work at the same time; each canvas owns its own capture. A pointer that goes down on one canvas keeps its capture there even if it slides onto another; cross-stage capture is not supported.
 
@@ -99,7 +99,7 @@ When Svelte destroys the component, the action calls `engine.detachStage(stage)`
 const svgPaths = await parseSvgPaths(svgSource)
 
 // Primary scene.
-engine.scene.root.add(new Path2DNode({ path: svgPaths.root.path, ... }))
+engine.tree.root.add(new Path2DNode({ path: svgPaths.root.path, ... }))
 
 // A secondary stage reuses the same Path2D in a different node.
 function buildScene(stage: Stage): void {

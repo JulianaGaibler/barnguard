@@ -1,7 +1,7 @@
 // World-space grid overlay for the debug HUD. Pure function of camera +
 // canvas size, no controller state.
 
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 
 /**
@@ -11,7 +11,7 @@ import type { Gfx2D } from '../render/gfx/Gfx2D'
  */
 export function drawGrid(
   gfx: Gfx2D,
-  cam: Camera,
+  cam: CameraView2D,
   canvasW: number,
   canvasH: number,
 ): void {

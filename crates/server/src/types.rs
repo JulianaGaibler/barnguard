@@ -218,6 +218,9 @@ pub enum ServerEvent {
 /// records + high scores. Future displays get their own constants alongside.
 pub const DISPLAY_STALLWAECHTER: &str = "stallwaechter";
 
+/// Stable id for the Arcade display (hosts Jezzball, Connect Four, Orbo).
+pub const DISPLAY_ARCADE: &str = "arcade";
+
 /// Why a Stallwächter round ended. JSON: `snake_case` (`"collision"`,
 /// `"exited_germany"`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -244,6 +247,7 @@ impl fmt::Display for GameEndReason {
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum GameDetails {
     Stallwaechter(StallwaechterDetails),
+    Arcade(ArcadeDetails),
 }
 
 impl GameDetails {
@@ -252,8 +256,37 @@ impl GameDetails {
     pub fn display_id(&self) -> &'static str {
         match self {
             GameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+            GameDetails::Arcade(_) => DISPLAY_ARCADE,
         }
     }
+}
+
+/// Arcade-specific game details. `game_id` is the arcade `GameMeta.id` (e.g.
+/// `"jezzball"`, `"connect-four"`, `"orbo"`) — an open string, not a closed
+/// enum, so a new arcade game starts logging with no server code change
+/// (mirrors [`LeaderboardEntry::display`] below). `score`'s meaning is
+/// game-specific (points for Jezzball; the winning side's round-win streak
+/// for the round-based games) and is only ever compared within the same
+/// `game_id` — see [`ArcadeHighScores`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArcadeDetails {
+    pub game_id: String,
+    /// Free-form mode tag, e.g. `"solo"`, `"versus"`, `"round"`.
+    pub mode: String,
+    /// Human-readable winning side (e.g. `"player1"`, `"left"`, `"tie"`);
+    /// `None` when the game has no opposing side (Jezzball solo).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub winner: Option<String>,
+    /// True if this score was the best for its `game_id` at the moment it was
+    /// recorded.
+    pub was_game_high: bool,
+    /// The name the player saved to the leaderboard for this run, if any —
+    /// `None` when they skipped name entry or the score didn't qualify. Purely
+    /// an echo for attendant visibility; the leaderboard entry itself is the
+    /// separate `LeaderboardEntry` this name was actually submitted to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player_name: Option<String>,
 }
 
 /// Stallwächter-specific game details. `state_id` is the ISO code (lowercase);
@@ -313,6 +346,7 @@ pub struct NewGame {
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum NewGameDetails {
     Stallwaechter(NewStallwaechterDetails),
+    Arcade(NewArcadeDetails),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -322,6 +356,17 @@ pub struct NewStallwaechterDetails {
     pub reason: GameEndReason,
     #[serde(default)]
     pub escape_heading_rad: Option<f32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewArcadeDetails {
+    pub game_id: String,
+    pub mode: String,
+    #[serde(default)]
+    pub winner: Option<String>,
+    #[serde(default)]
+    pub player_name: Option<String>,
 }
 
 impl NewGame {
@@ -337,7 +382,9 @@ impl NewGame {
         } = self;
         let full = match details {
             NewGameDetails::Stallwaechter(d) => {
-                let DisplayHighScores::Stallwaechter(s) = prev;
+                let DisplayHighScores::Stallwaechter(s) = prev else {
+                    panic!("prev high scores variant didn't match Stallwaechter details")
+                };
                 let was_overall_high = score > s.overall;
                 let was_state_high =
                     score > s.by_state.get(&d.state_id).copied().unwrap_or(0);
@@ -347,6 +394,19 @@ impl NewGame {
                     escape_heading_rad: d.escape_heading_rad,
                     was_overall_high,
                     was_state_high,
+                })
+            }
+            NewGameDetails::Arcade(d) => {
+                let DisplayHighScores::Arcade(s) = prev else {
+                    panic!("prev high scores variant didn't match Arcade details")
+                };
+                let was_game_high = score > s.by_game.get(&d.game_id).copied().unwrap_or(0);
+                GameDetails::Arcade(ArcadeDetails {
+                    game_id: d.game_id,
+                    mode: d.mode,
+                    winner: d.winner,
+                    was_game_high,
+                    player_name: d.player_name,
                 })
             }
         };
@@ -366,6 +426,7 @@ impl NewGame {
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum DisplayHighScores {
     Stallwaechter(StallwaechterHighScores),
+    Arcade(ArcadeHighScores),
 }
 
 impl DisplayHighScores {
@@ -374,6 +435,7 @@ impl DisplayHighScores {
             DISPLAY_STALLWAECHTER => {
                 DisplayHighScores::Stallwaechter(StallwaechterHighScores::default())
             }
+            DISPLAY_ARCADE => DisplayHighScores::Arcade(ArcadeHighScores::default()),
             other => panic!("unknown display id: {other}"),
         }
     }
@@ -402,6 +464,18 @@ impl DisplayHighScores {
                     by_state,
                 })
             }
+            DISPLAY_ARCADE => {
+                let mut by_game: HashMap<String, u32> = HashMap::new();
+                for g in games {
+                    if let GameDetails::Arcade(d) = &g.details {
+                        let slot = by_game.entry(d.game_id.clone()).or_insert(0);
+                        if g.score > *slot {
+                            *slot = g.score;
+                        }
+                    }
+                }
+                DisplayHighScores::Arcade(ArcadeHighScores { by_game })
+            }
             other => panic!("unknown display id: {other}"),
         }
     }
@@ -412,6 +486,65 @@ impl DisplayHighScores {
 pub struct StallwaechterHighScores {
     pub overall: u32,
     pub by_state: HashMap<String, u32>,
+}
+
+/// Best score per arcade `game_id`. No `overall` field — Jezzball's points
+/// and the other games' round-win streaks aren't comparable, so there's no
+/// meaningful arcade-wide best.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArcadeHighScores {
+    pub by_game: HashMap<String, u32>,
+}
+
+// ---------------------------------------------------------------------------
+// Leaderboard — generic, per-`display` (arcade game id), one entry per name.
+// ---------------------------------------------------------------------------
+//
+// Unlike `GameDetails`/`NewGameDetails` above, `display` here is an open
+// string rather than a closed enum: a new arcade game starts submitting
+// scores with no backend code change, just its own id.
+
+/// A single leaderboard row, persisted in `leaderboard.json`. Only the
+/// best score per `(display, name)` is ever kept — see
+/// [`crate::store::LeaderboardController::submit`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LeaderboardEntry {
+    pub id: Uuid,
+    pub ts_ms: u64,
+    pub display: String,
+    /// Already normalized (trimmed, lowercased, truncated to 6 chars) by the
+    /// time it's stored — see `NewLeaderboardEntry::normalized_name`.
+    pub name: String,
+    pub score: u32,
+}
+
+/// Client-supplied payload for `POST /api/leaderboard`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NewLeaderboardEntry {
+    pub display: String,
+    pub name: String,
+    pub score: u32,
+}
+
+/// Max characters kept from a submitted name after normalization.
+pub const LEADERBOARD_NAME_MAX_CHARS: usize = 6;
+
+impl NewLeaderboardEntry {
+    /// Trim, lowercase, and truncate to [`LEADERBOARD_NAME_MAX_CHARS`]
+    /// **characters** (not bytes, so multi-byte input truncates cleanly).
+    /// Applied server-side regardless of what the client already did, so
+    /// `"abc"` / `"ABC"` / `"abc  "` all collide on the same stored key.
+    pub fn normalized_name(&self) -> String {
+        self.name
+            .trim()
+            .to_lowercase()
+            .chars()
+            .take(LEADERBOARD_NAME_MAX_CHARS)
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -447,7 +580,10 @@ mod tests {
             record("hessen", 200),
         ];
         let DisplayHighScores::Stallwaechter(hs) =
-            DisplayHighScores::from_games(DISPLAY_STALLWAECHTER, &games);
+            DisplayHighScores::from_games(DISPLAY_STALLWAECHTER, &games)
+        else {
+            panic!("expected Stallwaechter high scores")
+        };
         assert_eq!(hs.overall, 250);
         assert_eq!(hs.by_state.get("bayern").copied(), Some(150));
         assert_eq!(hs.by_state.get("hessen").copied(), Some(250));
@@ -472,7 +608,9 @@ mod tests {
             by_state: [("bayern".to_string(), 50)].into_iter().collect(),
         });
         let rec = stall_new("bayern", 100).into_record(&prev);
-        let GameDetails::Stallwaechter(d) = &rec.details;
+        let GameDetails::Stallwaechter(d) = &rec.details else {
+            panic!("expected Stallwaechter details")
+        };
         // Equalling the overall best does NOT trigger the star.
         assert!(!d.was_overall_high);
         assert!(d.was_state_high); // 100 > 50
@@ -482,9 +620,65 @@ mod tests {
     fn new_game_flags_first_ever_beats_zero() {
         let prev = DisplayHighScores::empty_for(DISPLAY_STALLWAECHTER);
         let rec = stall_new("sachsen", 1).into_record(&prev);
-        let GameDetails::Stallwaechter(d) = &rec.details;
+        let GameDetails::Stallwaechter(d) = &rec.details else {
+            panic!("expected Stallwaechter details")
+        };
         assert!(d.was_overall_high);
         assert!(d.was_state_high);
+    }
+
+    fn arcade_new(game_id: &str, score: u32) -> NewGame {
+        NewGame {
+            score,
+            duration_ms: 5_000,
+            details: NewGameDetails::Arcade(NewArcadeDetails {
+                game_id: game_id.into(),
+                mode: "solo".into(),
+                winner: None,
+                player_name: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn arcade_high_scores_are_grouped_per_game_and_dont_mix() {
+        let games = vec![
+            arcade_new("jezzball", 4200).into_record(&DisplayHighScores::empty_for(DISPLAY_ARCADE)),
+            arcade_new("connect-four", 3).into_record(&DisplayHighScores::empty_for(DISPLAY_ARCADE)),
+        ];
+        let DisplayHighScores::Arcade(hs) = DisplayHighScores::from_games(DISPLAY_ARCADE, &games)
+        else {
+            panic!("expected Arcade high scores")
+        };
+        assert_eq!(hs.by_game.get("jezzball").copied(), Some(4200));
+        assert_eq!(hs.by_game.get("connect-four").copied(), Some(3));
+    }
+
+    #[test]
+    fn arcade_details_carries_player_name_through() {
+        let mut new = arcade_new("jezzball", 100);
+        let NewGameDetails::Arcade(d) = &mut new.details else {
+            panic!("expected Arcade details")
+        };
+        d.player_name = Some("aaaa".into());
+        let rec = new.into_record(&DisplayHighScores::empty_for(DISPLAY_ARCADE));
+        let GameDetails::Arcade(d) = &rec.details else {
+            panic!("expected Arcade details")
+        };
+        assert_eq!(d.player_name.as_deref(), Some("aaaa"));
+    }
+
+    #[test]
+    fn arcade_new_game_flags_are_scoped_to_game_id() {
+        let prev = DisplayHighScores::Arcade(ArcadeHighScores {
+            by_game: [("jezzball".to_string(), 100)].into_iter().collect(),
+        });
+        // A "connect-four" score of 1 doesn't collide with jezzball's 100.
+        let rec = arcade_new("connect-four", 1).into_record(&prev);
+        let GameDetails::Arcade(d) = &rec.details else {
+            panic!("expected Arcade details")
+        };
+        assert!(d.was_game_high);
     }
 
     #[test]
@@ -511,5 +705,28 @@ mod tests {
         assert!(!json.contains(r#""details":"#));
         let round: GameRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(round.display_id(), DISPLAY_STALLWAECHTER);
+    }
+
+    fn new_leaderboard(name: &str) -> NewLeaderboardEntry {
+        NewLeaderboardEntry {
+            display: "jezzball".into(),
+            name: name.into(),
+            score: 100,
+        }
+    }
+
+    #[test]
+    fn leaderboard_name_normalizes_case_and_whitespace() {
+        assert_eq!(new_leaderboard("ABC").normalized_name(), "abc");
+        assert_eq!(new_leaderboard("  abc  ").normalized_name(), "abc");
+        assert_eq!(
+            new_leaderboard("ABC").normalized_name(),
+            new_leaderboard("  abc  ").normalized_name(),
+        );
+    }
+
+    #[test]
+    fn leaderboard_name_truncates_to_six_chars() {
+        assert_eq!(new_leaderboard("TOOLONG").normalized_name(), "toolon");
     }
 }

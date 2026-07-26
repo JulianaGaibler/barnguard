@@ -106,8 +106,7 @@ const host = createEngineHost({
   maxDt: 1 / 30, // clamp on a single frame's dt after a stall
 
   // Rendering.
-  renderer: 'auto', // 'gpu' | 'canvas2d' | 'auto' (auto = GPU unless ?renderer=canvas2d)
-  msaaSamples: 4, // GPU only; 0 disables
+  msaaSamples: 4, // 0 disables
 
   // Opt-in physics on the primary stage. Off by default.
   physics: { gravity: { x: 0, y: 900 } },
@@ -117,11 +116,10 @@ const host = createEngineHost({
 })
 ```
 
-`renderer`, `msaaSamples`, and `debug` each resolve from the option first, then
-fall back to a URL flag (`?renderer=`, `?msaa=`, `?debug=`), so a deployed build
-can be probed without a code change. Pass the option explicitly to ignore the
-URL. See [Physics](/guides/physics) for the physics config, and
-[Scene graph](/guides/scene#dynamic-resolution) for `dynamicResolution`.
+`msaaSamples` and `debug` each resolve from the option first, then fall back
+to a URL flag (`?msaa=`, `?debug=`), so a deployed build can be probed without
+a code change. Pass the option explicitly to ignore the URL. See
+[Physics](/guides/physics) for the physics config.
 
 ## Lifecycle
 
@@ -155,7 +153,7 @@ await host.loadScene(async (scene, engine) => {
     geometry: { kind: 'rect', width: 1920, height: 1080, centered: false },
     fill: '#12233f',
   })
-  bg.renderLayer = 'static' // baked once, blitted each frame
+  bg.renderLayer = 'static' // drawn first each frame, under everything else
   scene.root.add(bg)
 
   // ...build the rest of the tree from `paths`
@@ -177,11 +175,11 @@ Everything hangs off `host.engine`:
 ```ts
 const engine = host.engine
 
-engine.scene // the primary Scene; engine.scene.root is where nodes go
-engine.camera // the game Camera (viewport, animateTo)
+engine.tree // the primary Scene; engine.tree.root is where nodes go
+engine.currentCamera2D // the current 2D camera (viewport, animateTo)
 engine.input // the primary InputSystem (pointers, touch slop)
 engine.animation // the Animator behind tween / wait
-engine.renderer // pixel size, render scale
+engine.renderer // pixel size, CSS size, dpr
 engine.dom // HTML-overlay sync (see HTML overlays)
 engine.physics // the primary stage's PhysicsWorld, or null if off
 ```

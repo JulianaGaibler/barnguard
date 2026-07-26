@@ -1,5 +1,6 @@
 import { createEngineHost } from '../engine/EngineHost'
-import { SceneNode } from '../scene/SceneNode'
+import { addDemoCamera } from './demoCamera'
+import { Node2D } from '../scene/Node2D'
 import { Path2DNode } from '../nodes/Path2DNode'
 import { parseSvgPaths } from '../assets/SvgPathMap'
 import { AssetLoader } from '../assets/AssetLoader'
@@ -55,7 +56,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    initialViewport: { ...FULL_VIEW },
   })
   attach?.(host)
 
@@ -75,8 +75,9 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const stateCenters = new Map<string, { x: number; y: number }>()
 
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { ...FULL_VIEW })
     if (!assets) return
-    const mapGroup = new SceneNode('map')
+    const mapGroup = new Node2D('map')
     mapGroup.renderLayer = 'static'
     scene.root.add(mapGroup)
 
@@ -144,10 +145,10 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const onPointerMove = (e: PointerEvent): void => {
     if (!assets) return
     const rect = canvas.getBoundingClientRect()
-    const w = host.engine.activeCamera.screenToWorld(
+    const w = host.engine.activeCamera?.screenToWorld(
       e.clientX - rect.left,
       e.clientY - rect.top,
-    )
+    ) ?? { x: 0, y: 0 }
     setHover(findStateAt(w.x, w.y))
   }
   const onPointerLeave = (): void => setHover(null)
@@ -158,7 +159,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     currentTween = new AbortController()
     const signal = currentTween.signal
     try {
-      await host.engine.camera.animateTo(target, {
+      await host.engine.currentCamera2D?.animateTo(target, {
         duration: 0.5,
         easing: inOutQuad,
         signal,
@@ -171,10 +172,10 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const onPointerDown = (e: PointerEvent): void => {
     if (!assets) return
     const rect = canvas.getBoundingClientRect()
-    const w = host.engine.activeCamera.screenToWorld(
+    const w = host.engine.activeCamera?.screenToWorld(
       e.clientX - rect.left,
       e.clientY - rect.top,
-    )
+    ) ?? { x: 0, y: 0 }
     const hit = findStateAt(w.x, w.y)
     if (!hit) return
     const c = stateCenters.get(hit)

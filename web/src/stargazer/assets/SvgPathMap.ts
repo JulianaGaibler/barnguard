@@ -33,9 +33,9 @@ export interface SvgPathEntry {
  */
 export interface ParseSvgPathsOptions {
   /**
-   * When true, also emit `contours` + `triangles` for each path. Default
-   * `false`, the map SVG's ~4000 state paths bake via Canvas 2D and don't need
-   * tessellation; only dynamic assets (hand, eye, impact-flash) should opt in.
+   * When true, also emit `contours` + `triangles` for each path. A path with no
+   * tessellation registered doesn't render, so anything drawn through
+   * `Path2DNode.fillPath2D` / `strokePath2D` needs this on.
    */
   tessellate?: boolean
   /**

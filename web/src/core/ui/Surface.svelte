@@ -23,7 +23,7 @@
 <div
   class="surface {tone} {className}"
   class:blur
-  style="--surface-radius: var(--radius-{radius})"
+  style="--surface-radius: var(--surface-radius-override, var(--radius-{radius}))"
 >
   {@render children()}
 </div>
@@ -44,4 +44,8 @@
 
   .surface.blur
     backdrop-filter: blur(0.75rem)
+    &.light
+      background: color-mix(in srgb, var(--color-surface-card) 75%, transparent)
+    &.inverse
+      background: color-mix(in srgb, var(--color-surface-inverse) 75%, transparent)
 </style>

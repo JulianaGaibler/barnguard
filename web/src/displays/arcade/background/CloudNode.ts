@@ -1,4 +1,9 @@
-import { SceneNode, type Camera, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  Node2D,
+  type CameraView2D,
+  type Gfx2D,
+  type Rect,
+} from '@src/stargazer'
 import { REGION_HEIGHT, REGION_WIDTH, layout } from '../world'
 import type { RadialDef, SkyPalette } from './palette'
 import { StopsCache, visibleWorldRect } from './util'
@@ -28,7 +33,7 @@ export interface CloudOptions {
  * stays put in the scene and the clouds sweep through it, lighting up as they
  * cross and fading as they leave. Zero per-frame texture uploads.
  */
-export class CloudNode extends SceneNode {
+export class CloudNode extends Node2D {
   readonly #source: PaletteSource
   readonly #opts: CloudOptions
   /** Accumulated drift, wrapped into `[0, period)`. */
@@ -49,7 +54,7 @@ export class CloudNode extends SceneNode {
     this.#scroll = ((this.#scroll % period) + period) % period
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const { bitmap, drawW, drawH, bottomOffset, period } = this.#opts
     const def = this.#opts.pick(this.#source.palette)
     const stops = this.#stops.get(this.#source.version, def.stops)

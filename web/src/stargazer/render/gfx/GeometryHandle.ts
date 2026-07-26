@@ -10,7 +10,34 @@
  *
  * @category Advanced
  */
+import type { VBuffer, IBuffer, Vao } from './GfxDevice'
+
 export interface GeometryHandle {
   vertices: Float32Array
   indices: Uint16Array
+  /**
+   * Opt-in: upload this geometry to static GPU buffers once and draw it with a
+   * per-frame model matrix (`fillPath2D` records a retained run) instead of
+   * CPU-transforming every vertex every frame. Set at registration for large,
+   * long-lived tessellations (the SVG map). See `registerPathTessellation`.
+   */
+  retained?: boolean
+  /**
+   * GPU-resident descriptor, populated lazily on the first retained draw and
+   * cleared on context loss. Absent until then, or entirely when `retained` is
+   * false.
+   */
+  gpu?: GpuGeometry
+}
+
+/**
+ * A `GeometryHandle`'s GPU residency: its own static vertex + index buffers and
+ * the VAO binding them. Created by `GpuGfx` on the first retained fill and
+ * reused every frame after; `drawElements(indexCount, 0)` draws it.
+ */
+export interface GpuGeometry {
+  vbo: VBuffer
+  ibo: IBuffer
+  vao: Vao
+  indexCount: number
 }

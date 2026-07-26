@@ -1,7 +1,7 @@
 import {
-  SceneNode,
+  Node2D,
   withAlpha,
-  type Camera,
+  type CameraView2D,
   type Gfx2D,
   type Rect,
   type Vec2,
@@ -40,7 +40,7 @@ interface EpicenterNodeOptions {
  * `pulseScale`) then a white apex dot. Passive, packets read `center` /
  * `axisRad` / radii directly.
  */
-export class EpicenterNode extends SceneNode {
+export class EpicenterNode extends Node2D {
   readonly captureRadius: number
   readonly visualRadius: number
   readonly coneRadius: number
@@ -137,7 +137,7 @@ export class EpicenterNode extends SceneNode {
     return Math.abs(delta) <= tol
   }
 
-  override draw(gfx: Gfx2D, camera: Camera): void {
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
     const alpha = this.transform.alpha
     if (alpha < 0.001) return
     const s = camera.strokeSpaceScale()

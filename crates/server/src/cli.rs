@@ -4,7 +4,7 @@
 
 use crate::config::Config;
 use crate::store::load_games;
-use crate::types::{DisplayHighScores, GameDetails, DISPLAY_STALLWAECHTER};
+use crate::types::{DisplayHighScores, GameDetails, DISPLAY_ARCADE, DISPLAY_STALLWAECHTER};
 use std::error::Error;
 
 pub fn show_config() -> Result<(), Box<dyn Error>> {
@@ -86,6 +86,13 @@ pub fn list_games(limit: usize, offset: usize, json: bool) -> Result<(), Box<dyn
     for g in &slice {
         let (state, reason) = match &g.details {
             GameDetails::Stallwaechter(d) => (d.state_id.as_str(), d.reason.to_string()),
+            GameDetails::Arcade(d) => (
+                d.game_id.as_str(),
+                match &d.winner {
+                    Some(w) => format!("{} ({w})", d.mode),
+                    None => d.mode.clone(),
+                },
+            ),
         };
         println!(
             "{:<38}  {:<14}  {:>7}  {:<12}  {:<14}  {:>6.1}  {}",
@@ -104,25 +111,44 @@ pub fn list_games(limit: usize, offset: usize, json: bool) -> Result<(), Box<dyn
 pub fn high_scores(json: bool) -> Result<(), Box<dyn Error>> {
     let cfg = Config::load()?;
     let games = load_games(&cfg.data_dir)?;
-    // Only Stallwächter ships today; when a second display arrives this loops
-    // over the known displays instead.
-    let hs = DisplayHighScores::from_games(DISPLAY_STALLWAECHTER, &games);
+    let all: Vec<DisplayHighScores> = [DISPLAY_STALLWAECHTER, DISPLAY_ARCADE]
+        .into_iter()
+        .map(|d| DisplayHighScores::from_games(d, &games))
+        .collect();
 
     if json {
-        println!("{}", serde_json::to_string_pretty(&hs)?);
+        println!("{}", serde_json::to_string_pretty(&all)?);
         return Ok(());
     }
-    let DisplayHighScores::Stallwaechter(hs) = hs;
-    println!("display: {DISPLAY_STALLWAECHTER}");
-    println!("overall: {}", hs.overall);
-    if hs.by_state.is_empty() {
-        println!("(no per-state entries)");
-    } else {
-        let mut rows: Vec<_> = hs.by_state.iter().collect();
-        rows.sort_by(|a, b| b.1.cmp(a.1));
-        for (state, score) in rows {
-            println!("  {state:<20} {score}");
+    for hs in all {
+        match hs {
+            DisplayHighScores::Stallwaechter(hs) => {
+                println!("display: {DISPLAY_STALLWAECHTER}");
+                println!("overall: {}", hs.overall);
+                if hs.by_state.is_empty() {
+                    println!("(no per-state entries)");
+                } else {
+                    let mut rows: Vec<_> = hs.by_state.iter().collect();
+                    rows.sort_by(|a, b| b.1.cmp(a.1));
+                    for (state, score) in rows {
+                        println!("  {state:<20} {score}");
+                    }
+                }
+            }
+            DisplayHighScores::Arcade(hs) => {
+                println!("display: {DISPLAY_ARCADE}");
+                if hs.by_game.is_empty() {
+                    println!("(no per-game entries)");
+                } else {
+                    let mut rows: Vec<_> = hs.by_game.iter().collect();
+                    rows.sort_by(|a, b| b.1.cmp(a.1));
+                    for (game, score) in rows {
+                        println!("  {game:<20} {score}");
+                    }
+                }
+            }
         }
+        println!();
     }
     Ok(())
 }

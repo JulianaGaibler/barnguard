@@ -30,9 +30,9 @@ const off = engine.onBeforeFrame((dt) => {
 
 ## Rendering
 
-Nodes draw through the `Gfx2D` facade, so node code never sees which backend is live. The backend is WebGL2 (`GpuGfx`): batched draw programs, MSAA, and bitmap-mask clipping. `?msaa=N` picks the sample count, clamped to the driver's `MAX_SAMPLES`.
+Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. The backend is WebGL2 (`GpuGfx`): batched draw programs, MSAA, and bitmap-mask clipping. `?msaa=N` picks the sample count, clamped to the driver's `MAX_SAMPLES`. `GfxDevice` is the seam `GpuGfx` draws through, thin enough that a future WebGPU backend could implement it without touching facade-level code.
 
-`Canvas2DGfx` is a second implementation of the same facade, used as a visual-parity oracle when debugging a rendering difference and as a fallback. Reach it with `?renderer=canvas2d`. Treat it as a comparison tool, not the target; the GPU backend is what the engine is built around.
+A stage with 3D content runs a depth-tested 3D pass first (`MeshRenderer`, drawing `Node3D` meshes and `Viewport2DNode` quads through the same `GfxDevice` seam), then resets device state to the 2D baseline and composites the painter-order 2D layers on top. The offscreen target grows a depth attachment the first time a stage hosts 3D and keeps it; a pure-2D stage never allocates one. See [3D](/guides/3d).
 
 Cross-cutting facade rules (per-call styles, absolute alpha, pre-resolved stroke widths) are documented on the `Gfx2D` interface.
 
@@ -40,7 +40,7 @@ Cross-cutting facade rules (per-call styles, absolute alpha, pre-resolved stroke
 
 There are three coordinate spaces:
 
-- **World.** Game-side coords, independent of pixels or DPR. This is what `SceneNode.transform.x/y` uses and what `node.hitTest(worldX, worldY, ...)` sees.
+- **World.** Game-side coords, independent of pixels or DPR. This is what `Node2D.transform.x/y` uses and what `node.hitTest(worldX, worldY, ...)` sees.
 - **Screen (CSS px).** Position on the visible canvas element. `InputSystem` reads these from the pointer event, and the camera converts between screen and world via `worldToScreen` / `screenToWorld`.
 - **Device px.** Physical pixels. `Renderer` multiplies by `devicePixelRatio` and applies that as the baseline transform. Game code never sees device px.
 
@@ -49,8 +49,11 @@ There are three coordinate spaces:
 Convert between the two spaces through the camera. Game code that reads a DOM pointer coord maps it to world; code that positions an HTML element maps the other way:
 
 ```ts
-const world = engine.camera.screenToWorld(cssX, cssY) // CSS px → world
-const screen = engine.camera.worldToScreen(node.transform.x, node.transform.y) // world → CSS px
+const world = engine.currentCamera2D.screenToWorld(cssX, cssY) // CSS px → world
+const screen = engine.currentCamera2D.worldToScreen(
+  node.transform.x,
+  node.transform.y,
+) // world → CSS px
 ```
 
 Both take an optional `out: Vec2` to avoid allocating in a per-frame loop.
@@ -59,7 +62,7 @@ Both take an optional `out: Vec2` to avoid allocating in a per-frame loop.
 
 ## Stages
 
-A `Stage` bundles what varies per canvas: `Renderer`, `Scene`, `Camera`, `Layers`, a `ResizeObserver`, and the render pipeline that targets it. `Engine` owns a `primaryStage`; `engine.renderer` / `engine.scene` / `engine.camera` / `engine.layers` are getters onto it.
+A `Stage` bundles what varies per canvas: `Renderer`, `Scene`, `Camera`, `Layers`, a `ResizeObserver`, and the render pipeline that targets it. `Engine` owns a `primaryStage`; `engine.renderer` / `engine.tree` / `engine.currentCamera2D` / `engine.layers` are getters onto it.
 
 More stages attach via `engine.attachStage(canvas, opts)` and detach via `engine.detachStage(stage)`. Each has its own scene tree, camera, and static-layer cache; nothing bleeds between stages.
 
@@ -67,7 +70,9 @@ Secondary stages share the `Ticker` (one rAF loop drives every stage), the `Anim
 
 ## The scene graph
 
-`Scene` owns a root `SceneNode`. Every renderable is a `SceneNode` subclass (`ShapeNode`, `Path2DNode`, `PolylineNode`, `TextNode`, `ParticleEmitterNode`, `SceneNode`). Nodes compose spatially through their `transform` as parent world matrix × child local matrix.
+`SceneTree` owns one root (a `GroupNode`) holding both 2D and 3D nodes. Every 2D renderable is a `Node2D` subclass (`ShapeNode`, `Path2DNode`, `PolylineNode`, `TextNode`, `ParticleEmitterNode`, `Node2D`). Nodes compose spatially through their `transform` as parent world matrix × child local matrix.
+
+`Node2D` (2D) and `Node3D` (3D) share a non-spatial `Node` base that owns children, behaviors, the abort/event lifecycle, and the tween/wait/loop helpers, and both live in the **one** `SceneTree`. Each keeps its own transform type and world composition (2×3 affine for 2D, 4×4 for 3D), composed from its nearest same-`kind` ancestor; render passes bucket the single tree walk by `node.kind`. See [3D](/guides/3d).
 
 `Behavior` objects attach game logic to nodes, with optional `onAttach`, `onDetach`, `onUpdate(dt)`, and `onFixedStep(fixedDt)` hooks. Multiple behaviors can share a node; `node.getBehavior<T>(Ctor)` and `getBehaviors<T>(Ctor)` look them up by class.
 
@@ -77,15 +82,13 @@ Details in [Scene graph](/guides/scene).
 
 ## Render layers
 
-Each `SceneNode` has a `renderLayer`:
+Each `Node2D` has a `renderLayer`:
 
-- `'static'`, baked once to an offscreen buffer and blitted every frame. Use it for content that changes rarely, such as a background or a map.
-- `'above-static'`, drawn per frame between the static blit and the dynamic pass. The place to promote a static node that is temporarily animating.
+- `'static'`, drawn first each frame. Use it for content that changes rarely, such as a background or a map.
+- `'above-static'`, drawn per frame between the static and dynamic passes. The place to promote a static node that is temporarily animating.
 - `'dynamic'` (default), drawn per frame on top.
 
-Setting `renderLayer` to or from `'static'` calls `scene.invalidateStatic()`, and the next stable-camera frame re-bakes. Moving a node between `'above-static'` and `'dynamic'` costs nothing, since both draw every frame.
-
-The renderer bypasses the static cache on any frame where the camera moved (a running `animateTo`, or a debug-camera pan) and draws the static tree fresh, then bakes again on the first settled frame. In steady state that means no bakes per second, one bake per camera settle. See [Scene graph](/guides/scene#render-layers-and-the-static-bake).
+The three passes exist for draw order (static under, dynamic over), not caching, GPU fill rate makes redrawing the static layer every frame trivial. See [Scene graph](/guides/scene#render-layers).
 
 ## The Svelte boundary
 

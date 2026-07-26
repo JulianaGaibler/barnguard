@@ -1,18 +1,19 @@
-import { SceneNode, type Gfx2D } from '@src/stargazer'
+import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
 import { COLS, ROWS } from '../board'
 import { cellCenter, type BoardLayout } from '../layout'
 import { BOARD } from '../tuning'
 
 /**
- * The Connect Four board: a rounded panel with 42 holes cut out, rasterized
- * once to an OffscreenCanvas and blitted (the caching approach Orbo's PanelNode
- * uses). Discs render on a layer behind this node, so the holes show them and a
- * falling disc reads through each hole as it passes. The board group fades in
- * and out on match start / return, so this node just draws the bitmap.
+ * The Connect Four board: a light translucent panel with a single rounded
+ * corner (top-right), a subtly darker "well" per slot, and a faint X behind
+ * each slot. Drawn straight from primitives — the panel as one rounded-rect SDF
+ * quad, wells as circles, X's as line pairs — so there's no bitmap to bake and
+ * no flip quirk, and the whole node fades cleanly with `transform.alpha` on
+ * reveal/return. Discs render on a layer IN FRONT, so a dropped chip sits over
+ * its well (a ring of well shows around it) and covers the slot's X.
  */
-export class BoardNode extends SceneNode {
+export class BoardNode extends Node2D {
   readonly #layout: BoardLayout
-  #bitmap: OffscreenCanvas | null = null
 
   constructor(layout: BoardLayout) {
     super('cf-board')
@@ -20,36 +21,45 @@ export class BoardNode extends SceneNode {
     this.renderLayer = 'dynamic'
   }
 
-  #ensureBitmap(): OffscreenCanvas | null {
-    if (this.#bitmap) return this.#bitmap
-    if (typeof OffscreenCanvas === 'undefined') return null
-    const l = this.#layout
-    const canvas = new OffscreenCanvas(Math.ceil(l.panelW), Math.ceil(l.panelH))
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    ctx.fillStyle = BOARD.bg
-    ctx.beginPath()
-    ctx.roundRect(0, 0, canvas.width, canvas.height, BOARD.radius)
-    ctx.fill()
-    // Punch the 42 holes (coords relative to the panel's top-left).
-    ctx.globalCompositeOperation = 'destination-out'
-    const holeR = l.cell * BOARD.holeRadiusFrac
+  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+    const layout = this.#layout
+    // Panel: only the top-right corner rounded (radii are [tl, tr, br, bl]).
+    gfx.fillRoundRect(
+      layout.panelX,
+      layout.panelY,
+      layout.panelW,
+      layout.panelH,
+      [0, BOARD.cornerRadius, 0, 0],
+      BOARD.bg,
+    )
+
+    const wellR = layout.cell * BOARD.wellRadiusFrac
+    const arm = layout.cell * BOARD.xArmFrac
+    const xWidth = BOARD.xWidth * camera.strokeSpaceScale()
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
-        const c = cellCenter(l, col, row)
-        ctx.beginPath()
-        ctx.arc(c.x - l.panelX, c.y - l.panelY, holeR, 0, Math.PI * 2)
-        ctx.fill()
+        const center = cellCenter(layout, col, row)
+        gfx.fillCircle(center.x, center.y, wellR, BOARD.wellFill)
+        const style = {
+          color: BOARD.xColor,
+          width: xWidth,
+          cap: 'round' as const,
+        }
+        gfx.strokeLine(
+          center.x - arm,
+          center.y - arm,
+          center.x + arm,
+          center.y + arm,
+          style,
+        )
+        gfx.strokeLine(
+          center.x - arm,
+          center.y + arm,
+          center.x + arm,
+          center.y - arm,
+          style,
+        )
       }
     }
-    ctx.globalCompositeOperation = 'source-over'
-    this.#bitmap = canvas
-    return this.#bitmap
-  }
-
-  override draw(gfx: Gfx2D): void {
-    const l = this.#layout
-    const bmp = this.#ensureBitmap()
-    if (bmp) gfx.drawImage(bmp, l.panelX, l.panelY, l.panelW, l.panelH)
   }
 }

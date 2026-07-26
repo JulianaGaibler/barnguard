@@ -3,10 +3,10 @@
 // scratch state (the cull-rect corners), independent of `Stage`'s render
 // dispatch, static-cache bookkeeping, and resize handling.
 
-import type { Camera } from '../camera/Camera'
+import type { Affine2x3, CameraView2D } from '../camera/CameraView2D'
 import type { Vec2 } from '../math/Vec2'
-import type { Scene } from '../scene/Scene'
-import type { RenderLayer, SceneNode } from '../scene/SceneNode'
+import type { SceneTree } from '../scene/SceneTree'
+import type { RenderLayer, Node2D } from '../scene/Node2D'
 import type { Gfx2D } from './gfx/Gfx2D'
 import type { Renderer } from './Renderer'
 
@@ -28,14 +28,14 @@ export class StageLayerRenderer {
   readonly #cullBR: Vec2 = { x: 0, y: 0 }
 
   drawLayer(
-    scene: Scene,
+    scene: SceneTree,
     renderer: Renderer,
     layer: RenderLayer,
     gfx: Gfx2D,
-    camera: Camera,
-    scaleDpr: number,
-    offX: number,
-    offY: number,
+    camera: CameraView2D,
+    // Device-pixel base affine (DPR · camera screen affine). May carry rotation
+    // / skew from a transformed or parented camera, so it's a full 2×3.
+    render: Affine2x3,
     dt: number,
   ): void {
     const marks = scene.engine?.perfMarks ?? false
@@ -73,14 +73,16 @@ export class StageLayerRenderer {
         continue
       }
       const w = node.transform.world
-      // final = (DPR × camera-uniform) × node.world
-      // camera has zero skew and uniform scale, so we hand-compose in 2D:
-      const fA = scaleDpr * w.a
-      const fB = scaleDpr * w.b
-      const fC = scaleDpr * w.c
-      const fD = scaleDpr * w.d
-      const fE = scaleDpr * w.e + offX
-      const fF = scaleDpr * w.f + offY
+      // final = render · node.world (full 2×3 matmul; the camera affine may be
+      // rotated/skewed via a transformed or parented camera). For an identity
+      // camera `render` is uniform-scale + translate, so this reduces to the old
+      // `scaleDpr * w.* (+ off)` fast path with identical numbers.
+      const fA = render.a * w.a + render.c * w.b
+      const fB = render.b * w.a + render.d * w.b
+      const fC = render.a * w.c + render.c * w.d
+      const fD = render.b * w.c + render.d * w.d
+      const fE = render.a * w.e + render.c * w.f + render.e
+      const fF = render.b * w.e + render.d * w.f + render.f
       gfx.setBaseTransform(fA, fB, fC, fD, fE, fF)
       gfx.setAlpha(node.transform.alpha)
       const id = marks ? node.id : ''
@@ -105,7 +107,7 @@ export class StageLayerRenderer {
    * off-screen doesn't get its visible stroke clipped.
    */
   #isOutsideView(
-    node: SceneNode,
+    node: Node2D,
     strokeScale: number,
     visLeft: number,
     visRight: number,

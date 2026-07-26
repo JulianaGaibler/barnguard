@@ -40,13 +40,12 @@ export class EngineStageManager {
     // Secondary stages default to transparent, the parent HTML card owns
     // the background.
     const stage = new Stage(canvas, engine, {
-      initialViewport: opts.initialViewport,
       clearColor: opts.clearColor,
       transparent: opts.transparent ?? true,
       interactive: opts.interactive,
       name: opts.name,
-      renderer: opts.renderer ?? engine.rendererMode,
       msaaSamples: opts.msaaSamples ?? engine.msaaSamples,
+      gpuDevice: opts.gpuDevice,
       onResize: opts.onResize,
     })
     this.#_stages.add(stage)
@@ -55,7 +54,8 @@ export class EngineStageManager {
       this.#physicsUnregister.set(
         stage,
         engine.registerPhysicsWorld(stage.physics, {
-          spaceNode: stage.scene.root,
+          // The tree root is identity, so physics space is scene space (null).
+          spaceNode: null,
           label: stage.name ?? 'stage',
         }),
       )

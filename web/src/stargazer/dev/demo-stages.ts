@@ -1,4 +1,5 @@
 import { createEngineHost } from '../engine/EngineHost'
+import { addDemoCamera } from './demoCamera'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { ParticleEmitterNode } from '../nodes/ParticleEmitterNode'
 import { ignoreAbort } from '../anim/abortSignal'
@@ -19,7 +20,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#0d1a2c',
-    initialViewport: { x: -800, y: -450, width: 1600, height: 900 },
   })
   attach?.(host)
 
@@ -34,6 +34,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     lineWidth: 3,
   })
   await host.loadScene((scene) => {
+    addDemoCamera(scene, { x: -800, y: -450, width: 1600, height: 900 })
     scene.root.add(primaryHero)
   })
   host.start()
@@ -69,8 +70,13 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const buildSecondary = (): void => {
     secondaryStage = engine.attachStage(secondaryCanvas, {
       name: 'Loss Card',
-      initialViewport: { x: -120, y: -80, width: 240, height: 160 },
       interactive: true,
+    })
+    addDemoCamera(secondaryStage.tree, {
+      x: -120,
+      y: -80,
+      width: 240,
+      height: 160,
     })
 
     // Subscribe the stage-scoped counter, only fires for taps on THIS canvas.
@@ -90,7 +96,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       lineWidth: 2,
     })
     secondaryHero.transform.y = -40
-    secondaryStage.scene.root.add(secondaryHero)
+    secondaryStage.tree.root.add(secondaryHero)
 
     // Trail emitter tracks the background hero every frame.
     secondaryEmitter = new ParticleEmitterNode({
@@ -106,7 +112,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
         alphaOverLife: [1, 0],
       },
     })
-    secondaryStage.scene.root.add(secondaryEmitter)
+    secondaryStage.tree.root.add(secondaryEmitter)
 
     // Target zone, dashed rectangle. Not hit-enabled; the drop test is a
     // point-in-rect check on release.
@@ -125,7 +131,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     zone.transform.y = ZONE_RECT.y + ZONE_RECT.height / 2
     zone.transform.originX = ZONE_RECT.width / 2
     zone.transform.originY = ZONE_RECT.height / 2
-    secondaryStage.scene.root.add(zone)
+    secondaryStage.tree.root.add(zone)
 
     // Draggable "data packet", the actual tutorial element.
     packet = new ShapeNode({
@@ -142,7 +148,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     packet.onPointerMove = onPacketMove
     packet.onPointerUp = onPacketUp
     packet.onPointerCancel = onPacketCancel
-    secondaryStage.scene.root.add(packet)
+    secondaryStage.tree.root.add(packet)
   }
 
   function onPacketDown(e: PointerEvent2D): void {

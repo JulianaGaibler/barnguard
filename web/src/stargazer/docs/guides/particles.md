@@ -2,11 +2,13 @@
 
 A pooled particle system with baked kinematics. Allocation happens once, at emitter construction; the per-frame emit, update, and draw are allocation-free.
 
+This covers the baked, sprite-based system. For particles that need per-piece vector shapes (mixed triangles and line shards in one burst, multi-stage spin, non-speed despawn rules) — cases this system's fixed sprite/field model structurally can't cover — see the [Vector particles](./vector-particles.md) guide.
+
 ## Layout
 
 - `ParticleEmitterNode`, the scene-graph wrapper. `onUpdate` ticks the emitter, and `draw` iterates the live particles and draws each sprite.
-- `ParticleEmitter`, the pool plus kinematics: `emit` / `burst` / `setOrigin` / `clear` / `update`.
-- `ParticlePool`, parallel typed arrays for position, velocity, life, and size, with a freelist.
+- `ParticleEmitter`, the pool plus kinematics: `emit` / `burst` / `setOrigin` / `clear` / `update` / `waitUntilEmpty`.
+- `ParticlePool`, parallel typed arrays for position, velocity, rotation, life, and size, with a freelist.
 
 ## The emitter config
 
@@ -20,12 +22,15 @@ interface ParticleEmitterConfig {
   emitDirectionRad?: number
   sizeWorld: readonly [number, number]
   palette: readonly string[]
-  spriteStyle?: 'gradient' | 'disc' | 'hexagon'
+  spriteStyle?: 'gradient' | 'disc' | 'hexagon' | 'square' | 'triangle'
   blend?: 'lighter' | 'source-over'
   dampingPerSec?: number
   accelerationWorld?: Vec2
   scaleOverLife?: readonly [number, number]
   alphaOverLife?: readonly [number, number]
+  spinRadPerSec?: readonly [number, number]
+  scaleBy?: 'life' | 'speed'
+  minSpeedFrac?: number
 }
 ```
 
@@ -74,6 +79,18 @@ drawAlpha =         lerp(alphaOverLife[0], alphaOverLife[1], t)
 
 Defaults are `[1, 1]` and `[1, 0]`: constant size, alpha fading to zero.
 
+## Rotation
+
+`spinRadPerSec` (e.g. `[-6, 6]` for a symmetric tumble) samples a constant per-particle angular velocity at spawn and integrates it every frame, applied at draw time as a sprite rotation. Omit it (the default) for no rotation — `ParticleEmitterNode.draw` then skips the rotate transform entirely, so emitters that never spin pay nothing for the feature. The GPU backend carries rotation as a free per-instance affine transform; on a per-particle basis this is cheap even for rotating bursts, since burst counts here are typically in the dozens to low hundreds.
+
+## Scale driven by speed, not life
+
+`scaleOverLife` normally interpolates by lifetime fraction. Set `scaleBy: 'speed'` to drive the SAME curve by `1 - clamp(currentSpeed / speed0, 0, 1)` instead — a particle still moving fast reads at `scaleOverLife[0]`, one that's nearly stopped reads at `scaleOverLife[1]`, regardless of remaining lifetime. Use this for a burst that should visually dissolve as it decelerates (debris settling) rather than fade on a fixed clock. `alphaOverLife` always stays life-driven, even when `scaleBy: 'speed'` is set.
+
+## Early despawn: `minSpeedFrac`
+
+Set `minSpeedFrac` (e.g. `0.02`) to kill a particle once its current speed drops below that fraction of its own launch speed, even if `life` hasn't run out — useful paired with `scaleBy: 'speed'` so a burst's node can clean itself up (see [Cleanup](#cleanup)) as soon as it's visually settled, rather than waiting out a worst-case lifetime. `lifetimeSec`'s upper bound remains the safety backstop either way.
+
 ## Sprite style and blend
 
 Two knobs decide how a particle looks.
@@ -83,6 +100,8 @@ Two knobs decide how a particle looks.
 - `'gradient'` (default), a soft radial fade from an opaque center to a transparent edge.
 - `'disc'`, a solid color with an anti-aliased edge.
 - `'hexagon'`, a solid flat-topped hexagon with an anti-aliased edge.
+- `'square'`, a solid centered square with an anti-aliased edge, for debris or data-style trails.
+- `'triangle'`, a solid apex-up equilateral triangle with an anti-aliased edge. Baked at one fixed orientation — pair it with `spinRadPerSec` to have it tumble convincingly, since the draw-time rotation does the work a second baked pose would otherwise need to.
 
 `blend`:
 
@@ -127,8 +146,19 @@ Particles live in the emitter's local coord space. If the emitter node sits at t
 
 ## Reading state
 
-`emitter.aliveCount` is the current live count, and `pool.availableCount` is the free-slot count. `SceneNode.particleCount` is a getter (overridden on `ParticleEmitterNode` to return `aliveCount`) for tooling that sums particles across the scene.
+`emitter.aliveCount` is the current live count, and `pool.availableCount` is the free-slot count. `Node2D.particleCount` is a getter (overridden on `ParticleEmitterNode` to return `aliveCount`) for tooling that sums particles across the scene.
 
 ## Cleanup
 
 `emitter.clear()` returns every slot to the freelist and resets the emission accumulator. `ParticleEmitterNode.destroy()` removes the node from its parent, and the emitter's typed arrays are dropped for GC.
+
+For a one-shot burst that should remove its own node once it's done, pair `emitter.waitUntilEmpty()` with the existing `Node2D.autoDestroy` idiom:
+
+```ts
+const burst = new ParticleEmitterNode({ config })
+burst.emitter.burst(count, worldX, worldY)
+scene.root.add(burst)
+void burst.autoDestroy(burst.emitter.waitUntilEmpty())
+```
+
+`waitUntilEmpty()` resolves once `aliveCount` is 0 — immediately if it already is, else the next time every particle dies (naturally via `life`, or early via `minSpeedFrac`). Call it right after the `burst()` you want it to track, in the same synchronous span; it reflects live state with no memory of past cycles, so an emitter reused for a later, unrelated burst works with no manual reset — but calling it _before_ the burst you care about can observe a stale "already empty" from a previous cycle.

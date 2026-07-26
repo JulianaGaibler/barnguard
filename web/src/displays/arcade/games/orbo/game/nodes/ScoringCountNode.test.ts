@@ -1,44 +1,32 @@
 import { describe, it, expect } from 'vitest'
-import { Canvas2DGfx } from '@src/stargazer'
+import type { Gfx2D, GfxTextStyle } from '@src/stargazer'
 import { ScoringCountNode } from './ScoringCountNode'
 
-/** Canvas2D facade over a stub that records fillText calls + the active style. */
+/**
+ * Minimal `Gfx2D` stub recording each `fillText` call. `ScoringCountNode.draw`
+ * only ever calls this one facade method, so a full backend isn't needed.
+ */
 function recordingGfx(): {
-  gfx: Canvas2DGfx
+  gfx: Gfx2D
   calls: { text: string; align: string; baseline: string; color: string }[]
 } {
-  const s = { align: '', baseline: '', color: '' }
   const calls: {
     text: string
     align: string
     baseline: string
     color: string
   }[] = []
-  const ctx = {
-    font: '',
-    get textAlign() {
-      return s.align
+  const gfx = {
+    fillText(text: string, _x: number, _y: number, style: GfxTextStyle = {}) {
+      calls.push({
+        text,
+        align: style.align ?? '',
+        baseline: style.baseline ?? '',
+        color: style.color ?? '',
+      })
     },
-    set textAlign(v: string) {
-      s.align = v
-    },
-    get textBaseline() {
-      return s.baseline
-    },
-    set textBaseline(v: string) {
-      s.baseline = v
-    },
-    get fillStyle() {
-      return s.color
-    },
-    set fillStyle(v: string) {
-      s.color = v
-    },
-    fillText(text: string) {
-      calls.push({ text, align: s.align, baseline: s.baseline, color: s.color })
-    },
-  } as unknown as CanvasRenderingContext2D
-  return { gfx: new Canvas2DGfx(ctx), calls }
+  }
+  return { gfx: gfx as unknown as Gfx2D, calls }
 }
 
 describe('ScoringCountNode', () => {

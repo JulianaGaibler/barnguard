@@ -1,7 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SceneNode, domAnchor } from '@src/stargazer'
-  import { gameVisibleRect, REGION_WIDTH, REGION_HEIGHT } from '../../world'
+  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
+  import {
+    coverView,
+    gameVisibleRect,
+    REGION_WIDTH,
+    REGION_HEIGHT,
+  } from '../../world'
   import type { GameProps } from '../GameModule'
   import {
     startGame,
@@ -13,13 +18,19 @@
   import { ORBO_STRINGS } from './strings'
   import SplashScreen from './overlays/SplashScreen.svelte'
   import PauseMenu from './overlays/PauseMenu.svelte'
+  import HowToPlay from '../../tutorial/HowToPlay.svelte'
+  import { ORBO_TUTORIAL } from './tutorial'
+  import { buildOrboMenuPreview } from './game/menuPreview'
 
   /** Equal padding (world units) between the field and the game-view edges. */
   const FIELD_PADDING = 48
 
   // `onExit` hands control back to the arcade (used by the splash's "Return to
   // Launcher"). Overlays ride the camera via `domAnchor`, so there's no fade gate.
-  const { host, onExit }: GameProps = $props()
+  const { host, onExit, demoStage }: GameProps = $props()
+
+  // Whether the "How to play" modal is open (splash-only entry point).
+  let showTutorial = $state(false)
 
   let session = $state<GameSession | null>(null)
   let loadError = $state<string | null>(null)
@@ -34,26 +45,66 @@
   let bumpTeam = $state<TeamId | null>(null)
   // Node the menu overlay is pinned to, so it pans with the game region when the
   // arcade camera moves between the game and the launcher.
-  let anchor = $state<SceneNode | null>(null)
+  let anchor = $state<Node2D | null>(null)
+  // Overlay bounds = the game region's visible rect (full canvas, adopting its
+  // aspect), so the splash/pause menus fill the window and reflow on resize.
+  let gameRect = $state<Rect>({
+    x: 0,
+    y: 0,
+    width: REGION_WIDTH,
+    height: REGION_HEIGHT,
+  })
+
+  /**
+   * Cover rect for the menu preview: the whole visible area at the fixed region
+   * aspect, left-anchored, so the preview reads as a full background with no
+   * borders at any aspect (it crops rather than leaving gaps).
+   */
+  function previewView(): Rect {
+    return coverView(gameRect, REGION_WIDTH / REGION_HEIGHT)
+  }
+
+  // Stylized in-engine menu preview on the primary stage, up only while the menu
+  // is (built when the session is idle, destroyed on match start / unmount).
+  // Reading `gameRect` makes this rebuild the preview when the window resizes.
+  $effect(() => {
+    if (!showSplash || !session) return
+    const preview = buildOrboMenuPreview(host, previewView())
+    return () => preview.destroy()
+  })
 
   onMount(() => {
     let disposed = false
     let s: GameSession | null = null
 
-    // A UI-only node at the game region's origin (world 0,0), sized to the
-    // region. The splash overlay attaches to it via `domAnchor`, so the engine
-    // keeps it flush with the canvas through camera pans.
-    const uiAnchor = new SceneNode('orbo-ui-anchor')
+    const px = host.engine.renderer.pixelSize
+    const view = gameVisibleRect(px.w, px.h)
+
+    // A UI-only node at the game region's visible-rect top-left; the overlays
+    // attach to it and cover the whole visible area, so the menus fill the
+    // window and ride the camera through pans. `domAnchor` keeps it flush.
+    const uiAnchor = new Node2D('orbo-ui-anchor')
+    uiAnchor.transform.x = view.x
+    uiAnchor.transform.y = view.y
     uiAnchor.debugBounds = {
       x: 0,
       y: 0,
-      width: REGION_WIDTH,
-      height: REGION_HEIGHT,
+      width: view.width,
+      height: view.height,
     }
-    host.engine.scene.root.add(uiAnchor)
+    host.engine.tree.root.add(uiAnchor)
     anchor = uiAnchor
-    const px = host.engine.renderer.pixelSize
-    const view = gameVisibleRect(px.w, px.h)
+    gameRect = view
+
+    // Keep the overlay fitted as the window resizes. The field reflows on the
+    // next entry; mid-match field reflow is a separate step.
+    const offResize = host.engine.events.on('resize', (e) => {
+      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
+      uiAnchor.transform.x = v.x
+      uiAnchor.transform.y = v.y
+      gameRect = v
+    })
+
     const bounds = {
       x: view.x + FIELD_PADDING,
       y: view.y + FIELD_PADDING,
@@ -103,8 +154,9 @@
       })
     return () => {
       disposed = true
+      offResize()
       s?.destroy()
-      if (!uiAnchor.isDestroyed) uiAnchor.destroy()
+      uiAnchor.destroy()
     }
   })
 
@@ -134,7 +186,7 @@
       use:domAnchor={{
         engine: host.engine,
         node: anchor,
-        size: { width: REGION_WIDTH, height: REGION_HEIGHT },
+        size: { width: gameRect.width, height: gameRect.height },
         cull: true,
       }}
     >
@@ -145,7 +197,13 @@
       {/if}
 
       {#if session && showSplash}
-        <SplashScreen {matchScore} {bumpTeam} onStart={startMatch} {onExit} />
+        <SplashScreen
+          {matchScore}
+          {bumpTeam}
+          onStart={startMatch}
+          {onExit}
+          onHowToPlay={demoStage ? () => (showTutorial = true) : undefined}
+        />
       {/if}
 
       {#if session && (paused || pausePreview > 0)}
@@ -157,6 +215,18 @@
         />
       {/if}
     </div>
+  {/if}
+
+  <!--
+    Screen-space tutorial modal: a sibling of the `domAnchor` wrapper (NOT
+    camera-anchored) so the demo canvas renders at true resolution.
+  -->
+  {#if showTutorial && demoStage}
+    <HowToPlay
+      cards={ORBO_TUTORIAL}
+      {demoStage}
+      onClose={() => (showTutorial = false)}
+    />
   {/if}
 
   {#if loadError}

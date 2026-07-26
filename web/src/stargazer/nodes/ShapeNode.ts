@@ -1,8 +1,11 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import { hitTestCircle } from '../scene/hitTest'
 import type { Camera } from '../camera/Camera'
 import type { Rect } from '../math/Rect'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { RoundRectRadii } from '../render/gfx/roundRectRadii'
+import type { BoxConstraints, Size } from '../layout/constraints'
+import type { Measurable } from '../layout/LayoutNode'
 
 /** Reused scratch for the 4-corner rect-stroke polyline (draw is synchronous). */
 const RECT_STROKE_SCRATCH = new Float32Array(8)
@@ -26,6 +29,11 @@ export type ShapeGeometry =
       height: number
       /** Center-origin by default. Set `false` to use top-left origin. */
       centered?: boolean
+      /**
+       * Corner radii (world units), CSS `border-radius` shorthand. Omit for
+       * sharp corners. A radius ≥ half the shorter side gives a capsule.
+       */
+      radii?: RoundRectRadii
     }
 
 /**
@@ -68,12 +76,14 @@ export interface ShapeNodeOptions {
  *   dot.transform.x = 200
  *   scene.root.add(dot)
  */
-export class ShapeNode extends SceneNode {
+export class ShapeNode extends Node2D implements Measurable {
   geometry: ShapeGeometry
   fill: string | null
   stroke: string | null
   lineWidth: number
   strokeSpace: 'screen' | 'world'
+  /** Preallocated size for layout; see {@link ShapeNode.measure}. */
+  readonly measuredSize: Size = { w: 0, h: 0 }
 
   constructor(opts: ShapeNodeOptions) {
     super(opts.id)
@@ -132,6 +142,33 @@ export class ShapeNode extends SceneNode {
     return this.debugBounds
   }
 
+  /**
+   * Report the shape's intrinsic size (a circle's diameter, a rect's `width` ×
+   * `height`), clamped to `constraints`. Implementing {@link Measurable} lets a
+   * ShapeNode sit directly in a `Row`, `Column`, or `Box` without a wrapper.
+   */
+  measure(constraints: BoxConstraints): Size {
+    const g = this.geometry
+    const w = g.kind === 'circle' ? g.radius * 2 : g.width
+    const h = g.kind === 'circle' ? g.radius * 2 : g.height
+    this.measuredSize.w = constraints.constrainW(w)
+    this.measuredSize.h = constraints.constrainH(h)
+    return this.measuredSize
+  }
+
+  /**
+   * Position the shape within the box its parent assigned. A circle and a
+   * centered rect place their origin at the box center; a top-left rect places
+   * it at the corner. The geometry and `debugBounds` are unchanged: a shape
+   * keeps its intrinsic size rather than stretching to fill.
+   */
+  arrange(x: number, y: number, w: number, h: number): void {
+    const g = this.geometry
+    const centered = g.kind === 'circle' || g.centered !== false
+    this.transform.x = centered ? x + w / 2 : x
+    this.transform.y = centered ? y + h / 2 : y
+  }
+
   override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
     const g = this.geometry
     if (g.kind === 'circle') {
@@ -149,6 +186,20 @@ export class ShapeNode extends SceneNode {
     const centered = g.centered !== false
     const x = centered ? -g.width / 2 : 0
     const y = centered ? -g.height / 2 : 0
+    if (g.radii !== undefined) {
+      // Rounded rect: one analytic SDF quad covers both fill and stroke.
+      if (this.fill) {
+        gfx.fillRoundRect(x, y, g.width, g.height, g.radii, this.fill)
+      }
+      if (this.stroke) {
+        const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
+        gfx.strokeRoundRect(x, y, g.width, g.height, g.radii, {
+          color: this.stroke,
+          width: this.lineWidth * s,
+        })
+      }
+      return
+    }
     if (this.fill) gfx.fillRect(x, y, g.width, g.height, this.fill)
     if (this.stroke) {
       const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()

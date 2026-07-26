@@ -1,5 +1,6 @@
 import {
-  SceneNode,
+  Node2D,
+  CameraNode2D,
   ignoreAbort,
   parseSvgPaths,
   type EngineHost,
@@ -48,8 +49,8 @@ const TARGET_Y_FRAC = 0.72
  */
 const AXIS_REF_Y_FRAC = -0.6
 /**
- * Camera pan applied on top of the viewport rectangle. Negative shifts the
- * visible content DOWN on screen (the camera looks at a higher slice of the
+ * CameraView2D pan applied on top of the viewport rectangle. Negative shifts
+ * the visible content DOWN on screen (the camera looks at a higher slice of the
  * world). Small value used for a subtle compositional drop so the action sits
  * below dead-centre.
  */
@@ -92,9 +93,10 @@ const NO_TURNAROUND_VIEWPORT: Rect = {
 export class TutorialSession {
   readonly #host: EngineHost
   readonly #stage: Stage
-  readonly #packetLayer = new SceneNode('tutorial-packets')
-  readonly #pathLayer = new SceneNode('tutorial-paths')
-  readonly #handleLayer = new SceneNode('tutorial-handles')
+  readonly #camera: CameraNode2D
+  readonly #packetLayer = new Node2D('tutorial-packets')
+  readonly #pathLayer = new Node2D('tutorial-paths')
+  readonly #handleLayer = new Node2D('tutorial-handles')
   readonly #epicenterNode: EpicenterNode
   readonly #viewport: Rect
   readonly #rectMask: RectMask
@@ -118,26 +120,25 @@ export class TutorialSession {
     // has to fly cleanly off-frame before `onExitedGermany` fires.
     this.#rectMask = new RectMask(this.#exitRect())
 
-    // Force Canvas 2D. A fresh WebGL2 context on a new canvas blocks the
-    // main thread on GPU-process IPC (~20 ms) at the exact moment of tap.
-    // Tutorial is small and simple, Canvas 2D starts instantly.
     this.#stage = host.engine.attachStage(canvas, {
       name: 'Tutorial',
       interactive: true,
       transparent: false,
       clearColor: '#0d0d10',
-      initialViewport: this.#viewport,
-      renderer: 'canvas2d',
       onResize: (info) => this.#handleResize(info),
     })
+    this.#camera = new CameraNode2D('tutorial-camera')
+    this.#camera.setViewport(this.#viewport)
+    this.#stage.tree.root.add(this.#camera)
+    this.#camera.makeCurrent()
 
     // Layer order matches the main game, paths under packets so trails
     // don't occlude the finger's target.
-    this.#stage.scene.root.add(this.#pathLayer)
-    this.#stage.scene.root.add(this.#packetLayer)
+    this.#stage.tree.root.add(this.#pathLayer)
+    this.#stage.tree.root.add(this.#packetLayer)
     // Handles ride above packets so the small circle sits on top of the
     // hex when the two overlap at drag release.
-    this.#stage.scene.root.add(this.#handleLayer)
+    this.#stage.tree.root.add(this.#handleLayer)
 
     this.#epicenterNode = new EpicenterNode({
       center: {
@@ -153,13 +154,13 @@ export class TutorialSession {
       },
     })
     this.#epicenterNode.addBehavior(new EpicenterBehavior())
-    this.#stage.scene.root.add(this.#epicenterNode)
+    this.#stage.tree.root.add(this.#epicenterNode)
 
     // Hint sits above every gameplay layer so the arch + hand paint on
     // top of packet, trail, and endpoint handles. Auto-stops on first
     // pointerdown inside the canvas (subscription below).
     this.#hint = buildHintNode()
-    this.#stage.scene.root.add(this.#hint)
+    this.#stage.tree.root.add(this.#hint)
     this.#offStagePointerDown = this.#stage.events.on('pointerDown', () => {
       this.#hint.stop()
       this.#offStagePointerDown?.()
@@ -199,9 +200,9 @@ export class TutorialSession {
     const height = width / aspect
     this.#viewport.width = width
     this.#viewport.height = height
-    // Camera viewport shifts up in world space vs `this.viewport`, which
+    // The camera viewport shifts up in world space vs `this.viewport`, which
     // drops visible content down on screen without moving packet or target.
-    this.#stage.camera.setViewport({
+    this.#camera.setViewport({
       x: 0,
       y: height * CAMERA_Y_OFFSET_FRAC,
       width,

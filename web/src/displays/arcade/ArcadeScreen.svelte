@@ -4,9 +4,11 @@
     mountEngine,
     easings,
     ignoreAbort,
-    SceneNode,
+    Node2D,
+    CameraNode2D,
     domAnchor,
     type EngineHost,
+    type Rect,
   } from '@src/stargazer'
   import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
   import {
@@ -17,6 +19,7 @@
   import {
     gameView,
     launcherView,
+    launcherVisibleRect,
     updateLayout,
     layout,
     REGION_WIDTH,
@@ -26,11 +29,19 @@
   import ReturnToLauncherOverlay from './ReturnToLauncherOverlay.svelte'
   import { themeScope } from '@src/core/ui/themeScope'
   import type { GameModule } from './games/GameModule'
+  import { DemoStage } from './tutorial/DemoStage'
+  import { tutorialOpen } from './uiState'
 
   type Screen = 'launcher' | 'transitioning' | 'ingame'
 
   let host = $state<EngineHost | null>(null)
+  // The one 2D camera for the arcade, created explicitly on engine-ready.
+  let camera: CameraNode2D | null = null
   let background: BackgroundController | null = null
+  // One pre-warmed, arcade-owned demo stage shared by every game's tutorial.
+  // Created at boot behind the loading screen so its WebGL2 context init never
+  // stalls a tap. `null` if the backend can't provide one.
+  let demoStage = $state<DemoStage | null>(null)
   let offResize: (() => void) | null = null
   let loadError = $state<string | null>(null)
   let screen = $state<Screen>('launcher')
@@ -38,13 +49,23 @@
   // Node the launcher UI is pinned to, at the launcher region's origin. The
   // launcher rides the camera, so a pan slides it on/off screen instead of the
   // old fade-out-then-move; `cull` hides it once it's fully off the canvas.
-  let launcherAnchor = $state<SceneNode | null>(null)
+  let launcherAnchor = $state<Node2D | null>(null)
+  // The launcher overlay is sized to the launcher region's VISIBLE rect (the
+  // full canvas area, adopting its aspect) rather than a fixed 1920×1080 box, so
+  // the menu uses the whole window and reflows on resize instead of scaling a
+  // letterboxed 16:9 panel. Recomputed on resize.
+  let launcherRect = $state<Rect>({
+    x: 0,
+    y: layout.launcherTop,
+    width: REGION_WIDTH,
+    height: REGION_HEIGHT,
+  })
 
   const CAMERA_SEC = 0.7
 
   function panCamera(view: ReturnType<typeof gameView>): Promise<void> {
-    if (!host) return Promise.resolve()
-    return host.engine.camera
+    if (!camera) return Promise.resolve()
+    return camera
       .animateTo(view, { duration: CAMERA_SEC, easing: easings.inOutCubic })
       .catch(ignoreAbort)
   }
@@ -55,33 +76,47 @@
       await bg.build()
       background = bg
       host = h
+      // Pre-warm the tutorial demo stage while the loading screen is still up.
+      try {
+        demoStage = new DemoStage(h)
+      } catch (err) {
+        console.error('[arcade] demo stage init failed:', err)
+        demoStage = null
+      }
       // Size the region gap to the current canvas, and keep it adaptive: on
       // resize the launcher region re-flows so a narrower screen never bleeds
       // one region's content into the other's view.
       const px = h.engine.renderer.pixelSize
       updateLayout(px.w, px.h)
-      h.engine.camera.setViewport(launcherView())
-      // A region-sized node at the launcher region's origin; the launcher UI
-      // attaches to it. Its Y follows `layout.launcherTop` so it stays aligned
-      // as the region gap re-flows on resize.
-      const anchor = new SceneNode('launcher-ui-anchor')
-      anchor.transform.y = layout.launcherTop
-      anchor.debugBounds = {
-        x: 0,
-        y: 0,
-        width: REGION_WIDTH,
-        height: REGION_HEIGHT,
-      }
-      h.engine.scene.root.add(anchor)
+      // Explicitly create the arcade's 2D camera and make it current.
+      const cam = new CameraNode2D('arcade-camera')
+      cam.setViewport(launcherView())
+      h.engine.tree.root.add(cam)
+      cam.makeCurrent()
+      camera = cam
+      // A node at the launcher visible rect's top-left; the launcher UI attaches
+      // to it and covers the whole visible area. Its position + the overlay size
+      // are re-fit on resize so the menu tracks the window aspect.
+      const anchor = new Node2D('launcher-ui-anchor')
+      const lr = launcherVisibleRect(px.w, px.h)
+      anchor.transform.x = lr.x
+      anchor.transform.y = lr.y
+      anchor.debugBounds = { x: 0, y: 0, width: lr.width, height: lr.height }
+      h.engine.tree.root.add(anchor)
       launcherAnchor = anchor
+      launcherRect = lr
       offResize = h.engine.events.on('resize', (e) => {
         updateLayout(e.pixel.w, e.pixel.h)
-        anchor.transform.y = layout.launcherTop
+        // Re-fit the launcher overlay to the new visible rect (position + size).
+        const lr = launcherVisibleRect(e.pixel.w, e.pixel.h)
+        anchor.transform.x = lr.x
+        anchor.transform.y = lr.y
+        launcherRect = lr
         // Re-anchor whichever region is framed (the game framing is fixed).
         if (screen === 'launcher') {
-          h.engine.camera.setViewport(launcherView())
+          cam.setViewport(launcherView())
         } else if (screen === 'ingame') {
-          h.engine.camera.setViewport(gameView())
+          cam.setViewport(gameView())
         }
       })
       h.start()
@@ -95,8 +130,11 @@
     offResize = null
     if (launcherAnchor && !launcherAnchor.isDestroyed) launcherAnchor.destroy()
     launcherAnchor = null
+    demoStage?.destroy()
+    demoStage = null
     background?.destroy()
     background = null
+    camera = null
     host = null
   }
 
@@ -131,6 +169,10 @@
   async function exit(): Promise<void> {
     if (!host || screen !== 'ingame') return
     screen = 'transitioning'
+    // A game may have paused the engine for its pause menu. Resume before the
+    // pan — a paused engine skips the animation tick, so the camera tween would
+    // never advance and the return would hang.
+    host.engine.setPaused(false)
     // Pan back to the launcher: the game's overlays slide out and cull, the
     // launcher slides back in. Unmount the game (→ session.destroy()) only once
     // the camera has left the game region.
@@ -149,8 +191,6 @@
         // Matches the sky base so the first frame (before the gradient paints)
         // doesn't flash the engine's default dark clear.
         clearColor: '#eac6f2',
-        initialViewport: launcherView(),
-        dynamicResolution: { enabled: true },
       },
       onReady: onEngineReady,
       onDestroy: onEngineDestroy,
@@ -167,13 +207,13 @@
     hides it there) rather than fading it first. Games mount only while active
     and pin their own overlays to the game region the same way.
   -->
-  {#if host && launcherAnchor}
+  {#if host && launcherAnchor && screen !== 'ingame'}
     <div
       class="arcade__ui"
       use:domAnchor={{
         engine: host.engine,
         node: launcherAnchor,
-        size: { width: REGION_WIDTH, height: REGION_HEIGHT },
+        size: { width: launcherRect.width, height: launcherRect.height },
         cull: true,
       }}
     >
@@ -185,15 +225,20 @@
     {@const Game = activeGame.component}
     <!-- Layout-neutral wrapper carrying the game's scoped theme overrides. -->
     <div style="display: contents" use:themeScope={activeGame.meta.themeTokens}>
-      <Game {host} onExit={exit} />
+      <Game {host} onExit={exit} {demoStage} />
     </div>
   {/if}
 
   <!--
     Permanent escape hatch: swipe down from the top while a game is mounted to
-    reveal a "Return to Launcher" pill with an inline confirm step.
+    reveal a "Return to Launcher" pill with an inline confirm step. Suspended
+    while a tutorial modal is open so a downward drift in the carousel can't
+    trip it.
   -->
-  <ReturnToLauncherOverlay active={!!activeGame} onConfirm={exit} />
+  <ReturnToLauncherOverlay
+    active={!!activeGame && !$tutorialOpen}
+    onConfirm={exit}
+  />
 </main>
 
 {#if host}

@@ -281,8 +281,8 @@ export const TUNING = {
     color: '#fdf6e3',
     /**
      * Delay after `endRound` before the session clears its highlight. Must
-     * exceed the ripple's wall-clock duration or the "unify state colours"
-     * tween lands mid-ripple over a splotchy map.
+     * exceed the ripple's wall-clock duration or the "unify state colors" tween
+     * lands mid-ripple over a splotchy map.
      */
     settleClearDelaySec: 1.3,
   },
@@ -317,7 +317,7 @@ export const TUNING = {
       maxConcurrent: 4,
     },
     warn: {
-      /** Yellow tint colour. */
+      /** Yellow tint color. */
       color: '#f2c94c',
       /** Mask inset for danger 1.0 (very close to border). */
       insetNearWorld: 22,
@@ -406,7 +406,7 @@ export const TUNING = {
     },
     /**
      * Border-breach variant. Lines only, cone fired along exit velocity,
-     * coloured to match the country outline so pieces read as broken border.
+     * colored to match the country outline so pieces read as broken border.
      */
     borderBreach: {
       count: 24,
@@ -435,7 +435,7 @@ export const TUNING = {
       triangleSideWorld: 0,
       lineLengthWorld: 2.8,
       lineWidthCssPx: 1.5,
-      /** Country-outline colour, reads as border shrapnel. */
+      /** Country-outline color, reads as border shrapnel. */
       color: '#fdf6e3',
     },
   },

@@ -64,6 +64,15 @@ export const gamesPanelVisible = writable(false)
 export const toggleGamesPanel = (): void =>
   gamesPanelVisible.update((prev) => !prev)
 
+/**
+ * Whether the leaderboard admin panel should be visible. Same
+ * seed-next-to-booth-menu pattern as the other panels; the BoothMenu only
+ * renders its toggle for displays that declare `supportsLeaderboard`.
+ */
+export const leaderboardPanelVisible = writable(false)
+export const toggleLeaderboardPanel = (): void =>
+  leaderboardPanelVisible.update((prev) => !prev)
+
 // -----------------------------------------------------------------------------
 // DOM fullscreen; driven by the booth menu. The store MIRRORS the
 // browser's `document.fullscreenElement` state via the `fullscreenchange`

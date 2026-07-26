@@ -28,8 +28,49 @@ export interface Texture {
   readonly height: number
 }
 
+/**
+ * A layered depth texture for shadow maps: a `DEPTH_COMPONENT` 2D-array with a
+ * comparison sampler, one layer per shadow-casting directional or spot light.
+ * Render depth into a layer with {@link GfxDevice.beginShadowLayer}, then sample
+ * it in a shader through {@link GfxDevice.setUniformShadowArray} as a
+ * `sampler2DArrayShadow`.
+ */
+export interface ShadowArray {
+  readonly __gfxShadowArray: unique symbol
+  readonly size: number
+  readonly layers: number
+}
+
+/**
+ * A depth cubemap for a point light's shadow. Render its six faces with
+ * {@link GfxDevice.beginShadowCubeFace}, then sample it as a `samplerCubeShadow`
+ * through {@link GfxDevice.setUniformShadowCube}.
+ */
+export interface ShadowCube {
+  readonly __gfxShadowCube: unique symbol
+  readonly size: number
+}
+
 export interface Vao {
   readonly __gfxVao: unique symbol
+}
+
+/**
+ * GPU-side uniform block buffer (`GL_UNIFORM_BUFFER` on WebGL2), bound to a
+ * binding index that every program sharing the block reads from.
+ */
+export interface UBuffer {
+  readonly __gfxUniformBuffer: unique symbol
+}
+
+/**
+ * GPU-side index buffer (`GL_ELEMENT_ARRAY_BUFFER` on WebGL2). Indices are
+ * `UNSIGNED_SHORT` — retained geometry asserts ≤ 65 535 vertices per handle.
+ * The element-array binding is VAO state, so an index buffer is associated with
+ * a VAO at `createVao` time, not per draw.
+ */
+export interface IBuffer {
+  readonly __gfxIndexBuffer: unique symbol
 }
 
 export interface RenderTarget {
@@ -44,6 +85,13 @@ export interface RenderTarget {
    * is active.
    */
   readonly samples: number
+  /**
+   * Color-attachment color space the target was allocated with (see
+   * {@link RenderTargetOpts.colorSpace}). A post-process pass reads this to
+   * allocate its ping-pong targets with a matching internal format — a
+   * multisample→single-sample resolve blit requires identical formats.
+   */
+  readonly colorSpace: 'linear' | 'srgb'
 }
 
 // --- attribute layout descriptors ------------------------------------------
@@ -78,6 +126,13 @@ export interface ProgramOpts {
    * with the shader's `in` variables regardless of driver assignment.
    */
   attribs: Record<string, number>
+  /**
+   * Map uniform-block name → binding index. After link the device points each
+   * named `layout(std140) uniform <name> {...}` block at the given binding, so
+   * a UBO bound there with `bindUniformBufferBase` feeds every program that
+   * shares the block (e.g. the per-frame projection).
+   */
+  uniformBlocks?: Record<string, number>
 }
 
 export interface Texture2DOpts {
@@ -85,6 +140,30 @@ export interface Texture2DOpts {
   height: number
   filter?: 'nearest' | 'linear'
   wrap?: 'clamp' | 'repeat'
+  /**
+   * Allocate `SRGB8_ALPHA8` storage so sampling decodes sRGB → linear in
+   * hardware (and mip generation / filtering happen in linear space). Set for
+   * glTF base-color and emissive textures; leave off (default `RGBA8`) for
+   * normal, metallic-roughness, and occlusion maps, whose bytes are linear
+   * data. Create the texture at the source's exact size so the first
+   * {@link GfxDevice.updateTexture2D} takes the in-place `texSubImage2D` path
+   * and preserves this internal format.
+   */
+  srgb?: boolean
+  /**
+   * Allocate a mip chain and select a mipmapped min-filter (trilinear when
+   * `filter` is `'linear'`). Mips are (re)generated after each full
+   * {@link GfxDevice.updateTexture2D} upload; the partial
+   * {@link GfxDevice.updateTextureSubImage2D} path never regenerates, so
+   * atlas-style textures must stay non-mipmapped. Default `false`.
+   */
+  mipmap?: boolean
+  /**
+   * Anisotropic-filtering sample cap for minified mipmapped textures, clamped
+   * to the driver max; ignored when `EXT_texture_filter_anisotropic` is absent
+   * or the texture is not mipmapped. Default `1` (isotropic).
+   */
+  anisotropy?: number
 }
 
 export interface TextureUploadOpts {
@@ -104,12 +183,34 @@ export interface RenderTargetOpts {
    * Backends clamp to the driver's `MAX_SAMPLES`.
    */
   samples?: number
+  /**
+   * Attach a depth-stencil buffer (`DEPTH24_STENCIL8`, sample count matched to
+   * the color attachment). Default `false` — the 2D renderer is painter-ordered
+   * and needs no depth. A future 3D pass opts in. (The default framebuffer's
+   * own `depth:false` at `getContext` is unrelated; this concerns FBO
+   * attachments.)
+   */
+  depth?: boolean
+  /**
+   * Color-attachment color space. `'linear'` (default) allocates `RGBA8`;
+   * `'srgb'` allocates `SRGB8_ALPHA8` so a target sampled by a later 3D shader
+   * decodes to linear on read and matches the on-screen surface's gamma. Only
+   * the single-sample texture path honors this (an offscreen `Viewport2DNode`
+   * target); the multisample renderbuffer path stays `RGBA8`.
+   */
+  colorSpace?: 'linear' | 'srgb'
 }
 
 export interface BeginFrameOpts {
   target: RenderTarget
   /** RGBA in `0..1`. Clears the target at frame start. */
   clearColor?: readonly [number, number, number, number]
+  /**
+   * Clear the depth buffer at frame start. Set only when a depth-tested 3D pass
+   * follows and the target carries a depth attachment; a pure-2D frame leaves
+   * it unset so no depth clear is issued.
+   */
+  clearDepth?: boolean
 }
 
 export interface BlitOpts {
@@ -118,11 +219,39 @@ export interface BlitOpts {
 
 // --- state -----------------------------------------------------------------
 
-export type GfxBlendMode = 'source-over' | 'lighter'
+export type GfxBlendMode = 'source-over' | 'lighter' | 'none'
+
+/**
+ * Face-culling mode for the 3D pass. `'none'` draws both faces (the 2D
+ * baseline, since 2D geometry has mixed winding). `'back'`/`'front'` cull the
+ * back/front faces of CCW-front (glTF) triangles.
+ */
+export type CullMode = 'none' | 'back' | 'front'
+
+/**
+ * Index element width for an {@link IBuffer}. `'u16'` (`UNSIGNED_SHORT`, ≤ 65
+ * 535 vertices) is the retained-2D default; `'u32'` (`UNSIGNED_INT`) covers
+ * large 3D meshes.
+ */
+export type IndexType = 'u16' | 'u32'
+
+/**
+ * Per-frame counts of _real_ GL state changes — incremented by the device only
+ * after its redundant-call elision, so the HUD reflects driver work actually
+ * done rather than calls issued. Reset in `beginFrame`; read after `endFrame`.
+ */
+export interface DeviceStats {
+  programSwitches: number
+  blendSwitches: number
+  textureBinds: number
+}
 
 // --- device interface ------------------------------------------------------
 
 export interface GfxDevice {
+  /** Live counters of real GL state changes this frame (reset in `beginFrame`). */
+  readonly deviceStats: DeviceStats
+
   // Programs -----------------------------------------------------------------
   createProgram(opts: ProgramOpts): Program
   deleteProgram(p: Program): void
@@ -131,6 +260,7 @@ export interface GfxDevice {
   // Uniforms -----------------------------------------------------------------
   setUniform1i(p: Program, name: string, v: number): void
   setUniform1f(p: Program, name: string, v: number): void
+  setUniform2f(p: Program, name: string, x: number, y: number): void
   setUniform4f(
     p: Program,
     name: string,
@@ -140,6 +270,8 @@ export interface GfxDevice {
     w: number,
   ): void
   setUniformMat3(p: Program, name: string, m: Float32Array): void
+  /** Set a `mat4` uniform (column-major 16-float array), e.g. a 3D view-proj. */
+  setUniformMat4(p: Program, name: string, m: Float32Array): void
   /**
    * Bind `tex` to the given texture unit and set the sampler uniform to that
    * unit. Idempotent state hygiene, never relies on the default `TEXTURE0`.
@@ -160,6 +292,44 @@ export interface GfxDevice {
     byteLength?: number,
   ): void
   deleteBuffer(buf: VBuffer): void
+  /**
+   * Reallocate `buf`'s storage at its current byte size (`bufferData` with a
+   * null/size argument), detaching whatever the GPU is still reading. Used
+   * after a mid-frame overflow submit so the append cursor can restart at 0
+   * without overwriting data an in-flight draw call still references.
+   */
+  orphanBuffer(buf: VBuffer): void
+
+  // Uniform buffers ----------------------------------------------------------
+  /** Allocate a uniform-block buffer of `byteSize` (std140-laid-out by callers). */
+  createUniformBuffer(byteSize: number): UBuffer
+  /** Overwrite `buf` from offset 0 with `data`. */
+  updateUniformBuffer(buf: UBuffer, data: Float32Array): void
+  /**
+   * Bind `buf` to the given binding index, so every program whose matching
+   * uniform block was pointed there (via `ProgramOpts.uniformBlocks`) reads
+   * it.
+   */
+  bindUniformBufferBase(buf: UBuffer, index: number): void
+  deleteUniformBuffer(buf: UBuffer): void
+
+  // Index buffers ------------------------------------------------------------
+  /**
+   * Allocate an index buffer of `byteSize`. `type` picks the element width and
+   * is captured on the buffer, so a VAO built with it draws with the matching
+   * `drawElements` index type; defaults to `'u16'`.
+   */
+  createIndexBuffer(byteSize: number, type?: IndexType): IBuffer
+  /**
+   * Write indices into `buf` at `byteOffset`. Pass a `Uint16Array` for a
+   * `'u16'` buffer, a `Uint32Array` for a `'u32'` one.
+   */
+  updateIndexBufferSubData(
+    buf: IBuffer,
+    byteOffset: number,
+    src: Uint16Array | Uint32Array,
+  ): void
+  deleteIndexBuffer(buf: IBuffer): void
 
   // Textures -----------------------------------------------------------------
   createTexture2D(opts: Texture2DOpts): Texture
@@ -189,7 +359,16 @@ export interface GfxDevice {
   deleteTexture(tex: Texture): void
 
   // Vertex arrays ------------------------------------------------------------
-  createVao(program: Program, attribs: AttribBinding[]): Vao
+  /**
+   * Create a VAO capturing `attribs`. An optional `indexBuffer` is bound into
+   * the VAO as its `ELEMENT_ARRAY_BUFFER` (VAO state), so a later `bindVao` +
+   * `drawElements` draws indexed against it.
+   */
+  createVao(
+    program: Program,
+    attribs: AttribBinding[],
+    indexBuffer?: IBuffer,
+  ): Vao
   bindVao(vao: Vao): void
   deleteVao(vao: Vao): void
 
@@ -197,24 +376,130 @@ export interface GfxDevice {
   createRenderTarget(opts: RenderTargetOpts): RenderTarget
   resizeRenderTarget(rt: RenderTarget, width: number, height: number): void
   deleteRenderTarget(rt: RenderTarget): void
+  /**
+   * Bind `target`'s framebuffer and set the viewport to its size, without
+   * clearing and without the per-frame ring/stat bookkeeping `beginFrame` does.
+   * The lightweight bind a post-process pass uses to redirect fullscreen draws
+   * into a ping-pong target it will fully overwrite.
+   */
+  bindRenderTarget(target: RenderTarget): void
+  /**
+   * Copy/resolve the color of `src` into `dst` (framebuffer→framebuffer blit).
+   * Performs the MSAA resolve when `src.samples > 1`; `dst` must be
+   * single-sample (texture-backed) so the result is sampleable. Both targets
+   * must share the same size and internal format (the WebGL2
+   * multisample-resolve constraint). Used by the post-process pipeline to
+   * resolve the screen frame into a sampleable texture before running effects.
+   */
+  resolveTo(src: RenderTarget, dst: RenderTarget): void
+
+  // Shadow maps --------------------------------------------------------------
+  /**
+   * Allocate a `size`×`size`×`layers` depth-array shadow map
+   * (directional/spot).
+   */
+  createShadowArray(size: number, layers: number): ShadowArray
+  /** Allocate a `size`×`size` depth-cubemap shadow map (one point light). */
+  createShadowCube(size: number): ShadowCube
+  deleteShadowArray(s: ShadowArray): void
+  deleteShadowCube(s: ShadowCube): void
+  /**
+   * Bind `s`'s `layer` as the depth target and clear it, for a depth-only pass
+   * (no color attachment). Sets the viewport to the map size. The next
+   * {@link GfxDevice.beginFrame} rebinds the screen target and its viewport.
+   */
+  beginShadowLayer(s: ShadowArray, layer: number): void
+  /** Bind one cube `face` (0..5) of `s` as the depth target and clear it. */
+  beginShadowCubeFace(s: ShadowCube, face: number): void
+  /**
+   * End a shadow pass (depth-state hygiene; the FBO rebinds on the next
+   * `beginFrame`).
+   */
+  endShadowPass(): void
+  /** Bind a shadow array to a unit and set its `sampler2DArrayShadow` uniform. */
+  setUniformShadowArray(
+    p: Program,
+    name: string,
+    s: ShadowArray,
+    unit: number,
+  ): void
+  /** Bind a shadow cube to a unit and set its `samplerCubeShadow` uniform. */
+  setUniformShadowCube(
+    p: Program,
+    name: string,
+    s: ShadowCube,
+    unit: number,
+  ): void
+  /**
+   * Set a `mat4[]` uniform from a packed column-major float array (16 per
+   * matrix).
+   */
+  setUniformMat4Array(p: Program, name: string, m: Float32Array): void
 
   // Frame lifecycle ----------------------------------------------------------
   beginFrame(opts: BeginFrameOpts): void
   endFrame(): void
 
   // State --------------------------------------------------------------------
+  /**
+   * Set the blend mode. `'source-over'` premultiplied compositing (2D default),
+   * `'lighter'` additive, `'none'` disables blending (`gl.disable(BLEND)`) for
+   * full-overwrite passes like post-processing, where every pixel is written
+   * and blending against stale contents would be both wrong and wasted
+   * bandwidth.
+   */
   setBlend(mode: GfxBlendMode): void
+  /**
+   * Enable/disable depth testing. Cached; the 3D pass turns it on, then
+   * {@link GfxDevice.resetToBaseline} turns it off before the 2D layers draw.
+   */
+  setDepthTest(enabled: boolean): void
+  /** Enable/disable depth-buffer writes (`depthMask`). Cached. */
+  setDepthWrite(enabled: boolean): void
+  /** Set face culling. Cached. See {@link CullMode}. */
+  setCullFace(mode: CullMode): void
+  /**
+   * Restore the state the 2D pipeline expects at the start of a layer pass:
+   * depth test off, depth writes on, cull off, blend `source-over`. Routes
+   * through the cached setters so the internal state cache stays truthful. Call
+   * between the 3D pass and the 2D layers.
+   */
+  resetToBaseline(): void
 
   // Draw ---------------------------------------------------------------------
   drawArrays(first: number, count: number): void
+  /** Non-indexed `LINES` draw of `count` vertices from `first` (debug gizmos). */
+  drawLines(first: number, count: number): void
   drawArraysInstanced(first: number, count: number, instanceCount: number): void
+  /**
+   * Indexed draw of `count` `UNSIGNED_SHORT` indices starting at `byteOffset`
+   * into the bound VAO's element buffer. `bindVao` a VAO created with an index
+   * buffer first.
+   */
+  drawElements(count: number, byteOffset: number): void
+  /**
+   * Instanced draw of `instanceCount` instances starting at `baseByteOffset`
+   * into `instanceBuffer`. WebGL2 has no base-instance parameter, so this
+   * re-points each per-instance (divisor-1) attribute to `baseByteOffset +
+   * binding.offset` before drawing — the record/submit path's way of issuing
+   * one recorded run's sub-range. `vao` supplies the divisor-0 vertex attribute
+   * (the shared unit quad); `instanceAttribs` must be exactly the divisor-1
+   * bindings, all reading from `instanceBuffer`.
+   */
+  drawInstancedRange(
+    vao: Vao,
+    instanceBuffer: VBuffer,
+    instanceAttribs: readonly AttribBinding[],
+    baseByteOffset: number,
+    vertCount: number,
+    instanceCount: number,
+  ): void
 
   // Present / blit -----------------------------------------------------------
   /**
    * Blit the current frame's render target to the default framebuffer (the
    * canvas). Called by GpuGfx from `endFrame`. `dstWidth`/`dstHeight` are the
-   * canvas drawing-buffer size, usually equal to the FBO size, larger only when
-   * the FBO shrank under DynamicResolution.
+   * canvas drawing-buffer size, normally equal to the FBO size.
    */
   blitToDefault(
     source: RenderTarget,

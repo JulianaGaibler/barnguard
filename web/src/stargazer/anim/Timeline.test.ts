@@ -63,4 +63,24 @@ describe('Timeline', () => {
     // no throw = pass
     expect(true).toBe(true)
   })
+
+  it('forwards the run signal into each step (add + parallel)', async () => {
+    const ctrl = new AbortController()
+    const seen: Array<AbortSignal | undefined> = []
+    const t = new Timeline()
+      .add(async (s) => {
+        seen.push(s)
+      })
+      .parallel(
+        async (s) => {
+          seen.push(s)
+        },
+        async (s) => {
+          seen.push(s)
+        },
+      )
+    await t.run(ctrl.signal)
+    expect(seen).toHaveLength(3)
+    expect(seen.every((s) => s === ctrl.signal)).toBe(true)
+  })
 })

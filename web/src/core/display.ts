@@ -64,18 +64,30 @@ export interface DisplayManifest {
    */
   root: Component
   /**
-   * Render a game record's label to a JPEG blob for printing. Called by the
-   * attendant "Games" panel when the operator asks for a reprint.
+   * The `display` ids this kiosk display submits to `/api/leaderboard` under —
+   * NOT the manifest's own `id`. For the arcade that's one entry per game that
+   * opts in (`GameMeta.supportsLeaderboard`), e.g. `['jezzball']`, since the
+   * leaderboard is scoped per arcade game, not per kiosk display. Empty/omitted
+   * gates the attendant BoothMenu's "Leaderboard" panel toggle off entirely —
+   * Stallwächter has no name-entry concept.
    */
-  renderLabelForRecord(
+  leaderboardIds?: string[]
+  /**
+   * Render a game record's label to a JPEG blob for printing. Called by the
+   * attendant "Games" panel when the operator asks for a reprint. Omit entirely
+   * if nothing in this display ever prints — `formatGameRecord`'s `printable`
+   * decides, per record, whether the panel even offers the button, so this only
+   * needs to handle records it declared printable.
+   */
+  renderLabelForRecord?(
     record: GameRecord,
     ctx: LabelRenderContext,
   ): Promise<Blob>
   /**
    * Render the attendant printer-panel preview. Uses whatever demo values the
-   * display considers representative.
+   * display considers representative. Omit if this display never prints.
    */
-  renderPreviewLabel(ctx: PreviewLabelContext): Promise<Blob>
+  renderPreviewLabel?(ctx: PreviewLabelContext): Promise<Blob>
   /**
    * Format a game-log record for the attendant "Games" panel's list. The
    * envelope fields (score, duration, timestamp) are rendered by the panel
@@ -85,8 +97,16 @@ export interface DisplayManifest {
   formatGameRecord(record: GameRecord): {
     /** Short label rendered before the score (e.g. state code, level id). */
     label: string
+    /** The name the player saved to the leaderboard for this run, if any. */
+    playerName?: string
     /** `null` = no star; `'overall'` = ★; `'category'` = ☆. */
     highScore: 'overall' | 'category' | null
+    /**
+     * Whether this specific record can be printed/reprinted. A display that
+     * hosts several games (e.g. the arcade) can support printing for some and
+     * not others — the panel hides the Print button when this is `false`.
+     */
+    printable: boolean
     /** Metadata attached to the reprint job's `JobMeta`. */
     reprintMeta: {
       stateId?: string

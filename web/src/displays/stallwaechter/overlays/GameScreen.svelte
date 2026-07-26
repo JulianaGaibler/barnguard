@@ -208,11 +208,6 @@
     use:mountEngine={{
       options: {
         transparent: true,
-        initialViewport: { x: 0, y: 0, width: 661, height: 888 },
-        // Drop render resolution during camera zooms + under sustained
-        // overload (defaults from DEFAULT_DYNAMIC_RESOLUTION); the 4K kiosk
-        // can't push native res through the per-frame blit at 60fps.
-        dynamicResolution: { enabled: true },
       },
       onReady: onEngineReady,
       onDestroy: onEngineDestroy,

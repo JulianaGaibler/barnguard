@@ -31,6 +31,42 @@ if (typeof (globalThis as { localStorage?: unknown }).localStorage === 'undefine
   ;(globalThis as unknown as { localStorage: Storage }).localStorage = shim
 }
 
+// happy-dom's `HTMLCanvasElement.getContext('2d')` returns null (no real
+// rasterizer). `getParticleSprite` (and anything else that bakes a sprite to
+// an offscreen canvas at construction/first-use time) needs SOME context back
+// or it throws before a test even reaches the assertion. This stub only
+// implements the handful of calls sprite-baking makes; it draws nothing real
+// — pixel-level rasterization is still verified visually in `?demo=…`.
+if (typeof HTMLCanvasElement !== 'undefined') {
+  const originalGetContext = HTMLCanvasElement.prototype.getContext
+  HTMLCanvasElement.prototype.getContext = function (
+    this: HTMLCanvasElement,
+    contextId: string,
+    ...args: unknown[]
+  ) {
+    if (contextId !== '2d') {
+      return (originalGetContext as (...a: unknown[]) => unknown).apply(this, [
+        contextId,
+        ...args,
+      ])
+    }
+    const stub2D = {
+      fillStyle: '',
+      beginPath() {},
+      moveTo() {},
+      lineTo() {},
+      closePath() {},
+      fill() {},
+      fillRect() {},
+      drawImage() {},
+      createRadialGradient() {
+        return { addColorStop() {} }
+      },
+    }
+    return stub2D as unknown as CanvasRenderingContext2D
+  } as typeof HTMLCanvasElement.prototype.getContext
+}
+
 if (typeof (globalThis as { Path2D?: unknown }).Path2D === 'undefined') {
   class Path2DStub {
     constructor(_d?: string | Path2DStub) {

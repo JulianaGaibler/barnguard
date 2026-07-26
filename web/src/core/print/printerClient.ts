@@ -13,7 +13,7 @@
  * - Exponential backoff 1 → 15 s, resets on `onopen` or `forceReopen`.
  */
 
-import { readable, type Readable } from 'svelte/store'
+import { readable, writable, type Readable } from 'svelte/store'
 import type {
   LogEntry,
   PrintJob,
@@ -76,11 +76,57 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return (await res.json()) as T
 }
 
+// --- Mock printing (front-end only, no daemon involved) --------------------
+//
+// An attendant-facing escape hatch for testing label rendering without
+// touching the real print queue: with the toggle on, `enqueuePrint` never
+// reaches the daemon — it just publishes the rendered blob to `lastMockPrint`
+// so the printer panel can show it in the preview slot, exactly as if it had
+// printed. Persisted per device like `uiScale`.
+
+const MOCK_PRINT_STORAGE_KEY = 'bg.mockPrintEnabled'
+
+function readMockPrintEnabled(): boolean {
+  try {
+    return localStorage.getItem(MOCK_PRINT_STORAGE_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+const mockPrintEnabledStore = writable<boolean>(readMockPrintEnabled())
+export const mockPrintEnabled: Readable<boolean> = mockPrintEnabledStore
+let mockPrintEnabledValue = readMockPrintEnabled()
+
+export function setMockPrintEnabled(enabled: boolean): void {
+  mockPrintEnabledValue = enabled
+  mockPrintEnabledStore.set(enabled)
+  try {
+    localStorage.setItem(MOCK_PRINT_STORAGE_KEY, enabled ? '1' : '0')
+  } catch {
+    /* storage blocked; the toggle still applies for this session */
+  }
+}
+
+/** One "mock-printed" label: the exact blob + metadata `enqueuePrint` received. */
+export interface MockPrint {
+  jpeg: Blob
+  meta: PrintMeta
+  tsMs: number
+}
+
+const lastMockPrintStore = writable<MockPrint | null>(null)
+export const lastMockPrint: Readable<MockPrint | null> = lastMockPrintStore
+
 /** Enqueue a print job. The JPEG is sent as the raw request body. */
 export async function enqueuePrint(
   jpeg: Blob,
   meta: PrintMeta,
 ): Promise<{ jobId: string }> {
+  if (mockPrintEnabledValue) {
+    lastMockPrintStore.set({ jpeg, meta, tsMs: Date.now() })
+    return { jobId: 'mock' }
+  }
   const params = new URLSearchParams()
   if (meta.stateId) params.set('stateId', meta.stateId)
   if (meta.score !== undefined) params.set('score', String(meta.score))

@@ -1,12 +1,12 @@
 /**
- * Binds a {@link Body} to a {@link SceneNode}'s transform. The engine steps the
+ * Binds a {@link Body} to a {@link Node2D}'s transform. The engine steps the
  * body's world once per fixed tick; this behavior mirrors the body's position
  * and rotation onto the node each frame, interpolating between fixed steps so
  * rendering stays smooth at any display rate.
  */
 
 import { Behavior } from '../scene/Behavior'
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node } from '../scene/Node'
 import { lerp, lerpAngle } from '../math/scalar'
 import { Body, type BodyDef } from './Body'
 import type { PhysicsWorld } from './PhysicsWorld'
@@ -33,6 +33,20 @@ export interface RigidBodyBehaviorOptions {
   interpolate?: boolean
   /** Mirror rotation onto the node. Default true. */
   syncRotation?: boolean
+  /**
+   * Extra per-frame gate on the transform sync, checked alongside
+   * {@link RigidBodyBehavior.syncEnabled}. Return `false` to leave the node
+   * transform untouched this frame (e.g. while a tween or a drag owns it).
+   */
+  shouldSync?: () => boolean
+  /**
+   * Whether this behavior owns the body's world membership. Default `true`: it
+   * adds the body on scene-ready and removes it on detach. Set `false` (with an
+   * explicit `body`) for the case where the game adds/removes bodies itself and
+   * only wants the transform mirror — the behavior then skips world resolution
+   * entirely and just syncs.
+   */
+  manageBody?: boolean
 }
 
 /**
@@ -40,7 +54,7 @@ export interface RigidBodyBehaviorOptions {
  *
  * @category Physics
  * @example
- *   const node = new SceneNode('crate')
+ *   const node = new Node2D('crate')
  *   node.transform.x = 100
  *   node.transform.y = 50
  *   node.addBehavior(
@@ -56,9 +70,22 @@ export interface RigidBodyBehaviorOptions {
  */
 export class RigidBodyBehavior extends Behavior {
   body!: Body
+  /**
+   * Interpolate the rendered transform between fixed steps. Mutable so a caller
+   * can drop to hard-tracking (e.g. while a finger drags the body directly).
+   */
+  interpolate: boolean
+  /**
+   * When `false`, the behavior skips the per-frame transform sync entirely,
+   * leaving the node transform for a tween or drag to own. Flip it back on to
+   * resume mirroring the body. See also
+   * {@link RigidBodyBehaviorOptions.shouldSync}.
+   */
+  syncEnabled = true
   #world: PhysicsWorld | null = null
-  readonly #interpolate: boolean
   readonly #syncRotation: boolean
+  readonly #shouldSync?: () => boolean
+  readonly #manageBody: boolean
   readonly #explicitWorld?: PhysicsWorld
   readonly #explicitBody?: Body
   readonly #bodyDef?: BodyDef
@@ -68,11 +95,24 @@ export class RigidBodyBehavior extends Behavior {
     this.#explicitWorld = opts.world
     this.#explicitBody = opts.body
     this.#bodyDef = opts.bodyDef
-    this.#interpolate = opts.interpolate ?? true
+    this.interpolate = opts.interpolate ?? true
     this.#syncRotation = opts.syncRotation ?? true
+    this.#shouldSync = opts.shouldSync
+    this.#manageBody = opts.manageBody ?? true
   }
 
   onSceneReady(): void {
+    // Sync-only mode: the game owns the body's world membership, so bind the
+    // given body and skip world resolution + registration.
+    if (!this.#manageBody) {
+      if (!this.#explicitBody) {
+        throw new Error(
+          'RigidBodyBehavior: manageBody:false requires an explicit `body`.',
+        )
+      }
+      this.body = this.#explicitBody
+      return
+    }
     const world =
       this.#explicitWorld ??
       this.#nearestWorld() ??
@@ -102,7 +142,7 @@ export class RigidBodyBehavior extends Behavior {
    * world that hosts it.
    */
   #nearestWorld(): PhysicsWorld | null {
-    let node: SceneNode | null = this.node
+    let node: Node | null = this.node
     while (node) {
       const host = node.getBehavior(PhysicsWorldBehavior)
       if (host) return host.world
@@ -117,10 +157,12 @@ export class RigidBodyBehavior extends Behavior {
   }
 
   onUpdate(): void {
+    if (!this.syncEnabled) return
+    if (this.#shouldSync && !this.#shouldSync()) return
     const t = this.node.transform
     const b = this.body
     const alpha =
-      this.#interpolate && this.node.scene?.engine
+      this.interpolate && this.node.scene?.engine
         ? this.node.scene.engine.ticker.fixedAlpha
         : 1
     t.x = lerp(b.prevPosition.x, b.position.x, alpha)

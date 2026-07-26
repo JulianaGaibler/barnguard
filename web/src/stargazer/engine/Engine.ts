@@ -2,30 +2,35 @@ import { createTicker, type Ticker } from './Ticker'
 import type { Renderer } from '../render/Renderer'
 import { createEmitter, type Emitter } from '../events/Emitter'
 import type { EngineEvents } from '../events/EngineEvents'
-import type { Scene } from '../scene/Scene'
-import type { SceneNode } from '../scene/SceneNode'
+import type { Node } from '../scene/Node'
+import type { SceneTree } from '../scene/SceneTree'
+import type { Node2D } from '../scene/Node2D'
 import { walkTree } from '../scene/traverse'
-import type { Camera } from '../camera/Camera'
-import type { Rect } from '../math/Rect'
+import type { CameraNode2D } from '../camera/CameraNode2D'
+import type { CameraNode3D } from '../camera/CameraNode3D'
+import type { CameraView2D } from '../camera/CameraView2D'
 import type { DebugController } from '../debug/DebugController'
 import { InputSystem } from '../input/InputSystem'
 import { Animator, type TweenOptions } from '../anim/Animator'
 import { combineAbortSignals } from '../anim/abortSignal'
 import type { Transform2D } from '../math/Transform2D'
-import type { Layers } from '../render/Layers'
 import {
   Stage,
-  type RendererMode,
   type StageOptions,
   type StagePointerEvents,
 } from '../render/Stage'
 import {
-  DEFAULT_DYNAMIC_RESOLUTION,
-  type DynamicResolutionOptions,
-} from '../render/DynamicResolution'
+  RenderQuality,
+  type RenderQualityOptions,
+} from '../render/RenderQuality'
+import { Fog, type FogOptions } from '../render/Fog'
+import type { PostProcessPipeline } from '../render/postfx/PostProcessPipeline'
+import type { GfxDevice } from '../render/gfx/GfxDevice'
 import { EngineStageManager } from './EngineStageManager'
 import type { PhysicsWorld, PhysicsWorldConfig } from '../physics/PhysicsWorld'
 import { DomTransformSync } from '../dom/DomTransformSync'
+import { AccessibilityTree } from '../a11y/AccessibilityTree'
+import type { LayoutRoot } from '../layout/LayoutRoot'
 
 /**
  * Construction options for {@link Engine}.
@@ -52,24 +57,15 @@ export interface EngineOptions {
   maxFps?: number
   /** Smooth render `dt` to filter timer-precision jitter. Default true. */
   smoothTimestep?: boolean
-  /** Initial camera viewport in world coords. Default 1920×1080. */
-  initialViewport?: Rect
   /**
-   * Dynamic-resolution policy for the primary stage. Presence enables it, pass
-   * `{ enabled: false }` to keep it off. Secondary stages don't get it.
-   */
-  dynamicResolution?: Partial<DynamicResolutionOptions>
-  /**
-   * Renderer backend for the primary stage. Default `'canvas2d'`. Secondary
-   * stages inherit unless overridden. Typically set via `?renderer=gpu`.
-   */
-  renderer?: RendererMode
-  /**
-   * MSAA sample count under GPU. `0`/`1` disables, `>1` allocates a multisample
-   * renderbuffer resolved on present. Default 4. Secondary stages inherit. No
-   * effect under Canvas.
+   * MSAA sample count. `0`/`1` disables, `>1` allocates a multisample
+   * renderbuffer resolved on present. Default 4. Secondary stages inherit.
    */
   msaaSamples?: number
+  /** Initial 3D rendering-quality settings (shadow resolution, anisotropy, …). */
+  quality?: RenderQualityOptions
+  /** Initial 3D distance-fog settings. Off unless `enabled` is set. */
+  fog?: FogOptions
   /**
    * Attach a {@link PhysicsWorld} to the primary stage. `true` uses defaults;
    * pass a config to tune gravity, iterations, sleeping, etc. The fixed-step
@@ -77,6 +73,11 @@ export interface EngineOptions {
    * `StageOptions.physics`. Default: no physics.
    */
   physics?: boolean | PhysicsWorldConfig
+  /**
+   * Test-only escape hatch: inject a prebuilt `GfxDevice` for the primary stage
+   * instead of acquiring a real WebGL2 context. See `StageOptions.gpuDevice`.
+   */
+  gpuDevice?: GfxDevice
 }
 
 /**
@@ -95,20 +96,16 @@ export interface RegisteredPhysicsWorld {
    * coordinates. `null` means physics space is scene space (identity). The
    * debug overlay uses it to draw a world in the right place.
    */
-  readonly spaceNode: SceneNode | null
+  readonly spaceNode: Node2D | null
   /** Short name shown in the debug HUD. */
   readonly label: string
 }
 
 /** Options for {@link Engine.registerPhysicsWorld}. */
 export interface RegisterPhysicsWorldOptions {
-  spaceNode?: SceneNode | null
+  spaceNode?: Node2D | null
   label?: string
 }
-
-// Landscape 16:9 by default. The kiosk is 3840×2160 and every dev browser
-// is landscape too; specific games (e.g. the map-based one) override.
-const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1920, height: 1080 }
 
 /**
  * The core engine: a {@link Ticker}, a primary {@link Stage}, an
@@ -119,7 +116,7 @@ const DEFAULT_VIEWPORT: Rect = { x: 0, y: 0, width: 1920, height: 1080 }
  *
  * Most apps build this through `createEngineHost` rather than directly, the
  * host adds start/stop, pause/resume, and context-loss recovery on top. The
- * `renderer`, `scene`, `camera`, and `layers` getters forward to the primary
+ * `renderer`, `tree`, and `currentCamera2D` getters forward to the primary
  * stage for convenience.
  *
  * @category Engine
@@ -128,15 +125,18 @@ export class Engine {
   readonly ticker: Ticker
   readonly events: Emitter<EngineEvents>
   readonly canvas: HTMLCanvasElement
+  /** Live 3D rendering-quality settings, read by the renderer each frame. */
+  readonly quality: RenderQuality
+  /** Live 3D distance-fog settings, read by the renderer each frame. */
+  readonly fog: Fog
+
   /**
-   * Primary render surface. Legacy `engine.{renderer,scene,camera,layers}`
+   * Primary render surface. The `engine.{renderer,tree,currentCamera2D}`
    * getters delegate here.
    */
   readonly primaryStage: Stage
   readonly animation: Animator
-  /** Renderer backend selected at construction, secondary stages inherit. */
-  readonly rendererMode: RendererMode
-  /** MSAA sample count inherited by secondary stages under GPU. */
+  /** MSAA sample count inherited by secondary stages. */
   readonly msaaSamples: number
   /**
    * CPU work inside the last `frame()`, in seconds. NOT the vsync interval,
@@ -155,7 +155,9 @@ export class Engine {
 
   readonly #stageManager: EngineStageManager
   readonly #physicsWorlds = new Set<RegisteredPhysicsWorld>()
+  readonly #layoutRoots = new Set<LayoutRoot>()
   #dom: DomTransformSync | null = null
+  #a11y: AccessibilityTree | null = null
   readonly #disposeCallbacks: Array<() => void> = []
   readonly #beforeFrameHandlers = new Set<(dt: number) => void>()
   #disposed = false
@@ -164,6 +166,8 @@ export class Engine {
 
   constructor(opts: EngineOptions) {
     this.canvas = opts.canvas
+    this.quality = new RenderQuality(opts.quality)
+    this.fog = new Fog(opts.fog)
     this.events = createEmitter<EngineEvents>()
     this.ticker = createTicker({
       fixedStepHz: opts.fixedStepHz,
@@ -171,26 +175,15 @@ export class Engine {
       maxFps: opts.maxFps,
       smoothTimestep: opts.smoothTimestep,
     })
-    this.rendererMode = opts.renderer ?? 'canvas2d'
     this.msaaSamples = opts.msaaSamples ?? 4
     // Primary stage is always interactive.
     this.primaryStage = new Stage(opts.canvas, this, {
-      initialViewport: opts.initialViewport ?? DEFAULT_VIEWPORT,
       clearColor: opts.clearColor,
       transparent: opts.transparent ?? false,
       interactive: true,
-      renderer: this.rendererMode,
       msaaSamples: this.msaaSamples,
       physics: opts.physics,
-      // Presence of `dynamicResolution` opts the primary in (enabled by
-      // default); a caller can still pass `enabled: false` to override.
-      dynamicResolution: opts.dynamicResolution
-        ? {
-            ...DEFAULT_DYNAMIC_RESOLUTION,
-            enabled: true,
-            ...opts.dynamicResolution,
-          }
-        : undefined,
+      gpuDevice: opts.gpuDevice,
       onResize: (info) => {
         // Only the primary stage's resize emits on the engine event bus.        // secondary stages resize silently.
         this.events.emit('resize', {
@@ -207,16 +200,16 @@ export class Engine {
     // there's one list to step and one list for the debugger to read.
     if (this.primaryStage.physics) {
       this.registerPhysicsWorld(this.primaryStage.physics, {
-        spaceNode: this.primaryStage.scene.root,
+        // The tree root is identity, so physics space is scene space (null).
+        spaceNode: null,
         label: this.primaryStage.name ?? 'stage',
       })
     }
 
-    // Forward primary-stage pointer events onto `engine.events` for
-    // backwards compat. Secondary stages' pointer events stay isolated on
-    // their own `stage.events`, so game code that listens at the engine
-    // level can't accidentally process tutorial-canvas taps as live-game
-    // input.
+    // Forward primary-stage pointer events onto `engine.events` so game code
+    // can listen at the engine level. Secondary stages' pointer events stay
+    // isolated on their own `stage.events`, so a tutorial-canvas tap can't be
+    // mistaken for live-game input.
     const forwardKeys: (keyof StagePointerEvents)[] = [
       'pointerDown',
       'pointerMove',
@@ -279,24 +272,54 @@ export class Engine {
     return [...this.#physicsWorlds]
   }
 
-  // Backwards-compat getters, external code keeps using `engine.renderer`,
-  // `engine.scene`, `engine.camera`, `engine.layers` unchanged.
+  /**
+   * Register a {@link LayoutRoot} so the engine runs its layout pass each frame,
+   * only when the root is dirty. Returns an unregister function. A `LayoutRoot`
+   * calls this from its constructor and the returned function from `destroy`,
+   * so game code never touches it directly.
+   */
+  registerLayoutRoot(root: LayoutRoot): () => void {
+    this.#layoutRoots.add(root)
+    return () => {
+      this.#layoutRoots.delete(root)
+    }
+  }
+
+  /** Every {@link LayoutRoot} the engine currently drives. */
+  get layoutRoots(): readonly LayoutRoot[] {
+    return [...this.#layoutRoots]
+  }
+
+  // Convenience getters onto the primary stage: `engine.renderer`,
+  // `engine.tree`, `engine.currentCamera2D`.
   get renderer(): Renderer {
     return this.primaryStage.renderer
   }
-  get scene(): Scene {
-    return this.primaryStage.scene
+  /** The primary stage's one scene tree (2D + 3D). Add nodes under `tree.root`. */
+  get tree(): SceneTree {
+    return this.primaryStage.tree
   }
-  get camera(): Camera {
-    return this.primaryStage.camera
+  /**
+   * The primary stage's screen-space post-processing chain (chromatic
+   * aberration, vignette, custom effects). Created on first access.
+   */
+  get postProcess(): PostProcessPipeline {
+    return this.primaryStage.postProcess
   }
-  get layers(): Layers {
-    return this.primaryStage.layers
+  /** The primary stage's current 2D camera, or `null` when none is current yet. */
+  get currentCamera2D(): CameraNode2D | null {
+    return this.primaryStage.currentCamera2D
   }
-
-  /** The camera currently driving rendering + input world-coord conversion. */
-  get activeCamera(): Camera {
-    return this.debug?.cameraActive ? this.debug.camera : this.camera
+  /** The primary stage's current 3D camera, or `null` when none is current. */
+  get currentCamera3D(): CameraNode3D | null {
+    return this.primaryStage.currentCamera3D
+  }
+  /**
+   * The camera currently driving rendering + input world-coord conversion, or
+   * `null` when the primary stage has no current 2D camera.
+   */
+  get activeCamera(): CameraView2D | null {
+    return this.debug?.cameraActive ? this.debug.camera : this.currentCamera2D
   }
 
   /**
@@ -329,14 +352,25 @@ export class Engine {
   }
 
   /**
+   * The optional {@link AccessibilityTree} for this engine, created on first
+   * use. Register scene nodes to mirror them into a hidden, screen-reader
+   * readable HTML tree. Absent until touched, so engines that never use it (a
+   * touchscreen kiosk) pay nothing.
+   */
+  get a11y(): AccessibilityTree {
+    if (!this.#a11y) this.#a11y = new AccessibilityTree(this)
+    return this.#a11y
+  }
+
+  /**
    * The stage whose scene is `scene`, or `null` if none. Resolves a node back
    * to the camera that renders it (the primary stage, then any secondary).
    */
-  stageForScene(scene: Scene | null): Stage | null {
+  stageForScene(scene: SceneTree | null): Stage | null {
     if (!scene) return null
-    if (this.primaryStage.scene === scene) return this.primaryStage
+    if (this.primaryStage.tree === scene) return this.primaryStage
     for (const s of this.#stageManager.stages) {
-      if (s.scene === scene) return s
+      if (s.tree === scene) return s
     }
     return null
   }
@@ -400,6 +434,8 @@ export class Engine {
     this.animation.cancelAll()
     this.#dom?.dispose()
     this.#dom = null
+    this.#a11y?.dispose()
+    this.#a11y = null
     this.debug?.destroy()
     this.debug = null
     // Dispose secondaries first so cascade order is deterministic. Each
@@ -428,7 +464,9 @@ export class Engine {
     //    beforeFrame so secondaries stay glued to fingers under camera pan.
     if (!this.#_paused) {
       this.primaryStage.input?.beforeFrame()
-      for (const s of this.#stageManager.stages) s.input?.beforeFrame()
+      for (const s of this.#stageManager.stages) {
+        if (s.active) s.input?.beforeFrame()
+      }
     }
 
     if (!this.#_paused) {
@@ -437,30 +475,37 @@ export class Engine {
       this.animation.tick(dt)
 
       // 4. Update pass, walk every stage's scene tree. Behavior hooks may
-      //    read pointer state (primary input).
+      //    read pointer state (primary input). Inactive secondary stages
+      //    (e.g. a parked demo stage) are skipped entirely.
       this.#walkUpdate(this.primaryStage, dt)
-      for (const stage of this.#stageManager.stages) this.#walkUpdate(stage, dt)
+      for (const stage of this.#stageManager.stages) {
+        if (stage.active) this.#walkUpdate(stage, dt)
+      }
     }
 
-    // 5. Transform propagation, every stage, always. Idempotent when nothing
-    //    changed; needed even while paused so debug-camera pans reflect in
-    //    the primary render output.
-    this.primaryStage.updateTransforms()
-    for (const stage of this.#stageManager.stages) stage.updateTransforms()
+    // 4.5. Layout: re-measure/arrange any dirty layout roots BEFORE transform
+    //      propagation so arranged positions land this frame. Runs even while
+    //      paused (a resize during a debug freeze still reflows); each root is a
+    //      no-op unless dirty, and the set is empty when no layout is in use.
+    for (const root of this.#layoutRoots) root._runIfDirty()
 
-    // 6. Render every stage through its game camera, or the debug camera
-    //    when the HUD has selected this stage and debug-camera is on.
+    // 5. Transform propagation, every active stage, always. Idempotent when
+    //    nothing changed; needed even while paused so debug-camera pans reflect
+    //    in the primary render output. Inactive stages are skipped (nothing
+    //    mutated them, so their world matrices are already correct).
+    this.primaryStage.updateTransforms()
+    for (const stage of this.#stageManager.stages) {
+      if (stage.active) stage.updateTransforms()
+    }
+
+    // 6. Render every stage. Each resolves its own current camera (and honors
+    //    the debug-camera override internally when the HUD is driving it).
     //    Debug overlays draw INSIDE `stage.render()` so they composite
     //    through the same `Gfx2D` pipeline as game content.
-    const debug = this.debug
-    this.primaryStage.render(
-      dt,
-      debug
-        ? debug.activeCameraFor(this.primaryStage)
-        : this.primaryStage.camera,
-    )
+    this.primaryStage.render(dt)
     for (const stage of this.#stageManager.stages) {
-      stage.render(dt, debug ? debug.activeCameraFor(stage) : stage.camera)
+      if (!stage.active) continue
+      stage.render(dt)
     }
 
     // Stash the actual CPU work time BEFORE emitting `frame` so any
@@ -477,9 +522,10 @@ export class Engine {
 
   #walkUpdate(stage: Stage, dt: number): void {
     const marks = this.perfMarks
-    walkTree(stage.scene.root, (node) => {
-      // Skip the body when the node has no update work. See
-      // SceneNode._hasUpdateWork.
+    // One walk over the unified tree; every field read (`_hasUpdateWork`,
+    // `onUpdate`, `behaviors`) is on the common `Node` base, so 2D and 3D nodes
+    // update through the same visitor.
+    const visit = (node: Node): void => {
       if (!node._hasUpdateWork) return
       const id = marks ? node.id : ''
       const startMark = marks ? `update-${id}:start` : ''
@@ -494,7 +540,8 @@ export class Engine {
         performance.mark(endMark)
         performance.measure(`update ${id}`, startMark, endMark)
       }
-    })
+    }
+    walkTree(stage.tree.root, visit)
   }
 
   /**
@@ -520,7 +567,7 @@ export class Engine {
    * AbortError). Additional `opts.signal` is combined in.
    */
   animate(
-    node: SceneNode,
+    node: Node2D,
     to: Partial<Transform2D>,
     opts: TweenOptions,
   ): Promise<void> {
@@ -545,17 +592,20 @@ export class Engine {
     // steer / capture just like the primary. Onus is on the caller to keep
     // fixed-step work cheap when they attach multiple stages.
     this.#stepScene(this.primaryStage, fdt)
-    for (const stage of this.#stageManager.stages) this.#stepScene(stage, fdt)
+    for (const stage of this.#stageManager.stages) {
+      if (stage.active) this.#stepScene(stage, fdt)
+    }
   }
 
   #stepScene(stage: Stage, fdt: number): void {
-    walkTree(stage.scene.root, (node) => {
+    const visit = (node: Node): void => {
       if (!node._hasFixedStepWork) return
       node.onFixedStep?.(fdt)
       const behaviors = node.behaviors
       for (let i = 0; i < behaviors.length; i++) {
         behaviors[i].onFixedStep?.(fdt)
       }
-    })
+    }
+    walkTree(stage.tree.root, visit)
   }
 }

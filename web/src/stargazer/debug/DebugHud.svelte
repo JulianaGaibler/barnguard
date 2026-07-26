@@ -1,15 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { SvelteSet } from 'svelte/reactivity'
-  import type { DebugController, DebugStatsSnapshot } from './DebugController'
+  import type {
+    DebugController,
+    DebugStatsSnapshot,
+    DebugCameraMode,
+  } from './DebugController'
   import {
     DraggableWindow,
     DebugSection,
     DebugRow,
+    DebugSelect,
     FrameGraph,
     ToggleButton,
     HoldButton,
     StageSelector,
+    type DebugSelectOption,
   } from './ui'
   import RenderingPanel from './panels/RenderingPanel.svelte'
   import InputPanel from './panels/InputPanel.svelte'
@@ -66,18 +72,25 @@
     touchSlopScreen: 0,
     touchSlopWorld: 0,
     aliveParticles: 0,
-    staticBakesTotal: 0,
-    staticBakesPerSecond: 0,
-    renderScale: 1,
-    activeBitmaps: 0,
     stages: [
       { id: 'primary', label: 'Primary', isActive: true, isPrimary: true },
     ],
     activeStageId: 'primary',
     activeIsPrimary: true,
     activeHasInput: true,
-    gpu: null,
+    gpu: {
+      drawCalls: 0,
+      programSwitches: 0,
+      textureBinds: 0,
+      blendSwitches: 0,
+      overflowWarns: 0,
+      sdfInstances: 0,
+      strokeInstances: 0,
+      roundRectInstances: 0,
+      msaaSamples: 1,
+    },
     physics: [],
+    world3d: null,
   }
 
   let visible = $state(false)
@@ -85,10 +98,19 @@
   // Bumped every rAF tick so canvas children (FrameGraph, previews) and the
   // subpanels' live-state syncs redraw in step without their own loops.
   let frameRevision = $state(0)
+  const CAMERA_MODE_OPTIONS: readonly DebugSelectOption<DebugCameraMode>[] = [
+    { value: 'active', label: 'Active (default)' },
+    { value: 'debug-2d', label: '2D debug (pan/zoom)' },
+    { value: 'debug-3d', label: '3D debug (fly)' },
+  ]
+
   let toggleState = $state({
     hud: false,
     camera: false,
+    space: '2d' as '2d' | '3d',
+    cameraMode: 'active' as DebugCameraMode,
     outlines: false,
+    layoutOutlines: false,
     follow: false,
     grid: false,
     paused: false,
@@ -168,7 +190,10 @@
     toggleState = {
       hud: debug.hudVisible,
       camera: debug.cameraActive,
+      space: debug.debugSpace,
+      cameraMode: debug.cameraMode,
       outlines: debug.outlinesVisible,
+      layoutOutlines: debug.layoutOutlinesVisible,
       follow: debug.followGameCamera,
       grid: debug.gridVisible,
       paused: debug.paused,
@@ -192,20 +217,16 @@
 
   // --- camera pad -----------------------------------------------------
 
-  // Auto-enable the debug camera on a pad press; the camera's step() only runs
-  // when cameraActive, so without this a press would silently do nothing.
-  function ensureDebugCamera(): void {
-    if (!debug.cameraActive) debug.toggleCamera()
-  }
+  // `padKey` auto-enables the debug camera for the current space on first press
+  // and routes to the matching debug camera (2D pan/zoom or 3D fly).
   function pressPan(code: string): void {
-    ensureDebugCamera()
-    debug.camera.setKey(code, true)
+    debug.padKey(code, true)
   }
   function releasePan(code: string): void {
-    debug.camera.setKey(code, false)
+    debug.padKey(code, false)
   }
   function resetPan(e: MouseEvent): void {
-    ensureDebugCamera()
+    if (!debug.cameraActive) debug.toggleCamera()
     debug.resetDebugCamera()
     ;(e.currentTarget as HTMLButtonElement).blur()
   }
@@ -249,6 +270,9 @@
   side="left"
   onClose={() => debug.toggleHud()}
 >
+  {#if toggleState.paused}
+    <div class="paused-banner">⏸ PAUSED — game updates frozen (P)</div>
+  {/if}
   {#if stats.stages.length > 1}
     <DebugSection title="Stage" bind:open={stageOpen}>
       <StageSelector stages={stats.stages} onSelect={selectStage} />
@@ -334,24 +358,30 @@
           >.
         </div>
       {/if}
-      <ToggleButton
-        active={toggleState.camera}
-        onToggle={() => debug.toggleCamera()}
-        label="Debug camera"
-        hint="C"
+      <DebugSelect
+        label="Camera"
+        value={toggleState.cameraMode}
+        options={CAMERA_MODE_OPTIONS}
+        onChange={(m) => debug.setCameraMode(m)}
       />
       <ToggleButton
         active={toggleState.follow}
         onToggle={() => debug.toggleFollow()}
         label="Follow game camera"
         hint="G"
-        disabled={!toggleState.camera}
+        disabled={toggleState.cameraMode !== 'debug-2d'}
       />
       <ToggleButton
         active={toggleState.outlines}
         onToggle={() => debug.toggleOutlines()}
         label="Node outlines"
         hint="O"
+      />
+      <ToggleButton
+        active={toggleState.layoutOutlines}
+        onToggle={() => debug.toggleLayoutOutlines()}
+        label="Layout outlines"
+        hint="L"
       />
       <ToggleButton
         active={toggleState.grid}
@@ -363,77 +393,142 @@
   </DebugSection>
 
   <DebugSection title="Camera pad" bind:open={padOpen}>
-    <div class="camera-pad">
-      <div class="pad-cell pad-zoom-out">
-        <HoldButton
-          ariaLabel="Zoom out"
-          onPress={() => pressPan('KeyQ')}
-          onRelease={() => releasePan('KeyQ')}
-        >
-          −
-        </HoldButton>
+    {#if toggleState.cameraMode === 'active'}
+      <div class="pad-hint">
+        Pick a debug camera above (2D or 3D) to drive it here.
       </div>
-      <div class="pad-cell pad-up">
-        <HoldButton
-          ariaLabel="Pan up"
-          onPress={() => pressPan('KeyW')}
-          onRelease={() => releasePan('KeyW')}
-        >
-          ↑
-        </HoldButton>
+    {:else if toggleState.cameraMode === 'debug-2d'}
+      <div class="camera-pad">
+        <div class="pad-cell pad-tl">
+          <HoldButton
+            ariaLabel="Zoom out"
+            onPress={() => pressPan('KeyQ')}
+            onRelease={() => releasePan('KeyQ')}>−</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-tc">
+          <HoldButton
+            ariaLabel="Pan up"
+            onPress={() => pressPan('KeyW')}
+            onRelease={() => releasePan('KeyW')}>↑</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-tr">
+          <HoldButton
+            ariaLabel="Zoom in"
+            onPress={() => pressPan('KeyE')}
+            onRelease={() => releasePan('KeyE')}>+</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-ml">
+          <HoldButton
+            ariaLabel="Pan left"
+            onPress={() => pressPan('KeyA')}
+            onRelease={() => releasePan('KeyA')}>←</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-mc">
+          <button
+            type="button"
+            class="pad-reset-btn"
+            onpointerdown={noFocus}
+            onclick={resetPan}
+            aria-label="Reset debug camera"
+            title="Reset (R)">⌂</button
+          >
+        </div>
+        <div class="pad-cell pad-mr">
+          <HoldButton
+            ariaLabel="Pan right"
+            onPress={() => pressPan('KeyD')}
+            onRelease={() => releasePan('KeyD')}>→</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-bc">
+          <HoldButton
+            ariaLabel="Pan down"
+            onPress={() => pressPan('KeyS')}
+            onRelease={() => releasePan('KeyS')}>↓</HoldButton
+          >
+        </div>
       </div>
-      <div class="pad-cell pad-zoom-in">
-        <HoldButton
-          ariaLabel="Zoom in"
-          onPress={() => pressPan('KeyE')}
-          onRelease={() => releasePan('KeyE')}
-        >
-          +
-        </HoldButton>
+      <div class="pad-hint">
+        Pan (WASD) + zoom (Q/E). Any press enables the 2D debug camera.
       </div>
-      <div class="pad-cell pad-left">
-        <HoldButton
-          ariaLabel="Pan left"
-          onPress={() => pressPan('KeyA')}
-          onRelease={() => releasePan('KeyA')}
-        >
-          ←
-        </HoldButton>
+    {:else}
+      <div class="camera-pad">
+        <div class="pad-cell pad-tl">
+          <HoldButton
+            ariaLabel="Look left"
+            onPress={() => pressPan('ArrowLeft')}
+            onRelease={() => releasePan('ArrowLeft')}>↺</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-tc">
+          <HoldButton
+            ariaLabel="Move up"
+            onPress={() => pressPan('KeyE')}
+            onRelease={() => releasePan('KeyE')}>↑</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-tr">
+          <HoldButton
+            ariaLabel="Look right"
+            onPress={() => pressPan('ArrowRight')}
+            onRelease={() => releasePan('ArrowRight')}>↻</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-ml">
+          <HoldButton
+            ariaLabel="Strafe left"
+            onPress={() => pressPan('KeyA')}
+            onRelease={() => releasePan('KeyA')}>←</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-mc">
+          <button
+            type="button"
+            class="pad-reset-btn"
+            onpointerdown={noFocus}
+            onclick={resetPan}
+            aria-label="Reset debug camera"
+            title="Reset (R)">⌂</button
+          >
+        </div>
+        <div class="pad-cell pad-mr">
+          <HoldButton
+            ariaLabel="Strafe right"
+            onPress={() => pressPan('KeyD')}
+            onRelease={() => releasePan('KeyD')}>→</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-bl">
+          <HoldButton
+            ariaLabel="Move forward"
+            onPress={() => pressPan('KeyW')}
+            onRelease={() => releasePan('KeyW')}>⤒</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-bc">
+          <HoldButton
+            ariaLabel="Move down"
+            onPress={() => pressPan('KeyQ')}
+            onRelease={() => releasePan('KeyQ')}>↓</HoldButton
+          >
+        </div>
+        <div class="pad-cell pad-br">
+          <HoldButton
+            ariaLabel="Move back"
+            onPress={() => pressPan('KeyS')}
+            onRelease={() => releasePan('KeyS')}>⤓</HoldButton
+          >
+        </div>
       </div>
-      <div class="pad-cell pad-reset">
-        <button
-          type="button"
-          class="pad-reset-btn"
-          onpointerdown={noFocus}
-          onclick={resetPan}
-          aria-label="Reset debug camera to game viewport"
-          title="Reset (R)"
-        >
-          ⌂
-        </button>
+      <div class="pad-hint">
+        Fly: strafe (A/D), up/down (E/Q), forward/back (corners), look (↺↻). Any
+        press enables the 3D fly camera.
       </div>
-      <div class="pad-cell pad-right">
-        <HoldButton
-          ariaLabel="Pan right"
-          onPress={() => pressPan('KeyD')}
-          onRelease={() => releasePan('KeyD')}
-        >
-          →
-        </HoldButton>
-      </div>
-      <div class="pad-cell pad-down">
-        <HoldButton
-          ariaLabel="Pan down"
-          onPress={() => pressPan('KeyS')}
-          onRelease={() => releasePan('KeyS')}
-        >
-          ↓
-        </HoldButton>
-      </div>
-    </div>
-    <div class="pad-hint">
-      Press-and-hold. Any press auto-enables the debug camera.
-    </div>
+    {/if}
   </DebugSection>
 </DraggableWindow>
 
@@ -515,6 +610,16 @@
       color: rgba(255, 255, 255, 0.9)
       font-weight: 600
 
+  .paused-banner
+    margin: 0 0 6px
+    padding: 4px 8px
+    background: rgba(251, 191, 36, 0.18)
+    border: 1px solid rgba(251, 191, 36, 0.55)
+    border-radius: 3px
+    color: rgb(253, 224, 138)
+    font-weight: 600
+    text-align: center
+
   .camera-pad
     display: grid
     grid-template-columns: repeat(3, 1fr)
@@ -531,32 +636,40 @@
       width: 100%
       height: 100%
 
-  .pad-zoom-out
+  .pad-tl
     grid-column: 1
     grid-row: 1
 
-  .pad-up
+  .pad-tc
     grid-column: 2
     grid-row: 1
 
-  .pad-zoom-in
+  .pad-tr
     grid-column: 3
     grid-row: 1
 
-  .pad-left
+  .pad-ml
     grid-column: 1
     grid-row: 2
 
-  .pad-reset
+  .pad-mc
     grid-column: 2
     grid-row: 2
 
-  .pad-right
+  .pad-mr
     grid-column: 3
     grid-row: 2
 
-  .pad-down
+  .pad-bl
+    grid-column: 1
+    grid-row: 3
+
+  .pad-bc
     grid-column: 2
+    grid-row: 3
+
+  .pad-br
+    grid-column: 3
     grid-row: 3
 
   .pad-reset-btn

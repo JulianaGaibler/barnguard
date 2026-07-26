@@ -8,7 +8,7 @@ use printer_driver::MockControls;
 use crate::log::LogHub;
 use crate::queue::QueueController;
 use crate::client_config::ClientConfigState;
-use crate::store::GameLogController;
+use crate::store::{GameLogController, LeaderboardController};
 use axum::http::{header, HeaderValue, Method};
 use axum::routing::{delete, get, post};
 use axum::Router;
@@ -25,6 +25,7 @@ pub struct AppState {
     /// `Some` only when the mock backend is active; gates `/debug/mock`.
     pub mock: Option<Arc<MockControls>>,
     pub games: GameLogController,
+    pub leaderboard: LeaderboardController,
     /// Client-facing config served to the web app: base value from
     /// `config.toml` plus an optional in-memory override. Mutated by
     /// `/config/reload` and `/config/override`; read by the SSE snapshot +
@@ -60,7 +61,14 @@ pub fn build_router(state: AppState, allowed_origins: &[String]) -> Router {
                 .delete(routes::games_clear),
         )
         .route("/api/games/high-scores", get(routes::games_high_scores))
-        .route("/api/games/{id}", delete(routes::games_delete));
+        .route("/api/games/{id}", delete(routes::games_delete))
+        .route(
+            "/api/leaderboard",
+            get(routes::leaderboard_list)
+                .post(routes::leaderboard_submit)
+                .delete(routes::leaderboard_clear),
+        )
+        .route("/api/leaderboard/{id}", delete(routes::leaderboard_delete));
 
     // Serve the embedded SPA for everything else (release builds only).
     #[cfg(feature = "embed-web")]

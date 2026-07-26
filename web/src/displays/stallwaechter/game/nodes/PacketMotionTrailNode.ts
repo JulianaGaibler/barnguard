@@ -1,4 +1,9 @@
-import { SceneNode, withAlpha, type Camera, type Gfx2D } from '@src/stargazer'
+import {
+  Node2D,
+  withAlpha,
+  type CameraView2D,
+  type Gfx2D,
+} from '@src/stargazer'
 import { TUNING } from '../data/tuning'
 
 export interface PacketMotionTrailOptions {
@@ -11,7 +16,7 @@ export interface PacketMotionTrailOptions {
    * dropped so a stationary packet doesn't fill the buffer with duplicates.
    */
   minSampleDistWorld?: number
-  /** Trail fill colour, opaque near the head, fades to transparent tail. */
+  /** Trail fill color, opaque near the head, fades to transparent tail. */
   color?: string
 }
 
@@ -30,7 +35,7 @@ export interface PacketMotionTrailOptions {
  * Draw order: this node is expected to render BEFORE the packet (session adds
  * trail to the packet layer FIRST so tree DFS draws it under the hex).
  */
-export class PacketMotionTrailNode extends SceneNode {
+export class PacketMotionTrailNode extends Node2D {
   readonly capacity: number
   readonly maxHalfWidthWorld: number
   readonly minSampleDistWorldSq: number
@@ -123,7 +128,7 @@ export class PacketMotionTrailNode extends SceneNode {
     this.liveHeadY = NaN
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera, _dt: number): void {
+  override draw(gfx: Gfx2D, _camera: CameraView2D, _dt: number): void {
     const count = this.#_count
     if (count === 0) return
     const haveLive =

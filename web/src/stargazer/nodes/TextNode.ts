@@ -1,6 +1,10 @@
-import { SceneNode } from '../scene/SceneNode'
+import { Node2D } from '../scene/Node2D'
 import type { Camera } from '../camera/Camera'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
+import { measureText } from '../render/gfx/rasterizeLabel'
+import { BoxConstraints, type Size } from '../layout/constraints'
+import { alignOffset, type Align1D } from '../layout/align'
+import type { Measurable } from '../layout/LayoutNode'
 
 /**
  * Constructor options for {@link TextNode}.
@@ -9,7 +13,7 @@ import type { Gfx2D } from '../render/gfx/Gfx2D'
  */
 export interface TextNodeOptions {
   id?: string
-  /** The string to draw (single line). */
+  /** The string to draw. Split on `\n` into separate lines; no word-wrap. */
   text: string
   /** Anchor X in local space. Default `0`. */
   x?: number
@@ -39,15 +43,41 @@ export interface TextNodeOptions {
   align?: CanvasTextAlign
   /** Vertical anchor. Default `'alphabetic'`. */
   baseline?: CanvasTextBaseline
+  /**
+   * Line spacing for multi-line text, as a multiple of the effective pixel font
+   * size. Default `1.2`. Ignored for single-line text.
+   */
+  lineHeight?: number
+}
+
+/** Map a horizontal `CanvasTextAlign` to the box-anchor axis it corresponds to. */
+function alignAxis(align: CanvasTextAlign): Align1D {
+  if (align === 'center') return 'center'
+  if (align === 'right' || align === 'end') return 'end'
+  return 'start'
+}
+
+/** Map a vertical `CanvasTextBaseline` to the box-anchor axis it corresponds to. */
+function baselineAxis(baseline: CanvasTextBaseline): Align1D {
+  if (baseline === 'middle') return 'center'
+  if (baseline === 'bottom' || baseline === 'ideographic') return 'end'
+  return 'start' // top | hanging | alphabetic
 }
 
 /**
- * Draws a single line of text through {@link Gfx2D.fillText}. The node's
- * transform positions and rotates the label in world space (rotation is free on
- * the GPU backend); `fontSize` + `sizeSpace` control on-screen size the same
- * way `ShapeNode` handles `lineWidth` + `strokeSpace`. Every option is a plain
- * public field, so reassigning `text` or `color` shows on the next frame. No
- * wrapping, one line per node.
+ * Draws text through {@link Gfx2D.fillText}, one call per `\n`-delimited line —
+ * no word-wrap; use HTML for long-form copy. The node's transform positions and
+ * rotates the label in world space (rotation is free on the GPU backend);
+ * `fontSize` + `sizeSpace` control on-screen size the same way `ShapeNode`
+ * handles `lineWidth` + `strokeSpace`. Every option is a plain public field, so
+ * reassigning `text` or `color` shows on the next frame.
+ *
+ * Also implements {@link Measurable}, so a `TextNode` can be placed directly
+ * inside a layout container (`Box`, `Row`, `Column`, `Stack`, `Align`,
+ * `Center`, ...) — the container measures its natural size and arranges it
+ * within the box it's given, honoring `align`/`baseline` as the anchor point
+ * within that box. Outside a layout tree, `align`/`baseline` anchor `(x, y)`
+ * exactly as before.
  *
  * @category Nodes
  * @example
@@ -62,8 +92,12 @@ export interface TextNodeOptions {
  *   })
  *   scene.root.add(label)
  *   label.text = 'Score: 10' // picked up next frame
+ *
+ * @example
+ *   // Multi-line, centered as a block on (x, y):
+ *   new TextNode({ text: 'Game\nOver', align: 'center', baseline: 'middle' })
  */
-export class TextNode extends SceneNode {
+export class TextNode extends Node2D implements Measurable {
   text: string
   x: number
   y: number
@@ -74,6 +108,9 @@ export class TextNode extends SceneNode {
   color: string
   align: CanvasTextAlign
   baseline: CanvasTextBaseline
+  lineHeight: number
+
+  readonly measuredSize: Size = { w: 0, h: 0 }
 
   constructor(opts: TextNodeOptions) {
     super(opts.id)
@@ -87,6 +124,7 @@ export class TextNode extends SceneNode {
     this.color = opts.color ?? '#000'
     this.align = opts.align ?? 'left'
     this.baseline = opts.baseline ?? 'alphabetic'
+    this.lineHeight = opts.lineHeight ?? 1.2
   }
 
   /** The CSS `font` shorthand for the given effective pixel size. */
@@ -101,11 +139,64 @@ export class TextNode extends SceneNode {
     // invariant, mirroring ShapeNode's stroke handling).
     const s = this.sizeSpace === 'world' ? 1 : camera.strokeSpaceScale()
     const px = this.fontSize * s
-    gfx.fillText(this.text, this.x, this.y, {
-      font: this.fontString(px),
-      align: this.align,
-      baseline: this.baseline,
-      color: this.color,
-    })
+    const font = this.fontString(px)
+
+    const lines = this.text.split('\n')
+    if (lines.length === 1) {
+      gfx.fillText(this.text, this.x, this.y, {
+        font,
+        align: this.align,
+        baseline: this.baseline,
+        color: this.color,
+      })
+      return
+    }
+
+    // Multi-line: every line is drawn with baseline 'top' at a fixed line
+    // spacing, and the whole block is anchored on (x, y) per `baseline`
+    // ('alphabetic'/'hanging' collapse to the block's top — a single per-line
+    // baseline can't mean much once there's more than one line).
+    const lineHeightPx = px * this.lineHeight
+    const totalHeight = lineHeightPx * lines.length
+    const blockTop =
+      this.y - alignOffset(baselineAxis(this.baseline), totalHeight)
+    for (let i = 0; i < lines.length; i++) {
+      gfx.fillText(lines[i], this.x, blockTop + i * lineHeightPx, {
+        font,
+        align: this.align,
+        baseline: 'top',
+        color: this.color,
+      })
+    }
+  }
+
+  measure(constraints: BoxConstraints): Size {
+    const px = this.fontSize
+    const lines = this.text.split('\n')
+    const font = this.fontString(px)
+    let w = 0
+    for (const line of lines) {
+      w = Math.max(
+        w,
+        measureText(line, {
+          font,
+          align: 'left',
+          baseline: 'alphabetic',
+          color: this.color,
+        }).localW,
+      )
+    }
+    const h = px * this.lineHeight * lines.length
+    this.measuredSize.w = constraints.constrainW(w)
+    this.measuredSize.h = constraints.constrainH(h)
+    return this.measuredSize
+  }
+
+  arrange(x: number, y: number, w: number, h: number): void {
+    this.transform.x = x
+    this.transform.y = y
+    this.x = alignOffset(alignAxis(this.align), w)
+    this.y = alignOffset(baselineAxis(this.baseline), h)
+    this.debugBounds = { x: 0, y: 0, width: w, height: h }
   }
 }

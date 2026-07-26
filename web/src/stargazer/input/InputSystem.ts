@@ -1,14 +1,16 @@
 import type { Vec2 } from '../math/Vec2'
 import type { Engine } from '../engine/Engine'
-import type { Camera } from '../camera/Camera'
+import type { CameraView2D } from '../camera/CameraView2D'
+import type { CameraView3D } from '../camera/CameraView3D'
 import type { Stage } from '../render/Stage'
-import type { SceneNode } from '../scene/SceneNode'
 import type {
   PointerEvent2D,
   PointerPhase,
   PointerStateSnapshot,
+  PointerTarget,
 } from './PointerState'
 import { findHitNode } from './hit'
+import { raycastWorld3D } from '../scene/raycast3d'
 
 /** Internal mutable pointer record. Structurally satisfies PointerStateSnapshot. */
 interface PointerRecord {
@@ -17,7 +19,7 @@ interface PointerRecord {
   screen: Vec2
   world: Vec2
   startedAtMs: number
-  capturedBy: SceneNode | null
+  capturedBy: PointerTarget | null
   /** Un-subscribes from `capturedBy.events.on('destroy', …)`. */
   destroyUnsub: (() => void) | null
   /** True if a native `pointermove` was dispatched for this pointer this frame. */
@@ -83,7 +85,7 @@ export class InputSystem {
 
   /** Slop converted to world units using the ACTIVE camera's uniform scale. */
   get touchSlopWorld(): number {
-    const scale = this.#getActiveCamera().screenPxPerWorldUnit()
+    const scale = this.#getActiveCamera()?.screenPxPerWorldUnit() ?? 0
     return scale > 0 ? this.#touchSlopScreenPx / scale : 0
   }
 
@@ -93,10 +95,42 @@ export class InputSystem {
    * stage's own game camera. Recomputed on every access so pan-under-
    * a-still-finger stays glued during debug camera motion.
    */
-  #getActiveCamera(): Camera {
+  #getActiveCamera(): CameraView2D | null {
     return (
-      this.#engine.debug?.activeCameraFor(this.#stage) ?? this.#stage.camera
+      this.#engine.debug?.activeCameraFor(this.#stage) ??
+      this.#stage.currentCamera2D
     )
+  }
+
+  /**
+   * Active 3D camera (debug fly-cam when engaged, else the stage's game cam),
+   * or null.
+   */
+  #getActiveCamera3d(): CameraView3D | null {
+    return (
+      this.#engine.debug?.activeCamera3dFor(this.#stage) ??
+      this.#stage.currentCamera3D
+    )
+  }
+
+  /**
+   * Hit-test the 3D world for a pointer at canvas-CSS `(sx, sy)`: convert to
+   * NDC (full-canvas — the 3D camera fills the canvas, unlike the letterboxed
+   * 2D camera), cast a ray, and return the nearest hit-enabled mesh, or
+   * `null`.
+   */
+  #pick3d(sx: number, sy: number): PointerTarget | null {
+    if (!this.#stage.tree.has3D) return null
+    const cssW = this.#stage.renderer.cssSize.w
+    const cssH = this.#stage.renderer.cssSize.h
+    if (cssW <= 0 || cssH <= 0) return null
+    const ndcX = (2 * sx) / cssW - 1
+    const ndcY = 1 - (2 * sy) / cssH
+    const cam3d = this.#getActiveCamera3d()
+    if (!cam3d) return null
+    const ray = cam3d.screenToRay(ndcX, ndcY)
+    const hit = raycastWorld3D(this.#stage.tree, ray, (n) => n.hitEnabled)
+    return hit?.node ?? null
   }
 
   /**
@@ -108,6 +142,7 @@ export class InputSystem {
   beforeFrame(): void {
     if (this.#disposed || this.#recordsMap.size === 0) return
     const cam = this.#getActiveCamera()
+    if (!cam) return
     const scratch = { x: 0, y: 0 }
     for (const record of this.#recordsMap.values()) {
       cam.screenToWorld(record.screen.x, record.screen.y, scratch)
@@ -196,7 +231,10 @@ export class InputSystem {
     e.preventDefault()
 
     const screen = this.#toCanvasCss(e)
-    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera()?.screenToWorld(
+      screen.x,
+      screen.y,
+    ) ?? { x: 0, y: 0 }
     const record: PointerRecord = {
       id: e.pointerId,
       kind: this.#pointerKind(e),
@@ -221,13 +259,15 @@ export class InputSystem {
     }
 
     // Node-level hit-test in world coords through the ACTIVE camera on the
-    // owning stage's scene.
-    const hit = findHitNode(
-      this.#stage.scene.root,
-      world.x,
-      world.y,
-      this.touchSlopWorld,
-    )
+    // owning stage's scene. The 2D overlay wins over 3D (it composites on top);
+    // only when nothing 2D is hit do we ray-pick the 3D world.
+    const hit: PointerTarget | null =
+      findHitNode(
+        this.#stage.tree.root,
+        world.x,
+        world.y,
+        this.touchSlopWorld,
+      ) ?? this.#pick3d(screen.x, screen.y)
     if (hit) {
       record.capturedBy = hit
       // If the node dies while capturing, synthesise cancel + release.
@@ -249,7 +289,10 @@ export class InputSystem {
     const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera()?.screenToWorld(
+      screen.x,
+      screen.y,
+    ) ?? { x: 0, y: 0 }
     const dx = world.x - record.world.x
     const dy = world.y - record.world.y
     record.world.x = world.x
@@ -278,7 +321,10 @@ export class InputSystem {
     const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.#getActiveCamera().screenToWorld(screen.x, screen.y)
+    const world = this.#getActiveCamera()?.screenToWorld(
+      screen.x,
+      screen.y,
+    ) ?? { x: 0, y: 0 }
     const dx = world.x - record.world.x
     const dy = world.y - record.world.y
     record.world.x = world.x
@@ -337,12 +383,14 @@ export class InputSystem {
     phase: PointerPhase,
     source: 'native' | 'synthetic',
   ): PointerEvent2D {
+    const wx = record.world.x
+    const wy = record.world.y
     return {
       pointer: {
         id: record.id,
         kind: record.kind,
         screen: { x: record.screen.x, y: record.screen.y },
-        world: { x: record.world.x, y: record.world.y },
+        world: { x: wx, y: wy },
         startedAtMs: record.startedAtMs,
         capturedBy: record.capturedBy,
       },
@@ -350,6 +398,7 @@ export class InputSystem {
       phase,
       source,
       stage: this.#stage,
+      localTo: (node, out) => node.worldToLocal(wx, wy, out),
     }
   }
 }
