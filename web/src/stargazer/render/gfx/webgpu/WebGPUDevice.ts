@@ -172,6 +172,9 @@ export class WebGPUDevice implements GfxDevice {
   #blitPipeline: GPURenderPipeline | null = null
   readonly #blitSamplers = new Map<'nearest' | 'linear', GPUSampler>()
 
+  // Mipmap-generation pipelines, one per color format (reuses the blit module).
+  readonly #mipPipelines = new Map<GPUTextureFormat, GPURenderPipeline>()
+
   readonly deviceStats: DeviceStats = {
     pipelineSwitches: 0,
     bindGroupSwitches: 0,
@@ -181,13 +184,15 @@ export class WebGPUDevice implements GfxDevice {
   readonly limits: DeviceLimits
 
   /**
-   * WebGPU conventions: `[0,1]` clip depth, CW front faces (the top-left
-   * framebuffer origin flips apparent winding vs WebGL), and top-down sampled
-   * render-target textures.
+   * WebGPU conventions: `[0,1]` clip depth and top-down sampled render-target
+   * textures. Front-face winding stays `'ccw'` (same as WebGL): with this
+   * engine's projection (no 2D Y-flip, only a clip-Z change) the geometry
+   * reaches the same framebuffer-space winding on both backends, so declaring
+   * `'cw'` culls the outward faces instead of the inward ones.
    */
   readonly ndc: NdcConventions = {
     clipDepth: 'zero-to-one',
-    frontFace: 'cw',
+    frontFace: 'ccw',
     textureTopDown: true,
   }
 
@@ -704,9 +709,9 @@ export class WebGPUDevice implements GfxDevice {
   ): void {
     const t = tex as WebGPUTexture
     this.#uploadImage(t.gpu, xOffset, yOffset, source, opts)
-    // TODO(in-browser): mip levels beyond 0 are not regenerated on subimage
-    // upload. WebGPU has no auto-mipmap, so a render-based downsample pass would
-    // be needed here.
+    if (t.mipmap) {
+      this.#generateMips(t.gpu, t.srgb ? 'rgba8unorm-srgb' : 'rgba8unorm', t.width, t.height)
+    }
   }
 
   updateTexture2D(
@@ -747,7 +752,9 @@ export class WebGPUDevice implements GfxDevice {
       })
     }
     this.#uploadImage(t.gpu, 0, 0, source, opts)
-    // TODO(in-browser): mip chain beyond level 0 is not generated (see above).
+    if (t.mipmap) {
+      this.#generateMips(t.gpu, t.srgb ? 'rgba8unorm-srgb' : 'rgba8unorm', t.width, t.height)
+    }
   }
 
   /**
@@ -758,13 +765,15 @@ export class WebGPUDevice implements GfxDevice {
    * `writeTexture` does neither.
    */
   /**
-   * The `flipY` an upload must use so a WebGPU texture samples the same way the
-   * WebGL-tuned UVs expect. A WebGPU texture stores row 0 at the top, a WebGL
-   * one at the bottom, so for a given caller intent the net orientation is
-   * opposite between backends: the WebGPU upload flips whenever WebGL would not,
-   * and vice versa.
+   * The `flipY` an upload must use. The 2D pass samples textures with UVs that
+   * share the render target's V orientation, and that orientation differs
+   * between backends, so a screen-space texture flips relative to its WebGL
+   * `flipY` to sample the same way. A mesh's object-space UVs are independent of
+   * the render target, so those upload with their `flipY` unchanged (else the
+   * texture samples upside-down).
    */
   #uploadFlipY(opts: TextureUploadOpts): boolean {
+    if (opts.objectSpaceUV) return opts.flipY ?? false
     return !(opts.flipY ?? false)
   }
 
@@ -1044,13 +1053,20 @@ export class WebGPUDevice implements GfxDevice {
     this.deviceStats.pipelineSwitches = 0
     this.deviceStats.bindGroupSwitches = 0
     this.deviceStats.textureBinds = 0
-    this.#encoder = this.#device.createCommandEncoder()
+    // The engine opens render passes for the shadow / Viewport2D pre-passes
+    // BEFORE `beginFrame`, so the encoder is lazy: whichever pass comes first
+    // in the frame opens it, everything up to `endFrame` shares it (one submit,
+    // ordered so a pass that writes a texture precedes one that samples it).
+    this.#ensureEncoder()
+  }
+
+  #ensureEncoder(): void {
+    if (!this.#encoder) this.#encoder = this.#device.createCommandEncoder()
   }
 
   beginRenderPass(desc: RenderPassDesc): void {
-    if (!this.#encoder) {
-      throw new Error('WebGPUDevice.beginRenderPass: no open command encoder')
-    }
+    this.#ensureEncoder()
+    const encoder = this.#encoder!
     const descriptor: GPURenderPassDescriptor = { colorAttachments: [] }
 
     if (desc.color) {
@@ -1090,7 +1106,7 @@ export class WebGPUDevice implements GfxDevice {
       }
     }
 
-    this.#pass = this.#encoder.beginRenderPass(descriptor)
+    this.#pass = encoder.beginRenderPass(descriptor)
     this.#lastPipeline = null
   }
 
@@ -1298,6 +1314,73 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
       },
       primitive: { topology: 'triangle-list' },
     })
+  }
+
+  /**
+   * Generate the mip chain for a just-uploaded texture. WebGPU has no automatic
+   * mipmap generation (unlike WebGL's `generateMipmap`), so each level is
+   * produced by rendering a fullscreen triangle that samples the level above
+   * with a linear filter (a 2×2 box downsample). Runs on its own command
+   * encoder, queued after the mip-0 upload so it reads a complete level.
+   */
+  #generateMips(gpu: GPUTexture, format: GPUTextureFormat, width: number, height: number): void {
+    const levels = mipLevels(width, height)
+    if (levels <= 1) return
+    this.#ensureBlit() // builds the shared fullscreen-sample module + layout
+    const device = this.#device
+    const pipeline = this.#mipPipelineFor(format)
+    const sampler = this.#blitSampler('linear')
+    const encoder = device.createCommandEncoder()
+    for (let level = 1; level < levels; level++) {
+      const bindGroup = device.createBindGroup({
+        layout: this.#blitLayout!,
+        entries: [
+          {
+            binding: 0,
+            resource: gpu.createView({
+              baseMipLevel: level - 1,
+              mipLevelCount: 1,
+            }),
+          },
+          { binding: 1, resource: sampler },
+        ],
+      })
+      const pass = encoder.beginRenderPass({
+        colorAttachments: [
+          {
+            view: gpu.createView({ baseMipLevel: level, mipLevelCount: 1 }),
+            loadOp: 'clear',
+            storeOp: 'store',
+            clearValue: { r: 0, g: 0, b: 0, a: 0 },
+          },
+        ],
+      })
+      pass.setPipeline(pipeline)
+      pass.setBindGroup(0, bindGroup)
+      pass.draw(3, 1, 0, 0)
+      pass.end()
+    }
+    device.queue.submit([encoder.finish()])
+  }
+
+  #mipPipelineFor(format: GPUTextureFormat): GPURenderPipeline {
+    let p = this.#mipPipelines.get(format)
+    if (p) return p
+    p = this.#device.createRenderPipeline({
+      label: 'mipgen',
+      layout: this.#device.createPipelineLayout({
+        bindGroupLayouts: [this.#blitLayout!],
+      }),
+      vertex: { module: this.#blitModule!, entryPoint: 'vs_main' },
+      fragment: {
+        module: this.#blitModule!,
+        entryPoint: 'fs_main',
+        targets: [{ format }],
+      },
+      primitive: { topology: 'triangle-list' },
+    })
+    this.#mipPipelines.set(format, p)
+    return p
   }
 
   // --- context loss ---------------------------------------------------------

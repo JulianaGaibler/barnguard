@@ -189,11 +189,12 @@ export class MeshRenderer {
   #pbrFrameBindGroup: BindGroup | null = null
   #pbrFrameBoundArray: ShadowArray | null = null
   #pbrFrameBoundCube: ShadowCube | null = null
-  // Shadow pass per-pass UBOs (updated once per layer/face; WebGL2 executes
-  // immediately so reuse is safe. A WebGPU backend would need a per-pass ring.)
-  #shadowCamUbo!: UBuffer
+  // Shadow-pass camera UBOs, one slice per layer/face via a dynamic-offset ring.
+  // A shared buffer would clobber under WebGPU's deferred submission (every pass
+  // would read the last-written matrix). The ring gives each pass its own slice.
+  #shadowCamRing!: UboRing
   #shadowCamBindGroup!: BindGroup
-  #cubeCamUbo!: UBuffer
+  #cubeCamRing!: UboRing
   #cubeCamBindGroup!: BindGroup
 
   // Per-object dynamic-offset rings.
@@ -329,10 +330,18 @@ export class MeshRenderer {
       })),
     ])
     this.#shadowCamLayout = device.createBindGroupLayout([
-      { binding: CAMERA3D_UBO_BINDING, type: 'uniform-buffer' },
+      {
+        binding: CAMERA3D_UBO_BINDING,
+        type: 'uniform-buffer',
+        dynamicOffset: true,
+      },
     ])
     this.#cubeCamLayout = device.createBindGroupLayout([
-      { binding: CAMERA3D_UBO_BINDING, type: 'uniform-buffer' },
+      {
+        binding: CAMERA3D_UBO_BINDING,
+        type: 'uniform-buffer',
+        dynamicOffset: true,
+      },
     ])
     this.#shadowObjectLayout = device.createBindGroupLayout([
       {
@@ -356,18 +365,26 @@ export class MeshRenderer {
     this.#pbrFrameBindGroup = null
     this.#pbrFrameBoundArray = null
     this.#pbrFrameBoundCube = null
-    this.#shadowCamUbo = device.createUniformBuffer(SHADOW_CAM_BYTES)
+    // One slice per shadow layer / cube face. Slot counts are sized past the
+    // real maxima (4 array layers, 6 cube faces) so the ring never overflows.
+    this.#shadowCamRing = new UboRing(device, SHADOW_CAM_BYTES, 8, 'shadowCam')
     this.#shadowCamBindGroup = device.createBindGroup(this.#shadowCamLayout, [
       {
         binding: CAMERA3D_UBO_BINDING,
-        resource: { uniformBuffer: this.#shadowCamUbo },
+        resource: {
+          uniformBuffer: this.#shadowCamRing.buffer,
+          size: SHADOW_CAM_BYTES,
+        },
       },
     ])
-    this.#cubeCamUbo = device.createUniformBuffer(CUBE_CAM_BYTES)
+    this.#cubeCamRing = new UboRing(device, CUBE_CAM_BYTES, 8, 'cubeCam')
     this.#cubeCamBindGroup = device.createBindGroup(this.#cubeCamLayout, [
       {
         binding: CAMERA3D_UBO_BINDING,
-        resource: { uniformBuffer: this.#cubeCamUbo },
+        resource: {
+          uniformBuffer: this.#cubeCamRing.buffer,
+          size: CUBE_CAM_BYTES,
+        },
       },
     ])
 
@@ -536,7 +553,7 @@ export class MeshRenderer {
    */
   render(camera: CameraView3D, root: Node, debugMode = 0): void {
     // The uploaded view-projection must land depth in the backend's clip range
-    // (WebGPU keeps [0,1], WebGL [-1,1]); the camera rebuilds only on a change.
+    // (WebGPU keeps [0,1], WebGL [-1,1]). The camera rebuilds only on a change.
     camera.setClipDepth(this.#device.ndc.clipDepth)
     this.stats.draws = 0
     this.stats.visible = 0
@@ -635,6 +652,8 @@ export class MeshRenderer {
     const aabb = this.#castersAABB(casters)
     if (!aabb) return
     this.#shadowObjectRing.reset()
+    this.#shadowCamRing.reset()
+    this.#cubeCamRing.reset()
 
     let layer = 0
     for (const light of lights) {
@@ -670,18 +689,25 @@ export class MeshRenderer {
     const cube = this.#ensurePointCube()
     for (let face = 0; face < 6; face++) {
       // Pad the projection far so geometry at `dist ≈ far` isn't clipped.
-      const vp = fitPointCubeFace(pos, face, near, far * 1.01)
+      const vp = fitPointCubeFace(
+        pos,
+        face,
+        near,
+        far * 1.01,
+        device.ndc.clipDepth,
+      )
       const s = this.#camStaging
       s.set(vp, 0)
       s[16] = px
       s[17] = py
       s[18] = pz
       s[20] = far
-      device.updateUniformBuffer(this.#cubeCamUbo, s)
+      const camOff = this.#cubeCamRing.push(device, s)
+      if (camOff < 0) continue
       device.beginRenderPass({
         depth: { target: { shadowCube: cube, face }, loadOp: 'clear' },
       })
-      for (const caster of casters) this.#drawShadowCaster(caster, true)
+      for (const caster of casters) this.#drawShadowCaster(caster, true, camOff)
       device.endRenderPass()
     }
     this.#shadowByLight.set(light, { kind: 2, param: far })
@@ -703,6 +729,7 @@ export class MeshRenderer {
         this.#lightForward(light),
         this.#quality.shadowMapSize,
         light.shadowMaxDistance,
+        this.#device.ndc.clipDepth,
       )
     }
     if (light instanceof SpotLight3D) {
@@ -717,6 +744,7 @@ export class MeshRenderer {
         light.outerConeAngle,
         Math.max(0.05, far * 0.01),
         far,
+        this.#device.ndc.clipDepth,
       )
     }
     return null
@@ -725,22 +753,27 @@ export class MeshRenderer {
   /** Render every caster's depth into one depth-array `layer` from `vp`. */
   #drawShadowLayer(vp: Mat4, casters: MeshNode[], layer: number): void {
     const device = this.#device
-    device.updateUniformBuffer(
-      this.#shadowCamUbo,
+    const camOff = this.#shadowCamRing.push(
+      device,
       vp as unknown as Float32Array,
     )
+    if (camOff < 0) return
     device.beginRenderPass({
       depth: {
         target: { shadowArray: this.#ensureShadowArray(), layer },
         loadOp: 'clear',
       },
     })
-    for (const caster of casters) this.#drawShadowCaster(caster, false)
+    for (const caster of casters) this.#drawShadowCaster(caster, false, camOff)
     device.endRenderPass()
   }
 
-  /** Draw one caster into the current shadow pass with the given pipeline. */
-  #drawShadowCaster(caster: MeshNode, cube: boolean): void {
+  /**
+   * Draw one caster into the current shadow pass. `camOff` is the caller's
+   * per-pass slice offset into the shadow-camera ring (group 0); the caster's
+   * model matrix takes its own slice in the object ring (group 1).
+   */
+  #drawShadowCaster(caster: MeshNode, cube: boolean, camOff: number): void {
     const gpu = this.#ensureUpload(caster)
     if (!gpu) return
     const device = this.#device
@@ -756,6 +789,7 @@ export class MeshRenderer {
         {
           group: 0,
           bindGroup: cube ? this.#cubeCamBindGroup : this.#shadowCamBindGroup,
+          dynamicOffsets: [camOff],
         },
         {
           group: 1,
@@ -894,11 +928,17 @@ export class MeshRenderer {
     this.#writeLights(lights)
     device.updateUniformBuffer(this.#lightsUbo, this.#lightsF)
 
-    // Shadow frame: matrices + (texel, samples).
+    // Shadow frame: matrices + (texel, samples, backend conventions). The
+    // convention flags let the shadow sample reconcile the light-space depth
+    // and the shadow-map row order per backend (see mesh_pbr.wgsl).
     const sf = this.#shadowFrameStaging
     sf.set(this.#shadowMats, 0) // u_shadowMat[4] @0..63
     sf[64] = 1 / this.#quality.shadowMapSize // u_shadowMeta.x
     sf[65] = this.#quality.shadowSoftness // u_shadowMeta.y
+    // u_shadowMeta.z = 1 when the light projection keeps depth in [0,1]; .w = 1
+    // when the shadow map is stored top-down (both true on WebGPU).
+    sf[66] = device.ndc.clipDepth === 'zero-to-one' ? 1 : 0
+    sf[67] = device.ndc.textureTopDown ? 1 : 0
     device.updateUniformBuffer(this.#shadowFrameUbo, sf)
 
     // Rebuild the frame bind group only when the bound shadow maps change.
@@ -1238,7 +1278,13 @@ export class MeshRenderer {
       mipmap: sampler.mipmap,
       anisotropy: sampler.mipmap ? this.#quality.anisotropy : 1,
     })
-    device.updateTexture2D(tex, bmp, { flipY: false, premultiply: false })
+    // Object-space (mesh) UVs: the WebGPU backend must not apply its 2D
+    // render-origin V-flip, or the texture samples upside-down.
+    device.updateTexture2D(tex, bmp, {
+      flipY: false,
+      premultiply: false,
+      objectSpaceUV: true,
+    })
     const tracked = this.#modelTextures.get(image)
     if (tracked) {
       tracked.width = bmp.width
@@ -1463,8 +1509,8 @@ export class MeshRenderer {
     this.#device.deleteUniformBuffer(this.#pbrFrameUbo)
     this.#device.deleteUniformBuffer(this.#lightsUbo)
     this.#device.deleteUniformBuffer(this.#shadowFrameUbo)
-    this.#device.deleteUniformBuffer(this.#shadowCamUbo)
-    this.#device.deleteUniformBuffer(this.#cubeCamUbo)
+    this.#device.deleteUniformBuffer(this.#shadowCamRing.buffer)
+    this.#device.deleteUniformBuffer(this.#cubeCamRing.buffer)
     if (this.#shadowArray) this.#device.deleteShadowArray(this.#shadowArray)
     if (this.#placeholderArray)
       this.#device.deleteShadowArray(this.#placeholderArray)

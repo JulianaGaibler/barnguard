@@ -347,6 +347,14 @@ export interface Texture2DOpts {
 export interface TextureUploadOpts {
   flipY?: boolean
   premultiply?: boolean
+  /**
+   * The texture is sampled with object-space UVs (e.g. a glTF mesh's own UVs),
+   * not the screen-space UVs the 2D pass uses. WebGL2 ignores this. WebGPU uses
+   * it to skip the render-origin V-flip it otherwise applies (so 2D screen-space
+   * textures match WebGL's bottom-up sampling); a mesh's object-space UVs must
+   * not be flipped, or its texture samples upside-down.
+   */
+  objectSpaceUV?: boolean
 }
 
 export interface RenderTargetOpts {

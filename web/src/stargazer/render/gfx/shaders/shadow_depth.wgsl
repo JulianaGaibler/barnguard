@@ -3,8 +3,9 @@
 // the fragment stage writes nothing.
 //
 // Bindings: a_position at LOC_POSITION (0), ShadowCam at CAMERA3D_UBO_BINDING
-// (1), ShadowObject at MESH_OBJECT_UBO_BINDING (5). Coordinate space kept as
-// authored (the light-space projection targets GL clip-Z).
+// (1), ShadowObject at MESH_OBJECT_UBO_BINDING (5). The light projection's
+// clip-depth range is chosen per backend by shadowFit, so depth lands in the
+// range the backend keeps.
 
 struct ShadowCam {
   shadowViewProj: mat4x4<f32>,

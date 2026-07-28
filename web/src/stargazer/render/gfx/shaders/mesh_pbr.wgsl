@@ -59,7 +59,9 @@ struct Lights {
 };
 @group(0) @binding(4) var<uniform> lights: Lights;
 
-// `shadowMeta.x` = 1 / shadowMapSize, `.y` = PCF tap count (1 = hard).
+// `shadowMeta.x` = 1 / shadowMapSize, `.y` = PCF tap count (1 = hard), `.z` = 1
+// when the light projection keeps depth in [0,1], `.w` = 1 when the shadow map
+// is stored top-down (both set on WebGPU, both 0 on WebGL2).
 struct ShadowFrame {
   shadowMat: array<mat4x4<f32>, 4>,
   shadowMeta: vec4<f32>,
@@ -169,7 +171,8 @@ fn fresnelSchlick(cosT: f32, F0: vec3<f32>) -> vec3<f32> {
 // fragment in the map's [0,1] space (xy texel coord, z compare depth). Outside
 // the map (or past the far plane) reads fully lit.
 fn sampleShadowArray(layer: i32, uvz: vec3<f32>) -> f32 {
-  if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0 || uvz.z > 1.0) {
+  if (uvz.x < 0.0 || uvz.x > 1.0 || uvz.y < 0.0 || uvz.y > 1.0 ||
+      uvz.z < 0.0 || uvz.z > 1.0) {
     return 1.0;
   }
   let samples = i32(shadowF.shadowMeta.y + 0.5);
@@ -201,9 +204,19 @@ fn shadowVisibility(i: i32, L: vec3<f32>, worldPos: vec3<f32>, normal: vec3<f32>
   if (kind == 1) {
     let layer = i32(lights.lightShadow[i].y + 0.5);
     let sc = shadowF.shadowMat[layer] * vec4<f32>(wp, 1.0);
-    // NDC [-1,1] → [0,1] for both texel coord and compare depth.
-    var uvz = (sc.xyz / sc.w) * 0.5 + vec3<f32>(0.5);
-    uvz.z = uvz.z - lights.lightShadow[i].z;
+    let ndc = sc.xyz / sc.w;
+    // xy: NDC [-1,1] to [0,1] texel coords always. V flips when the shadow map
+    // is stored top-down (shadowMeta.w, WebGPU). z: the compare depth is [0,1]
+    // already when the light projection keeps [0,1] (shadowMeta.z, WebGPU),
+    // else remap from [-1,1].
+    var uvz: vec3<f32>;
+    uvz.x = ndc.x * 0.5 + 0.5;
+    uvz.y = select(ndc.y * 0.5 + 0.5, 0.5 - ndc.y * 0.5, shadowF.shadowMeta.w > 0.5);
+    uvz.z = select(ndc.z * 0.5 + 0.5, ndc.z, shadowF.shadowMeta.z > 0.5);
+    // Constant bias is in NDC-z units, so a [0,1] range needs half the bias of
+    // [-1,1] for the same world-space offset.
+    let biasScale = select(1.0, 0.5, shadowF.shadowMeta.z > 0.5);
+    uvz.z = uvz.z - lights.lightShadow[i].z * biasScale;
     shadow = sampleShadowArray(layer, uvz);
   } else {
     // Point cube: bias in world units before the /far divide stays stable.

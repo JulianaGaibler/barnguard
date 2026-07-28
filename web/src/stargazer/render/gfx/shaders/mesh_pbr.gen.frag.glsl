@@ -136,6 +136,7 @@ float sampleShadowArray(int layer, vec3 uvz) {
     bool local_2 = false;
     bool local_3 = false;
     bool local_4 = false;
+    bool local_5 = false;
     float s = 0.0;
     int i_1 = 0;
     if (!((uvz.x < 0.0))) {
@@ -157,42 +158,48 @@ float sampleShadowArray(int layer, vec3 uvz) {
     }
     bool _e28 = local_3;
     if (!(_e28)) {
-        local_4 = (uvz.z > 1.0);
+        local_4 = (uvz.z < 0.0);
     } else {
         local_4 = true;
     }
     bool _e36 = local_4;
-    if (_e36) {
+    if (!(_e36)) {
+        local_5 = (uvz.z > 1.0);
+    } else {
+        local_5 = true;
+    }
+    bool _e44 = local_5;
+    if (_e44) {
         return 1.0;
     }
-    float _e41 = _group_0_binding_7_fs.shadowMeta.y;
-    int samples = int((_e41 + 0.5));
+    float _e49 = _group_0_binding_7_fs.shadowMeta.y;
+    int samples = int((_e49 + 0.5));
     float t = _group_0_binding_7_fs.shadowMeta.x;
     bool loop_init = true;
     while(true) {
         if (!loop_init) {
-            int _e70 = i_1;
-            i_1 = (_e70 + 1);
+            int _e78 = i_1;
+            i_1 = (_e78 + 1);
         }
         loop_init = false;
-        int _e53 = i_1;
-        if ((_e53 < MAX_PCF)) {
+        int _e61 = i_1;
+        if ((_e61 < MAX_PCF)) {
         } else {
             break;
         }
         {
-            int _e56 = i_1;
-            if ((_e56 >= samples)) {
+            int _e64 = i_1;
+            if ((_e64 >= samples)) {
                 break;
             }
-            float _e58 = s;
-            int _e63 = i_1;
-            float _e68 = textureGrad(_group_0_binding_8_fs, vec4((uvz.xy + (PCF_DISK[_e63] * t)), layer, uvz.z), vec2(0.0), vec2(0.0));
-            s = (_e58 + _e68);
+            float _e66 = s;
+            int _e71 = i_1;
+            float _e76 = textureGrad(_group_0_binding_8_fs, vec4((uvz.xy + (PCF_DISK[_e71] * t)), layer, uvz.z), vec2(0.0), vec2(0.0));
+            s = (_e66 + _e76);
         }
     }
-    float _e73 = s;
-    return (_e73 / float(samples));
+    float _e81 = s;
+    return (_e81 / float(samples));
 }
 
 float shadowVisibility(int i_2, vec3 L_1, vec3 worldPos_1, vec3 normal) {
@@ -217,25 +224,32 @@ float shadowVisibility(int i_2, vec3 L_1, vec3 worldPos_1, vec3 normal) {
         int layer_1 = int((_e44 + 0.5));
         mat4x4 _e51 = _group_0_binding_7_fs.shadowMat[layer_1];
         vec4 sc = (_e51 * vec4(wp, 1.0));
-        uvz_1 = (((sc.xyz / vec3(sc.w)) * 0.5) + vec3(0.5));
-        float _e67 = uvz_1.z;
-        float _e72 = _group_0_binding_4_fs.lightShadow[i_2].z;
-        uvz_1.z = (_e67 - _e72);
-        vec3 _e74 = uvz_1;
-        float _e75 = sampleShadowArray(layer_1, _e74);
-        shadow = _e75;
+        vec3 ndc = (sc.xyz / vec3(sc.w));
+        uvz_1.x = ((ndc.x * 0.5) + 0.5);
+        float _e80 = _group_0_binding_7_fs.shadowMeta.w;
+        uvz_1.y = ((_e80 > 0.5) ? (0.5 - (ndc.y * 0.5)) : ((ndc.y * 0.5) + 0.5));
+        float _e94 = _group_0_binding_7_fs.shadowMeta.z;
+        uvz_1.z = ((_e94 > 0.5) ? ndc.z : ((ndc.z * 0.5) + 0.5));
+        float _e101 = _group_0_binding_7_fs.shadowMeta.z;
+        float biasScale = ((_e101 > 0.5) ? 0.5 : 1.0);
+        float _e109 = uvz_1.z;
+        float _e114 = _group_0_binding_4_fs.lightShadow[i_2].z;
+        uvz_1.z = (_e109 - (_e114 * biasScale));
+        vec3 _e117 = uvz_1;
+        float _e118 = sampleShadowArray(layer_1, _e117);
+        shadow = _e118;
     } else {
-        vec4 _e79 = _group_0_binding_4_fs.lightPos[i_2];
-        vec3 toFrag = (wp - _e79.xyz);
-        float _e87 = _group_0_binding_4_fs.lightShadow[i_2].z;
-        float _e93 = _group_0_binding_4_fs.lightShadow[i_2].y;
-        float refDepth = ((length(toFrag) - _e87) / _e93);
-        float _e98 = textureGrad(_group_0_binding_9_fs, vec4(normalize(toFrag), refDepth), vec3(0.0), vec3(0.0));
-        shadow = _e98;
+        vec4 _e122 = _group_0_binding_4_fs.lightPos[i_2];
+        vec3 toFrag = (wp - _e122.xyz);
+        float _e130 = _group_0_binding_4_fs.lightShadow[i_2].z;
+        float _e136 = _group_0_binding_4_fs.lightShadow[i_2].y;
+        float refDepth = ((length(toFrag) - _e130) / _e136);
+        float _e141 = textureGrad(_group_0_binding_9_fs, vec4(normalize(toFrag), refDepth), vec3(0.0), vec3(0.0));
+        shadow = _e141;
     }
-    float _e99 = shadow;
-    float _e104 = _group_0_binding_4_fs.lightColor[i_2].w;
-    return mix(1.0, _e99, _e104);
+    float _e142 = shadow;
+    float _e147 = _group_0_binding_4_fs.lightColor[i_2].w;
+    return mix(1.0, _e142, _e147);
 }
 
 mat3x3 derivativeTBN(vec3 N_1, vec3 dp1_, vec3 dp2_, vec2 duv1_, vec2 duv2_) {

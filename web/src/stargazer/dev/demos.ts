@@ -5,6 +5,9 @@ import type { DemoFn } from './types'
 export const demos: Record<string, () => Promise<DemoFn>> = {
   loop: () => import('./demo-loop').then((m) => m.default),
   scene: () => import('./demo-scene').then((m) => m.default),
+  scene3d: () => import('./demo-scene3d').then((m) => m.default),
+  boxes3d: () => import('./demo-boxes3d').then((m) => m.default),
+  texcube: () => import('./demo-texcube').then((m) => m.default),
   debug: () => import('./demo-debug').then((m) => m.default),
   svg: () => import('./demo-svg').then((m) => m.default),
   input: () => import('./demo-input').then((m) => m.default),
