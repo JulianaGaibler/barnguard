@@ -133,6 +133,9 @@ export class Viewport2DNode extends Node3D {
       this.#gpu.setInternalSize(this.#width, this.#height)
     }
     const gpu = this.#gpu
+    // Skip until the offscreen surface's pipelines warm (async); the 3D pass
+    // falls back to a white texture for the first frame or two.
+    if (!gpu.ready) return
     const camera = this.camera
     camera.setPixelSize(this.#width, this.#height)
     const t = camera.getScreenTransform()

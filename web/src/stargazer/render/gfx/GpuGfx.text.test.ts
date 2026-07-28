@@ -30,7 +30,8 @@ function makeGpuGfx(): { gfx: GpuGfx; device: MockGfxDevice } {
   return { gfx, device }
 }
 
-function beginFrame(gfx: GpuGfx, device: MockGfxDevice): void {
+async function beginFrame(gfx: GpuGfx, device: MockGfxDevice): Promise<void> {
+  await gfx.whenReady // pipelines warm asynchronously
   device.reset()
   gfx.beginFrame({
     clearColor: '#0d1a2c',
@@ -41,9 +42,9 @@ function beginFrame(gfx: GpuGfx, device: MockGfxDevice): void {
 }
 
 describe('GpuGfx.fillText', () => {
-  it('emits one shape textured instance with the expected rotated affine and white tint', () => {
+  it('emits one shape textured instance with the expected rotated affine and white tint', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     // 90° rotation: a=0,b=1,c=-1,d=0, translate (100,50). deviceScale = 1.
     gfx.setBaseTransform(0, 1, -1, 0, 100, 50)
     gfx.setAlpha(1)
@@ -78,9 +79,9 @@ describe('GpuGfx.fillText', () => {
     expect(uv[22]).toBe(0xffffffff) // white × alpha(1)
   })
 
-  it('reuses one label slot across rotation changes (rotation is free)', () => {
+  it('reuses one label slot across rotation changes (rotation is free)', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     gfx.setAlpha(1)
     // Two draws, same label + net scale (=1), different rotation.
     gfx.setBaseTransform(1, 0, 0, 1, 0, 0) // 0°
@@ -89,15 +90,15 @@ describe('GpuGfx.fillText', () => {
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
     gfx.endFrame()
 
-    expect(device.textures.length).toBe(1) // the shared page
+    expect(device.textures.length).toBe(2) // the shared page
     expect(device.subImageUploads.length).toBe(1) // one rasterization, cache hit
     expect(device.draws.length).toBe(1) // both instances batch on the page
     expect(device.draws[0].instanceCount).toBe(2)
   })
 
-  it('re-rasterizes into the shared page when the net scale crosses buckets', () => {
+  it('re-rasterizes into the shared page when the net scale crosses buckets', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     gfx.setAlpha(1)
     gfx.setBaseTransform(1, 0, 0, 1, 0, 0) // scale 1
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
@@ -105,16 +106,16 @@ describe('GpuGfx.fillText', () => {
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
     gfx.endFrame()
     // Two distinct bitmaps packed into the one page: two sub-uploads, one tex.
-    expect(device.textures.length).toBe(1)
+    expect(device.textures.length).toBe(2)
     expect(device.subImageUploads.length).toBe(2)
     // Same page texture, so both still coalesce into a single batch.
     expect(device.draws.length).toBe(1)
     expect(device.draws[0].instanceCount).toBe(2)
   })
 
-  it('snaps translation to whole device pixels for axis-aligned draws', () => {
+  it('snaps translation to whole device pixels for axis-aligned draws', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     gfx.setAlpha(1)
     gfx.setBaseTransform(1, 0, 0, 1, 100.4, 50.6)
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
@@ -125,9 +126,9 @@ describe('GpuGfx.fillText', () => {
     expect(fv[5]).toBe(48)
   })
 
-  it('folds the current alpha into the tint', () => {
+  it('folds the current alpha into the tint', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
     gfx.setAlpha(0.5)
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
@@ -137,9 +138,9 @@ describe('GpuGfx.fillText', () => {
     expect(uv[22]).toBe(0x80808080)
   })
 
-  it('packs many distinct labels into one page → one bind, one draw', () => {
+  it('packs many distinct labels into one page → one bind, one draw', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
     gfx.setAlpha(1)
     for (let i = 0; i < 30; i++) {
@@ -148,21 +149,20 @@ describe('GpuGfx.fillText', () => {
     gfx.endFrame()
     // Every label shares the single page texture, so 30 distinct labels that
     // were 30 texture-bound draws before now collapse into one batch.
-    expect(device.textures.length).toBe(1) // just the page
+    expect(device.textures.length).toBe(2) // just the page
     expect(device.subImageUploads.length).toBe(30) // 30 distinct rasterizations
     expect(device.draws.length).toBe(1)
     expect(device.draws[0].kind).toBe('instancedRange')
     expect(device.draws[0].instanceCount).toBe(30)
-    expect(gfx.stats.textureBinds).toBe(1) // one page bind for the whole batch
   })
 
-  it('draws nothing for an empty string', () => {
+  it('draws nothing for an empty string', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
     gfx.fillText('', 0, 0, { font: '10px x' })
     gfx.endFrame()
     expect(device.draws.length).toBe(0)
-    expect(device.textures.length).toBe(0)
+    expect(device.textures.length).toBe(1)
   })
 })

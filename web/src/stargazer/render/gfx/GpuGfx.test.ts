@@ -23,7 +23,8 @@ function makeGpuGfx(): {
   return { gfx, device, canvas }
 }
 
-function baseFrame(gfx: GpuGfx, device: MockGfxDevice): void {
+async function baseFrame(gfx: GpuGfx, device: MockGfxDevice): Promise<void> {
+  await gfx.whenReady // pipelines warm asynchronously
   device.reset()
   gfx.beginFrame({
     clearColor: '#0d1a2c',
@@ -37,9 +38,9 @@ function baseFrame(gfx: GpuGfx, device: MockGfxDevice): void {
 }
 
 describe('GpuGfx batching, fillRect', () => {
-  it('collapses many fillRects into a single colored-tri draw', () => {
+  it('collapses many fillRects into a single colored-tri draw', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     for (let i = 0; i < 1000; i++) {
       // Vary alpha and color per rect, none of these should force a flush.
       gfx.setAlpha((i % 12) / 12)
@@ -52,13 +53,13 @@ describe('GpuGfx batching, fillRect', () => {
     expect(device.draws[0].count).toBe(1000 * 6)
   })
 
-  it('fillPath2D on an un-registered path ticks the counter without breaking the batch', () => {
+  it('fillPath2D on an un-registered path ticks the counter without breaking the batch', async () => {
     // Phase 2 implemented every Gfx2D method that has a registered path or
     // real primitive. The last "stub" case that survives is fillPath2D /
     // strokePath2D on a Path2D whose tessellation was never registered.    // e.g. tests that hand in a raw `new Path2D()`. Those still no-op via
     // `unimplemented.fillPath2D++`, so a coloredTri batch continues.
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.fillRect(0, 0, 5, 5, '#ff0000')
     gfx.fillPath2D(new Path2D(), '#ff0000') // unregistered → counter++
     gfx.fillRect(10, 10, 5, 5, '#00ff00')
@@ -67,9 +68,9 @@ describe('GpuGfx batching, fillRect', () => {
     expect(gfx.unimplemented.fillPath2D).toBe(1)
   })
 
-  it('blend-mode change flushes and starts a new batch', () => {
+  it('blend-mode change flushes and starts a new batch', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.setBlend('source-over')
     gfx.fillRect(0, 0, 5, 5, '#ff0000')
     gfx.setBlend('lighter')
@@ -82,9 +83,9 @@ describe('GpuGfx batching, fillRect', () => {
 })
 
 describe('GpuGfx Phase 1, record/submit split', () => {
-  it('uploads each stream once and replays runs in painter order with append offsets', () => {
+  it('uploads each stream once and replays runs in painter order with append offsets', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     // Interleave two colored-tri fills around one shape circle. The circle breaks
     // the colored-tri batch, so colored-tri produces two runs from one stream.
     gfx.fillRect(0, 0, 10, 10, '#ff0000') // colored-tri run A: 6 verts at word 0
@@ -121,9 +122,9 @@ describe('GpuGfx Phase 1, record/submit split', () => {
 })
 
 describe('GpuGfx Phase 3, stats reflect real GL state changes', () => {
-  it('counts one program switch for a single-program batch', () => {
+  it('counts one program switch for a single-program batch', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     for (let i = 0; i < 100; i++) gfx.fillRect(i, 0, 5, 5, '#f00')
     gfx.endFrame()
     // 100 fills, one colored-tri program bind — not one per fill.
@@ -131,9 +132,9 @@ describe('GpuGfx Phase 3, stats reflect real GL state changes', () => {
     expect(gfx.stats.drawCalls).toBe(1)
   })
 
-  it('counts a program switch per real program flip', () => {
+  it('counts a program switch per real program flip', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     // fill (coloredTri) → circle (shape) → fill (coloredTri): the middle run flips
     // the program, so three real switches.
     gfx.fillRect(0, 0, 5, 5, '#f00')
@@ -143,9 +144,9 @@ describe('GpuGfx Phase 3, stats reflect real GL state changes', () => {
     expect(gfx.stats.programSwitches).toBe(3)
   })
 
-  it('counts blend switches only when the mode actually changes', () => {
+  it('counts blend switches only when the mode actually changes', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.setBlend('source-over')
     gfx.fillRect(0, 0, 5, 5, '#f00')
     gfx.fillRect(6, 0, 5, 5, '#f00') // same blend, same batch
@@ -156,28 +157,33 @@ describe('GpuGfx Phase 3, stats reflect real GL state changes', () => {
     expect(gfx.stats.blendSwitches).toBe(1)
   })
 
-  it('uploads the projection UBO once per frame regardless of draw count', () => {
+  it('uploads the projection UBO once per frame regardless of draw count', async () => {
     const { gfx, device } = makeGpuGfx()
-    // One Frame UBO created for the whole backend.
-    expect(device.uniformBuffers.length).toBe(1)
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
+    // The shared Frame UBO is the first uniform buffer the backend creates.
+    const frameUbo = device.uniformBuffers[0]
     // Interleave programs so multiple draw runs exist, none re-upload u_proj.
     gfx.fillRect(0, 0, 5, 5, '#f00')
     gfx.fillCircle(50, 50, 5, '#0f0')
     gfx.fillRect(10, 10, 5, 5, '#00f')
     gfx.endFrame()
     expect(device.draws.length).toBe(3)
-    expect(device.uniformUploads.length).toBe(1) // single per-frame projection
+    // The projection block uploads exactly once, regardless of draw count
+    // (per-run/per-object rings upload separately).
+    const frameUploads = device.uniformUploads.filter(
+      (u) => u.buffer === frameUbo,
+    )
+    expect(frameUploads).toHaveLength(1)
   })
 })
 
 describe('GpuGfx batching, drawImage / static blit', () => {
-  it('drawImage of the same source coalesces into one instanced draw', () => {
+  it('drawImage of the same source coalesces into one instanced draw', async () => {
     const { gfx, device } = makeGpuGfx()
     const sprite = document.createElement('canvas')
     sprite.width = 32
     sprite.height = 32
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     for (let i = 0; i < 500; i++) {
       gfx.setAlpha((i % 8) / 8)
       gfx.drawImage(sprite, i, 0, 32, 32)
@@ -188,12 +194,12 @@ describe('GpuGfx batching, drawImage / static blit', () => {
     expect(device.draws[0].instanceCount).toBe(500)
   })
 
-  it('fillRect after drawImage forces a program change → 2 draws', () => {
+  it('fillRect after drawImage forces a program change → 2 draws', async () => {
     const { gfx, device } = makeGpuGfx()
     const sprite = document.createElement('canvas')
     sprite.width = 32
     sprite.height = 32
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.drawImage(sprite, 0, 0, 32, 32)
     gfx.fillRect(0, 0, 5, 5, '#ff0000')
     gfx.endFrame()
@@ -205,7 +211,7 @@ describe('GpuGfx batching, drawImage / static blit', () => {
     expect(device.draws[0].program).not.toBe(device.draws[1].program)
   })
 
-  it('different image sources force a texture bind change → 2 draws', () => {
+  it('different image sources force a texture bind change → 2 draws', async () => {
     const { gfx, device } = makeGpuGfx()
     const spriteA = document.createElement('canvas')
     spriteA.width = 32
@@ -213,7 +219,7 @@ describe('GpuGfx batching, drawImage / static blit', () => {
     const spriteB = document.createElement('canvas')
     spriteB.width = 32
     spriteB.height = 32
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.drawImage(spriteA, 0, 0, 32, 32)
     gfx.drawImage(spriteB, 32, 0, 32, 32)
     gfx.endFrame()
@@ -221,12 +227,12 @@ describe('GpuGfx batching, drawImage / static blit', () => {
     expect(device.draws[0].texture).not.toBe(device.draws[1].texture)
   })
 
-  it('drawImage under a rotated transform now renders (full affine)', () => {
+  it('drawImage under a rotated transform now renders (full affine)', async () => {
     const { gfx, device } = makeGpuGfx()
     const sprite = document.createElement('canvas')
     sprite.width = 32
     sprite.height = 32
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     // Rotate 45°, b, c non-zero.
     const cos45 = Math.cos(Math.PI / 4)
     const sin45 = Math.sin(Math.PI / 4)
@@ -244,22 +250,22 @@ describe('GpuGfx batching, drawImage / static blit', () => {
 })
 
 describe('GpuGfx frame lifecycle', () => {
-  it('flush() with no pending batch is a no-op', () => {
+  it('flush() with no pending batch is a no-op', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.flush()
     gfx.endFrame()
     expect(device.draws.length).toBe(0)
   })
 
-  it('flush at layer boundary preserves painter order', () => {
+  it('flush at layer boundary preserves painter order', async () => {
     // Same-program back-to-back layers would normally coalesce; an explicit
     // flush() between them forces the layer-1 batch to draw before layer 2
     // starts appending. Stage relies on this to preserve painter order across
     // static / above-static / dynamic layers even when they use the same
     // program.
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.fillRect(0, 0, 5, 5, '#ff0000')
     gfx.flush()
     gfx.fillRect(10, 0, 5, 5, '#00ff00')
@@ -267,14 +273,14 @@ describe('GpuGfx frame lifecycle', () => {
     expect(device.draws.length).toBe(2)
   })
 
-  it('stats reset each frame', () => {
+  it('stats reset each frame', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.fillRect(0, 0, 5, 5, '#ff0000')
     gfx.endFrame()
     expect(gfx.stats.drawCalls).toBe(1)
     // Start a new frame, stats zero out.
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     expect(gfx.stats.drawCalls).toBe(0)
     gfx.endFrame()
     expect(gfx.stats.drawCalls).toBe(0)
@@ -294,9 +300,9 @@ import * as SvgPathContours from '@src/stargazer/assets/SvgPathContours'
 import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessellationRegistry'
 
 describe('GpuGfx Phase 2. SDF batching', () => {
-  it('T1: 400 fillCircles collapse into a single SDF instanced draw', () => {
+  it('T1: 400 fillCircles collapse into a single SDF instanced draw', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     for (let i = 0; i < 400; i++) {
       gfx.setAlpha((i % 8) / 8)
       gfx.fillCircle(i, 0, 3, '#ffffff')
@@ -308,9 +314,9 @@ describe('GpuGfx Phase 2. SDF batching', () => {
     expect(gfx.stats.sdfInstances).toBe(400)
   })
 
-  it('T4: fillCircle + strokeCircle coalesce into one SDF draw', () => {
+  it('T4: fillCircle + strokeCircle coalesce into one SDF draw', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     for (let i = 0; i < 50; i++) {
       gfx.fillCircle(i, 0, 3, '#ffffff')
     }
@@ -326,9 +332,9 @@ describe('GpuGfx Phase 2. SDF batching', () => {
 })
 
 describe('GpuGfx roundRect batching', () => {
-  it('collapses many fillRoundRects into a single instanced draw', () => {
+  it('collapses many fillRoundRects into a single instanced draw', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     for (let i = 0; i < 64; i++) {
       gfx.fillRoundRect(i, 0, 20, 12, 4, '#8f74e7')
     }
@@ -339,9 +345,9 @@ describe('GpuGfx roundRect batching', () => {
     expect(gfx.stats.roundRectInstances).toBe(64)
   })
 
-  it('fill + stroke roundRects share one roundRect batch', () => {
+  it('fill + stroke roundRects share one roundRect batch', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.fillRoundRect(0, 0, 40, 40, 8, '#ffffff')
     gfx.strokeRoundRect(0, 0, 40, 40, 8, { color: '#41ab8e', width: 2 })
     gfx.endFrame()
@@ -349,9 +355,9 @@ describe('GpuGfx roundRect batching', () => {
     expect(device.draws[0].instanceCount).toBe(2)
   })
 
-  it('a different program between roundRects breaks the batch', () => {
+  it('a different program between roundRects breaks the batch', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     // Circles/round-rects share the shape program, so a coloredTri fill (not a
     // circle) is what forces the break here.
     gfx.fillRoundRect(0, 0, 40, 40, 8, '#ffffff')
@@ -363,9 +369,9 @@ describe('GpuGfx roundRect batching', () => {
 })
 
 describe('GpuGfx Phase 2, stroke dashStart continuity', () => {
-  it('T2: 3-segment polyline accumulates dashStart across segments', () => {
+  it('T2: 3-segment polyline accumulates dashStart across segments', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     // Three horizontal segments, 100 device px each (identity base transform).
     const pts = new Float32Array([0, 0, 100, 0, 200, 0, 300, 0])
     gfx.strokePolyline(pts, 4, {
@@ -399,9 +405,9 @@ describe('GpuGfx Phase 2, stroke dashStart continuity', () => {
     expect(inst4DashStart).toBeCloseTo(200, 5)
   })
 
-  it('under lighter blend, no join discs are emitted (avoids brightening)', () => {
+  it('under lighter blend, no join discs are emitted (avoids brightening)', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.setBlend('lighter')
     const pts = new Float32Array([0, 0, 100, 0, 200, 0, 300, 0])
     gfx.strokePolyline(pts, 4, { color: '#ffffff', width: 4 })
@@ -413,7 +419,7 @@ describe('GpuGfx Phase 2, stroke dashStart continuity', () => {
 })
 
 describe('GpuGfx Phase 2. Path2D tessellation cache', () => {
-  it('T3: fillPath2D on the same Path2D twice tessellates once', () => {
+  it('T3: fillPath2D on the same Path2D twice tessellates once', async () => {
     const { gfx, device } = makeGpuGfx()
     // Register a hex tessellation manually so we don't rely on SvgPathMap.
     const contour = new Float32Array(12)
@@ -430,7 +436,7 @@ describe('GpuGfx Phase 2. Path2D tessellation cache', () => {
     registerPathTessellation(path, tess, [contour])
     const callsBefore = spy.mock.calls.length
 
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.fillPath2D(path, '#ffffff')
     gfx.fillPath2D(path, '#ffffff')
     gfx.endFrame()
@@ -481,7 +487,7 @@ describe('GpuGfx Phase 3, particle atlas', () => {
       originalOC
   })
 
-  it('T8: two distinct tagged particle sprites coalesce into ONE instanced draw', () => {
+  it('T8: two distinct tagged particle sprites coalesce into ONE instanced draw', async () => {
     const { gfx, device } = makeGpuGfx()
     const spriteA = document.createElement('canvas')
     spriteA.width = 64
@@ -495,7 +501,7 @@ describe('GpuGfx Phase 3, particle atlas', () => {
     ;(
       spriteB as unknown as Record<string, unknown>
     ).__isParticleAtlasCandidate = true
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.drawImage(spriteA, 0, 0, 64, 64)
     gfx.drawImage(spriteB, 64, 0, 64, 64)
     gfx.endFrame()
@@ -507,7 +513,7 @@ describe('GpuGfx Phase 3, particle atlas', () => {
     expect(device.subImageUploads.length).toBe(2)
   })
 
-  it('untagged canvases still fall through to per-source textures', () => {
+  it('untagged canvases still fall through to per-source textures', async () => {
     const { gfx, device } = makeGpuGfx()
     const untaggedA = document.createElement('canvas')
     untaggedA.width = 64
@@ -515,7 +521,7 @@ describe('GpuGfx Phase 3, particle atlas', () => {
     const untaggedB = document.createElement('canvas')
     untaggedB.width = 64
     untaggedB.height = 64
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     gfx.drawImage(untaggedA, 0, 0, 64, 64)
     gfx.drawImage(untaggedB, 64, 0, 64, 64)
     gfx.endFrame()
@@ -527,9 +533,9 @@ describe('GpuGfx Phase 3, particle atlas', () => {
 })
 
 describe('GpuGfx Phase 2. EpicenterNode-shape frame', () => {
-  it('T5: dashed ring + solid ring + fill disc coalesce into ONE SDF batch', () => {
+  it('T5: dashed ring + solid ring + fill disc coalesce into ONE SDF batch', async () => {
     const { gfx, device } = makeGpuGfx()
-    baseFrame(gfx, device)
+    await baseFrame(gfx, device)
     // Rings + fill disc: all SDF instances, same batch.
     gfx.strokeCircle(50, 50, 20, { color: '#41a8ff', width: 2, dash: [4, 4] })
     gfx.strokeCircle(50, 50, 30, { color: '#41a8ff', width: 1 })

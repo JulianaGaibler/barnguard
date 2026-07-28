@@ -1,29 +1,42 @@
 import type {
+  BindGroupLayout,
+  ColorFormat,
   GfxDevice,
-  Program,
+  Pipeline,
   RenderTarget,
-  Texture,
+  ShaderModule,
+  UBuffer,
   VBuffer,
-  Vao,
 } from '../gfx/GfxDevice'
 import type { PostEffect, PostPass, PostPassContext } from './PostEffect'
+import { POST_PARAMS_UBO_BINDING } from '../gfx/batchLayout'
+import { reflection } from '../gfx/programs/programCommon'
 import fullscreenVertSrc from './shaders/fullscreen.vert.glsl?raw'
 
 /** Attribute location the fullscreen vertex shader forces for `a_pos`. */
 const LOC_POS = 0
+/** Sampler unit for the input texture `u_tex`. */
+const U_TEX = 0
 
 /**
- * Clip-space fullscreen triangle: three vertices whose triangle covers the
- * whole `[-1,1]` viewport (the two off-screen corners are clipped). One
- * triangle rather than a quad avoids the diagonal seam that splits `dFdx/dFdy`
- * and hurts texture-cache locality.
+ * Clip-space fullscreen triangle covering the whole `[-1,1]` viewport (the two
+ * off-screen corners are clipped). One triangle rather than a quad avoids the
+ * diagonal seam that splits `dFdx/dFdy` and hurts texture-cache locality.
  */
 const FULLSCREEN_TRI = new Float32Array([-1, -1, 3, -1, -1, 3])
 
-/** GPU handles compiled for one {@link PostPass}. */
+/** GPU resources compiled for one {@link PostPass}. */
 interface PassGpu {
-  program: Program
-  vao: Vao
+  shader: ShaderModule
+  layout: BindGroupLayout
+  paramsUbo: UBuffer | null
+  staging: Float32Array | null
+  /**
+   * Pipeline per target color format (a pass may run into linear or srgb
+   * pools).
+   */
+  pipelines: Map<ColorFormat, Pipeline>
+  pending: Set<ColorFormat>
 }
 
 /** A pooled render target and whether it is claimed this frame. */
@@ -35,20 +48,16 @@ interface PooledTarget {
 
 /**
  * Runs a chain of screen-space {@link PostEffect}s over the composited frame. A
- * `Stage` owns one (lazily, via `stage.postProcess`) and, when the pipeline is
- * {@link PostProcessPipeline.active}, hands it the screen's render target
- * instead of blitting to the canvas itself. The pipeline resolves that target
- * (MSAA → a sampleable single-sample texture), runs each enabled pass as a
- * fullscreen draw ping-ponging between two pooled targets, and blits the final
- * result to the canvas.
+ * `Stage` owns one (lazily, via `stage.postProcess`) and, when
+ * {@link PostProcessPipeline.active}, hands it the screen's resolved render
+ * target instead of presenting itself. The pipeline runs each enabled pass as a
+ * fullscreen render pass, ping-ponging between two pooled single-sample
+ * targets, and presents the final result to the canvas.
  *
- * Fullscreen passes run with depth off and **blending disabled** — each pass
- * overwrites every pixel, so the target is neither cleared nor blended (the
- * fastest path, and the correct one for premultiplied color).
- *
- * GPU resources build lazily and rebuild after a context loss. When no enabled
- * effect is present the pipeline is inert and the `Stage` keeps its normal
- * present path.
+ * Fullscreen passes run with depth off and **blending disabled** (baked into
+ * the pass pipeline) — each pass overwrites every pixel. Pass pipelines compile
+ * asynchronously; until they're ready the pipeline presents the source frame
+ * unmodified for a frame or two.
  *
  * @category Render
  */
@@ -56,20 +65,12 @@ export class PostProcessPipeline {
   readonly #device: GfxDevice
   #effects: PostEffect[] = []
 
-  /**
-   * Shared fullscreen-triangle vertex buffer; null until first use / after
-   * loss.
-   */
   #vbo: VBuffer | null = null
-  /** Compiled program + VAO per pass. */
   #passGpu = new Map<PostPass, PassGpu>()
 
-  /** Reusable render targets, keyed by size + color space. */
   #pool: PooledTarget[] = []
-  /** Target keys acquired during the current `run`, to prune stale sizes after. */
   #usedKeys = new Set<string>()
 
-  /** Seconds accumulated across the pipeline's life, for animated effects. */
   #time = 0
   readonly #offRestore: () => void
 
@@ -86,18 +87,15 @@ export class PostProcessPipeline {
     return false
   }
 
-  /** The effects in run order. */
   get effects(): readonly PostEffect[] {
     return this.#effects
   }
 
-  /** Append an effect (runs last). Returns it for convenient inline use. */
   add<T extends PostEffect>(effect: T): T {
     if (!this.#effects.includes(effect)) this.#effects.push(effect)
     return effect
   }
 
-  /** Remove an effect and free the GPU resources of its passes. */
   remove(effect: PostEffect): void {
     const i = this.#effects.indexOf(effect)
     if (i < 0) return
@@ -105,17 +103,18 @@ export class PostProcessPipeline {
     for (const pass of effect.passes) {
       const gpu = this.#passGpu.get(pass)
       if (gpu) {
-        this.#device.deleteVao(gpu.vao)
-        this.#device.deleteProgram(gpu.program)
+        this.#device.deleteShaderModule(gpu.shader)
+        if (gpu.paramsUbo) this.#device.deleteUniformBuffer(gpu.paramsUbo)
         this.#passGpu.delete(pass)
       }
     }
   }
 
   /**
-   * Run the effect chain over `source` and present to the canvas. `source` is
-   * the screen's render target (may be multisampled); `canvasW`/`canvasH` are
-   * the canvas drawing-buffer size. No-op when {@link active} is false.
+   * Run the effect chain over `source` (the screen's resolved single-sample
+   * target) and present to the canvas. No-op when {@link active} is false; falls
+   * back to presenting `source` unmodified while any pass pipeline is still
+   * compiling.
    */
   run(
     source: RenderTarget,
@@ -125,22 +124,26 @@ export class PostProcessPipeline {
     const device = this.#device
     this.#time += opts.dt
     this.#ensureVbo()
-    this.#usedKeys.clear()
 
     const w = source.width
     const h = source.height
     const cs = source.colorSpace
 
-    // Resolve the (possibly MSAA) frame into a sampleable single-sample target.
-    let read = this.#acquire(w, h, cs)
-    device.resolveTo(source, read)
+    // Compile (or confirm) every enabled pass's pipeline for this color space.
+    // If any isn't ready yet, present the source unmodified this frame.
+    let ready = true
+    for (const effect of this.#effects) {
+      if (!effect.enabled) continue
+      for (const pass of effect.passes) {
+        if (!this.#pipelineFor(pass, cs)) ready = false
+      }
+    }
+    if (!ready) {
+      device.present(source, opts.canvasW, opts.canvasH, { filter: 'nearest' })
+      return
+    }
 
-    // Fullscreen passes: no depth, no cull, no blend (each overwrites fully).
-    device.setDepthTest(false)
-    device.setDepthWrite(false)
-    device.setCullFace('none')
-    device.setBlend('none')
-
+    this.#usedKeys.clear()
     const ctx: PostPassContext = {
       width: w,
       height: h,
@@ -150,39 +153,53 @@ export class PostProcessPipeline {
       dt: opts.dt,
     }
 
+    let read = source
     for (const effect of this.#effects) {
       if (!effect.enabled) continue
       for (const pass of effect.passes) {
+        const gpu = this.#passGpu.get(pass)!
         const dst = this.#acquire(w, h, cs)
-        const gpu = this.#gpuFor(pass)
-        device.bindRenderTarget(dst)
-        device.useProgram(gpu.program)
-        device.bindVao(gpu.vao)
-        // Single-sample targets carry a sampleable color texture (same cast
-        // idiom as GpuGfx.colorTexture); every pooled target is single-sample.
-        const tex = (read as { color?: Texture }).color
-        if (tex) device.setUniformTexture(gpu.program, 'u_tex', tex, 0)
-        pass.bind(device, gpu.program, ctx)
-        device.drawArrays(0, 3)
-        this.#release(read)
+        // Write this pass's params, then bind (input texture + params).
+        if (gpu.paramsUbo && gpu.staging && pass.writeParams) {
+          gpu.staging.fill(0)
+          pass.writeParams(ctx, gpu.staging)
+          device.updateUniformBuffer(gpu.paramsUbo, gpu.staging)
+        }
+        const entries = [
+          { binding: U_TEX, resource: { texture: device.colorTexture(read) } },
+        ]
+        if (gpu.paramsUbo) {
+          entries.push({
+            binding: POST_PARAMS_UBO_BINDING,
+            resource: { uniformBuffer: gpu.paramsUbo } as never,
+          })
+        }
+        const bindGroup = device.createBindGroup(gpu.layout, entries)
+        device.beginRenderPass({
+          color: { target: dst, loadOp: 'clear', clearColor: [0, 0, 0, 0] },
+        })
+        device.draw({
+          pipeline: gpu.pipelines.get(cs)!,
+          vertexBuffers: [{ buffer: this.#vbo!, offset: 0 }],
+          bindGroups: [{ group: 0, bindGroup }],
+          vertexCount: 3,
+        })
+        device.endRenderPass()
+        if (read !== source) this.#release(read)
         read = dst
       }
     }
 
-    // Present the final target. Same device-pixel size as the canvas, so a
-    // nearest blit is exact and sidesteps the MSAA-linear constraint.
-    device.blitToDefault(read, opts.canvasW, opts.canvasH, {
-      filter: 'nearest',
-    })
-    this.#release(read)
+    device.present(read, opts.canvasW, opts.canvasH, { filter: 'nearest' })
+    if (read !== source) this.#release(read)
     this.#pruneStale()
   }
 
   destroy(): void {
     this.#offRestore()
-    for (const { program, vao } of this.#passGpu.values()) {
-      this.#device.deleteVao(vao)
-      this.#device.deleteProgram(program)
+    for (const gpu of this.#passGpu.values()) {
+      this.#device.deleteShaderModule(gpu.shader)
+      if (gpu.paramsUbo) this.#device.deleteUniformBuffer(gpu.paramsUbo)
     }
     this.#passGpu.clear()
     for (const p of this.#pool) this.#device.deleteRenderTarget(p.rt)
@@ -201,34 +218,76 @@ export class PostProcessPipeline {
     this.#device.updateBufferSubData(this.#vbo, 0, FULLSCREEN_TRI)
   }
 
-  #gpuFor(pass: PostPass): PassGpu {
+  /**
+   * Ensure a pass has GPU resources; return its pipeline for `cs`, or null if
+   * still compiling.
+   */
+  #pipelineFor(pass: PostPass, cs: ColorFormat): Pipeline | null {
     let gpu = this.#passGpu.get(pass)
     if (!gpu) {
-      const program = this.#device.createProgram({
-        vertexSrc: fullscreenVertSrc,
-        fragmentSrc: pass.fragmentSrc,
-        attribs: { a_pos: LOC_POS },
+      const device = this.#device
+      const hasParams = pass.paramsBytes > 0
+      const shader = device.createShaderModule({
+        glsl: { vertex: fullscreenVertSrc, fragment: pass.fragmentSrc },
+        reflection: reflection({
+          attribs: { a_pos: LOC_POS },
+          uniformBlocks: hasParams ? { Params: POST_PARAMS_UBO_BINDING } : {},
+          samplers: { u_tex: U_TEX },
+        }),
+        label: 'postfx',
       })
-      const vao = this.#device.createVao(program, [
-        {
-          buffer: this.#vbo!,
-          location: LOC_POS,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: 8,
-          divisor: 0,
-        },
-      ])
-      gpu = { program, vao }
+      const layout = device.createBindGroupLayout(
+        hasParams
+          ? [
+              { binding: U_TEX, type: 'texture-2d' },
+              { binding: POST_PARAMS_UBO_BINDING, type: 'uniform-buffer' },
+            ]
+          : [{ binding: U_TEX, type: 'texture-2d' }],
+      )
+      gpu = {
+        shader,
+        layout,
+        paramsUbo: hasParams
+          ? device.createUniformBuffer(pass.paramsBytes)
+          : null,
+        staging: hasParams ? new Float32Array(pass.paramsBytes / 4) : null,
+        pipelines: new Map(),
+        pending: new Set(),
+      }
       this.#passGpu.set(pass, gpu)
     }
-    return gpu
+    const existing = gpu.pipelines.get(cs)
+    if (existing) return existing
+    if (gpu.pending.has(cs)) return null
+    gpu.pending.add(cs)
+    const g = gpu
+    void this.#device
+      .createPipeline({
+        shader: g.shader,
+        vertexLayout: [
+          {
+            arrayStride: 8,
+            stepMode: 'vertex',
+            attributes: [{ location: LOC_POS, format: 'float32x2', offset: 0 }],
+          },
+        ],
+        bindGroupLayouts: [g.layout],
+        color: { format: cs, blend: 'none' },
+        depth: null,
+        cull: 'none',
+        frontFace: 'ccw',
+        primitive: 'triangle-list',
+        samples: 1,
+        label: 'postfx',
+      })
+      .then((p) => {
+        g.pipelines.set(cs, p)
+        g.pending.delete(cs)
+      })
+    return null
   }
 
-  /** Claim a free pooled target of this size/space, or allocate a new one. */
-  #acquire(w: number, h: number, colorSpace: 'linear' | 'srgb'): RenderTarget {
+  #acquire(w: number, h: number, colorSpace: ColorFormat): RenderTarget {
     const key = `${w}x${h}:${colorSpace}`
     this.#usedKeys.add(key)
     for (const p of this.#pool) {
@@ -257,7 +316,6 @@ export class PostProcessPipeline {
     }
   }
 
-  /** Drop pooled targets whose size/space wasn't used this frame (e.g. resize). */
   #pruneStale(): void {
     for (let i = this.#pool.length - 1; i >= 0; i--) {
       const p = this.#pool[i]
@@ -270,8 +328,8 @@ export class PostProcessPipeline {
   }
 
   #onContextRestored(): void {
-    // GL handles are dead after a loss; drop references and let the next run
-    // rebuild the VBO, programs, and targets lazily.
+    // GPU handles are dead after a loss; drop references and let the next run
+    // rebuild the VBO, shaders/pipelines, and targets lazily.
     this.#vbo = null
     this.#passGpu.clear()
     this.#pool.length = 0

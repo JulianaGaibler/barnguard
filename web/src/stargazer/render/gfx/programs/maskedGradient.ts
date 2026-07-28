@@ -3,7 +3,6 @@
 // on unit 1. The mask/LUT lookups live on `GpuGfx` (need `TextureManager`);
 // this program owns the shader/VAO/stream plumbing and the buffer write.
 
-import type { AttribBinding, GfxDevice, Program, Vao } from '../GfxDevice'
 import { RingStream } from '../RingStream'
 import {
   LOC_MASKGRAD_DST,
@@ -13,38 +12,56 @@ import {
   MASKED_GRAD_BUFFER_BYTES,
   MASKED_GRAD_INSTANCE_STRIDE,
   FRAME_UBO_BINDING,
-  RING_SIZE,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
-import type { Texture } from '../GfxDevice'
-import { drawInstancedRun } from './instancedRun'
+import type {
+  BindGroup,
+  BindGroupLayout,
+  GfxDevice,
+  Pipeline,
+  ShaderModule,
+  Texture,
+  VertexBufferLayout,
+} from '../GfxDevice'
+import {
+  drawInstancedRun,
+  reflection,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
 import maskedGradientVertSrc from '../webgl2/shaders/maskedRadialGradient.vert.glsl?raw'
 import maskedGradientFragSrc from '../webgl2/shaders/maskedRadialGradient.frag.glsl?raw'
 
 export class MaskedGradientProgram implements GpuProgram {
   readonly kind = 'maskedGradient' as const
 
-  #program!: Program
+  #shader!: ShaderModule
   #stream!: RingStream
-  #vaos: Vao[] = new Array(RING_SIZE)
-  #instanceAttribs: AttribBinding[] = []
+  #pipelines: Map<string, Pipeline> = new Map()
+  #vertexLayout: VertexBufferLayout[] = []
+  #materialLayout!: BindGroupLayout
+  /** (mask → (lut → bind group)); both textures vary per run. */
+  #bindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
 
   get stream(): RingStream {
     return this.#stream
   }
 
-  init(device: GfxDevice, ctx: GpuBatchContext): void {
-    this.#program = device.createProgram({
-      vertexSrc: maskedGradientVertSrc,
-      fragmentSrc: maskedGradientFragSrc,
-      attribs: {
-        a_unit: LOC_MASKGRAD_UNIT,
-        a_dst: LOC_MASKGRAD_DST,
-        a_srcRect: LOC_MASKGRAD_SRC,
-        a_grad: LOC_MASKGRAD_GRAD,
-      },
-      uniformBlocks: { Frame: FRAME_UBO_BINDING },
+  init(device: GfxDevice, _ctx: GpuBatchContext): void {
+    this.#shader = device.createShaderModule({
+      glsl: { vertex: maskedGradientVertSrc, fragment: maskedGradientFragSrc },
+      reflection: reflection({
+        attribs: {
+          a_unit: LOC_MASKGRAD_UNIT,
+          a_dst: LOC_MASKGRAD_DST,
+          a_srcRect: LOC_MASKGRAD_SRC,
+          a_grad: LOC_MASKGRAD_GRAD,
+        },
+        uniformBlocks: { Frame: FRAME_UBO_BINDING },
+        samplers: { u_mask: 0, u_stops: 1 },
+      }),
+      label: 'maskedGradient',
     })
     this.#stream = new RingStream(
       device,
@@ -52,55 +69,48 @@ export class MaskedGradientProgram implements GpuProgram {
       MASKED_GRAD_INSTANCE_STRIDE,
       'maskedGradient',
     )
-    this.#vaos = new Array(RING_SIZE)
-    for (let slot = 0; slot < RING_SIZE; slot++) {
-      const attribs: AttribBinding[] = [
-        {
-          buffer: ctx.unitQuadBuffer,
-          location: LOC_MASKGRAD_UNIT,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: 8,
-          divisor: 0,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_MASKGRAD_DST,
-          size: 4,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: MASKED_GRAD_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_MASKGRAD_SRC,
-          size: 4,
-          type: 'float',
-          normalized: false,
-          offset: 16,
-          stride: MASKED_GRAD_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_MASKGRAD_GRAD,
-          size: 4,
-          type: 'float',
-          normalized: false,
-          offset: 32,
-          stride: MASKED_GRAD_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-      ]
-      this.#vaos[slot] = device.createVao(this.#program, attribs)
-      if (slot === 0) {
-        this.#instanceAttribs = attribs.filter((a) => a.divisor === 1)
-      }
+    this.#materialLayout = device.createBindGroupLayout([
+      { binding: 0, type: 'texture-2d' },
+      { binding: 1, type: 'texture-2d' },
+    ])
+    this.#bindGroups = new WeakMap()
+    this.#vertexLayout = [
+      unitQuadLayout(LOC_MASKGRAD_UNIT),
+      {
+        arrayStride: MASKED_GRAD_INSTANCE_STRIDE,
+        stepMode: 'instance',
+        attributes: [
+          { location: LOC_MASKGRAD_DST, format: 'float32x4', offset: 0 },
+          { location: LOC_MASKGRAD_SRC, format: 'float32x4', offset: 16 },
+          { location: LOC_MASKGRAD_GRAD, format: 'float32x4', offset: 32 },
+        ],
+      },
+    ]
+  }
+
+  async warmup(device: GfxDevice, ctx: GpuBatchContext): Promise<void> {
+    this.#pipelines = await warmupBlendPipelines(device, ctx, {
+      shader: this.#shader,
+      vertexLayout: this.#vertexLayout,
+      bindGroupLayouts: [ctx.frameBindGroupLayout, this.#materialLayout],
+    })
+  }
+
+  #bindGroupFor(ctx: GpuBatchContext, mask: Texture, lut: Texture): BindGroup {
+    let byLut = this.#bindGroups.get(mask)
+    if (!byLut) {
+      byLut = new WeakMap()
+      this.#bindGroups.set(mask, byLut)
     }
+    let bg = byLut.get(lut)
+    if (!bg) {
+      bg = ctx.device.createBindGroup(this.#materialLayout, [
+        { binding: 0, resource: { texture: mask } },
+        { binding: 1, resource: { texture: lut } },
+      ])
+      byLut.set(lut, bg)
+    }
+    return bg
   }
 
   /**
@@ -121,23 +131,19 @@ export class MaskedGradientProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    // Mask silhouette on unit 0, gradient LUT on unit 1; both required.
+    const material =
+      run.texture && run.lut
+        ? this.#bindGroupFor(ctx, run.texture, run.lut)
+        : null
     drawInstancedRun(
       ctx,
-      this.#program,
-      this.#vaos,
+      this.#pipelines,
+      ctx.unitQuadBuffer,
       this.#stream,
-      this.#instanceAttribs,
       MASKED_GRAD_INSTANCE_STRIDE,
       run,
-      () => {
-        // Mask silhouette on unit 0, gradient LUT on unit 1.
-        if (run.texture) {
-          ctx.device.setUniformTexture(this.#program, 'u_mask', run.texture, 0)
-        }
-        if (run.lut) {
-          ctx.device.setUniformTexture(this.#program, 'u_stops', run.lut, 1)
-        }
-      },
+      material,
     )
   }
 }

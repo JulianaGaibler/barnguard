@@ -12,8 +12,13 @@ layout(std140) uniform Frame {
   mat3 u_proj;
 };
 
-// Per-draw world matrix (the captured transform stack) as a 2D affine mat3.
-uniform mat3 u_model;
+// Per-draw model matrix + flat color, std140 block (see MODELCOLOR_UBO_BINDING).
+// `u_color` lives here too (used by the fragment stage) so one dynamic-offset
+// slice feeds both stages.
+layout(std140) uniform ModelColor {
+  mat3 u_model;
+  vec4 u_color;
+};
 
 void main() {
   vec3 world = u_model * vec3(a_pos, 1.0);

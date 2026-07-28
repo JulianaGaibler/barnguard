@@ -20,22 +20,30 @@ in vec4 v_color;
 in vec2 v_uv;
 
 uniform sampler2D u_clipTex;
-uniform int u_clipEnabled;
-uniform int u_debugMode;
-uniform vec4 u_debugColor;
+
+// Per-run debug/clip params, std140 block (see DRAWPARAMS_UBO_BINDING). Ints are
+// carried as floats so the block is a plain vec4 + 4 floats (no int/float mixing
+// in std140 staging).
+layout(std140) uniform DrawParams {
+  vec4 u_debugColor;   // premultiplied hue for batch-color mode
+  float u_clipEnabled; // 1.0 when a clip mask is bound
+  float u_debugMode;   // 0 normal, 1 overdraw, 2 batch-color
+  vec2 _drawParamsPad;
+};
 
 out vec4 fragColor;
 
 void main() {
   vec4 c = v_color;
-  if (u_clipEnabled == 1) {
+  if (u_clipEnabled > 0.5) {
     c *= texture(u_clipTex, v_uv).a;
   }
-  if (u_debugMode == 1) {
+  int mode = int(u_debugMode + 0.5);
+  if (mode == 1) {
     // Small premultiplied red per fragment. `lighter` blend at the
     // batch level turns this into an accumulating heatmap.
     c = vec4(0.05, 0.0, 0.0, 0.05);
-  } else if (u_debugMode == 2) {
+  } else if (mode == 2) {
     c = u_debugColor;
   }
   fragColor = c;

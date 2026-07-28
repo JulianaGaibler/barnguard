@@ -8,8 +8,6 @@
 // fill shape — lives here alongside the shader/VAO/stream plumbing and the
 // debug-mode uniforms/blend override inside `flush`.
 
-import type { AttribBinding, GfxDevice, Program, Vao } from '../GfxDevice'
-import type { BitmapMask } from '../../../assets/BitmapMask'
 import type { GeometryHandle, GpuGeometry } from '../GeometryHandle'
 import { parseColor } from '../parseColor'
 import { RingStream } from '../RingStream'
@@ -18,31 +16,59 @@ import {
   COLORED_TRI_BUFFER_BYTES,
   COLORED_TRI_STRIDE,
   COLORED_TRI_WORDS,
+  DRAWPARAMS_UBO_BINDING,
   LOC_COLORED_COLOR,
   LOC_COLORED_POS,
   LOC_COLORED_UV,
   FRAME_UBO_BINDING,
-  RING_SIZE,
+  MODELCOLOR_UBO_BINDING,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
+import type {
+  BindGroup,
+  BindGroupLayout,
+  GfxDevice,
+  Pipeline,
+  ShaderModule,
+  Texture,
+  VertexBufferLayout,
+} from '../GfxDevice'
+import { reflection, UboRing, warmupBlendPipelines } from './programCommon'
 import earcut from 'earcut'
 import coloredTriVertSrc from '../webgl2/shaders/coloredTri.vert.glsl?raw'
 import coloredTriFragSrc from '../webgl2/shaders/coloredTri.frag.glsl?raw'
 import coloredTriRetainedVertSrc from '../webgl2/shaders/coloredTriRetained.vert.glsl?raw'
 import coloredTriRetainedFragSrc from '../webgl2/shaders/coloredTriRetained.frag.glsl?raw'
 
+/** `DrawParams` block size (std140): vec4 + 2 floats + vec2 pad = 32 B. */
+const DRAWPARAMS_BYTES = 32
+/** `ModelColor` block size (std140): mat3 (3×vec4) + vec4 = 64 B. */
+const MODELCOLOR_BYTES = 64
+
 export class ColoredTriProgram implements GpuProgram {
   readonly kind = 'coloredTri' as const
 
-  #program!: Program
+  #shader!: ShaderModule
   #stream!: RingStream
-  #vaos: Vao[] = new Array(RING_SIZE)
+  #pipelines: Map<string, Pipeline> = new Map()
+  #streamLayout!: VertexBufferLayout[]
+  /** Group 1: per-run DrawParams UBO (dynamic) + the clip-mask sampler. */
+  #materialLayout!: BindGroupLayout
+  #drawParamsRing!: UboRing
+  /** Clip bind groups keyed by the bound clip texture (placeholder = no clip). */
+  #clipBindGroups = new WeakMap<Texture, BindGroup>()
+  readonly #drawParamsStaging = new Float32Array(DRAWPARAMS_BYTES / 4)
 
-  // Retained-geometry path (Phase 4): a second program that GPU-transforms
-  // pre-uploaded static geometry via a per-draw `u_model`, plus the set of
-  // handles it has uploaded (so context loss can drop their stale descriptors).
-  #retainedProgram!: Program
+  // Retained-geometry path: a second pipeline that GPU-transforms pre-uploaded
+  // static geometry via a per-draw ModelColor block.
+  #retainedShader!: ShaderModule
+  #retainedPipelines: Map<string, Pipeline> = new Map()
+  #retainedLayout!: VertexBufferLayout[]
+  #retainedBindGroupLayout!: BindGroupLayout
+  #retainedBindGroup!: BindGroup
+  #modelColorRing!: UboRing
+  readonly #modelColorStaging = new Float32Array(MODELCOLOR_BYTES / 4)
   #device!: GfxDevice
   #retainedHandles = new Set<GeometryHandle>()
 
@@ -50,16 +76,23 @@ export class ColoredTriProgram implements GpuProgram {
     return this.#stream
   }
 
-  init(device: GfxDevice, ctx: GpuBatchContext): void {
-    this.#program = device.createProgram({
-      vertexSrc: coloredTriVertSrc,
-      fragmentSrc: coloredTriFragSrc,
-      attribs: {
-        a_pos: LOC_COLORED_POS,
-        a_color: LOC_COLORED_COLOR,
-        a_uv: LOC_COLORED_UV,
-      },
-      uniformBlocks: { Frame: FRAME_UBO_BINDING },
+  init(device: GfxDevice, _ctx: GpuBatchContext): void {
+    this.#device = device
+    this.#shader = device.createShaderModule({
+      glsl: { vertex: coloredTriVertSrc, fragment: coloredTriFragSrc },
+      reflection: reflection({
+        attribs: {
+          a_pos: LOC_COLORED_POS,
+          a_color: LOC_COLORED_COLOR,
+          a_uv: LOC_COLORED_UV,
+        },
+        uniformBlocks: {
+          Frame: FRAME_UBO_BINDING,
+          DrawParams: DRAWPARAMS_UBO_BINDING,
+        },
+        samplers: { u_clipTex: 1 },
+      }),
+      label: 'coloredTri',
     })
     this.#stream = new RingStream(
       device,
@@ -67,56 +100,108 @@ export class ColoredTriProgram implements GpuProgram {
       COLORED_TRI_STRIDE,
       'coloredTri',
     )
-    this.#vaos = new Array(RING_SIZE)
-    for (let slot = 0; slot < RING_SIZE; slot++) {
-      const attribs: AttribBinding[] = [
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_COLORED_POS,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: COLORED_TRI_STRIDE,
-          divisor: 0,
+    this.#streamLayout = [
+      {
+        arrayStride: COLORED_TRI_STRIDE,
+        stepMode: 'vertex',
+        attributes: [
+          { location: LOC_COLORED_POS, format: 'float32x2', offset: 0 },
+          { location: LOC_COLORED_COLOR, format: 'unorm8x4', offset: 8 },
+          { location: LOC_COLORED_UV, format: 'float32x2', offset: 12 },
+        ],
+      },
+    ]
+    this.#materialLayout = device.createBindGroupLayout([
+      {
+        binding: DRAWPARAMS_UBO_BINDING,
+        type: 'uniform-buffer',
+        dynamicOffset: true,
+      },
+      { binding: 1, type: 'texture-2d' },
+    ])
+    this.#drawParamsRing = new UboRing(
+      device,
+      DRAWPARAMS_BYTES,
+      2048,
+      'drawParams',
+    )
+    this.#clipBindGroups = new WeakMap()
+
+    // Retained-geometry pipeline: local-space `a_pos` + per-draw ModelColor.
+    this.#retainedShader = device.createShaderModule({
+      glsl: {
+        vertex: coloredTriRetainedVertSrc,
+        fragment: coloredTriRetainedFragSrc,
+      },
+      reflection: reflection({
+        attribs: { a_pos: LOC_COLORED_POS },
+        uniformBlocks: {
+          Frame: FRAME_UBO_BINDING,
+          ModelColor: MODELCOLOR_UBO_BINDING,
         },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_COLORED_COLOR,
-          size: 4,
-          type: 'unorm8',
-          normalized: true,
-          offset: 8,
-          stride: COLORED_TRI_STRIDE,
-          divisor: 0,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_COLORED_UV,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 12,
-          stride: COLORED_TRI_STRIDE,
-          divisor: 0,
-        },
-      ]
-      this.#vaos[slot] = device.createVao(this.#program, attribs)
-    }
-    // Retained-geometry program: local-space `a_pos` + per-draw `u_model` /
-    // `u_color`, sharing the `Frame` projection block.
-    this.#device = device
-    this.#retainedProgram = device.createProgram({
-      vertexSrc: coloredTriRetainedVertSrc,
-      fragmentSrc: coloredTriRetainedFragSrc,
-      attribs: { a_pos: LOC_COLORED_POS },
-      uniformBlocks: { Frame: FRAME_UBO_BINDING },
+      }),
+      label: 'coloredTriRetained',
     })
+    this.#retainedLayout = [
+      {
+        arrayStride: 8,
+        stepMode: 'vertex',
+        attributes: [
+          { location: LOC_COLORED_POS, format: 'float32x2', offset: 0 },
+        ],
+      },
+    ]
+    this.#retainedBindGroupLayout = device.createBindGroupLayout([
+      {
+        binding: MODELCOLOR_UBO_BINDING,
+        type: 'uniform-buffer',
+        dynamicOffset: true,
+      },
+    ])
+    this.#modelColorRing = new UboRing(
+      device,
+      MODELCOLOR_BYTES,
+      2048,
+      'modelColor',
+    )
+    this.#retainedBindGroup = device.createBindGroup(
+      this.#retainedBindGroupLayout,
+      [
+        {
+          binding: MODELCOLOR_UBO_BINDING,
+          resource: {
+            uniformBuffer: this.#modelColorRing.buffer,
+            size: MODELCOLOR_BYTES,
+          },
+        },
+      ],
+    )
+
     // A rebuild (context restore) re-runs init with fresh GL objects; the old
     // per-handle descriptors are dead, so drop them and re-upload on next draw.
     for (const geo of this.#retainedHandles) geo.gpu = undefined
     this.#retainedHandles.clear()
-    void ctx // no shared buffer needed (coloredTri has no unit-quad attribute)
+  }
+
+  async warmup(device: GfxDevice, ctx: GpuBatchContext): Promise<void> {
+    this.#pipelines = await warmupBlendPipelines(device, ctx, {
+      shader: this.#shader,
+      vertexLayout: this.#streamLayout,
+      bindGroupLayouts: [ctx.frameBindGroupLayout, this.#materialLayout],
+    })
+    this.#retainedPipelines = await warmupBlendPipelines(device, ctx, {
+      shader: this.#retainedShader,
+      vertexLayout: this.#retainedLayout,
+      bindGroupLayouts: [
+        ctx.frameBindGroupLayout,
+        this.#retainedBindGroupLayout,
+      ],
+    })
+  }
+
+  resetFrame(): void {
+    this.#drawParamsRing.reset()
+    this.#modelColorRing.reset()
   }
 
   /**
@@ -132,20 +217,7 @@ export class ColoredTriProgram implements GpuProgram {
     device.updateBufferSubData(vbo, 0, geo.vertices)
     const ibo = device.createIndexBuffer(geo.indices.byteLength)
     device.updateIndexBufferSubData(ibo, 0, geo.indices)
-    const attribs: AttribBinding[] = [
-      {
-        buffer: vbo,
-        location: LOC_COLORED_POS,
-        size: 2,
-        type: 'float',
-        normalized: false,
-        offset: 0,
-        stride: 8,
-        divisor: 0,
-      },
-    ]
-    const vao = device.createVao(this.#retainedProgram, attribs, ibo)
-    const gpu: GpuGeometry = { vbo, ibo, vao, indexCount: geo.indices.length }
+    const gpu: GpuGeometry = { vbo, ibo, indexCount: geo.indices.length }
     geo.gpu = gpu
     this.#retainedHandles.add(geo)
     return gpu
@@ -568,83 +640,119 @@ export class ColoredTriProgram implements GpuProgram {
     const firstVert = run.startWord / COLORED_TRI_WORDS
     const vertCount = (run.endWord - run.startWord) / COLORED_TRI_WORDS
     if (vertCount === 0) return
-    ctx.device.useProgram(this.#program)
-    // Projection is fed by the shared per-frame Frame UBO (bound in
-    // `submitFrame`); no per-draw `u_proj` upload.
-    // Clip-mask state. `u_clipEnabled = 1` triggers the fragment sampler
-    // path; bind the mask to unit 1 (unit 0 stays reserved for
-    // texturedQuad's atlas so a program flip doesn't clobber it).
-    this.#bindClipMask(ctx, run.clipMask)
-    // Debug render-mode uniforms + blend override. Modes 'clip-mask' and
-    // 'polygons' don't touch this shader (overlay / extra strokes instead).
-    let debugModeInt = 0
-    if (run.debugMode === 'overdraw') debugModeInt = 1
-    else if (run.debugMode === 'batch-color') debugModeInt = 2
-    ctx.device.setUniform1i(this.#program, 'u_debugMode', debugModeInt)
+
+    // Resolve the clip mask + debug params into the per-run DrawParams slice.
+    const debugModeInt =
+      run.debugMode === 'overdraw' ? 1 : run.debugMode === 'batch-color' ? 2 : 0
+    const maskTex = run.clipMask
+      ? ctx.textureManager.ensureMaskTexture(run.clipMask)
+      : null
+    const clipTex = maskTex ?? ctx.placeholderTexture
+    const s = this.#drawParamsStaging
     if (debugModeInt === 2) {
-      // Golden-ratio hue cycling, visually distinct neighbouring batches. The
-      // index is fixed at record time so the hue is stable across the frame.
+      // Golden-ratio hue cycling; index fixed at record time so the hue is
+      // stable across the frame. Premultiplied (alpha baked into rgb).
       const h = ((run.debugBatchIndex * 0.61803398875) % 1) * 6
       const [r, g, b] = hsvToRgb(h, 0.75, 1)
-      // Premultiplied output, alpha is baked into rgb.
-      ctx.device.setUniform4f(
-        this.#program,
-        'u_debugColor',
-        r * 0.8,
-        g * 0.8,
-        b * 0.8,
-        0.8,
-      )
+      s[0] = r * 0.8
+      s[1] = g * 0.8
+      s[2] = b * 0.8
+      s[3] = 0.8
     } else {
-      // Silent zero, the shader ignores when mode != 2, but avoid
-      // leaving a stale value from a prior batch.
-      ctx.device.setUniform4f(this.#program, 'u_debugColor', 0, 0, 0, 0)
+      s[0] = s[1] = s[2] = s[3] = 0
     }
-    // Overdraw forces additive blend, otherwise `source-over` would
-    // paint an opaque red instead of the intended accumulating heatmap.
-    if (debugModeInt === 1) {
-      ctx.device.setBlend('lighter')
-    }
-    ctx.device.bindVao(this.#vaos[ctx.curSlot])
-    ctx.device.drawArrays(firstVert, vertCount)
+    s[4] = maskTex ? 1 : 0 // u_clipEnabled
+    s[5] = debugModeInt // u_debugMode
+    s[6] = 0
+    s[7] = 0
+    const dynOffset = this.#drawParamsRing.push(ctx.device, s)
+    if (dynOffset < 0) return
+
+    // Overdraw forces additive blend so the constant red accumulates as a
+    // heatmap instead of painting opaque; otherwise the run's own blend.
+    const blend = debugModeInt === 1 ? 'lighter' : run.blend
+    const pipeline = this.#pipelines.get(blend)
+    if (!pipeline) return
+
+    ctx.device.draw({
+      pipeline,
+      vertexBuffers: [{ buffer: this.#stream.buffers[ctx.curSlot], offset: 0 }],
+      bindGroups: [
+        ctx.frameBindGroupEntry(),
+        {
+          group: 1,
+          bindGroup: this.#clipBindGroupFor(ctx, clipTex),
+          dynamicOffsets: [dynOffset],
+        },
+      ],
+      vertexCount: vertCount,
+      first: firstVert,
+    })
     ctx.stats.drawCalls++
   }
 
-  /**
-   * Replay one retained run: bind the retained program, set model + color,
-   * draw.
-   */
+  /** Replay one retained run: write its ModelColor slice and draw indexed. */
   #drawRetained(ctx: GpuBatchContext, run: DrawRun): void {
     const gpu = run.geometry
     const model = run.model
     const color = run.colorRgba
     if (!gpu || !model || !color) return
-    ctx.device.useProgram(this.#retainedProgram)
-    ctx.device.setUniformMat3(this.#retainedProgram, 'u_model', model)
-    ctx.device.setUniform4f(
-      this.#retainedProgram,
-      'u_color',
-      color[0],
-      color[1],
-      color[2],
-      color[3],
-    )
-    ctx.device.bindVao(gpu.vao)
-    ctx.device.drawElements(gpu.indexCount, 0)
+    // Stage the mat3 as std140 (3 vec4-aligned columns) + color vec4.
+    const s = this.#modelColorStaging
+    s[0] = model[0]
+    s[1] = model[1]
+    s[2] = model[2]
+    s[4] = model[3]
+    s[5] = model[4]
+    s[6] = model[5]
+    s[8] = model[6]
+    s[9] = model[7]
+    s[10] = model[8]
+    s[12] = color[0]
+    s[13] = color[1]
+    s[14] = color[2]
+    s[15] = color[3]
+    const dynOffset = this.#modelColorRing.push(ctx.device, s)
+    if (dynOffset < 0) return
+    const pipeline = this.#retainedPipelines.get(run.blend)
+    if (!pipeline) return
+    ctx.device.draw({
+      pipeline,
+      vertexBuffers: [{ buffer: gpu.vbo, offset: 0 }],
+      indexBuffer: gpu.ibo,
+      bindGroups: [
+        ctx.frameBindGroupEntry(),
+        {
+          group: 1,
+          bindGroup: this.#retainedBindGroup,
+          dynamicOffsets: [dynOffset],
+        },
+      ],
+      indexCount: gpu.indexCount,
+    })
     ctx.stats.drawCalls++
   }
 
-  #bindClipMask(ctx: GpuBatchContext, mask: BitmapMask | null): void {
-    if (!mask) {
-      ctx.device.setUniform1i(this.#program, 'u_clipEnabled', 0)
-      return
+  /**
+   * The group-1 bind group for a given clip texture: the shared DrawParams ring
+   * (dynamic offset supplied per draw) plus the clip sampler. Cached by texture
+   * (the placeholder for no-clip runs).
+   */
+  #clipBindGroupFor(ctx: GpuBatchContext, clipTex: Texture): BindGroup {
+    let bg = this.#clipBindGroups.get(clipTex)
+    if (!bg) {
+      bg = ctx.device.createBindGroup(this.#materialLayout, [
+        {
+          binding: DRAWPARAMS_UBO_BINDING,
+          resource: {
+            uniformBuffer: this.#drawParamsRing.buffer,
+            size: DRAWPARAMS_BYTES,
+          },
+        },
+        { binding: 1, resource: { texture: clipTex } },
+      ])
+      this.#clipBindGroups.set(clipTex, bg)
     }
-    const maskTex = ctx.textureManager.ensureMaskTexture(mask)
-    if (!maskTex) {
-      ctx.device.setUniform1i(this.#program, 'u_clipEnabled', 0)
-      return
-    }
-    ctx.device.setUniform1i(this.#program, 'u_clipEnabled', 1)
-    ctx.device.setUniformTexture(this.#program, 'u_clipTex', maskTex, 1)
+    return bg
   }
 }

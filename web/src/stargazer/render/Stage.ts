@@ -386,6 +386,11 @@ export class Stage implements CameraHost {
 
     const screen = this.#screenGfx
 
+    // Readiness gate: pipelines warm up asynchronously (a microtask on WebGL2,
+    // longer on WebGPU). Skip the whole frame — no passes, no draws — until the
+    // surface can render, rather than opening a pass with no pipelines.
+    if (!screen.ready) return
+
     // Stand up the 3D pass when the world has 3D content or the 3D debug camera
     // is active. `has3D` skips intrinsic nodes; a pure-2D stage never enables it.
     const cam3d: CameraView3D | null =
@@ -396,6 +401,7 @@ export class Stage implements CameraHost {
     if (has3D && cam3d && !this.#meshRenderer) {
       this.#meshRenderer = new MeshRenderer(
         screen.device,
+        screen.targetColor,
         this.tree.engine?.quality,
         this.tree.engine?.fog,
       )
@@ -430,16 +436,16 @@ export class Stage implements CameraHost {
     this.#phaseEnd(marks, 'clear')
 
     // Depth-tested 3D pass, drawn immediately into the freshly-cleared target
-    // so the record/submit 2D layers replay on top. `resetToBaseline` returns
-    // the device to the 2D pipeline's expected state (depth off, cull off,
-    // blend source-over) before those layers draw.
+    // so the record/submit 2D layers replay on top. The 3D and 2D pipelines
+    // each carry their own baked state, so no explicit state reset is needed
+    // between the passes.
     if (show3D && cam3d) {
       this.#phaseBegin(marks, '3d')
       const ph = renderer.pixelSize.h
       cam3d.setAspect(ph > 0 ? renderer.pixelSize.w / ph : 1)
-      if (has3D && this.#meshRenderer) {
+      if (has3D && this.#meshRenderer && this.#meshRenderer.ready) {
         // World matrices were composed in the engine's transform pass (or the
-        // caller's) before render; just draw.
+        // caller's) before render; just draw. Skipped until pipelines warm.
         this.#meshRenderer.render(
           cam3d,
           this.tree.root,
@@ -448,12 +454,14 @@ export class Stage implements CameraHost {
       }
       if (debug) {
         if (!this.#debugLines)
-          this.#debugLines = new DebugLine3DRenderer(screen.device)
+          this.#debugLines = new DebugLine3DRenderer(
+            screen.device,
+            screen.targetColor,
+          )
         this.#debugLines.begin()
         debug.drawOverlay3D(this, cam3d, this.#debugLines)
         this.#debugLines.flush(cam3d.viewProjection)
       }
-      screen.device.resetToBaseline()
       this.#phaseEnd(marks, '3d')
     }
 

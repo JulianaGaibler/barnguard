@@ -5,8 +5,15 @@
 
 in vec3 a_position;
 
-uniform mat4 u_model;
-uniform mat4 u_shadowViewProj;
+// Light-space view-projection, std140 block (per shadow layer).
+layout(std140) uniform ShadowCam {
+  mat4 u_shadowViewProj;
+};
+
+// Per-caster model matrix, std140 block (dynamic-offset ring).
+layout(std140) uniform ShadowObject {
+  mat4 u_model;
+};
 
 void main() {
   gl_Position = u_shadowViewProj * u_model * vec4(a_position, 1.0);

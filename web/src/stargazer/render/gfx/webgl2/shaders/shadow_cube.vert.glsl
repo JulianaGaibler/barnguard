@@ -4,8 +4,18 @@
 
 in vec3 a_position;
 
-uniform mat4 u_model;
-uniform mat4 u_shadowViewProj;
+// Light-space view-projection + point-light position/range, std140 block
+// (updated per cube face). `u_lightPos.xyz` world position, `u_far.x` range.
+layout(std140) uniform CubeCam {
+  mat4 u_shadowViewProj;
+  vec4 u_lightPos;
+  vec4 u_far;
+};
+
+// Per-caster model matrix, std140 block (dynamic-offset ring).
+layout(std140) uniform ShadowObject {
+  mat4 u_model;
+};
 
 out vec3 v_worldPos;
 

@@ -45,12 +45,14 @@ export class VignetteBlur implements PostEffect {
   #axisPass(axis: 'h' | 'v'): PostPass {
     return {
       fragmentSrc: fragSrc,
-      bind: (device, program, ctx) => {
-        if (axis === 'h') device.setUniform2f(program, 'u_dir', ctx.texelW, 0)
-        else device.setUniform2f(program, 'u_dir', 0, ctx.texelH)
-        device.setUniform1f(program, 'u_radius', this.radius)
-        device.setUniform1f(program, 'u_softness', this.softness)
-        device.setUniform1f(program, 'u_strength', this.strength)
+      paramsBytes: 32, // vec4 u_p0 + vec4 u_p1
+      writeParams: (ctx, out) => {
+        // u_p0 = (dirX, dirY, radius, softness); u_p1.x = strength.
+        out[0] = axis === 'h' ? ctx.texelW : 0
+        out[1] = axis === 'h' ? 0 : ctx.texelH
+        out[2] = this.radius
+        out[3] = this.softness
+        out[4] = this.strength
       },
     }
   }

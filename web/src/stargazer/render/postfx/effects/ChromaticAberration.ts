@@ -29,8 +29,9 @@ export class ChromaticAberration implements PostEffect {
     this.passes = [
       {
         fragmentSrc: fragSrc,
-        bind: (device, program) => {
-          device.setUniform1f(program, 'u_amount', this.amount)
+        paramsBytes: 16, // vec4 u_ca
+        writeParams: (_ctx, out) => {
+          out[0] = this.amount
         },
       },
     ]

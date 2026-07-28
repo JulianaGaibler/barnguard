@@ -6,9 +6,15 @@ precision highp float;
 
 in vec3 v_worldPos;
 
-uniform vec4 u_lightPos; // xyz world position
-uniform float u_far;
+// Light-space view-projection + point-light position/range, std140 block.
+// Matches the vertex stage; the fragment stage reads `u_lightPos` + `u_far`.
+layout(std140) uniform CubeCam {
+  mat4 u_shadowViewProj;
+  vec4 u_lightPos;
+  vec4 u_far;
+};
 
 void main() {
-  gl_FragDepth = clamp(length(v_worldPos - u_lightPos.xyz) / u_far, 0.0, 1.0);
+  gl_FragDepth =
+    clamp(length(v_worldPos - u_lightPos.xyz) / u_far.x, 0.0, 1.0);
 }

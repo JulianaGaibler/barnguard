@@ -38,10 +38,11 @@ export class Vignette implements PostEffect {
     this.passes = [
       {
         fragmentSrc: fragSrc,
-        bind: (device, program) => {
-          device.setUniform1f(program, 'u_intensity', this.intensity)
-          device.setUniform1f(program, 'u_radius', this.radius)
-          device.setUniform1f(program, 'u_softness', this.softness)
+        paramsBytes: 16, // vec4 u_vig
+        writeParams: (_ctx, out) => {
+          out[0] = this.intensity
+          out[1] = this.radius
+          out[2] = this.softness
         },
       },
     ]

@@ -4,7 +4,13 @@
 // moves it to a uniform since every vertex shares it).
 precision highp float;
 
-uniform vec4 u_color;
+// Per-draw model matrix + flat color, std140 block (see MODELCOLOR_UBO_BINDING).
+// Matches the block declared in the vertex stage; the fragment stage reads only
+// `u_color`.
+layout(std140) uniform ModelColor {
+  mat3 u_model;
+  vec4 u_color;
+};
 
 out vec4 outColor;
 
