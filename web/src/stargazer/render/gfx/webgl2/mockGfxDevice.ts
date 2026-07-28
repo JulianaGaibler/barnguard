@@ -15,6 +15,7 @@ import type {
   CompareFn,
   CullMode,
   DeviceLimits,
+  NdcConventions,
   DeviceStats,
   DrawCall,
   GfxDevice,
@@ -121,6 +122,11 @@ export class MockGfxDevice implements GfxDevice {
     textureBinds: 0,
   }
   readonly limits: DeviceLimits = { minUniformBufferOffsetAlignment: 256 }
+  readonly ndc: NdcConventions = {
+    clipDepth: 'neg-one-to-one',
+    frontFace: 'ccw',
+    textureTopDown: false,
+  }
 
   // Derived device-level mirrors for tests that assert render state without
   // inspecting pipeline descriptors: the last-drawn pipeline's cull/depth, and

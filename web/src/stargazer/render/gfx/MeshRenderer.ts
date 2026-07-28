@@ -424,7 +424,7 @@ export class MeshRenderer {
             color: { format, blend: 'source-over' },
             depth,
             cull,
-            frontFace: 'ccw',
+            frontFace: device.ndc.frontFace,
             primitive: 'triangle-list',
             samples,
             label: `mesh-flat-${key}`,
@@ -440,7 +440,7 @@ export class MeshRenderer {
             color: { format, blend: 'source-over' },
             depth,
             cull,
-            frontFace: 'ccw',
+            frontFace: device.ndc.frontFace,
             primitive: 'triangle-list',
             samples,
             label: `mesh-pbr-${key}`,
@@ -457,7 +457,7 @@ export class MeshRenderer {
       color: null,
       depth: { test: true, write: true },
       cull: 'none',
-      frontFace: 'ccw',
+      frontFace: device.ndc.frontFace,
       primitive: 'triangle-list',
       samples: 1,
       label: 'shadow-depth',
@@ -470,7 +470,7 @@ export class MeshRenderer {
       color: null,
       depth: { test: true, write: true },
       cull: 'none',
-      frontFace: 'ccw',
+      frontFace: device.ndc.frontFace,
       primitive: 'triangle-list',
       samples: 1,
       label: 'shadow-cube',
@@ -535,6 +535,9 @@ export class MeshRenderer {
    * state, so no device state is set imperatively.
    */
   render(camera: CameraView3D, root: Node, debugMode = 0): void {
+    // The uploaded view-projection must land depth in the backend's clip range
+    // (WebGPU keeps [0,1], WebGL [-1,1]); the camera rebuilds only on a change.
+    camera.setClipDepth(this.#device.ndc.clipDepth)
     this.stats.draws = 0
     this.stats.visible = 0
     this.stats.vertices = 0

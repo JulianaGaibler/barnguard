@@ -1,5 +1,4 @@
-// Chromatic-aberration post-effect (WGSL source of truth, GLSL ES 300 generated
-// by crates/shader-gen via naga). Splits the RGB channels along a radial offset
+// Chromatic-aberration post-effect. Splits the RGB channels along a radial offset
 // that grows toward the edges (scaled by r² from center), mimicking a lens's
 // transverse color error. The frame is premultiplied, so the output alpha is the
 // max of the three taps' alphas, which guarantees rgb ≤ a (a valid premultiplied

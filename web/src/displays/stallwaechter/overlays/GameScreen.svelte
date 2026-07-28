@@ -206,6 +206,10 @@
   <canvas
     class="game__canvas"
     use:mountEngine={{
+      backend:
+        new URLSearchParams(location.search).get('gfx') === 'webgpu'
+          ? 'webgpu'
+          : undefined,
       options: {
         transparent: true,
       },

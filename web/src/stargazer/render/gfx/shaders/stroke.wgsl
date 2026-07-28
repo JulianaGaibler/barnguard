@@ -1,5 +1,4 @@
-// Instanced-segment stroke program (WGSL source of truth, GLSL ES 300 generated
-// by crates/shader-gen via naga). Expanded-quad line technique: one instance per
+// Instanced-segment stroke program. Expanded-quad line technique: one instance per
 // polyline segment, a 6-vert [0,1]×[0,1] unit template. The vertex stage extends
 // the quad by (halfWidth + 1 px) past each endpoint so the fragment stage's
 // round-cap AA falls inside the quad without a second draw.

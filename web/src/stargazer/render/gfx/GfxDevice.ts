@@ -16,6 +16,8 @@
  * clears live in the pass, and a single `draw(desc)` carries the rest.
  */
 
+import type { ClipDepth } from '../../math/Mat4'
+
 // --- opaque handle types ----------------------------------------------------
 
 /**
@@ -258,6 +260,27 @@ export type CullMode = 'none' | 'back' | 'front'
  */
 export type FrontFace = 'ccw' | 'cw'
 
+/**
+ * The backend's coordinate conventions, which 3D rendering must match. WebGL and
+ * WebGPU disagree on three things, and the shared 3D code reads them here rather
+ * than hardcoding one backend:
+ *
+ * - `clipDepth`: NDC depth range. A camera builds its projection with this so
+ *   depth lands in the range the backend keeps (WebGPU clips outside `[0,1]`).
+ * - `frontFace`: winding of a front face for standard geometry. WebGPU's
+ *   framebuffer is top-left origin, so the same NDC triangle has opposite
+ *   apparent winding from WebGL's bottom-left origin; the 3D pipelines take this
+ *   so face culling keeps the same faces.
+ * - `textureTopDown`: row order of a sampled render-target texture. WebGPU
+ *   stores row 0 at the top, WebGL at the bottom, so a pass that samples an
+ *   offscreen target (RTT / post-process / present) flips V when this is true.
+ */
+export interface NdcConventions {
+  clipDepth: ClipDepth
+  frontFace: FrontFace
+  textureTopDown: boolean
+}
+
 export type PrimitiveTopology = 'triangle-list' | 'line-list'
 
 /** Color-target format: `'linear'` → `RGBA8`, `'srgb'` → sRGB-encoded RGBA8. */
@@ -478,6 +501,8 @@ export interface DeviceLimits {
 export interface GfxDevice {
   readonly deviceStats: DeviceStats
   readonly limits: DeviceLimits
+  /** The backend's coordinate conventions (clip-depth, winding, texture rows). */
+  readonly ndc: NdcConventions
 
   // Shaders / pipelines / bind groups ---------------------------------------
   createShaderModule(desc: ShaderModuleDesc): ShaderModule

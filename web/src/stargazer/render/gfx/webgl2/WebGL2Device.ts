@@ -31,6 +31,7 @@ import type {
   CompareFn,
   CullMode,
   DeviceLimits,
+  NdcConventions,
   DeviceStats,
   DrawCall,
   FrontFace,
@@ -230,6 +231,13 @@ export class WebGL2Device implements GfxDevice {
   }
 
   readonly limits: DeviceLimits
+
+  /** WebGL conventions: `[-1,1]` depth, CCW front faces, bottom-up textures. */
+  readonly ndc: NdcConventions = {
+    clipDepth: 'neg-one-to-one',
+    frontFace: 'ccw',
+    textureTopDown: false,
+  }
 
   readonly maxTextureSize: number
   readonly maxSamples: number

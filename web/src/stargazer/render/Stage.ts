@@ -131,6 +131,9 @@ export class Stage implements CameraHost {
   /** Per-layer node walk: viewport cull, transform compose, draw. */
   readonly #layerRenderer = new StageLayerRenderer()
 
+  /** Set when a render frame threw; the stage then stops rendering. */
+  #faulted = false
+
   /** Created lazily the first frame the stage has 3D content. */
   #meshRenderer: MeshRenderer | null = null
   /** Created lazily the first frame a 3D debug overlay is drawn. */
@@ -345,6 +348,23 @@ export class Stage implements CameraHost {
    * `DebugController.activeCameraFor`).
    */
   render(dt: number): void {
+    // A GPU-backend error (often a validation error while bringing up WebGPU)
+    // throws synchronously from a device call and would otherwise re-throw every
+    // frame, pegging the tab. Halt this stage on the first fault and surface it
+    // once, rather than spinning.
+    if (this.#faulted) return
+    try {
+      this.#renderFrame(dt)
+    } catch (err) {
+      this.#faulted = true
+      console.error(
+        '[stargazer] Stage render faulted and was halted to avoid a busy loop:',
+        err,
+      )
+    }
+  }
+
+  #renderFrame(dt: number): void {
     const { renderer } = this
     const debug = this.tree.engine?.debug ?? null
     const dpr = renderer.dpr

@@ -1,5 +1,4 @@
-// Radial-gradient program (WGSL source of truth, GLSL ES 300 is generated from
-// this by scripts/gen-shaders.mjs via naga). A quad centered on the gradient
+// Radial-gradient program. A quad centered on the gradient
 // origin, size = 2·radius. The fragment stage samples the `u_stops` 1D LUT at
 // t = length(uv - 0.5)·2.
 //

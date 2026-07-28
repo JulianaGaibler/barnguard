@@ -62,6 +62,11 @@ void main() {
     float strokeAlpha = 0.0;
     bool local = false;
     vec4 stroke_1 = vec4(0.0);
+    vec4 atlasTexel = texture(_group_1_binding_0_fs, vec2(in_.uv));
+    vec4 labelTexel = texture(_group_1_binding_1_fs, vec2(in_.uv));
+    float _e12 = sdRoundBox(in_.local, in_.half_, in_.radii);
+    float _e13 = coverage(_e12);
+    float _e19 = coverage((abs(_e12) - (in_.strokeWidth * 0.5)));
     if ((in_.shapeType == 1)) {
         vec2 delta = (in_.worldPos - in_.center);
         float dist = length(delta);
@@ -76,13 +81,13 @@ void main() {
             strokeAlpha = (outerEdge * innerEdge);
             float dashPeriod = in_.dash.y;
             if ((dashPeriod > 0.0)) {
-                float _e53 = strokeAlpha;
-                local = (_e53 > 0.0);
+                float _e72 = strokeAlpha;
+                local = (_e72 > 0.0);
             } else {
                 local = false;
             }
-            bool _e57 = local;
-            if (_e57) {
+            bool _e76 = local;
+            if (_e76) {
                 float dashStart = in_.dash.x;
                 float dashOnLen = (dashPeriod * 0.5);
                 float angle = atan(delta.y, delta.x);
@@ -91,39 +96,33 @@ void main() {
                 float s = (dashStart + arcPos);
                 float phase = (s - (dashPeriod * floor((s / dashPeriod))));
                 float off = smoothstep((dashOnLen - 0.5), (dashOnLen + 0.5), phase);
-                float _e82 = strokeAlpha;
-                strokeAlpha = (_e82 * (1.0 - off));
+                float _e101 = strokeAlpha;
+                strokeAlpha = (_e101 * (1.0 - off));
             }
-            float _e87 = strokeAlpha;
-            stroke = (in_.colorStroke * _e87);
+            float _e106 = strokeAlpha;
+            stroke = (in_.colorStroke * _e106);
         }
-        vec4 _e89 = stroke;
-        float _e91 = stroke.w;
-        outColor = (_e89 + (fill * (1.0 - _e91)));
-        float _e97 = outColor.w;
-        if ((_e97 <= 0.0)) {
+        vec4 _e108 = stroke;
+        float _e110 = stroke.w;
+        outColor = (_e108 + (fill * (1.0 - _e110)));
+        float _e116 = outColor.w;
+        if ((_e116 <= 0.0)) {
             discard;
         }
     } else {
         if ((in_.shapeType == 2)) {
-            float _e106 = sdRoundBox(in_.local, in_.half_, in_.radii);
-            float _e108 = coverage(_e106);
-            vec4 fill_1 = (in_.colorFill * _e108);
+            vec4 fill_1 = (in_.colorFill * _e13);
             if ((in_.strokeWidth > 0.0)) {
-                float sd = (abs(_e106) - (in_.strokeWidth * 0.5));
-                float _e122 = coverage(sd);
-                stroke_1 = (in_.colorStroke * _e122);
+                stroke_1 = (in_.colorStroke * _e19);
             }
-            vec4 _e124 = stroke_1;
-            float _e126 = stroke_1.w;
-            outColor = (_e124 + (fill_1 * (1.0 - _e126)));
-            float _e132 = outColor.w;
-            if ((_e132 <= 0.0)) {
+            vec4 _e132 = stroke_1;
+            float _e134 = stroke_1.w;
+            outColor = (_e132 + (fill_1 * (1.0 - _e134)));
+            float _e140 = outColor.w;
+            if ((_e140 <= 0.0)) {
                 discard;
             }
         } else {
-            vec4 atlasTexel = texture(_group_1_binding_0_fs, vec2(in_.uv));
-            vec4 labelTexel = texture(_group_1_binding_1_fs, vec2(in_.uv));
             vec4 texel = ((in_.texIndex < 0.5) ? atlasTexel : labelTexel);
             outColor = (texel * in_.tint);
         }

@@ -1,5 +1,4 @@
-// Masked radial-gradient program (WGSL source of truth, GLSL ES 300 generated
-// by crates/shader-gen via naga). One instanced quad (dst rect in device px)
+// Masked radial-gradient program. One instanced quad (dst rect in device px)
 // textured with a mask silhouette. The gradient is WORLD-FIXED: the fragment
 // computes it from the device-space position vs a per-instance center + radius,
 // so translating the quad slides the silhouette across a stationary gradient.

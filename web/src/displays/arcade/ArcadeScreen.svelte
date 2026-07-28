@@ -186,6 +186,10 @@
   <canvas
     class="arcade__canvas"
     use:mountEngine={{
+      backend:
+        new URLSearchParams(location.search).get('gfx') === 'webgpu'
+          ? 'webgpu'
+          : undefined,
       options: {
         transparent: false,
         // Matches the sky base so the first frame (before the gradient paints)

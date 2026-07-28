@@ -123,7 +123,7 @@ export class DebugLine3DRenderer {
         blend: 'source-over' as const,
       },
       cull: 'none' as const,
-      frontFace: 'ccw' as const,
+      frontFace: this.#device.ndc.frontFace,
       primitive: 'line-list' as const,
       samples: this.#targetColor.samples,
     }

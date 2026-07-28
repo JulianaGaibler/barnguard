@@ -1,5 +1,4 @@
-// Instanced textured-quad program (WGSL source of truth, GLSL ES 300 generated
-// by crates/shader-gen via naga). One unit-quad template (a_unit ∈ [0,1]²) plus
+// Instanced textured-quad program. One unit-quad template (a_unit ∈ [0,1]²) plus
 // a per-instance record: dst rect in device px, src rect in UV space, tint in
 // premultiplied 0..1 RGBA. Both texels and tint are premultiplied, so the
 // multiply preserves that invariant.
