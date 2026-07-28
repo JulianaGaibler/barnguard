@@ -11,6 +11,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-check --tsconfig ./tsconfig.json --watch",
     "lint": "eslint src/",
+    "gen:shaders": "cargo build --release -p shader-gen --manifest-path ../Cargo.toml && ../target/release/shader-gen src/stargazer/render",
     "prettier": "prettier --write --check 'src/**/*.*'",
     "test": "vitest",
     "test:run": "vitest run",

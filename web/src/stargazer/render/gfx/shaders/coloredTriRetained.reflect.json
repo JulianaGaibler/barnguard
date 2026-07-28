@@ -1,0 +1,18 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 0,
+      "glslName": "Frame_block_0Vertex"
+    },
+    {
+      "binding": 3,
+      "glslName": "ModelColor_block_0Fragment"
+    },
+    {
+      "binding": 3,
+      "glslName": "ModelColor_block_1Vertex"
+    }
+  ],
+  "samplers": []
+}

@@ -10,7 +10,6 @@ import {
   LOC_GRAD_CENTER,
   LOC_GRAD_RADALPHA,
   LOC_GRAD_UNIT,
-  FRAME_UBO_BINDING,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
@@ -23,14 +22,12 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import {
-  drawInstancedRun,
-  reflection,
-  unitQuadLayout,
-  warmupBlendPipelines,
-} from './programCommon'
-import gradientRadialVertSrc from '../webgl2/shaders/gradientRadial.vert.glsl?raw'
-import gradientRadialFragSrc from '../webgl2/shaders/gradientRadial.frag.glsl?raw'
+import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import gradientRadialWgsl from '../shaders/gradientRadial.wgsl?raw'
+import gradientRadialVertSrc from '../shaders/gradientRadial.gen.vert.glsl?raw'
+import gradientRadialFragSrc from '../shaders/gradientRadial.gen.frag.glsl?raw'
+import gradientRadialReflect from '../shaders/gradientRadial.reflect.json'
 
 export class GradientRadialProgram implements GpuProgram {
   readonly kind = 'gradientRadial' as const
@@ -49,15 +46,12 @@ export class GradientRadialProgram implements GpuProgram {
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
     this.#shader = device.createShaderModule({
       glsl: { vertex: gradientRadialVertSrc, fragment: gradientRadialFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_unit: LOC_GRAD_UNIT,
-          a_center: LOC_GRAD_CENTER,
-          a_radAlpha: LOC_GRAD_RADALPHA,
-        },
-        uniformBlocks: { Frame: FRAME_UBO_BINDING },
-        samplers: { u_stops: 0 },
-      }),
+      wgsl: {
+        code: gradientRadialWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: gradientRadialReflect as ShaderReflection,
       label: 'gradientRadial',
     })
     this.#stream = new RingStream(

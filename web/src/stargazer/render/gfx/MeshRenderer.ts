@@ -48,19 +48,28 @@ import {
   MESH_OBJECT_UBO_BINDING,
   MESH_SHADOW_UBO_BINDING,
 } from './batchLayout'
-import { reflection, UboRing } from './programs/programCommon'
+import { UboRing } from './programs/programCommon'
 import type {
   TextureInspector,
   TextureInspectorSnapshot,
 } from './TextureManager'
-import meshVertSrc from './webgl2/shaders/mesh.vert.glsl?raw'
-import meshFragSrc from './webgl2/shaders/mesh.frag.glsl?raw'
-import meshPbrVertSrc from './webgl2/shaders/mesh_pbr.vert.glsl?raw'
-import meshPbrFragSrc from './webgl2/shaders/mesh_pbr.frag.glsl?raw'
-import shadowDepthVertSrc from './webgl2/shaders/shadow_depth.vert.glsl?raw'
-import shadowDepthFragSrc from './webgl2/shaders/shadow_depth.frag.glsl?raw'
-import shadowCubeVertSrc from './webgl2/shaders/shadow_cube.vert.glsl?raw'
-import shadowCubeFragSrc from './webgl2/shaders/shadow_cube.frag.glsl?raw'
+import type { ShaderReflection } from './GfxDevice'
+import meshWgsl from './shaders/mesh.wgsl?raw'
+import meshVertSrc from './shaders/mesh.gen.vert.glsl?raw'
+import meshFragSrc from './shaders/mesh.gen.frag.glsl?raw'
+import meshReflect from './shaders/mesh.reflect.json'
+import meshPbrWgsl from './shaders/mesh_pbr.wgsl?raw'
+import meshPbrVertSrc from './shaders/mesh_pbr.gen.vert.glsl?raw'
+import meshPbrFragSrc from './shaders/mesh_pbr.gen.frag.glsl?raw'
+import meshPbrReflect from './shaders/mesh_pbr.reflect.json'
+import shadowDepthWgsl from './shaders/shadow_depth.wgsl?raw'
+import shadowDepthVertSrc from './shaders/shadow_depth.gen.vert.glsl?raw'
+import shadowDepthFragSrc from './shaders/shadow_depth.gen.frag.glsl?raw'
+import shadowDepthReflect from './shaders/shadow_depth.reflect.json'
+import shadowCubeWgsl from './shaders/shadow_cube.wgsl?raw'
+import shadowCubeVertSrc from './shaders/shadow_cube.gen.vert.glsl?raw'
+import shadowCubeFragSrc from './shaders/shadow_cube.gen.frag.glsl?raw'
+import shadowCubeReflect from './shaders/shadow_cube.reflect.json'
 
 /**
  * The 3D pass's fallback lighting: a single directional light used when the
@@ -254,68 +263,38 @@ export class MeshRenderer {
     const device = this.#device
     this.#flatShader = device.createShaderModule({
       glsl: { vertex: meshVertSrc, fragment: meshFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_position: LOC_POSITION,
-          a_normal: LOC_NORMAL,
-          a_uv: LOC_UV,
-        },
-        uniformBlocks: {
-          FlatFrame: CAMERA3D_UBO_BINDING,
-          FlatObject: MESH_OBJECT_UBO_BINDING,
-        },
-        samplers: { u_texture: U_TEX },
-      }),
+      wgsl: { code: meshWgsl, vertexEntry: 'vs_main', fragmentEntry: 'fs_main' },
+      reflection: meshReflect as ShaderReflection,
       label: 'mesh-flat',
     })
     this.#pbrShader = device.createShaderModule({
       glsl: { vertex: meshPbrVertSrc, fragment: meshPbrFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_position: LOC_POSITION,
-          a_normal: LOC_NORMAL,
-          a_uv: LOC_UV,
-          a_tangent: LOC_TANGENT,
-        },
-        uniformBlocks: {
-          PbrFrame: CAMERA3D_UBO_BINDING,
-          PbrObject: MESH_OBJECT_UBO_BINDING,
-          Lights: MESH_LIGHTS_UBO_BINDING,
-          ShadowFrame: MESH_SHADOW_UBO_BINDING,
-        },
-        samplers: {
-          u_baseColorTex: U_PBR_TEX_BASE,
-          u_metalRoughTex: U_PBR_TEX_BASE + 1,
-          u_normalTex: U_PBR_TEX_BASE + 2,
-          u_occlusionTex: U_PBR_TEX_BASE + 3,
-          u_emissiveTex: U_PBR_TEX_BASE + 4,
-          u_diffuseTransmissionTex: U_PBR_TEX_BASE + 5,
-          u_shadowArray: U_SHADOW_ARRAY,
-          u_shadowCube: U_SHADOW_CUBE,
-        },
-      }),
+      wgsl: {
+        code: meshPbrWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: meshPbrReflect as ShaderReflection,
       label: 'mesh-pbr',
     })
     this.#shadowShader = device.createShaderModule({
       glsl: { vertex: shadowDepthVertSrc, fragment: shadowDepthFragSrc },
-      reflection: reflection({
-        attribs: { a_position: LOC_POSITION },
-        uniformBlocks: {
-          ShadowCam: CAMERA3D_UBO_BINDING,
-          ShadowObject: MESH_OBJECT_UBO_BINDING,
-        },
-      }),
+      wgsl: {
+        code: shadowDepthWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: shadowDepthReflect as ShaderReflection,
       label: 'shadow-depth',
     })
     this.#cubeShader = device.createShaderModule({
       glsl: { vertex: shadowCubeVertSrc, fragment: shadowCubeFragSrc },
-      reflection: reflection({
-        attribs: { a_position: LOC_POSITION },
-        uniformBlocks: {
-          CubeCam: CAMERA3D_UBO_BINDING,
-          ShadowObject: MESH_OBJECT_UBO_BINDING,
-        },
-      }),
+      wgsl: {
+        code: shadowCubeWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: shadowCubeReflect as ShaderReflection,
       label: 'shadow-cube',
     })
 

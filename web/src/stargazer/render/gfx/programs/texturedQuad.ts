@@ -9,7 +9,6 @@ import {
   LOC_TEXTURED_SRC,
   LOC_TEXTURED_TINT,
   LOC_TEXTURED_UNIT,
-  FRAME_UBO_BINDING,
   TEXTURED_QUAD_BUFFER_BYTES,
   TEXTURED_QUAD_INSTANCE_STRIDE,
 } from '../batchLayout'
@@ -24,14 +23,12 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import {
-  drawInstancedRun,
-  reflection,
-  unitQuadLayout,
-  warmupBlendPipelines,
-} from './programCommon'
-import texturedQuadVertSrc from '../webgl2/shaders/texturedQuad.vert.glsl?raw'
-import texturedQuadFragSrc from '../webgl2/shaders/texturedQuad.frag.glsl?raw'
+import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import texturedQuadWgsl from '../shaders/texturedQuad.wgsl?raw'
+import texturedQuadVertSrc from '../shaders/texturedQuad.gen.vert.glsl?raw'
+import texturedQuadFragSrc from '../shaders/texturedQuad.gen.frag.glsl?raw'
+import texturedQuadReflect from '../shaders/texturedQuad.reflect.json'
 
 export class TexturedQuadProgram implements GpuProgram {
   readonly kind = 'texturedQuad' as const
@@ -50,16 +47,12 @@ export class TexturedQuadProgram implements GpuProgram {
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
     this.#shader = device.createShaderModule({
       glsl: { vertex: texturedQuadVertSrc, fragment: texturedQuadFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_unit: LOC_TEXTURED_UNIT,
-          a_dst: LOC_TEXTURED_DST,
-          a_srcRect: LOC_TEXTURED_SRC,
-          a_tint: LOC_TEXTURED_TINT,
-        },
-        uniformBlocks: { Frame: FRAME_UBO_BINDING },
-        samplers: { u_tex: 0 },
-      }),
+      wgsl: {
+        code: texturedQuadWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: texturedQuadReflect as ShaderReflection,
       label: 'texturedQuad',
     })
     this.#stream = new RingStream(

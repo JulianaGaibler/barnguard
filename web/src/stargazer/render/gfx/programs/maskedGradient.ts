@@ -11,7 +11,6 @@ import {
   LOC_MASKGRAD_UNIT,
   MASKED_GRAD_BUFFER_BYTES,
   MASKED_GRAD_INSTANCE_STRIDE,
-  FRAME_UBO_BINDING,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
@@ -24,14 +23,12 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import {
-  drawInstancedRun,
-  reflection,
-  unitQuadLayout,
-  warmupBlendPipelines,
-} from './programCommon'
-import maskedGradientVertSrc from '../webgl2/shaders/maskedRadialGradient.vert.glsl?raw'
-import maskedGradientFragSrc from '../webgl2/shaders/maskedRadialGradient.frag.glsl?raw'
+import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import maskedGradientWgsl from '../shaders/maskedRadialGradient.wgsl?raw'
+import maskedGradientVertSrc from '../shaders/maskedRadialGradient.gen.vert.glsl?raw'
+import maskedGradientFragSrc from '../shaders/maskedRadialGradient.gen.frag.glsl?raw'
+import maskedGradientReflect from '../shaders/maskedRadialGradient.reflect.json'
 
 export class MaskedGradientProgram implements GpuProgram {
   readonly kind = 'maskedGradient' as const
@@ -51,16 +48,12 @@ export class MaskedGradientProgram implements GpuProgram {
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
     this.#shader = device.createShaderModule({
       glsl: { vertex: maskedGradientVertSrc, fragment: maskedGradientFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_unit: LOC_MASKGRAD_UNIT,
-          a_dst: LOC_MASKGRAD_DST,
-          a_srcRect: LOC_MASKGRAD_SRC,
-          a_grad: LOC_MASKGRAD_GRAD,
-        },
-        uniformBlocks: { Frame: FRAME_UBO_BINDING },
-        samplers: { u_mask: 0, u_stops: 1 },
-      }),
+      wgsl: {
+        code: maskedGradientWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: maskedGradientReflect as ShaderReflection,
       label: 'maskedGradient',
     })
     this.#stream = new RingStream(

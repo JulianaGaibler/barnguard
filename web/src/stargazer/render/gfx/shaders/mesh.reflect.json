@@ -1,0 +1,27 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 1,
+      "glslName": "FlatFrame_block_0Fragment"
+    },
+    {
+      "binding": 1,
+      "glslName": "FlatFrame_block_0Vertex"
+    },
+    {
+      "binding": 5,
+      "glslName": "FlatObject_block_1Fragment"
+    },
+    {
+      "binding": 5,
+      "glslName": "FlatObject_block_1Vertex"
+    }
+  ],
+  "samplers": [
+    {
+      "binding": 0,
+      "glslName": "_group_1_binding_0_fs"
+    }
+  ]
+}

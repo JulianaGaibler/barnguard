@@ -13,9 +13,11 @@ import type { Mat4 } from '../../math/Mat4'
 import { mat4TransformPoint } from '../../math/Mat4'
 import { vec3 } from '../../math/Vec3'
 import { CAMERA3D_UBO_BINDING } from './batchLayout'
-import { reflection } from './programs/programCommon'
-import debugLineVertSrc from './webgl2/shaders/debugLine.vert.glsl?raw'
-import debugLineFragSrc from './webgl2/shaders/debugLine.frag.glsl?raw'
+import type { ShaderReflection } from './GfxDevice'
+import debugLineWgsl from './shaders/debugLine.wgsl?raw'
+import debugLineVertSrc from './shaders/debugLine.gen.vert.glsl?raw'
+import debugLineFragSrc from './shaders/debugLine.gen.frag.glsl?raw'
+import debugLineReflect from './shaders/debugLine.reflect.json'
 
 /** RGBA in `0..1` for a debug line. */
 export type LineColor = readonly [number, number, number, number]
@@ -78,10 +80,12 @@ export class DebugLine3DRenderer {
     const device = this.#device
     this.#shader = device.createShaderModule({
       glsl: { vertex: debugLineVertSrc, fragment: debugLineFragSrc },
-      reflection: reflection({
-        attribs: { a_position: LOC_POSITION, a_color: LOC_COLOR },
-        uniformBlocks: { DebugCam: CAMERA3D_UBO_BINDING },
-      }),
+      wgsl: {
+        code: debugLineWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: debugLineReflect as ShaderReflection,
       label: 'debugLine',
     })
     this.#vbo = device.createVertexBuffer(this.#scratch.byteLength)

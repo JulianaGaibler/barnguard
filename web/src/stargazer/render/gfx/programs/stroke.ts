@@ -16,20 +16,17 @@ import {
   LOC_STROKE_P1,
   LOC_STROKE_UNIT,
   LOC_STROKE_WIDTHDASH,
-  FRAME_UBO_BINDING,
   STROKE_BUFFER_BYTES,
   STROKE_INSTANCE_STRIDE,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
-import {
-  drawInstancedRun,
-  reflection,
-  unitQuadLayout,
-  warmupBlendPipelines,
-} from './programCommon'
-import strokeVertSrc from '../webgl2/shaders/stroke.vert.glsl?raw'
-import strokeFragSrc from '../webgl2/shaders/stroke.frag.glsl?raw'
+import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import strokeWgsl from '../shaders/stroke.wgsl?raw'
+import strokeVertSrc from '../shaders/stroke.gen.vert.glsl?raw'
+import strokeFragSrc from '../shaders/stroke.gen.frag.glsl?raw'
+import strokeReflect from '../shaders/stroke.reflect.json'
 
 export class StrokeProgram implements GpuProgram {
   readonly kind = 'stroke' as const
@@ -49,16 +46,12 @@ export class StrokeProgram implements GpuProgram {
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
     this.#shader = device.createShaderModule({
       glsl: { vertex: strokeVertSrc, fragment: strokeFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_unit: LOC_STROKE_UNIT,
-          a_p0: LOC_STROKE_P0,
-          a_p1: LOC_STROKE_P1,
-          a_color: LOC_STROKE_COLOR,
-          a_widthDash: LOC_STROKE_WIDTHDASH,
-        },
-        uniformBlocks: { Frame: FRAME_UBO_BINDING },
-      }),
+      wgsl: {
+        code: strokeWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: strokeReflect as ShaderReflection,
       label: 'stroke',
     })
     this.#stream = new RingStream(

@@ -1,0 +1,63 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 1,
+      "glslName": "PbrFrame_block_0Fragment"
+    },
+    {
+      "binding": 1,
+      "glslName": "PbrFrame_block_0Vertex"
+    },
+    {
+      "binding": 4,
+      "glslName": "Lights_block_2Fragment"
+    },
+    {
+      "binding": 5,
+      "glslName": "PbrObject_block_1Fragment"
+    },
+    {
+      "binding": 5,
+      "glslName": "PbrObject_block_1Vertex"
+    },
+    {
+      "binding": 7,
+      "glslName": "ShadowFrame_block_3Fragment"
+    }
+  ],
+  "samplers": [
+    {
+      "binding": 8,
+      "glslName": "_group_0_binding_8_fs"
+    },
+    {
+      "binding": 9,
+      "glslName": "_group_0_binding_9_fs"
+    },
+    {
+      "binding": 10,
+      "glslName": "_group_1_binding_10_fs"
+    },
+    {
+      "binding": 11,
+      "glslName": "_group_1_binding_11_fs"
+    },
+    {
+      "binding": 12,
+      "glslName": "_group_1_binding_12_fs"
+    },
+    {
+      "binding": 13,
+      "glslName": "_group_1_binding_13_fs"
+    },
+    {
+      "binding": 14,
+      "glslName": "_group_1_binding_14_fs"
+    },
+    {
+      "binding": 15,
+      "glslName": "_group_1_binding_15_fs"
+    }
+  ]
+}

@@ -20,7 +20,6 @@ import {
   LOC_COLORED_COLOR,
   LOC_COLORED_POS,
   LOC_COLORED_UV,
-  FRAME_UBO_BINDING,
   MODELCOLOR_UBO_BINDING,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
@@ -34,12 +33,17 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import { reflection, UboRing, warmupBlendPipelines } from './programCommon'
+import { UboRing, warmupBlendPipelines } from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
 import earcut from 'earcut'
-import coloredTriVertSrc from '../webgl2/shaders/coloredTri.vert.glsl?raw'
-import coloredTriFragSrc from '../webgl2/shaders/coloredTri.frag.glsl?raw'
-import coloredTriRetainedVertSrc from '../webgl2/shaders/coloredTriRetained.vert.glsl?raw'
-import coloredTriRetainedFragSrc from '../webgl2/shaders/coloredTriRetained.frag.glsl?raw'
+import coloredTriWgsl from '../shaders/coloredTri.wgsl?raw'
+import coloredTriVertSrc from '../shaders/coloredTri.gen.vert.glsl?raw'
+import coloredTriFragSrc from '../shaders/coloredTri.gen.frag.glsl?raw'
+import coloredTriReflect from '../shaders/coloredTri.reflect.json'
+import coloredTriRetainedWgsl from '../shaders/coloredTriRetained.wgsl?raw'
+import coloredTriRetainedVertSrc from '../shaders/coloredTriRetained.gen.vert.glsl?raw'
+import coloredTriRetainedFragSrc from '../shaders/coloredTriRetained.gen.frag.glsl?raw'
+import coloredTriRetainedReflect from '../shaders/coloredTriRetained.reflect.json'
 
 /** `DrawParams` block size (std140): vec4 + 2 floats + vec2 pad = 32 B. */
 const DRAWPARAMS_BYTES = 32
@@ -80,18 +84,12 @@ export class ColoredTriProgram implements GpuProgram {
     this.#device = device
     this.#shader = device.createShaderModule({
       glsl: { vertex: coloredTriVertSrc, fragment: coloredTriFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_pos: LOC_COLORED_POS,
-          a_color: LOC_COLORED_COLOR,
-          a_uv: LOC_COLORED_UV,
-        },
-        uniformBlocks: {
-          Frame: FRAME_UBO_BINDING,
-          DrawParams: DRAWPARAMS_UBO_BINDING,
-        },
-        samplers: { u_clipTex: 1 },
-      }),
+      wgsl: {
+        code: coloredTriWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: coloredTriReflect as ShaderReflection,
       label: 'coloredTri',
     })
     this.#stream = new RingStream(
@@ -133,13 +131,12 @@ export class ColoredTriProgram implements GpuProgram {
         vertex: coloredTriRetainedVertSrc,
         fragment: coloredTriRetainedFragSrc,
       },
-      reflection: reflection({
-        attribs: { a_pos: LOC_COLORED_POS },
-        uniformBlocks: {
-          Frame: FRAME_UBO_BINDING,
-          ModelColor: MODELCOLOR_UBO_BINDING,
-        },
-      }),
+      wgsl: {
+        code: coloredTriRetainedWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: coloredTriRetainedReflect as ShaderReflection,
       label: 'coloredTriRetained',
     })
     this.#retainedLayout = [

@@ -13,7 +13,6 @@ import type { ResolvedRadii } from '../roundRectRadii'
 import { RingStream } from '../RingStream'
 import { packColor, resolveDash } from '../packing'
 import {
-  FRAME_UBO_BINDING,
   LOC_SHAPE_COLORFILL,
   LOC_SHAPE_COLORSTROKE,
   LOC_SHAPE_MCOL0,
@@ -41,14 +40,12 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import {
-  drawInstancedRun,
-  reflection,
-  unitQuadLayout,
-  warmupBlendPipelines,
-} from './programCommon'
-import shapeVertSrc from '../webgl2/shaders/shape.vert.glsl?raw'
-import shapeFragSrc from '../webgl2/shaders/shape.frag.glsl?raw'
+import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import shapeWgsl from '../shaders/shape.wgsl?raw'
+import shapeVertSrc from '../shaders/shape.gen.vert.glsl?raw'
+import shapeFragSrc from '../shaders/shape.gen.frag.glsl?raw'
+import shapeReflect from '../shaders/shape.reflect.json'
 
 /** Word offsets into the 24-word shape instance record. */
 const W_MCOL0 = 0
@@ -79,22 +76,12 @@ export class ShapeProgram implements GpuProgram {
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
     this.#shader = device.createShaderModule({
       glsl: { vertex: shapeVertSrc, fragment: shapeFragSrc },
-      reflection: reflection({
-        attribs: {
-          a_unit: LOC_SHAPE_UNIT,
-          a_mCol0: LOC_SHAPE_MCOL0,
-          a_mCol1: LOC_SHAPE_MCOL1,
-          a_mTranslate: LOC_SHAPE_MTRANSLATE,
-          a_shape: LOC_SHAPE_KIND,
-          a_params: LOC_SHAPE_PARAMS,
-          a_radii: LOC_SHAPE_RADII,
-          a_srcRect: LOC_SHAPE_SRCRECT,
-          a_colorFill: LOC_SHAPE_COLORFILL,
-          a_colorStroke: LOC_SHAPE_COLORSTROKE,
-        },
-        uniformBlocks: { Frame: FRAME_UBO_BINDING },
-        samplers: { u_texAtlas: 0, u_texLabel: 1 },
-      }),
+      wgsl: {
+        code: shapeWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: shapeReflect as ShaderReflection,
       label: 'shape',
     })
     this.#stream = new RingStream(

@@ -10,8 +10,6 @@ import type {
 } from '../gfx/GfxDevice'
 import type { PostEffect, PostPass, PostPassContext } from './PostEffect'
 import { POST_PARAMS_UBO_BINDING } from '../gfx/batchLayout'
-import { reflection } from '../gfx/programs/programCommon'
-import fullscreenVertSrc from './shaders/fullscreen.vert.glsl?raw'
 
 /** Attribute location the fullscreen vertex shader forces for `a_pos`. */
 const LOC_POS = 0
@@ -55,8 +53,8 @@ interface PooledTarget {
  * targets, and presents the final result to the canvas.
  *
  * Fullscreen passes run with depth off and **blending disabled** (baked into
- * the pass pipeline) — each pass overwrites every pixel. Pass pipelines compile
- * asynchronously; until they're ready the pipeline presents the source frame
+ * the pass pipeline). Each pass overwrites every pixel. Pass pipelines compile
+ * asynchronously. Until they're ready the pipeline presents the source frame
  * unmodified for a frame or two.
  *
  * @category Render
@@ -228,12 +226,9 @@ export class PostProcessPipeline {
       const device = this.#device
       const hasParams = pass.paramsBytes > 0
       const shader = device.createShaderModule({
-        glsl: { vertex: fullscreenVertSrc, fragment: pass.fragmentSrc },
-        reflection: reflection({
-          attribs: { a_pos: LOC_POS },
-          uniformBlocks: hasParams ? { Params: POST_PARAMS_UBO_BINDING } : {},
-          samplers: { u_tex: U_TEX },
-        }),
+        glsl: pass.shader.glsl,
+        wgsl: pass.shader.wgsl,
+        reflection: pass.shader.reflection,
         label: 'postfx',
       })
       const layout = device.createBindGroupLayout(

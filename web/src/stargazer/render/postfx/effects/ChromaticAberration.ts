@@ -1,5 +1,9 @@
-import type { PostEffect, PostPass } from '../PostEffect'
-import fragSrc from '../shaders/chromaticAberration.frag.glsl?raw'
+import { postShader, type PostEffect, type PostPass } from '../PostEffect'
+import type { ShaderReflection } from '../../gfx/GfxDevice'
+import wgsl from '../shaders/chromaticAberration.wgsl?raw'
+import vertSrc from '../shaders/chromaticAberration.gen.vert.glsl?raw'
+import fragSrc from '../shaders/chromaticAberration.gen.frag.glsl?raw'
+import reflect from '../shaders/chromaticAberration.reflect.json'
 
 /** Construction overrides for {@link ChromaticAberration}. */
 export interface ChromaticAberrationOptions {
@@ -28,7 +32,7 @@ export class ChromaticAberration implements PostEffect {
     this.amount = opts.amount ?? 0.006
     this.passes = [
       {
-        fragmentSrc: fragSrc,
+        shader: postShader(vertSrc, fragSrc, wgsl, reflect as ShaderReflection),
         paramsBytes: 16, // vec4 u_ca
         writeParams: (_ctx, out) => {
           out[0] = this.amount

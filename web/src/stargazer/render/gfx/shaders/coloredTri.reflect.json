@@ -1,0 +1,19 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 0,
+      "glslName": "Frame_block_0Vertex"
+    },
+    {
+      "binding": 2,
+      "glslName": "DrawParams_block_0Fragment"
+    }
+  ],
+  "samplers": [
+    {
+      "binding": 1,
+      "glslName": "_group_1_binding_1_fs"
+    }
+  ]
+}
