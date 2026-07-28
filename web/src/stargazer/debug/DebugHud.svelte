@@ -89,6 +89,7 @@
       roundRectInstances: 0,
       msaaSamples: 1,
     },
+    backend: 'webgl2',
     physics: [],
     world3d: null,
   }

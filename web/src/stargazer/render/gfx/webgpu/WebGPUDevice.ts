@@ -183,6 +183,8 @@ export class WebGPUDevice implements GfxDevice {
 
   readonly limits: DeviceLimits
 
+  readonly backend = 'webgpu' as const
+
   /**
    * WebGPU conventions: `[0,1]` clip depth and top-down sampled render-target
    * textures. Front-face winding stays `'ccw'` (same as WebGL): with this

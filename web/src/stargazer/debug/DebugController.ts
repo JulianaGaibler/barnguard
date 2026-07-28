@@ -3,6 +3,7 @@ import type { Engine, RegisteredPhysicsWorld } from '../engine/Engine'
 import type { CameraView2D } from '../camera/CameraView2D'
 import type { Stage } from '../render/Stage'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { GfxBackend } from '../render/gfx/GfxDevice'
 import type { BitmapMask } from '../assets/BitmapMask'
 import { DebugCamera } from './DebugCamera'
 import { DebugCamera3D } from './DebugCamera3D'
@@ -156,6 +157,8 @@ export interface DebugStatsSnapshot {
   }
   /** Per-frame GPU pipeline stats for the active stage. */
   gpu: DebugGpuStatsReadout
+  /** Which rendering backend the active stage's device is. */
+  backend: GfxBackend
   cameraMode: 'game' | 'debug'
   cameraFollowing: boolean
   viewport: { x: number; y: number; width: number; height: number }
@@ -933,6 +936,7 @@ export class DebugController {
       count: p.count,
       nodeCounts: counts,
       gpu,
+      backend: active.backend,
       cameraMode: this.#_cameraActive ? 'debug' : 'game',
       cameraFollowing: this.#_followGameCamera,
       viewport: cam ? { ...cam.viewport } : { x: 0, y: 0, width: 0, height: 0 },

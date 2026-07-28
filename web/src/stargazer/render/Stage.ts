@@ -585,6 +585,16 @@ export class Stage implements CameraHost {
     return this.#meshRenderer?.stats ?? null
   }
 
+  /** Which rendering backend this stage's device is. Read by the debug HUD. */
+  get backend(): import('./gfx/GfxDevice').GfxBackend {
+    return this.#device.backend
+  }
+
+  /** The stage's rendering device. The host reads it to wire loss recovery. */
+  get device(): import('./gfx/GfxDevice').GfxDevice {
+    return this.#device
+  }
+
   /** Per-frame GPU pipeline stats. Read by the debug HUD. */
   get gpuStats(): {
     drawCalls: number

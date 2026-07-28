@@ -38,6 +38,15 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
    * wire it to a supervisor.
    */
   onReload?: () => void
+  /**
+   * Called when a WebGPU device is lost with no in-place recovery. A canvas is
+   * committed to its context type once acquired, so the fix is to remount on a
+   * fresh canvas forced to WebGL2, which only the Svelte component that owns the
+   * `<canvas>` can do (re-key it and let `mountEngine` rebuild). Without an
+   * override the default reloads the page. WebGL2 loss does not reach here, it
+   * stays on the in-place retry ladder above.
+   */
+  onBackendLost?: () => void
 }
 
 /**
@@ -191,43 +200,65 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
   engine.debug = debug
   if (debugMode === 'perf') engine.perfMarks = true
 
-  // Retry ladder: track the timestamps of recent context losses; if we
-  // hit ≥3 in a rolling 60-second window (or the browser flags the loss
-  // as unrestorable), abandon in-place recovery and fire `onReload`. The
-  // ring buffer holds at most 3 entries, evict entries older than the
-  // window on each new loss.
-  const LOSS_WINDOW_MS = 60_000
-  const MAX_LOSSES_IN_WINDOW = 3
-  const lossTimestamps: number[] = []
+  // Loss recovery differs by backend. WebGL2 can restore its context in place,
+  // so it keeps the DOM-event retry ladder below. WebGPU cannot: a lost device
+  // is gone for good and the canvas is committed to its context type, so its
+  // only recovery is a remount on a fresh canvas (see `disposeLossWiring`).
+  const backend = engine.primaryStage.backend
   const onReload = opts.onReload ?? (() => window.location.reload())
+  let disposeLossWiring: () => void
 
-  const onContextLost = (e: Event): void => {
-    const restorable = (e as ContextLostEvent).canBeRestored ?? true
-    e.preventDefault()
-    engine.events.emit('contextlost', { restorable })
-    // Record + evict.
-    const now = performance.now()
-    while (lossTimestamps.length && lossTimestamps[0] < now - LOSS_WINDOW_MS) {
-      lossTimestamps.shift()
-    }
-    lossTimestamps.push(now)
-    const overThreshold = lossTimestamps.length >= MAX_LOSSES_IN_WINDOW
-    if (!restorable || overThreshold) {
-      if (opts.onContextLost) {
-        opts.onContextLost(restorable)
-      } else {
-        onReload()
+  if (backend === 'webgpu') {
+    // A WebGPU device loss is terminal. Surface it as `backendlost` and let the
+    // Svelte host remount on WebGL2. Without an override, reload.
+    const onBackendLost = opts.onBackendLost ?? onReload
+    disposeLossWiring = engine.primaryStage.device.onContextLost(() => {
+      engine.events.emit('contextlost', { restorable: false })
+      engine.events.emit('backendlost', { backend })
+      onBackendLost()
+    })
+  } else {
+    // Retry ladder: track the timestamps of recent context losses; if we
+    // hit ≥3 in a rolling 60-second window (or the browser flags the loss
+    // as unrestorable), abandon in-place recovery and fire `onReload`. The
+    // ring buffer holds at most 3 entries, evict entries older than the
+    // window on each new loss.
+    const LOSS_WINDOW_MS = 60_000
+    const MAX_LOSSES_IN_WINDOW = 3
+    const lossTimestamps: number[] = []
+
+    const onContextLost = (e: Event): void => {
+      const restorable = (e as ContextLostEvent).canBeRestored ?? true
+      e.preventDefault()
+      engine.events.emit('contextlost', { restorable })
+      // Record + evict.
+      const now = performance.now()
+      while (lossTimestamps.length && lossTimestamps[0] < now - LOSS_WINDOW_MS) {
+        lossTimestamps.shift()
       }
+      lossTimestamps.push(now)
+      const overThreshold = lossTimestamps.length >= MAX_LOSSES_IN_WINDOW
+      if (!restorable || overThreshold) {
+        if (opts.onContextLost) {
+          opts.onContextLost(restorable)
+        } else {
+          onReload()
+        }
+      }
+      // Otherwise wait for `webglcontextrestored`. Stage handles rebuild.
     }
-    // Otherwise wait for `webglcontextrestored`. Stage handles rebuild.
-  }
-  const onContextRestored = (): void => {
-    engine.primaryStage.reacquireContext()
-    engine.events.emit('contextrestored', undefined)
-  }
+    const onContextRestored = (): void => {
+      engine.primaryStage.reacquireContext()
+      engine.events.emit('contextrestored', undefined)
+    }
 
-  opts.canvas.addEventListener('webglcontextlost', onContextLost)
-  opts.canvas.addEventListener('webglcontextrestored', onContextRestored)
+    opts.canvas.addEventListener('webglcontextlost', onContextLost)
+    opts.canvas.addEventListener('webglcontextrestored', onContextRestored)
+    disposeLossWiring = () => {
+      opts.canvas.removeEventListener('webglcontextlost', onContextLost)
+      opts.canvas.removeEventListener('webglcontextrestored', onContextRestored)
+    }
+  }
 
   let paused = false
   let destroyed = false
@@ -261,8 +292,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
     destroy() {
       if (destroyed) return
       destroyed = true
-      opts.canvas.removeEventListener('webglcontextlost', onContextLost)
-      opts.canvas.removeEventListener('webglcontextrestored', onContextRestored)
+      disposeLossWiring()
       engine.destroy()
     },
     async loadScene(build) {

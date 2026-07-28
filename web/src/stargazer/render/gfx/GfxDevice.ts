@@ -281,6 +281,9 @@ export interface NdcConventions {
   textureTopDown: boolean
 }
 
+/** Which backend a live device is. Reported for the debug HUD readout. */
+export type GfxBackend = 'webgpu' | 'webgl2'
+
 export type PrimitiveTopology = 'triangle-list' | 'line-list'
 
 /** Color-target format: `'linear'` → `RGBA8`, `'srgb'` → sRGB-encoded RGBA8. */
@@ -509,6 +512,8 @@ export interface DeviceLimits {
 export interface GfxDevice {
   readonly deviceStats: DeviceStats
   readonly limits: DeviceLimits
+  /** Which backend this device is, for the debug HUD readout. */
+  readonly backend: GfxBackend
   /** The backend's coordinate conventions (clip-depth, winding, texture rows). */
   readonly ndc: NdcConventions
 

@@ -232,6 +232,8 @@ export class WebGL2Device implements GfxDevice {
 
   readonly limits: DeviceLimits
 
+  readonly backend = 'webgl2' as const
+
   /** WebGL conventions: `[-1,1]` depth, CCW front faces, bottom-up textures. */
   readonly ndc: NdcConventions = {
     clipDepth: 'neg-one-to-one',

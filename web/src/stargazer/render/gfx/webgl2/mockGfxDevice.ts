@@ -18,6 +18,7 @@ import type {
   NdcConventions,
   DeviceStats,
   DrawCall,
+  GfxBackend,
   GfxDevice,
   IBuffer,
   IndexType,
@@ -122,6 +123,7 @@ export class MockGfxDevice implements GfxDevice {
     textureBinds: 0,
   }
   readonly limits: DeviceLimits = { minUniformBufferOffsetAlignment: 256 }
+  readonly backend: GfxBackend
   readonly ndc: NdcConventions = {
     clipDepth: 'neg-one-to-one',
     frontFace: 'ccw',
@@ -146,6 +148,15 @@ export class MockGfxDevice implements GfxDevice {
   #bufferBytes = new Map<VBuffer, ArrayBuffer>()
   #lostCbs = new Set<() => void>()
   #restoredCbs = new Set<() => void>()
+
+  /**
+   * Records the command stream and emulates no GL/GPU state. `backend` defaults
+   * to `'webgl2'`. Pass `'webgpu'` to exercise the host's backend-specific
+   * loss-recovery paths against a mock.
+   */
+  constructor(backend: GfxBackend = 'webgl2') {
+    this.backend = backend
+  }
 
   // --- shaders / pipelines / bind groups ------------------------------------
 

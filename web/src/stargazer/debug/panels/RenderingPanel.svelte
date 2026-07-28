@@ -5,6 +5,7 @@
     DebugRenderMode as MeshRenderMode,
   } from '../DebugController'
   import type { DebugRenderMode } from '../../render/gfx/GpuGfx'
+  import type { BackendPreference } from '../../render/gfx/selectBackend'
   import {
     DebugSection,
     DebugRow,
@@ -23,10 +24,30 @@
 
   const { debug, stats, revision }: Props = $props()
 
+  let backendOpen = $state(true)
   let renderOpen = $state(true)
   let gpuOpen = $state(true)
   let threeOpen = $state(true)
   let texturesOpen = $state(false)
+
+  // Which backend the caller asked for, read from the app's `?gfx` convention.
+  // The active backend (`stats.backend`) can differ: `auto` resolves to whatever
+  // the device probe picked, and a forced pick that failed to boot falls back.
+  function currentBackendPref(): BackendPreference {
+    const g = new URLSearchParams(location.search).get('gfx')
+    return g === 'webgpu' || g === 'webgl2' ? g : 'auto'
+  }
+  const backendPref = currentBackendPref()
+
+  const BACKEND_LABELS: Record<'webgpu' | 'webgl2', string> = {
+    webgpu: 'WebGPU',
+    webgl2: 'WebGL2',
+  }
+  const BACKEND_PREF_OPTIONS: readonly DebugSelectOption<BackendPreference>[] = [
+    { value: 'auto', label: 'Auto (prefer WebGPU)' },
+    { value: 'webgpu', label: 'WebGPU' },
+    { value: 'webgl2', label: 'WebGL2' },
+  ]
 
   // Render-mode / MSAA / perf-marks are per-stage engine state; mirror the
   // active stage's live values so an external toggle or a stage switch stays in
@@ -145,6 +166,17 @@
     }
   }
 
+  // Switching backend re-keys the canvas from scratch (context type is fixed
+  // once acquired), so it goes through a reload with the app's `?gfx` param
+  // rather than a live device swap. `auto` drops the param.
+  function handleBackendPrefChange(pref: BackendPreference): void {
+    if (pref === backendPref) return
+    const url = new URL(location.href)
+    if (pref === 'auto') url.searchParams.delete('gfx')
+    else url.searchParams.set('gfx', pref)
+    location.href = url.toString()
+  }
+
   function handleMsaaChange(samples: number): void {
     msaaSamples = samples
     debug.activeStage.setMsaaSamples(samples)
@@ -186,6 +218,24 @@
   }
 </script>
 
+<DebugSection title="Backend" bind:open={backendOpen}>
+  <div class="debug-controls with-divider">
+    <DebugSelect
+      label="Preference"
+      value={backendPref}
+      options={BACKEND_PREF_OPTIONS}
+      onChange={handleBackendPrefChange}
+    />
+    <DebugSelect
+      label="MSAA"
+      value={msaaSamples}
+      options={MSAA_OPTIONS}
+      onChange={handleMsaaChange}
+    />
+  </div>
+  <DebugRow label="Active" value={BACKEND_LABELS[stats.backend]} tone="accent" />
+</DebugSection>
+
 <DebugSection title="Rendering" bind:open={renderOpen}>
   <div class="debug-controls">
     <DebugSelect
@@ -211,12 +261,6 @@
       options={renderModeOptions}
       onChange={handleRenderModeChange}
     />
-    <DebugSelect
-      label="MSAA"
-      value={msaaSamples}
-      options={MSAA_OPTIONS}
-      onChange={handleMsaaChange}
-    />
     <ToggleButton
       active={perfMarks}
       onToggle={handlePerfMarksToggle}
@@ -231,11 +275,6 @@
   <DebugRow label="SDF instances" value={stats.gpu.sdfInstances} />
   <DebugRow label="Stroke instances" value={stats.gpu.strokeInstances} />
   <DebugRow label="Round-rect instances" value={stats.gpu.roundRectInstances} />
-  <DebugRow
-    label="MSAA"
-    value={stats.gpu.msaaSamples > 1 ? `${stats.gpu.msaaSamples}×` : 'off'}
-    tone={stats.gpu.msaaSamples > 1 ? 'accent' : 'default'}
-  />
   <DebugRow
     label="Overflow warns"
     value={stats.gpu.overflowWarns}
