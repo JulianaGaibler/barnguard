@@ -89,8 +89,11 @@
       roundRectInstances: 0,
       msaaSamples: 1,
     },
+    backend: 'webgl2',
     physics: [],
     world3d: null,
+    flyPointerLocked: false,
+    flySpeedMultiplier: 1,
   }
 
   let visible = $state(false)
@@ -116,6 +119,7 @@
     paused: false,
     pointerOverlay: false,
     physics: { ...EMPTY_PHYSICS_FLAGS },
+    flyPointerLocked: false,
   })
 
   // Hub section open-state.
@@ -199,6 +203,7 @@
       paused: debug.paused,
       pointerOverlay: debug.pointerOverlayVisible,
       physics: { ...debug.physicsFlags },
+      flyPointerLocked: false,
     }
     stats = debug.snapshotStats()
 
@@ -528,6 +533,19 @@
         Fly: strafe (A/D), up/down (E/Q), forward/back (corners), look (↺↻). Any
         press enables the 3D fly camera.
       </div>
+      <div class="pad-hint">
+        Mouse: click canvas to look, Esc to release, scroll = speed, Shift =
+        sprint.
+      </div>
+      <DebugRow
+        label="Mouse look"
+        value={stats.flyPointerLocked ? 'locked' : 'click to lock'}
+        tone={stats.flyPointerLocked ? 'accent' : 'default'}
+      />
+      <DebugRow
+        label="Fly speed"
+        value={`${stats.flySpeedMultiplier.toFixed(2)}×`}
+      />
     {/if}
   </DebugSection>
 </DraggableWindow>
@@ -595,6 +613,25 @@
     <panel.component {debug} {...panel.props ?? {}} />
   </DraggableWindow>
 {/each}
+
+<!--
+  Always-on indicator that the 3D fly camera is engaged, shown even with the HUD
+  windows closed so it is clear the canvas is in capture mode. Click-through.
+-->
+{#if toggleState.cameraMode === 'debug-3d'}
+  <div
+    class="fly-indicator"
+    class:fly-indicator--locked={toggleState.flyPointerLocked}
+  >
+    <span class="fly-indicator__dot"></span>
+    3D fly camera
+    <span class="fly-indicator__hint"
+      >{toggleState.flyPointerLocked
+        ? 'mouse captured · Esc to release'
+        : 'click canvas to look'} · scroll = speed · Shift = sprint</span
+    >
+  </div>
+{/if}
 
 <style lang="sass">
   .controls-scope
@@ -699,4 +736,40 @@
     font-size: 9px
     color: rgba(255, 255, 255, 0.45)
     text-align: center
+
+  // Subtle bottom-center pill shown while the 3D fly camera is engaged. Fixed to
+  // the viewport and click-through so it never intercepts canvas input.
+  .fly-indicator
+    position: fixed
+    inset-block-end: 12px
+    inset-inline: 0
+    margin-inline: auto
+    width: max-content
+    max-width: 90vw
+    display: flex
+    align-items: center
+    gap: 6px
+    padding: 4px 10px
+    border-radius: 999px
+    background: rgba(12, 14, 20, 0.72)
+    border: 1px solid rgba(255, 255, 255, 0.12)
+    color: rgba(255, 255, 255, 0.72)
+    font-size: 10px
+    font-family: ui-monospace, monospace
+    pointer-events: none
+    user-select: none
+    z-index: 9999
+
+  .fly-indicator__dot
+    width: 7px
+    height: 7px
+    border-radius: 50%
+    background: rgba(255, 255, 255, 0.35)
+
+  .fly-indicator--locked .fly-indicator__dot
+    background: #6ee7b7
+    box-shadow: 0 0 6px rgba(110, 231, 183, 0.8)
+
+  .fly-indicator__hint
+    color: rgba(255, 255, 255, 0.45)
 </style>

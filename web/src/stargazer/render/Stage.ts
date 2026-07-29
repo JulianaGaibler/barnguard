@@ -10,6 +10,7 @@ import type { CameraView3D } from '../camera/CameraView3D'
 import type { CameraHost } from '../camera/CameraHost'
 import { MeshRenderer } from './gfx/MeshRenderer'
 import { PostProcessPipeline } from './postfx/PostProcessPipeline'
+import { AmbientOcclusion } from './gfx/ao/AmbientOcclusion'
 import { DebugLine3DRenderer } from './gfx/DebugLine3DRenderer'
 import { Viewport2DNode } from '../nodes/Viewport2DNode'
 import { walkTree } from '../scene/traverse'
@@ -131,12 +132,17 @@ export class Stage implements CameraHost {
   /** Per-layer node walk: viewport cull, transform compose, draw. */
   readonly #layerRenderer = new StageLayerRenderer()
 
+  /** Set when a render frame threw; the stage then stops rendering. */
+  #faulted = false
+
   /** Created lazily the first frame the stage has 3D content. */
   #meshRenderer: MeshRenderer | null = null
   /** Created lazily the first frame a 3D debug overlay is drawn. */
   #debugLines: DebugLine3DRenderer | null = null
   /** Created lazily on first `postProcess` access. */
   #postProcess: PostProcessPipeline | null = null
+  /** Created lazily on first `ambientOcclusion` access. */
+  #ambientOcclusion: AmbientOcclusion | null = null
 
   // Camera registry (Godot Viewport model): registration-order arrays + the
   // current camera per dimension. Camera nodes register/unregister through the
@@ -345,6 +351,23 @@ export class Stage implements CameraHost {
    * `DebugController.activeCameraFor`).
    */
   render(dt: number): void {
+    // A GPU-backend error (often a validation error while bringing up WebGPU)
+    // throws synchronously from a device call and would otherwise re-throw every
+    // frame, pegging the tab. Halt this stage on the first fault and surface it
+    // once, rather than spinning.
+    if (this.#faulted) return
+    try {
+      this.#renderFrame(dt)
+    } catch (err) {
+      this.#faulted = true
+      console.error(
+        '[stargazer] Stage render faulted and was halted to avoid a busy loop:',
+        err,
+      )
+    }
+  }
+
+  #renderFrame(dt: number): void {
     const { renderer } = this
     const debug = this.tree.engine?.debug ?? null
     const dpr = renderer.dpr
@@ -386,6 +409,11 @@ export class Stage implements CameraHost {
 
     const screen = this.#screenGfx
 
+    // Readiness gate: pipelines warm up asynchronously (a microtask on WebGL2,
+    // longer on WebGPU). Skip the whole frame — no passes, no draws — until the
+    // surface can render, rather than opening a pass with no pipelines.
+    if (!screen.ready) return
+
     // Stand up the 3D pass when the world has 3D content or the 3D debug camera
     // is active. `has3D` skips intrinsic nodes; a pure-2D stage never enables it.
     const cam3d: CameraView3D | null =
@@ -396,6 +424,7 @@ export class Stage implements CameraHost {
     if (has3D && cam3d && !this.#meshRenderer) {
       this.#meshRenderer = new MeshRenderer(
         screen.device,
+        screen.targetColor,
         this.tree.engine?.quality,
         this.tree.engine?.fog,
       )
@@ -420,6 +449,37 @@ export class Stage implements CameraHost {
       this.#meshRenderer.renderShadows(this.tree.root)
     }
 
+    // Ambient-occlusion pre-pass: fill the G-buffer and estimate occlusion into
+    // a texture the main pass samples. Same pre-`beginFrame` window as shadows.
+    // Read the controller through the private field so a pure-2D stage never
+    // constructs it. The mesh renderer gets the AO texture (or null when off).
+    const ao = this.#ambientOcclusion
+    const aoActive =
+      has3D &&
+      cam3d !== null &&
+      this.#meshRenderer !== null &&
+      (ao?.enabled ?? false)
+    if (aoActive && ao && cam3d && this.#meshRenderer) {
+      this.#phaseBegin(marks, 'ao')
+      ao.run(
+        cam3d,
+        this.tree.root,
+        this.#meshRenderer,
+        renderer.pixelSize.w,
+        renderer.pixelSize.h,
+      )
+      this.#phaseEnd(marks, 'ao')
+    }
+    if (this.#meshRenderer) {
+      this.#meshRenderer.setAmbientOcclusion(
+        aoActive && ao ? ao.aoTexture : null,
+        aoActive,
+        renderer.pixelSize.w,
+        renderer.pixelSize.h,
+        ao?.directStrength ?? 0,
+      )
+    }
+
     this.#phaseBegin(marks, 'clear')
     screen.beginFrame({
       clearColor: renderer.clearColor,
@@ -430,16 +490,16 @@ export class Stage implements CameraHost {
     this.#phaseEnd(marks, 'clear')
 
     // Depth-tested 3D pass, drawn immediately into the freshly-cleared target
-    // so the record/submit 2D layers replay on top. `resetToBaseline` returns
-    // the device to the 2D pipeline's expected state (depth off, cull off,
-    // blend source-over) before those layers draw.
+    // so the record/submit 2D layers replay on top. The 3D and 2D pipelines
+    // each carry their own baked state, so no explicit state reset is needed
+    // between the passes.
     if (show3D && cam3d) {
       this.#phaseBegin(marks, '3d')
       const ph = renderer.pixelSize.h
       cam3d.setAspect(ph > 0 ? renderer.pixelSize.w / ph : 1)
-      if (has3D && this.#meshRenderer) {
+      if (has3D && this.#meshRenderer && this.#meshRenderer.ready) {
         // World matrices were composed in the engine's transform pass (or the
-        // caller's) before render; just draw.
+        // caller's) before render; just draw. Skipped until pipelines warm.
         this.#meshRenderer.render(
           cam3d,
           this.tree.root,
@@ -448,12 +508,14 @@ export class Stage implements CameraHost {
       }
       if (debug) {
         if (!this.#debugLines)
-          this.#debugLines = new DebugLine3DRenderer(screen.device)
+          this.#debugLines = new DebugLine3DRenderer(
+            screen.device,
+            screen.targetColor,
+          )
         this.#debugLines.begin()
         debug.drawOverlay3D(this, cam3d, this.#debugLines)
         this.#debugLines.flush(cam3d.viewProjection)
       }
-      screen.device.resetToBaseline()
       this.#phaseEnd(marks, '3d')
     }
 
@@ -545,6 +607,27 @@ export class Stage implements CameraHost {
   }
 
   /**
+   * Screen-space ambient occlusion for the 3D pass. Created on first access;
+   * enable it with `stage.ambientOcclusion.enabled = true`. A stage that never
+   * touches it allocates nothing and runs no AO passes.
+   */
+  get ambientOcclusion(): AmbientOcclusion {
+    if (!this.#ambientOcclusion) {
+      this.#ambientOcclusion = new AmbientOcclusion(this.#device)
+    }
+    return this.#ambientOcclusion
+  }
+
+  /**
+   * The AO controller only if already created, without constructing it — so a
+   * debug panel can read its state each frame without warming AO pipelines on a
+   * stage that never enabled it.
+   */
+  peekAmbientOcclusion(): AmbientOcclusion | null {
+    return this.#ambientOcclusion
+  }
+
+  /**
    * Last-frame 3D mesh draw counts (draws/visible/vertices/triangles), or
    * `null` when no 3D pass has run on this stage. Read by the debug HUD.
    */
@@ -555,6 +638,16 @@ export class Stage implements CameraHost {
     triangles: number
   } | null {
     return this.#meshRenderer?.stats ?? null
+  }
+
+  /** Which rendering backend this stage's device is. Read by the debug HUD. */
+  get backend(): import('./gfx/GfxDevice').GfxBackend {
+    return this.#device.backend
+  }
+
+  /** The stage's rendering device. The host reads it to wire loss recovery. */
+  get device(): import('./gfx/GfxDevice').GfxDevice {
+    return this.#device
   }
 
   /** Per-frame GPU pipeline stats. Read by the debug HUD. */
@@ -612,6 +705,11 @@ export class Stage implements CameraHost {
    */
   setMsaaSamples(samples: number): void {
     this.#screenGfx.setSamples(samples)
+    // The 3D pipelines bake the target's sample count, so re-point them at the
+    // resized target. Each drops `ready` and re-warms. The 3D pass is gated on
+    // `ready`, so it is skipped until the new-sample pipelines are live.
+    this.#meshRenderer?.retarget(this.#screenGfx.targetColor)
+    this.#debugLines?.retarget(this.#screenGfx.targetColor)
   }
 
   /** Effective (post-clamp) MSAA sample count. */
@@ -724,6 +822,8 @@ export class Stage implements CameraHost {
     this.#debugLines = null
     this.#postProcess?.destroy()
     this.#postProcess = null
+    this.#ambientOcclusion?.dispose()
+    this.#ambientOcclusion = null
     // Tear down the WebGL2 device last, canvas listeners live on it.
     this.#device.destroy()
   }

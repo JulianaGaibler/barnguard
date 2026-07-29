@@ -33,6 +33,25 @@
   import { tutorialOpen } from './uiState'
 
   type Screen = 'launcher' | 'transitioning' | 'ingame'
+  type Gfx = 'webgpu' | 'webgl2' | 'auto'
+
+  // Backend selection + WebGPU-loss recovery. The `?gfx` URL param seeds the
+  // choice. A lost WebGPU device can't reuse its canvas, so recovery bumps
+  // `canvasKey` (re-keying the `<canvas>` so `mountEngine` rebuilds on a fresh
+  // node) and forces WebGL2 for the remount.
+  function urlBackend(): Gfx {
+    const g = new URLSearchParams(location.search).get('gfx')
+    return g === 'webgpu' || g === 'webgl2' ? g : 'auto'
+  }
+  let forcedBackend = $state<'webgl2' | null>(null)
+  let canvasKey = $state(0)
+  const backend = $derived<Gfx>(forcedBackend ?? urlBackend())
+
+  function onBackendLost(): void {
+    console.warn('[arcade] WebGPU device lost, remounting on WebGL2')
+    forcedBackend = 'webgl2'
+    canvasKey++
+  }
 
   let host = $state<EngineHost | null>(null)
   // The one 2D camera for the arcade, created explicitly on engine-ready.
@@ -183,19 +202,23 @@
 </script>
 
 <main class="arcade">
-  <canvas
-    class="arcade__canvas"
-    use:mountEngine={{
-      options: {
-        transparent: false,
-        // Matches the sky base so the first frame (before the gradient paints)
-        // doesn't flash the engine's default dark clear.
-        clearColor: '#eac6f2',
-      },
-      onReady: onEngineReady,
-      onDestroy: onEngineDestroy,
-    }}
-  ></canvas>
+  {#key canvasKey}
+    <canvas
+      class="arcade__canvas"
+      use:mountEngine={{
+        backend,
+        onBackendLost,
+        options: {
+          transparent: false,
+          // Matches the sky base so the first frame (before the gradient paints)
+          // doesn't flash the engine's default dark clear.
+          clearColor: '#eac6f2',
+        },
+        onReady: onEngineReady,
+        onDestroy: onEngineDestroy,
+      }}
+    ></canvas>
+  {/key}
 
   {#if loadError}
     <div class="arcade__center"><p class="arcade__hint">{loadError}</p></div>

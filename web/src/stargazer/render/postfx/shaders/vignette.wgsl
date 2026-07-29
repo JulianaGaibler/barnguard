@@ -1,0 +1,39 @@
+// Vignette post-effect. Darkens toward the edges by a smooth radial
+// falloff. Multiplying a premultiplied pixel by a scalar scales color and alpha
+// together, so the result stays a valid premultiplied color.
+//
+// Shared fullscreen vertex: one oversized clip-space triangle covering the
+// viewport. v_uv maps clip space to [0,1]. No Y-flip, so source, resolve, every
+// ping-pong pass, and the final blit share the bottom-left FBO origin.
+//
+// Bindings (one bind group): u_tex at unit 0, Params at POST_PARAMS_UBO_BINDING
+// (6), a_pos at location 0. Sampler at texture_binding + 16.
+
+struct Params {
+  vig: vec4<f32>, // x = intensity (0 off, 1 corners black), y = radius, z = softness
+};
+@group(0) @binding(6) var<uniform> params: Params;
+
+@group(0) @binding(0) var u_tex: texture_2d<f32>;
+@group(0) @binding(16) var u_texSamp: sampler;
+
+struct VOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@location(0) a_pos: vec2<f32>) -> VOut {
+  var out: VOut;
+  out.uv = a_pos * 0.5 + vec2<f32>(0.5);
+  out.pos = vec4<f32>(a_pos, 0.0, 1.0);
+  return out;
+}
+
+@fragment
+fn fs_main(in: VOut) -> @location(0) vec4<f32> {
+  let src = textureSample(u_tex, u_texSamp, in.uv);
+  let d = distance(in.uv, vec2<f32>(0.5));
+  let v = 1.0 - params.vig.x * smoothstep(params.vig.y, params.vig.y + params.vig.z, d);
+  return src * v;
+}

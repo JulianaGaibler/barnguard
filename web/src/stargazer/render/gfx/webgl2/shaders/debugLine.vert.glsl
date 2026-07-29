@@ -6,7 +6,10 @@
 in vec3 a_position;
 in vec4 a_color;
 
-uniform mat4 u_viewProj;
+// View-projection, std140 block (see CAMERA3D_UBO_BINDING).
+layout(std140) uniform DebugCam {
+  mat4 u_viewProj;
+};
 
 out vec4 v_color;
 

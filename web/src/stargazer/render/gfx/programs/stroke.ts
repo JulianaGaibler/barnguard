@@ -3,7 +3,7 @@
 // flatten scratch) since every stroke shape funnels through the polyline
 // emitter.
 
-import type { AttribBinding, GfxDevice, Program, Vao } from '../GfxDevice'
+import type { GfxDevice, Pipeline, VertexBufferLayout } from '../GfxDevice'
 import type { GfxStrokeStyle } from '../Gfx2D'
 import { flattenQuadratic } from '../../../assets/SvgPathContours'
 import { RingStream } from '../RingStream'
@@ -16,24 +16,29 @@ import {
   LOC_STROKE_P1,
   LOC_STROKE_UNIT,
   LOC_STROKE_WIDTHDASH,
-  FRAME_UBO_BINDING,
-  RING_SIZE,
   STROKE_BUFFER_BYTES,
   STROKE_INSTANCE_STRIDE,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
-import { drawInstancedRun } from './instancedRun'
-import strokeVertSrc from '../webgl2/shaders/stroke.vert.glsl?raw'
-import strokeFragSrc from '../webgl2/shaders/stroke.frag.glsl?raw'
+import {
+  drawInstancedRun,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import strokeWgsl from '../shaders/stroke.wgsl?raw'
+import strokeVertSrc from '../shaders/stroke.gen.vert.glsl?raw'
+import strokeFragSrc from '../shaders/stroke.gen.frag.glsl?raw'
+import strokeReflect from '../shaders/stroke.reflect.json'
 
 export class StrokeProgram implements GpuProgram {
   readonly kind = 'stroke' as const
 
-  #program!: Program
+  #shader!: import('../GfxDevice').ShaderModule
   #stream!: RingStream
-  #vaos: Vao[] = new Array(RING_SIZE)
-  #instanceAttribs: AttribBinding[] = []
+  #pipelines: Map<string, Pipeline> = new Map()
+  #vertexLayout: VertexBufferLayout[] = []
 
   get stream(): RingStream {
     return this.#stream
@@ -42,18 +47,16 @@ export class StrokeProgram implements GpuProgram {
   /** Curve flattening scratch. Reused across calls since strokes don't nest. */
   readonly #flattenScratch = new Float32Array(CURVE_FLATTEN_MAX_POINTS * 2)
 
-  init(device: GfxDevice, ctx: GpuBatchContext): void {
-    this.#program = device.createProgram({
-      vertexSrc: strokeVertSrc,
-      fragmentSrc: strokeFragSrc,
-      attribs: {
-        a_unit: LOC_STROKE_UNIT,
-        a_p0: LOC_STROKE_P0,
-        a_p1: LOC_STROKE_P1,
-        a_color: LOC_STROKE_COLOR,
-        a_widthDash: LOC_STROKE_WIDTHDASH,
+  init(device: GfxDevice, _ctx: GpuBatchContext): void {
+    this.#shader = device.createShaderModule({
+      glsl: { vertex: strokeVertSrc, fragment: strokeFragSrc },
+      wgsl: {
+        code: strokeWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
       },
-      uniformBlocks: { Frame: FRAME_UBO_BINDING },
+      reflection: strokeReflect as ShaderReflection,
+      label: 'stroke',
     })
     this.#stream = new RingStream(
       device,
@@ -61,76 +64,38 @@ export class StrokeProgram implements GpuProgram {
       STROKE_INSTANCE_STRIDE,
       'stroke',
     )
-    this.#vaos = new Array(RING_SIZE)
-    for (let slot = 0; slot < RING_SIZE; slot++) {
-      const attribs: AttribBinding[] = [
-        {
-          buffer: ctx.unitQuadBuffer,
-          location: LOC_STROKE_UNIT,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: 8,
-          divisor: 0,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_STROKE_P0,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: STROKE_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_STROKE_P1,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 8,
-          stride: STROKE_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_STROKE_COLOR,
-          size: 4,
-          type: 'unorm8',
-          normalized: true,
-          offset: 16,
-          stride: STROKE_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_STROKE_WIDTHDASH,
-          size: 4,
-          type: 'float',
-          normalized: false,
-          offset: 20,
-          stride: STROKE_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-      ]
-      this.#vaos[slot] = device.createVao(this.#program, attribs)
-      if (slot === 0) {
-        this.#instanceAttribs = attribs.filter((a) => a.divisor === 1)
-      }
-    }
+    this.#vertexLayout = [
+      unitQuadLayout(LOC_STROKE_UNIT),
+      {
+        arrayStride: STROKE_INSTANCE_STRIDE,
+        stepMode: 'instance',
+        attributes: [
+          { location: LOC_STROKE_P0, format: 'float32x2', offset: 0 },
+          { location: LOC_STROKE_P1, format: 'float32x2', offset: 8 },
+          { location: LOC_STROKE_COLOR, format: 'unorm8x4', offset: 16 },
+          { location: LOC_STROKE_WIDTHDASH, format: 'float32x4', offset: 20 },
+        ],
+      },
+    ]
+  }
+
+  async warmup(device: GfxDevice, ctx: GpuBatchContext): Promise<void> {
+    this.#pipelines = await warmupBlendPipelines(device, ctx, {
+      shader: this.#shader,
+      vertexLayout: this.#vertexLayout,
+      bindGroupLayouts: [ctx.frameBindGroupLayout],
+    })
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
     drawInstancedRun(
       ctx,
-      this.#program,
-      this.#vaos,
+      this.#pipelines,
+      ctx.unitQuadBuffer,
       this.#stream,
-      this.#instanceAttribs,
       STROKE_INSTANCE_STRIDE,
       run,
+      null,
     )
   }
 

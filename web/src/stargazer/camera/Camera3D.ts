@@ -7,6 +7,7 @@ import {
   mat4Ortho,
   mat4TransformPoint,
   type Mat4,
+  type ClipDepth,
 } from '../math/Mat4'
 import { Transform3D } from '../math/Transform3D'
 import { vec3, vec3Normalize, vec3Sub, type Vec3 } from '../math/Vec3'
@@ -90,10 +91,13 @@ export class Camera3D implements CameraView3D {
   #_aspect = 1
   #_focalDistance = 8
   #_projectionness: Projectionness = 1
+  #_clipDepth: ClipDepth = 'neg-one-to-one'
 
   #_projDirty = true
   #_viewDirty = true
   readonly #_proj: Mat4 = mat4()
+  readonly #_invProj: Mat4 = mat4()
+  #_invProjDirty = true
   readonly #_view: Mat4 = mat4()
   readonly #_viewProj: Mat4 = mat4()
   readonly #_invViewProj: Mat4 = mat4()
@@ -149,6 +153,10 @@ export class Camera3D implements CameraView3D {
     this.#markProjDirty()
   }
 
+  setClipDepth(clipDepth: ClipDepth): void {
+    this.clipDepth = clipDepth
+  }
+
   /**
    * Depth at which the orthographic and perspective projections match in scale.
    * An object at this distance keeps its on-screen size across a projection
@@ -175,8 +183,25 @@ export class Camera3D implements CameraView3D {
     this.#markProjDirty()
   }
 
+  /**
+   * NDC depth convention the projection is built for. Set from the active
+   * backend (`device.ndc.clipDepth`) so the uploaded view-projection lands
+   * depth in the range the backend keeps, and `screenToRay` unprojects the near
+   * plane at the matching z. Rebuilding on a change keeps picking consistent
+   * with the render projection.
+   */
+  get clipDepth(): ClipDepth {
+    return this.#_clipDepth
+  }
+  set clipDepth(v: ClipDepth) {
+    if (this.#_clipDepth === v) return
+    this.#_clipDepth = v
+    this.#markProjDirty()
+  }
+
   #markProjDirty(): void {
     this.#_projDirty = true
+    this.#_invProjDirty = true
     this.#_viewProjDirty = true
   }
 
@@ -198,6 +223,7 @@ export class Camera3D implements CameraView3D {
         this.#_aspect,
         this.#_near,
         this.#_far,
+        this.#_clipDepth,
       )
       const ortho = mat4Ortho(
         mat4(),
@@ -207,6 +233,7 @@ export class Camera3D implements CameraView3D {
         halfH,
         this.#_near,
         this.#_far,
+        this.#_clipDepth,
       )
       const t = this.#_projectionness
       if (t <= 0) {
@@ -220,6 +247,20 @@ export class Camera3D implements CameraView3D {
       this.#_projDirty = false
     }
     return this.#_proj
+  }
+
+  /**
+   * Inverse of {@link Camera3D.projection} (clip → view). Reconstructs a
+   * view-space position from a sampled depth (the AO pass), and stays correct
+   * across the ortho↔perspective blend because it inverts the actual blended
+   * projection, not a hardcoded perspective form.
+   */
+  get invProjection(): Mat4 {
+    if (this.#_invProjDirty) {
+      mat4Invert(this.#_invProj, this.projection)
+      this.#_invProjDirty = false
+    }
+    return this.#_invProj
   }
 
   /** View matrix (inverse of the camera pose). */
@@ -292,7 +333,16 @@ export class Camera3D implements CameraView3D {
   screenToRay(ndcX: number, ndcY: number, out?: Ray): Ray {
     // Touch the getter so `#_invViewProj` is current.
     void this.viewProjection
-    const near = mat4TransformPoint(vec3(), this.#_invViewProj, ndcX, ndcY, -1)
+    // Near-plane NDC z matches the clip-depth convention (0 for [0,1], -1 for
+    // [-1,1]); the far plane is z = 1 in both.
+    const nearZ = this.#_clipDepth === 'zero-to-one' ? 0 : -1
+    const near = mat4TransformPoint(
+      vec3(),
+      this.#_invViewProj,
+      ndcX,
+      ndcY,
+      nearZ,
+    )
     const far = mat4TransformPoint(vec3(), this.#_invViewProj, ndcX, ndcY, 1)
     const r: Ray = out ?? { origin: vec3(), direction: vec3() }
     r.origin.x = near.x

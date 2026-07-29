@@ -1,0 +1,10 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 1,
+      "glslName": "DebugCam_block_0Vertex"
+    }
+  ],
+  "samplers": []
+}

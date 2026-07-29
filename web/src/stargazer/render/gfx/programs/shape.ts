@@ -8,13 +8,11 @@
 // A per-source image or an oversized dedicated label has its own texture, which
 // this program does not bind, so `GpuGfx` routes those to the textQuad program.
 
-import type { AttribBinding, GfxDevice, Program, Vao } from '../GfxDevice'
 import type { GfxStrokeStyle } from '../Gfx2D'
 import type { ResolvedRadii } from '../roundRectRadii'
 import { RingStream } from '../RingStream'
 import { packColor, resolveDash } from '../packing'
 import {
-  FRAME_UBO_BINDING,
   LOC_SHAPE_COLORFILL,
   LOC_SHAPE_COLORSTROKE,
   LOC_SHAPE_MCOL0,
@@ -25,7 +23,6 @@ import {
   LOC_SHAPE_KIND,
   LOC_SHAPE_SRCRECT,
   LOC_SHAPE_UNIT,
-  RING_SIZE,
   SHAPE_BUFFER_BYTES,
   SHAPE_INSTANCE_STRIDE,
   SHAPE_KIND_CIRCLE,
@@ -34,9 +31,25 @@ import {
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
-import { drawInstancedRun } from './instancedRun'
-import shapeVertSrc from '../webgl2/shaders/shape.vert.glsl?raw'
-import shapeFragSrc from '../webgl2/shaders/shape.frag.glsl?raw'
+import type {
+  BindGroup,
+  BindGroupLayout,
+  GfxDevice,
+  Pipeline,
+  ShaderModule,
+  Texture,
+  VertexBufferLayout,
+} from '../GfxDevice'
+import {
+  drawInstancedRun,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import shapeWgsl from '../shaders/shape.wgsl?raw'
+import shapeVertSrc from '../shaders/shape.gen.vert.glsl?raw'
+import shapeFragSrc from '../shaders/shape.gen.frag.glsl?raw'
+import shapeReflect from '../shaders/shape.reflect.json'
 
 /** Word offsets into the 24-word shape instance record. */
 const W_MCOL0 = 0
@@ -52,32 +65,28 @@ const W_COLORSTROKE = 23
 export class ShapeProgram implements GpuProgram {
   readonly kind = 'shape' as const
 
-  #program!: Program
+  #shader!: ShaderModule
   #stream!: RingStream
-  #vaos: Vao[] = new Array(RING_SIZE)
-  #instanceAttribs: AttribBinding[] = []
+  #pipelines: Map<string, Pipeline> = new Map()
+  #vertexLayout: VertexBufferLayout[] = []
+  #materialLayout!: BindGroupLayout
+  /** (atlas → (label → bind group)); the fixed atlas + label page textures. */
+  #bindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
 
   get stream(): RingStream {
     return this.#stream
   }
 
-  init(device: GfxDevice, ctx: GpuBatchContext): void {
-    this.#program = device.createProgram({
-      vertexSrc: shapeVertSrc,
-      fragmentSrc: shapeFragSrc,
-      attribs: {
-        a_unit: LOC_SHAPE_UNIT,
-        a_mCol0: LOC_SHAPE_MCOL0,
-        a_mCol1: LOC_SHAPE_MCOL1,
-        a_mTranslate: LOC_SHAPE_MTRANSLATE,
-        a_shape: LOC_SHAPE_KIND,
-        a_params: LOC_SHAPE_PARAMS,
-        a_radii: LOC_SHAPE_RADII,
-        a_srcRect: LOC_SHAPE_SRCRECT,
-        a_colorFill: LOC_SHAPE_COLORFILL,
-        a_colorStroke: LOC_SHAPE_COLORSTROKE,
+  init(device: GfxDevice, _ctx: GpuBatchContext): void {
+    this.#shader = device.createShaderModule({
+      glsl: { vertex: shapeVertSrc, fragment: shapeFragSrc },
+      wgsl: {
+        code: shapeWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
       },
-      uniformBlocks: { Frame: FRAME_UBO_BINDING },
+      reflection: shapeReflect as ShaderReflection,
+      label: 'shape',
     })
     this.#stream = new RingStream(
       device,
@@ -85,114 +94,76 @@ export class ShapeProgram implements GpuProgram {
       SHAPE_INSTANCE_STRIDE,
       'shape',
     )
+    this.#materialLayout = device.createBindGroupLayout([
+      { binding: 0, type: 'texture-2d' },
+      { binding: 1, type: 'texture-2d' },
+    ])
+    this.#bindGroups = new WeakMap()
     const s = SHAPE_INSTANCE_STRIDE
-    this.#vaos = new Array(RING_SIZE)
-    for (let slot = 0; slot < RING_SIZE; slot++) {
-      const buffer = this.#stream.buffers[slot]
-      const f = (location: number, offset: number): AttribBinding => ({
-        buffer,
-        location,
-        size: 4,
-        type: 'float',
-        normalized: false,
-        offset,
-        stride: s,
-        divisor: 1,
-      })
-      const attribs: AttribBinding[] = [
-        {
-          buffer: ctx.unitQuadBuffer,
-          location: LOC_SHAPE_UNIT,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: 8,
-          divisor: 0,
-        },
-        {
-          buffer,
-          location: LOC_SHAPE_MCOL0,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: s,
-          divisor: 1,
-        },
-        {
-          buffer,
-          location: LOC_SHAPE_MCOL1,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 8,
-          stride: s,
-          divisor: 1,
-        },
-        {
-          buffer,
-          location: LOC_SHAPE_MTRANSLATE,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 16,
-          stride: s,
-          divisor: 1,
-        },
-        f(LOC_SHAPE_KIND, 24),
-        f(LOC_SHAPE_PARAMS, 40),
-        f(LOC_SHAPE_RADII, 56),
-        f(LOC_SHAPE_SRCRECT, 72),
-        {
-          buffer,
-          location: LOC_SHAPE_COLORFILL,
-          size: 4,
-          type: 'unorm8',
-          normalized: true,
-          offset: 88,
-          stride: s,
-          divisor: 1,
-        },
-        {
-          buffer,
-          location: LOC_SHAPE_COLORSTROKE,
-          size: 4,
-          type: 'unorm8',
-          normalized: true,
-          offset: 92,
-          stride: s,
-          divisor: 1,
-        },
-      ]
-      this.#vaos[slot] = device.createVao(this.#program, attribs)
-      if (slot === 0) {
-        this.#instanceAttribs = attribs.filter((a) => a.divisor === 1)
-      }
-    }
+    this.#vertexLayout = [
+      unitQuadLayout(LOC_SHAPE_UNIT),
+      {
+        arrayStride: s,
+        stepMode: 'instance',
+        attributes: [
+          { location: LOC_SHAPE_MCOL0, format: 'float32x2', offset: 0 },
+          { location: LOC_SHAPE_MCOL1, format: 'float32x2', offset: 8 },
+          { location: LOC_SHAPE_MTRANSLATE, format: 'float32x2', offset: 16 },
+          { location: LOC_SHAPE_KIND, format: 'float32x4', offset: 24 },
+          { location: LOC_SHAPE_PARAMS, format: 'float32x4', offset: 40 },
+          { location: LOC_SHAPE_RADII, format: 'float32x4', offset: 56 },
+          { location: LOC_SHAPE_SRCRECT, format: 'float32x4', offset: 72 },
+          { location: LOC_SHAPE_COLORFILL, format: 'unorm8x4', offset: 88 },
+          { location: LOC_SHAPE_COLORSTROKE, format: 'unorm8x4', offset: 92 },
+        ],
+      },
+    ]
+  }
+
+  async warmup(device: GfxDevice, ctx: GpuBatchContext): Promise<void> {
+    this.#pipelines = await warmupBlendPipelines(device, ctx, {
+      shader: this.#shader,
+      vertexLayout: this.#vertexLayout,
+      bindGroupLayouts: [ctx.frameBindGroupLayout, this.#materialLayout],
+    })
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    // Fixed-unit textures: atlas on 0, label page on 1. Non-textured shapes
+    // ignore them; a placeholder fills a slot before its texture exists.
+    const atlas = ctx.textureManager.getAtlasTexture() ?? ctx.placeholderTexture
+    const label =
+      ctx.textureManager.getLabelPageTexture() ?? ctx.placeholderTexture
     drawInstancedRun(
       ctx,
-      this.#program,
-      this.#vaos,
+      this.#pipelines,
+      ctx.unitQuadBuffer,
       this.#stream,
-      this.#instanceAttribs,
       SHAPE_INSTANCE_STRIDE,
       run,
-      () => {
-        // Fixed-unit textures: atlas on 0, label page on 1. Shapes ignore them;
-        // textured instances select via `texIndex`. The device's per-unit cache
-        // elides these when already bound.
-        const atlas = ctx.textureManager.getAtlasTexture()
-        if (atlas)
-          ctx.device.setUniformTexture(this.#program, 'u_texAtlas', atlas, 0)
-        const label = ctx.textureManager.getLabelPageTexture()
-        if (label)
-          ctx.device.setUniformTexture(this.#program, 'u_texLabel', label, 1)
-      },
+      this.#bindGroupFor(ctx, atlas, label),
     )
+  }
+
+  #bindGroupFor(
+    ctx: GpuBatchContext,
+    atlas: Texture,
+    label: Texture,
+  ): BindGroup {
+    let byLabel = this.#bindGroups.get(atlas)
+    if (!byLabel) {
+      byLabel = new WeakMap()
+      this.#bindGroups.set(atlas, byLabel)
+    }
+    let bg = byLabel.get(label)
+    if (!bg) {
+      bg = ctx.device.createBindGroup(this.#materialLayout, [
+        { binding: 0, resource: { texture: atlas } },
+        { binding: 1, resource: { texture: label } },
+      ])
+      byLabel.set(label, bg)
+    }
+    return bg
   }
 
   #reserve(ctx: GpuBatchContext): number {

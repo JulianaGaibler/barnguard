@@ -1,5 +1,6 @@
 import {
   type Mat4,
+  type ClipDepth,
   mat4,
   mat4LookAt,
   mat4Ortho,
@@ -40,6 +41,7 @@ export function fitDirectionalOrtho(
   lightDir: Vec3,
   texSize: number,
   maxDistance = 0,
+  clipDepth: ClipDepth = 'neg-one-to-one',
 ): Mat4 {
   // Light view from the origin looking along the light's travel direction.
   // `mat4LookAt` looks down −z, so geometry in front has negative light-space z.
@@ -96,6 +98,7 @@ export function fitDirectionalOrtho(
     cy + radius,
     near,
     far,
+    clipDepth,
   )
   return mat4Multiply(mat4(), proj, view)
 }
@@ -115,12 +118,13 @@ export function fitSpotPerspective(
   outerConeAngle: number,
   near: number,
   far: number,
+  clipDepth: ClipDepth = 'neg-one-to-one',
 ): Mat4 {
   const fovY = 2 * Math.min(outerConeAngle, MAX_SPOT_HALF_ANGLE)
   const up = Math.abs(dir.y) > 0.99 ? vec3(0, 0, 1) : vec3(0, 1, 0)
   const center = vec3(pos.x + dir.x, pos.y + dir.y, pos.z + dir.z)
   const view = mat4LookAt(mat4(), pos, center, up)
-  const proj = mat4Perspective(mat4(), fovY, 1, near, far)
+  const proj = mat4Perspective(mat4(), fovY, 1, near, far, clipDepth)
   return mat4Multiply(mat4(), proj, view)
 }
 
@@ -148,10 +152,11 @@ export function fitPointCubeFace(
   face: number,
   near: number,
   far: number,
+  clipDepth: ClipDepth = 'neg-one-to-one',
 ): Mat4 {
   const f = CUBE_FACES[face]
   const center = vec3(pos.x + f.dir.x, pos.y + f.dir.y, pos.z + f.dir.z)
   const view = mat4LookAt(mat4(), pos, center, f.up)
-  const proj = mat4Perspective(mat4(), Math.PI / 2, 1, near, far)
+  const proj = mat4Perspective(mat4(), Math.PI / 2, 1, near, far, clipDepth)
   return mat4Multiply(mat4(), proj, view)
 }

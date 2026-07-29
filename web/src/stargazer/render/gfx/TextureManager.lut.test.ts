@@ -14,7 +14,7 @@ beforeEach(() => {
   }
   getCtxSpy = vi
     .spyOn(OffscreenCanvas.prototype, 'getContext')
-    .mockReturnValue(fake as unknown as OffscreenCanvasRenderingContext2D)
+    .mockReturnValue(fake as never)
 })
 afterEach(() => {
   getCtxSpy.mockRestore()

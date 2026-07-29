@@ -114,12 +114,34 @@ export const RING_SIZE = 2
 export const FRAME_UBO_BINDING = 0
 /** Binding index for the 3D pass's view-projection uniform block. */
 export const CAMERA3D_UBO_BINDING = 1
+/** `coloredTri` per-run debug/clip params (dynamic-offset ring). */
+export const DRAWPARAMS_UBO_BINDING = 2
+/** `coloredTri` retained per-draw model matrix + color (dynamic-offset ring). */
+export const MODELCOLOR_UBO_BINDING = 3
+/** 3D mesh per-frame lights block. */
+export const MESH_LIGHTS_UBO_BINDING = 4
+/** 3D mesh per-object block (dynamic-offset ring). */
+export const MESH_OBJECT_UBO_BINDING = 5
+/** Post-process per-pass params block. */
+export const POST_PARAMS_UBO_BINDING = 6
+/** 3D mesh per-frame shadow block (`u_shadowMat[]` + PCF params). */
+export const MESH_SHADOW_UBO_BINDING = 7
+
 /**
  * `Frame` UBO size in floats. std140 lays a `mat3` out as 3 vec4-aligned
  * columns = 12 floats = 48 B, so the 9-float `projMat` is staged with a padding
  * float after each column.
  */
 export const FRAME_UBO_FLOATS = 12
+
+/**
+ * Bind-group group indices. Group 0 is the shared per-frame block (`Frame` /
+ * `Camera3D`), reused across every pipeline; group 1 is per-program resources
+ * (textures, per-run/per-object dynamic UBOs). Groups are organizational for
+ * WebGPU; the WebGL2 backend flattens to the binding numbers above.
+ */
+export const GROUP_FRAME = 0
+export const GROUP_MATERIAL = 1
 
 /** Attribute locations. Matched to the shaders' `in` declarations. */
 export const LOC_COLORED_POS = 0

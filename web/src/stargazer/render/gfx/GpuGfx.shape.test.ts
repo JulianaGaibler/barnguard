@@ -31,7 +31,8 @@ function makeGpuGfx(): { gfx: GpuGfx; device: MockGfxDevice } {
   return { gfx, device }
 }
 
-function beginFrame(gfx: GpuGfx, device: MockGfxDevice): void {
+async function beginFrame(gfx: GpuGfx, device: MockGfxDevice): Promise<void> {
+  await gfx.whenReady // pipelines warm asynchronously
   device.reset()
   gfx.beginFrame({
     clearColor: '#0d1a2c',
@@ -44,9 +45,9 @@ function beginFrame(gfx: GpuGfx, device: MockGfxDevice): void {
 }
 
 describe('GpuGfx shape program', () => {
-  it('collapses circle + round-rect + text + stroke into ONE batch', () => {
+  it('collapses circle + round-rect + text + stroke into ONE batch', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     gfx.fillCircle(20, 20, 8, '#ff8040') // shape (circle)
     gfx.fillRoundRect(40, 10, 30, 16, 4, '#8f74e7') // shape (round-rect)
     gfx.fillText('hi', 80, 20, { font: '10px x', color: '#fff' }) // shape (label page)
@@ -58,9 +59,9 @@ describe('GpuGfx shape program', () => {
     expect(device.draws[0].instanceCount).toBe(4)
   })
 
-  it('routes consecutive shape shapes into one growing batch', () => {
+  it('routes consecutive shape shapes into one growing batch', async () => {
     const { gfx, device } = makeGpuGfx()
-    beginFrame(gfx, device)
+    await beginFrame(gfx, device)
     for (let i = 0; i < 50; i++) gfx.fillCircle(i * 4, 10, 3, '#fff')
     for (let i = 0; i < 50; i++) gfx.fillRoundRect(i * 4, 30, 3, 3, 1, '#0f0')
     gfx.endFrame()

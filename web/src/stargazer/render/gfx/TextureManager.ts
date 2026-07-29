@@ -145,12 +145,13 @@ export interface TextureInspectorSnapshot {
    * Non-atlas images: 2D textures keyed by their own source in the live cache,
    * or the 3D material textures of a model source. `label` names a model
    * texture's role (`baseColor`, `normal`, …); it's absent for 2D per-source
-   * images.
+   * images. `source` is `null` for a model texture whose preview thumbnail has
+   * not decoded yet (the entry still lists its role + uploaded size).
    */
   perSource: {
     width: number
     height: number
-    source: CanvasImageSource
+    source: CanvasImageSource | null
     label?: string
   }[]
   /** One entry per cached label texture, with its style recovered from the key. */

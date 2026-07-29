@@ -1,5 +1,9 @@
-import type { PostEffect, PostPass } from '../PostEffect'
-import fragSrc from '../shaders/blur.frag.glsl?raw'
+import { postShader, type PostEffect, type PostPass } from '../PostEffect'
+import type { ShaderReflection } from '../../gfx/GfxDevice'
+import wgsl from '../shaders/blur.wgsl?raw'
+import vertSrc from '../shaders/blur.gen.vert.glsl?raw'
+import fragSrc from '../shaders/blur.gen.frag.glsl?raw'
+import reflect from '../shaders/blur.reflect.json'
 
 /** Construction overrides for {@link VignetteBlur}. */
 export interface VignetteBlurOptions {
@@ -37,20 +41,22 @@ export class VignetteBlur implements PostEffect {
     this.strength = opts.strength ?? 4
     this.radius = opts.radius ?? 0.55
     this.softness = opts.softness ?? 0.45
-    // Horizontal then vertical; the pipeline runs them in order, so the second
-    // blurs the first's output — a separable 2D Gaussian.
+    // Horizontal then vertical, the pipeline runs them in order, so the second
+    // blurs the first's output (a separable 2D Gaussian).
     this.passes = [this.#axisPass('h'), this.#axisPass('v')]
   }
 
   #axisPass(axis: 'h' | 'v'): PostPass {
     return {
-      fragmentSrc: fragSrc,
-      bind: (device, program, ctx) => {
-        if (axis === 'h') device.setUniform2f(program, 'u_dir', ctx.texelW, 0)
-        else device.setUniform2f(program, 'u_dir', 0, ctx.texelH)
-        device.setUniform1f(program, 'u_radius', this.radius)
-        device.setUniform1f(program, 'u_softness', this.softness)
-        device.setUniform1f(program, 'u_strength', this.strength)
+      shader: postShader(vertSrc, fragSrc, wgsl, reflect as ShaderReflection),
+      paramsBytes: 32, // vec4 u_p0 + vec4 u_p1
+      writeParams: (ctx, out) => {
+        // u_p0 = (dirX, dirY, radius, softness). u_p1.x = strength.
+        out[0] = axis === 'h' ? ctx.texelW : 0
+        out[1] = axis === 'h' ? 0 : ctx.texelH
+        out[2] = this.radius
+        out[3] = this.softness
+        out[4] = this.strength
       },
     }
   }

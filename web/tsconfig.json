@@ -18,7 +18,7 @@
     "paths": {
       "@src/*": ["src/*"]
     },
-    "types": ["node", "svelte", "vite/client"]
+    "types": ["node", "svelte", "vite/client", "@webgpu/types"]
   },
   "include": [
     "src/**/*.ts",

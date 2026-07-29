@@ -10,7 +10,7 @@
  *
  * @category Advanced
  */
-import type { VBuffer, IBuffer, Vao } from './GfxDevice'
+import type { VBuffer, IBuffer } from './GfxDevice'
 
 export interface GeometryHandle {
   vertices: Float32Array
@@ -31,13 +31,12 @@ export interface GeometryHandle {
 }
 
 /**
- * A `GeometryHandle`'s GPU residency: its own static vertex + index buffers and
- * the VAO binding them. Created by `GpuGfx` on the first retained fill and
- * reused every frame after; `drawElements(indexCount, 0)` draws it.
+ * A `GeometryHandle`'s GPU residency: its own static vertex + index buffers.
+ * Created on the first retained fill and reused every frame after; an indexed
+ * draw against them replays it (the device caches the VAO by buffer set).
  */
 export interface GpuGeometry {
   vbo: VBuffer
   ibo: IBuffer
-  vao: Vao
   indexCount: number
 }

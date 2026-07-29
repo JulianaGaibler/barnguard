@@ -172,10 +172,21 @@ export function mat4Invert(dst: Mat4, src: Readonly<Mat4>): boolean {
 }
 
 /**
- * Right-handed perspective projection with a symmetric frustum, mapping the
- * clip-space `z` into `[-1, 1]` (WebGL's NDC depth range). `fovY` is the
+ * Depth-clip convention for a projection. `'neg-one-to-one'` maps clip-space
+ * `z` into `[-1, 1]` (WebGL's NDC depth range); `'zero-to-one'` into `[0, 1]`
+ * (WebGPU's). The backend picks it (a WebGPU projection must land depth in `[0,
+ * 1]` or near geometry is clipped), so the camera reads it from the device.
+ *
+ * @category Math
+ */
+export type ClipDepth = 'neg-one-to-one' | 'zero-to-one'
+
+/**
+ * Right-handed perspective projection with a symmetric frustum. `fovY` is the
  * vertical field of view in radians; `aspect` is width / height. `far` may be
- * `Infinity` for an infinite far plane.
+ * `Infinity` for an infinite far plane. `clipDepth` selects the NDC depth range
+ * (default `'neg-one-to-one'`, WebGL); only the `z` row differs between the
+ * two.
  *
  * @category Math
  */
@@ -185,8 +196,10 @@ export function mat4Perspective(
   aspect: number,
   near: number,
   far: number,
+  clipDepth: ClipDepth = 'neg-one-to-one',
 ): Mat4 {
   const f = 1 / Math.tan(fovY / 2)
+  const zeroToOne = clipDepth === 'zero-to-one'
   dst[0] = f / aspect
   dst[1] = 0
   dst[2] = 0
@@ -203,19 +216,20 @@ export function mat4Perspective(
   dst[15] = 0
   if (far === Infinity) {
     dst[10] = -1
-    dst[14] = -2 * near
+    dst[14] = zeroToOne ? -near : -2 * near
   } else {
     const nf = 1 / (near - far)
-    dst[10] = (far + near) * nf
-    dst[14] = 2 * far * near * nf
+    dst[10] = (zeroToOne ? far : far + near) * nf
+    dst[14] = (zeroToOne ? 1 : 2) * far * near * nf
   }
   return dst
 }
 
 /**
- * Right-handed orthographic projection, mapping the box `[left, right] ×
- * [bottom, top] × [near, far]` (camera space) into clip space with `z` in `[-1,
- * 1]`.
+ * Right-handed orthographic projection mapping the box `[left, right] ×
+ * [bottom, top] × [near, far]` (camera space) into clip space. `clipDepth`
+ * selects the NDC depth range (default `'neg-one-to-one'`, WebGL); only the `z`
+ * row differs.
  *
  * @category Math
  */
@@ -227,10 +241,12 @@ export function mat4Ortho(
   top: number,
   near: number,
   far: number,
+  clipDepth: ClipDepth = 'neg-one-to-one',
 ): Mat4 {
   const lr = 1 / (left - right)
   const bt = 1 / (bottom - top)
   const nf = 1 / (near - far)
+  const zeroToOne = clipDepth === 'zero-to-one'
   dst[0] = -2 * lr
   dst[1] = 0
   dst[2] = 0
@@ -241,11 +257,11 @@ export function mat4Ortho(
   dst[7] = 0
   dst[8] = 0
   dst[9] = 0
-  dst[10] = 2 * nf
+  dst[10] = (zeroToOne ? 1 : 2) * nf
   dst[11] = 0
   dst[12] = (left + right) * lr
   dst[13] = (top + bottom) * bt
-  dst[14] = (far + near) * nf
+  dst[14] = (zeroToOne ? near : far + near) * nf
   dst[15] = 1
   return dst
 }

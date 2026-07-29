@@ -10,11 +10,17 @@ precision highp float;
 
 in vec2 v_uv;
 uniform sampler2D u_tex;
-uniform float u_amount; // peak channel separation in uv units at the corners
+
+// Per-pass params, std140 block (see POST_PARAMS_UBO_BINDING).
+// x = amount (peak channel separation in uv units at the corners).
+layout(std140) uniform Params {
+  vec4 u_ca;
+};
 
 out vec4 outColor;
 
 void main() {
+  float u_amount = u_ca.x;
   vec2 dir = (v_uv - 0.5) * u_amount * dot(v_uv - 0.5, v_uv - 0.5);
   vec4 rC = texture(u_tex, v_uv - dir);
   vec4 gC = texture(u_tex, v_uv);

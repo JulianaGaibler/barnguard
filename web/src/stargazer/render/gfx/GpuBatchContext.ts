@@ -1,9 +1,16 @@
 // Shared batch state every GPU draw program reads or writes: the device
-// handle, the transform/state stacks, the texture manager, and which batch is
-// currently open. Centralizing it here means a program module never needs a
-// back-reference to `GpuGfx` itself.
+// handle, the transform/state stacks, the texture manager, the shared per-frame
+// bind group, and which batch is currently open. Centralizing it here means a
+// program module never needs a back-reference to `GpuGfx` itself.
 
-import type { GfxDevice, Texture, UBuffer, VBuffer } from './GfxDevice'
+import type {
+  BindGroup,
+  BindGroupLayout,
+  ColorFormat,
+  DrawBindGroup,
+  GfxDevice,
+  UBuffer,
+} from './GfxDevice'
 import type { GpuGeometry } from './GeometryHandle'
 import type { GfxBlend } from './Gfx2D'
 import type { BitmapMask } from '../../assets/BitmapMask'
@@ -11,6 +18,7 @@ import type { TextureManager } from './TextureManager'
 import {
   FRAME_UBO_BINDING,
   FRAME_UBO_FLOATS,
+  GROUP_FRAME,
   type BatchKind,
 } from './batchLayout'
 import { TransformStack, type TransformOut } from './TransformStack'
@@ -23,15 +31,10 @@ import type { RingStream } from './RingStream'
  * and gradients render normally in every mode.
  *
  * - `'normal'`. Shipping look.
- * - `'polygons'`. Cyan outlines around every fill's outer polygon. Catches
- *   degenerate contours and missing closes. Adds one stroke per fill.
+ * - `'polygons'`. Cyan outlines around every fill's outer polygon.
  * - `'overdraw'`. Constant dim red under `lighter` blend. Hot regions accumulate.
- *   Normal blending is unreadable in this mode.
- * - `'batch-color'`. Each coloredTri flush picks a distinct hue via golden-ratio
- *   hue rotation. Hue is per-frame, read grouping patterns not stable colors.
- * - `'clip-mask'`. End-of-frame overlay of the currently-inspected `BitmapMask`
- *   tinted red. Requires `DebugController.setInspectedMask`, otherwise renders
- *   nothing.
+ * - `'batch-color'`. Each coloredTri flush picks a distinct hue.
+ * - `'clip-mask'`. End-of-frame overlay of the inspected `BitmapMask`.
  *
  * @category Debug
  */
@@ -43,7 +46,7 @@ export type DebugRenderMode =
  * plus the device state captured while that batch was open. During the frame,
  * batch changes push `DrawRun`s onto a command list instead of drawing; at
  * frame end each stream uploads once and the list replays in order, so painter
- * order holds without any mid-frame buffer re-upload.
+ * order holds. `blend` selects the program's matching pipeline variant.
  *
  * @category Debug
  */
@@ -54,18 +57,16 @@ export interface DrawRun {
   endWord: number
   blend: GfxBlend
   clipMask: BitmapMask | null
-  texture: Texture | null
-  lut: Texture | null
+  texture: import('./GfxDevice').Texture | null
+  lut: import('./GfxDevice').Texture | null
   debugMode: DebugRenderMode
   /** Monotonic index for the `'batch-color'` hue, fixed at record time. */
   debugBatchIndex: number
   /**
-   * Retained-geometry draw (Phase 4): when set, this run draws pre-uploaded GPU
-   * geometry with `drawElements` instead of a streamed range, so
-   * `startWord`/`endWord` are unused. `kind` is still `'coloredTri'` so it
-   * dispatches to that program's `drawRun`. `model` is the captured world
-   * matrix (2D affine as a column-major mat3, 9 floats); `colorRgba` is
-   * premultiplied 0..1.
+   * Retained-geometry draw: when set, this run draws pre-uploaded GPU geometry
+   * with an indexed draw instead of a streamed range, so `startWord`/`endWord`
+   * are unused. `model` is the captured world matrix (2D affine as a
+   * column-major mat3, 9 floats); `colorRgba` is premultiplied 0..1.
    */
   geometry?: GpuGeometry
   model?: Float32Array
@@ -82,17 +83,13 @@ export interface GpuGfxStats {
   sdfInstances: number
   strokeInstances: number
   roundRectInstances: number
-  /**
-   * Effective (post-clamp) MSAA sample count on the offscreen render target.
-   * `1` = off. Set once per FBO alloc, carried here for the HUD.
-   */
   msaaSamples: number
 }
 
 /** Batch key fields a program's flush needs to bind before drawing. */
 export interface BatchKey {
-  texture?: Texture | null
-  lut?: Texture | null
+  texture?: import('./GfxDevice').Texture | null
+  lut?: import('./GfxDevice').Texture | null
   clipMask?: BitmapMask | null
 }
 
@@ -100,15 +97,22 @@ export class GpuBatchContext {
   device: GfxDevice
   readonly stats: GpuGfxStats
 
+  /**
+   * Color format + sample count of the target the 2D pipelines render into.
+   * `GpuGfx` sets this before warming pipelines and on MSAA/format change; a
+   * program reads it in `warmup` to build matching pipeline variants.
+   */
+  targetColor: { format: ColorFormat; samples: number } = {
+    format: 'linear',
+    samples: 1,
+  }
+
   /** Column-major 3×3 for `u_proj`. Updated once per frame. */
   readonly projMat = new Float32Array(9)
 
-  /**
-   * Shared per-frame `Frame` uniform block (holds `u_proj`), uploaded and bound
-   * once per frame instead of a `u_proj` upload per draw. `null` until
-   * `initFrameUbo` runs (device create / context restore).
-   */
   #frameUbo: UBuffer | null = null
+  #frameLayout: BindGroupLayout | null = null
+  #frameBindGroup: BindGroup | null = null
   /**
    * Std140 staging for the `Frame` block: the `mat3` is 3 vec4-aligned columns
    * (12 floats), so `projMat`'s 3 columns are copied with a padding float after
@@ -120,39 +124,33 @@ export class GpuBatchContext {
   readonly stateStack = new StateStack(32)
   readonly txOut: TransformOut = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
 
-  /**
-   * Every texture the GPU backend uses: atlas, per-source, gradient LUTs, clip
-   * masks.
-   */
   textureManager!: TextureManager
 
   /** Unit-quad template shared by every instanced program. */
-  unitQuadBuffer!: VBuffer
+  unitQuadBuffer!: import('./GfxDevice').VBuffer
+
+  /**
+   * 1×1 opaque-white texture, bound to a sampler slot a shader declares but
+   * does not sample this draw (a `shape` instance with no atlas, a `coloredTri`
+   * run with no clip mask) — a bind group must still supply every texture its
+   * layout declares.
+   */
+  placeholderTexture!: import('./GfxDevice').Texture
 
   curSlot = 0
 
-  /**
-   * Global (not stack-scoped): the debug HUD is the sole caller and wants every
-   * draw affected until toggled off. Only `coloredTri`'s flush reads it.
-   */
   curDebugMode: DebugRenderMode = 'normal'
-  /** Flush counter for `'batch-color'` hue picking. Reset each frame. */
   debugBatchCounter = 0
 
   // Current batch. A change to any of these forces a flush.
   curBatch: BatchKind = 'none'
-  curTexture: Texture | null = null
-  /** Second bound texture (LUT) for the `maskedGradient` batch. */
-  curLut: Texture | null = null
+  curTexture: import('./GfxDevice').Texture | null = null
+  curLut: import('./GfxDevice').Texture | null = null
   curBlend: GfxBlend = 'source-over'
   curClipMask: BitmapMask | null = null
 
   readonly #programs = new Map<BatchKind, GpuProgram>()
 
-  /**
-   * The frame's draw calls in painter order. Batch changes append here instead
-   * of drawing; `submitFrame` replays it after each stream uploads once.
-   */
   readonly #drawRuns: DrawRun[] = []
 
   constructor(device: GfxDevice, stats: GpuGfxStats) {
@@ -165,17 +163,39 @@ export class GpuBatchContext {
   }
 
   /**
-   * Create the shared `Frame` UBO. Called from `GpuGfx` on device create and on
-   * context restore (the prior GL buffer died with the context).
+   * Create the shared `Frame` UBO, its bind-group layout, and the bind group.
+   * Called from `GpuGfx` on device create and on context restore.
    */
   initFrameUbo(): void {
     this.#frameUbo = this.device.createUniformBuffer(FRAME_UBO_FLOATS * 4)
+    this.#frameLayout = this.device.createBindGroupLayout([
+      { binding: FRAME_UBO_BINDING, type: 'uniform-buffer' },
+    ])
+    this.#frameBindGroup = this.device.createBindGroup(this.#frameLayout, [
+      {
+        binding: FRAME_UBO_BINDING,
+        resource: { uniformBuffer: this.#frameUbo },
+      },
+    ])
   }
 
   /**
-   * Stage `projMat` into std140 layout and upload it to the `Frame` UBO, then
-   * bind the UBO. Once per frame, before the command list replays.
+   * The shared `Frame` bind-group layout, referenced as group 0 by every 2D
+   * pipeline.
    */
+  get frameBindGroupLayout(): BindGroupLayout {
+    if (!this.#frameLayout)
+      throw new Error('GpuBatchContext: frame UBO not initialized')
+    return this.#frameLayout
+  }
+
+  /** The group-0 bind-group entry every 2D draw attaches. */
+  frameBindGroupEntry(): DrawBindGroup {
+    if (!this.#frameBindGroup)
+      throw new Error('GpuBatchContext: frame UBO not initialized')
+    return { group: GROUP_FRAME, bindGroup: this.#frameBindGroup }
+  }
+
   #uploadFrameUbo(): void {
     if (!this.#frameUbo) return
     const p = this.projMat
@@ -191,15 +211,11 @@ export class GpuBatchContext {
     s[9] = p[7]
     s[10] = p[8]
     this.device.updateUniformBuffer(this.#frameUbo, s)
-    this.device.bindUniformBufferBase(this.#frameUbo, FRAME_UBO_BINDING)
   }
 
   /**
-   * Flush-on-state-change guard, the generalization of the seven programs'
-   * near-identical `startXxx` methods. `key` carries only the fields this
-   * batch's identity depends on, e.g. `stroke`/`sdf` pass none (blend-only),
-   * `texturedQuad`/`textQuad`/`gradientRadial` pass `texture`, `maskedGradient`
-   * passes `texture` + `lut`, `coloredTri` passes `clipMask`.
+   * Flush-on-state-change guard. `key` carries only the fields this batch's
+   * identity depends on.
    */
   beginBatch(kind: BatchKind, key: BatchKey = {}): void {
     const wantBlend = this.stateStack.getBlend()
@@ -217,21 +233,14 @@ export class GpuBatchContext {
     if ('clipMask' in key) this.curClipMask = key.clipMask ?? null
   }
 
-  /**
-   * Record the active batch's pending range as a `DrawRun` (nothing draws),
-   * then clear the batch marker. Named `flushActive` for its callers (layer
-   * boundaries, `setSamples`, `rebuildResources`), but under record/submit it
-   * only appends to the command list — the GPU work happens in `submitFrame`.
-   */
+  /** Record the active batch's pending range as a `DrawRun` (nothing draws). */
   flushActive(): void {
     this.#recordActiveRun()
   }
 
   /**
-   * Record a retained-geometry draw into the command list. First records any
-   * pending streamed batch so painter order across streamed + retained draws is
-   * preserved, then appends the retained run. `model` is the captured world
-   * matrix (mat3, 9 floats); `colorRgba` is premultiplied 0..1.
+   * Record a retained-geometry draw into the command list, preserving painter
+   * order across streamed + retained draws.
    */
   recordRetained(
     geometry: GpuGeometry,
@@ -276,31 +285,35 @@ export class GpuBatchContext {
   }
 
   /**
-   * Frame end: record the last pending run, upload each stream once, then
-   * replay the command list in painter order. The only place mid-frame-recorded
-   * draws reach the GPU.
+   * Frame end: record the last pending run, upload the Frame UBO + each stream
+   * once, then replay the command list in painter order (inside the open render
+   * pass). The only place mid-frame-recorded draws reach the GPU.
    */
   submitFrame(): void {
     this.#recordActiveRun()
-    // Projection: one UBO upload + bind for the whole frame (all programs share
-    // the `Frame` block), replacing a `u_proj` upload per draw.
     this.#uploadFrameUbo()
     for (const program of this.#programs.values()) {
       program.stream.upload(this.device, this.curSlot)
     }
+    // The frame starts at source-over, so only a run whose blend differs from
+    // the running value is a real switch (a new blend-variant pipeline bind).
+    let prevBlend: GfxBlend = 'source-over'
+    let blendSwitches = 0
     for (const run of this.#drawRuns) {
-      const blendMode = run.blend === 'lighter' ? 'lighter' : 'source-over'
-      this.device.setBlend(blendMode)
+      if (run.blend !== prevBlend) {
+        blendSwitches++
+        prevBlend = run.blend
+      }
       this.#programs.get(run.kind)?.drawRun(this, run)
     }
+    this.stats.blendSwitches = blendSwitches
     this.#drawRuns.length = 0
   }
 
   /**
    * Reserve `words`/`verts` for a vertex batch. On overflow, submit everything
-   * pending mid-frame, orphan the buffers, and retry once — so geometry is
-   * never dropped. Returns the word offset or `-1` if a single record can't
-   * fit.
+   * pending mid-frame, orphan the buffers, and retry once. Returns the word
+   * offset or `-1` if a single record can't fit.
    */
   reserveVerts(stream: RingStream, words: number, verts: number): number {
     let off = stream.reserve(this.curSlot, words, verts)
@@ -323,10 +336,9 @@ export class GpuBatchContext {
 
   /**
    * Buffer full mid-frame: record the active run, submit + replay everything
-   * pending, then orphan every stream's GPU buffer and restart its cursor so
-   * subsequent appends can't overwrite data an in-flight draw still reads. The
-   * active batch's marker + state are preserved so the interrupted emit
-   * resumes.
+   * pending into the open pass, then orphan every stream's GPU buffer and
+   * restart its cursor. The active batch's marker + state are preserved so the
+   * interrupted emit resumes.
    */
   #overflowSubmit(): void {
     const batch = this.curBatch
@@ -348,7 +360,10 @@ export class GpuBatchContext {
 
   /** Called once per frame, after the ring slot has advanced. */
   resetSlot(slot: number): void {
-    for (const program of this.#programs.values()) program.stream.reset(slot)
+    for (const program of this.#programs.values()) {
+      program.stream.reset(slot)
+      program.resetFrame?.()
+    }
   }
 
   /** Called once per frame, alongside `resetSlot`. */

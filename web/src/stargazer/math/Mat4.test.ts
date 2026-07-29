@@ -113,6 +113,45 @@ describe('mat4Ortho', () => {
   })
 })
 
+describe('projection clip-depth conventions', () => {
+  it('perspective zero-to-one maps near→0, far→1 (WebGPU depth)', () => {
+    const m = mat4Perspective(mat4(), HALF_PI, 1, 1, 100, 'zero-to-one')
+    const near = mat4TransformPoint(vec3(), m, 0, 0, -1)
+    const far = mat4TransformPoint(vec3(), m, 0, 0, -100)
+    expect(near.z).toBeCloseTo(0, 4)
+    expect(far.z).toBeCloseTo(1, 4)
+  })
+
+  it('perspective zero-to-one leaves the xy projection identical to GL', () => {
+    const gl = mat4Perspective(mat4(), HALF_PI, 1.5, 0.5, 100)
+    const wgpu = mat4Perspective(mat4(), HALF_PI, 1.5, 0.5, 100, 'zero-to-one')
+    // Only the z row (indices 10, 14) differs; xy scale + w column match.
+    expect(wgpu[0]).toBeCloseTo(gl[0], 6)
+    expect(wgpu[5]).toBeCloseTo(gl[5], 6)
+    expect(wgpu[11]).toBeCloseTo(gl[11], 6)
+  })
+
+  it('perspective zero-to-one supports an infinite far plane', () => {
+    const m = mat4Perspective(mat4(), HALF_PI, 1, 0.5, Infinity, 'zero-to-one')
+    const near = mat4TransformPoint(vec3(), m, 0, 0, -0.5)
+    const deep = mat4TransformPoint(vec3(), m, 0, 0, -1e6)
+    expect(near.z).toBeCloseTo(0, 4)
+    expect(deep.z).toBeLessThanOrEqual(1 + 1e-4)
+    expect(deep.z).toBeGreaterThan(0.99)
+  })
+
+  it('ortho zero-to-one maps near→0, far→1', () => {
+    const m = mat4Ortho(mat4(), -2, 2, -1, 1, 1, 10, 'zero-to-one')
+    const min = mat4TransformPoint(vec3(), m, -2, -1, -1)
+    const max = mat4TransformPoint(vec3(), m, 2, 1, -10)
+    expect(min.z).toBeCloseTo(0, 4)
+    expect(max.z).toBeCloseTo(1, 4)
+    // xy unchanged from the GL convention.
+    expect(min.x).toBeCloseTo(-1, 4)
+    expect(max.y).toBeCloseTo(1, 4)
+  })
+})
+
 describe('mat4LookAt', () => {
   it('places the camera so the target sits down -z', () => {
     const view = mat4LookAt(mat4(), vec3(0, 0, 5), vec3(0, 0, 0), vec3(0, 1, 0))

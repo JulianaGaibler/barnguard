@@ -1,5 +1,9 @@
-import type { PostEffect, PostPass } from '../PostEffect'
-import fragSrc from '../shaders/vignette.frag.glsl?raw'
+import { postShader, type PostEffect, type PostPass } from '../PostEffect'
+import type { ShaderReflection } from '../../gfx/GfxDevice'
+import wgsl from '../shaders/vignette.wgsl?raw'
+import vertSrc from '../shaders/vignette.gen.vert.glsl?raw'
+import fragSrc from '../shaders/vignette.gen.frag.glsl?raw'
+import reflect from '../shaders/vignette.reflect.json'
 
 /** Construction overrides for {@link Vignette}. */
 export interface VignetteOptions {
@@ -14,7 +18,7 @@ export interface VignetteOptions {
 
 /**
  * Darkens the frame toward its edges by a smooth radial falloff. One fullscreen
- * pass; premultiplied-safe (a scalar multiply).
+ * pass. Premultiplied-safe (a scalar multiply).
  *
  * @category Render
  * @example
@@ -37,11 +41,12 @@ export class Vignette implements PostEffect {
     this.softness = opts.softness ?? 0.45
     this.passes = [
       {
-        fragmentSrc: fragSrc,
-        bind: (device, program) => {
-          device.setUniform1f(program, 'u_intensity', this.intensity)
-          device.setUniform1f(program, 'u_radius', this.radius)
-          device.setUniform1f(program, 'u_softness', this.softness)
+        shader: postShader(vertSrc, fragSrc, wgsl, reflect as ShaderReflection),
+        paramsBytes: 16, // vec4 u_vig
+        writeParams: (_ctx, out) => {
+          out[0] = this.intensity
+          out[1] = this.radius
+          out[2] = this.softness
         },
       },
     ]

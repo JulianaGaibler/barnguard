@@ -1,0 +1,39 @@
+// Point-light shadow caster. One cube face per pass. The vertex stage passes
+// world position through. The fragment stage writes linear distance-to-light,
+// normalized to [0,1] by the far range, so the main shader compares against the
+// same distance metric. Writing frag depth disables early-Z, fine for six small
+// cube faces.
+//
+// Bindings: a_position at LOC_POSITION (0), CubeCam at CAMERA3D_UBO_BINDING (1),
+// ShadowObject at MESH_OBJECT_UBO_BINDING (5).
+
+struct CubeCam {
+  shadowViewProj: mat4x4<f32>,
+  lightPos: vec4<f32>,
+  far: vec4<f32>,
+};
+@group(0) @binding(1) var<uniform> cam: CubeCam;
+
+struct ShadowObject {
+  model: mat4x4<f32>,
+};
+@group(1) @binding(5) var<uniform> obj: ShadowObject;
+
+struct VOut {
+  @builtin(position) pos: vec4<f32>,
+  @location(0) worldPos: vec3<f32>,
+};
+
+@vertex
+fn vs_main(@location(0) a_position: vec3<f32>) -> VOut {
+  var out: VOut;
+  let worldPos = obj.model * vec4<f32>(a_position, 1.0);
+  out.worldPos = worldPos.xyz;
+  out.pos = cam.shadowViewProj * worldPos;
+  return out;
+}
+
+@fragment
+fn fs_main(in: VOut) -> @builtin(frag_depth) f32 {
+  return clamp(length(in.worldPos - cam.lightPos.xyz) / cam.far.x, 0.0, 1.0);
+}

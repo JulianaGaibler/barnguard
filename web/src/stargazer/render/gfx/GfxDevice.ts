@@ -1,23 +1,75 @@
 /**
- * `GfxDevice`, backend seam. Thin and imperative: allocate handles, upload
- * data, set state, draw. Handle types are branded opaque markers (not classes)
- * so a WebGPU backend can return `GPURenderPipeline` / `GPUBuffer` / etc.
- * through the same seam without instanceof checks. Typed uniform setters keep
- * the caller side clean.
+ * `GfxDevice`, backend seam. Modelled on WebGPU semantics so a WebGPU backend
+ * implements it directly and WebGL2 emulates it: a frame is a command encoder
+ * holding one or more **render passes**, each pass declares its attachments and
+ * their load/store/clear ops, immutable **pipelines** bundle shader + vertex
+ * layout + blend/depth/cull/winding + target format, resources bind through
+ * **bind groups**, and every draw states all its inputs explicitly (no ambient
+ * global state). Handle types are branded opaque markers (not classes) so a
+ * backend can return `GPURenderPipeline` / `GPUBuffer` / etc. through the same
+ * seam without `instanceof` checks.
+ *
+ * The imperative WebGL-shaped surface (per-name `setUniform*`, `useProgram`,
+ * `bindVao`, `setBlend`/`setDepthTest`, `drawArrays`/`drawElements`, a bare
+ * `bindRenderTarget`) is gone: per-draw data rides in vertex buffers or
+ * dynamic-offset uniform buffers, state lives in the pipeline, attachment
+ * clears live in the pass, and a single `draw(desc)` carries the rest.
  */
+
+import type { ClipDepth } from '../../math/Mat4'
 
 // --- opaque handle types ----------------------------------------------------
 
-// A `Program` is a linked shader program. Backends interpret it however they
-// like; callers only pass it through.
-export interface Program {
-  readonly __gfxProgram: unique symbol
+/**
+ * A compiled shader module. Carries whatever source the active backend needs
+ * (GLSL for WebGL2, WGSL for WebGPU) plus reflection so the backend can wire
+ * attributes/blocks/samplers without depending on generated identifier names.
+ */
+export interface ShaderModule {
+  readonly __gfxShader: unique symbol
 }
 
 /**
- * GPU-side vertex/instance data buffer (`GL_ARRAY_BUFFER` on WebGL2). The
- * device doesn't currently ship an index-buffer type.
+ * An immutable render pipeline: a shader plus the fixed state a draw needs
+ * (vertex layout, color format + blend, depth, cull, winding, primitive,
+ * samples). Backends memoize on the descriptor (handle identity for
+ * `shader`/`bindGroupLayouts`, structural for the scalar fields), so requesting
+ * the same configuration returns the same handle. Pipelines whose
+ * `bindGroupLayouts[i]` is the _same_ {@link BindGroupLayout} handle accept the
+ * same bind group at group `i` — reuse layout handles, don't rebuild them.
  */
+export interface Pipeline {
+  readonly __gfxPipeline: unique symbol
+}
+
+/**
+ * The shape of one bind group: which slots hold uniform buffers vs textures vs
+ * shadow samplers, and which uniform slots are addressed with a per-draw
+ * dynamic offset. A pipeline references its bind group layouts by group index;
+ * a bind group created against a layout is reusable across every pipeline that
+ * references that same layout handle.
+ */
+export interface BindGroupLayout {
+  readonly __gfxBindGroupLayout: unique symbol
+}
+
+/** A concrete set of resources bound as a unit, created against a layout. */
+export interface BindGroup {
+  readonly __gfxBindGroup: unique symbol
+}
+
+/**
+ * An immutable compute pipeline: a `@compute` shader plus its bind-group
+ * layouts. Dispatched inside a compute pass ({@link GfxDevice.beginComputePass}
+ * / {@link GfxDevice.dispatchCompute}). WebGPU only —
+ * {@link GfxDevice.supportsCompute} is `false` on WebGL2, which has no compute
+ * stage.
+ */
+export interface ComputePipeline {
+  readonly __gfxComputePipeline: unique symbol
+}
+
+/** GPU-side vertex/instance data buffer (`GL_ARRAY_BUFFER` on WebGL2). */
 export interface VBuffer {
   readonly __gfxBuffer: unique symbol
 }
@@ -29,11 +81,19 @@ export interface Texture {
 }
 
 /**
+ * Depth comparison function for a shadow map's comparison sampler. Stored on
+ * the shadow handle so the backend can build the comparison sampler correctly —
+ * the choice matters under reversed-Z, so it lives in the interface rather than
+ * being hardcoded in one backend. Default `'less-equal'`.
+ */
+export type CompareFn = 'less-equal' | 'greater-equal' | 'less' | 'greater'
+
+/**
  * A layered depth texture for shadow maps: a `DEPTH_COMPONENT` 2D-array with a
  * comparison sampler, one layer per shadow-casting directional or spot light.
- * Render depth into a layer with {@link GfxDevice.beginShadowLayer}, then sample
- * it in a shader through {@link GfxDevice.setUniformShadowArray} as a
- * `sampler2DArrayShadow`.
+ * Render depth into a layer with a depth-only {@link RenderPassDesc} targeting
+ * `{ shadowArray, layer }`, then sample it through a
+ * `'texture-2d-array-shadow'` bind-group entry.
  */
 export interface ShadowArray {
   readonly __gfxShadowArray: unique symbol
@@ -42,32 +102,31 @@ export interface ShadowArray {
 }
 
 /**
- * A depth cubemap for a point light's shadow. Render its six faces with
- * {@link GfxDevice.beginShadowCubeFace}, then sample it as a `samplerCubeShadow`
- * through {@link GfxDevice.setUniformShadowCube}.
+ * A depth cubemap for a point light's shadow. Render its six faces with a
+ * depth-only pass targeting `{ shadowCube, face }`, then sample it through a
+ * `'texture-cube-shadow'` bind-group entry.
  */
 export interface ShadowCube {
   readonly __gfxShadowCube: unique symbol
   readonly size: number
 }
 
-export interface Vao {
-  readonly __gfxVao: unique symbol
-}
-
 /**
- * GPU-side uniform block buffer (`GL_UNIFORM_BUFFER` on WebGL2), bound to a
- * binding index that every program sharing the block reads from.
+ * GPU-side uniform-block buffer (`GL_UNIFORM_BUFFER` on WebGL2). Bound through
+ * a bind group; a `'uniform-buffer'` layout entry with `dynamicOffset` lets one
+ * buffer feed many draws by supplying a per-draw byte offset (the
+ * dynamic-offset ring used for per-object and per-run uniforms). Like the
+ * vertex ring it can be {@link GfxDevice.orphanUniformBuffer}ed on a mid-frame
+ * overflow.
  */
 export interface UBuffer {
   readonly __gfxUniformBuffer: unique symbol
 }
 
 /**
- * GPU-side index buffer (`GL_ELEMENT_ARRAY_BUFFER` on WebGL2). Indices are
- * `UNSIGNED_SHORT` — retained geometry asserts ≤ 65 535 vertices per handle.
- * The element-array binding is VAO state, so an index buffer is associated with
- * a VAO at `createVao` time, not per draw.
+ * GPU-side index buffer (`GL_ELEMENT_ARRAY_BUFFER` on WebGL2). `type` picks the
+ * element width; retained 2D geometry uses `'u16'` (asserts ≤ 65 535 vertices),
+ * large 3D meshes `'u32'`.
  */
 export interface IBuffer {
   readonly __gfxIndexBuffer: unique symbol
@@ -78,62 +137,256 @@ export interface RenderTarget {
   readonly width: number
   readonly height: number
   /**
-   * Effective (post-clamp) MSAA sample count. `1` under Canvas mode or when
-   * MSAA is disabled; `>1` when a multisample color attachment was allocated.
-   * Backends clamp the requested value down to `MAX_SAMPLES`, so this is what's
-   * actually running, not what was asked for. Read by the HUD to confirm MSAA
-   * is active.
+   * Effective (post-clamp) MSAA sample count: `1` when MSAA is off, `>1` when a
+   * multisample color attachment was allocated. A multisample target is not
+   * sampleable — resolve it (a pass `resolveTarget`, or
+   * {@link GfxDevice.colorTexture} on a single-sample target) before reading
+   * it.
    */
   readonly samples: number
   /**
-   * Color-attachment color space the target was allocated with (see
-   * {@link RenderTargetOpts.colorSpace}). A post-process pass reads this to
-   * allocate its ping-pong targets with a matching internal format — a
-   * multisample→single-sample resolve blit requires identical formats.
+   * Color-attachment color space the target was allocated with. A post-process
+   * pass reads this to allocate ping-pong / resolve targets with a matching
+   * format — a multisample→single-sample resolve requires identical formats.
    */
-  readonly colorSpace: 'linear' | 'srgb'
+  readonly colorSpace: ColorFormat
+  /** Whether the target carries a depth attachment (opted in at creation). */
+  readonly hasDepth: boolean
 }
 
-// --- attribute layout descriptors ------------------------------------------
+// --- shader modules ---------------------------------------------------------
 
 /**
- * A single vertex/instance attribute pointer. The `location` corresponds to the
- * shader's `layout(location = N)`, for WebGL2 without explicit layout
- * qualifiers, the device forces it via `bindAttribLocation` before link.
+ * Reflection metadata pairing the backend-neutral binding numbers used in
+ * {@link VertexBufferLayout} / {@link BindGroupLayoutEntry} with the concrete
+ * names a backend needs. WebGL2 reads this to `bindAttribLocation`, resolve
+ * `getUniformBlockIndex`, and set sampler units by name — so naga's mangled
+ * GLSL identifiers never leak into calling code. WebGPU ignores it (WGSL
+ * `@location`/`@group`/`@binding` are authoritative). Std140 member offsets
+ * within a block stay the caller's responsibility (see `batchLayout.ts`).
  */
-export interface AttribBinding {
-  buffer: VBuffer
+export interface ShaderReflection {
+  /** Vertex attribute location → GLSL `in` name (for `bindAttribLocation`). */
+  attributes: { location: number; glslName: string }[]
+  /** Uniform-block binding → GLSL block name (for `getUniformBlockIndex`). */
+  uniformBlocks: { binding: number; glslName: string }[]
+  /** Sampler binding → GLSL sampler uniform name (for `getUniformLocation`). */
+  samplers: { binding: number; glslName: string }[]
+}
+
+export interface ShaderModuleDesc {
+  /** WebGL2 source. Present while WebGL2 is a target. */
+  glsl?: { vertex: string; fragment: string }
+  /**
+   * WebGPU source with entry-point names. A render module names `vertexEntry` +
+   * `fragmentEntry`; a compute module names `computeEntry` instead (WebGPU only
+   * — WebGL2 has no compute). Present once WGSL is generated.
+   */
+  wgsl?: {
+    code: string
+    vertexEntry?: string
+    fragmentEntry?: string
+    computeEntry?: string
+  }
+  reflection: ShaderReflection
+  /** Debug label surfaced in backend error messages. */
+  label?: string
+}
+
+// --- vertex layout ----------------------------------------------------------
+
+/**
+ * A single vertex/instance attribute. `format` fixes both the component count
+ * and how the bytes are read (`unorm8x4` normalizes 4 bytes to `[0,1]` floats,
+ * matching packed colors). `location` is the shader's attribute slot.
+ */
+export interface VertexAttribute {
   location: number
-  size: 1 | 2 | 3 | 4
-  type: AttribType
-  normalized: boolean
+  format: VertexFormat
+  /** Byte offset of this attribute within the buffer's stride. */
   offset: number
-  stride: number
-  /** 0 = per-vertex, 1 = per-instance. */
-  divisor: number
 }
 
-export type AttribType = 'float' | 'unorm8' | 'uint8'
+export type VertexFormat =
+  'float32' | 'float32x2' | 'float32x3' | 'float32x4' | 'unorm8x4' | 'uint8x4'
 
-// --- creation opts ---------------------------------------------------------
-
-export interface ProgramOpts {
-  vertexSrc: string
-  fragmentSrc: string
-  /**
-   * Map attribute name → attribute location. The device binds these before
-   * linking so `AttribBinding.location` values passed to `createVao` line up
-   * with the shader's `in` variables regardless of driver assignment.
-   */
-  attribs: Record<string, number>
-  /**
-   * Map uniform-block name → binding index. After link the device points each
-   * named `layout(std140) uniform <name> {...}` block at the given binding, so
-   * a UBO bound there with `bindUniformBufferBase` feeds every program that
-   * shares the block (e.g. the per-frame projection).
-   */
-  uniformBlocks?: Record<string, number>
+/**
+ * Layout of one vertex buffer feeding a pipeline. `stepMode: 'instance'`
+ * advances per instance (divisor 1); `'vertex'` per vertex (divisor 0). A
+ * pipeline takes an array of these, one per bound vertex buffer slot; a draw
+ * supplies the matching buffers (with per-binding byte offsets) in the same
+ * order.
+ */
+export interface VertexBufferLayout {
+  arrayStride: number
+  stepMode: 'vertex' | 'instance'
+  attributes: VertexAttribute[]
 }
+
+// --- bind groups ------------------------------------------------------------
+
+export type BindingType =
+  | 'uniform-buffer'
+  | 'texture-2d'
+  | 'texture-2d-array-shadow'
+  | 'texture-cube-shadow'
+  /**
+   * A sampled depth texture with a non-comparison sampler (returns the raw
+   * depth as a float, not a shadow test). Backs the AO G-buffer's depth read.
+   * The texture comes from {@link GfxDevice.depthTexture}.
+   */
+  | 'texture-2d-depth'
+  /**
+   * A storage texture a compute shader writes (and optionally reads). No
+   * companion sampler. WebGPU only — never appears on a WebGL2 bind group.
+   */
+  | 'storage-texture-2d'
+
+export interface BindGroupLayoutEntry {
+  /** Binding number, matching the shader's `@binding` / reflection entry. */
+  binding: number
+  type: BindingType
+  /**
+   * For `'uniform-buffer'` only: the buffer is bound with a per-draw byte
+   * offset (see {@link DrawBindGroup.dynamicOffsets}). Used for the per-object /
+   * per-run dynamic-offset uniform ring. A dynamic entry's
+   * {@link BindingResource} **must** specify `size` (the fixed slice length).
+   */
+  dynamicOffset?: boolean
+  /**
+   * For `'storage-texture-2d'` only. Access defaults to `'write-only'`; the
+   * storage format defaults to `'linear'` (`rgba8unorm`). Read-write needs the
+   * backend feature and is left off by default.
+   */
+  storageAccess?: 'write-only' | 'read-write'
+  storageFormat?: ColorFormat
+}
+
+/**
+ * A resource bound to one slot. For a uniform buffer, `size` is the bound slice
+ * length in bytes and is **required** when the layout entry is dynamic (the
+ * per-draw offset selects the slice; `size` fixes its extent). `offset` binds a
+ * static sub-range when the entry is not dynamic.
+ */
+export type BindingResource =
+  | { uniformBuffer: UBuffer; offset?: number; size?: number }
+  | { texture: Texture }
+  | { shadowArray: ShadowArray }
+  | { shadowCube: ShadowCube }
+
+export interface BindGroupEntry {
+  binding: number
+  resource: BindingResource
+}
+
+// --- pipelines --------------------------------------------------------------
+
+export type GfxBlendMode = 'source-over' | 'lighter' | 'none'
+
+/**
+ * Face-culling mode. `'none'` draws both faces (the 2D baseline); `'back'` /
+ * `'front'` cull that face of triangles wound per
+ * {@link PipelineDesc.frontFace}.
+ */
+export type CullMode = 'none' | 'back' | 'front'
+
+/**
+ * Front-face winding. Baked into the pipeline so it can differ per backend:
+ * WebGPU's `[0,1]`-Z clip space and WebGL's `[-1,1]` disagree on handedness, so
+ * the same geometry needs opposite winding to cull the same faces. The 2D
+ * pipelines don't cull and leave this at the default.
+ */
+export type FrontFace = 'ccw' | 'cw'
+
+/**
+ * The backend's coordinate conventions, which 3D rendering must match. WebGL
+ * and WebGPU disagree on three things, and the shared 3D code reads them here
+ * rather than hardcoding one backend:
+ *
+ * - `clipDepth`: NDC depth range. A camera builds its projection with this so
+ *   depth lands in the range the backend keeps (WebGPU clips outside `[0,1]`).
+ * - `frontFace`: winding of a front face for standard geometry. WebGPU's
+ *   framebuffer is top-left origin, so the same NDC triangle has opposite
+ *   apparent winding from WebGL's bottom-left origin; the 3D pipelines take
+ *   this so face culling keeps the same faces.
+ * - `textureTopDown`: row order of a sampled render-target texture. WebGPU stores
+ *   row 0 at the top, WebGL at the bottom, so a pass that samples an offscreen
+ *   target (RTT / post-process / present) flips V when this is true.
+ */
+export interface NdcConventions {
+  clipDepth: ClipDepth
+  frontFace: FrontFace
+  textureTopDown: boolean
+}
+
+/** Which backend a live device is. Reported for the debug HUD readout. */
+export type GfxBackend = 'webgpu' | 'webgl2'
+
+export type PrimitiveTopology = 'triangle-list' | 'line-list'
+
+/** Color-target format: `'linear'` → `RGBA8`, `'srgb'` → sRGB-encoded RGBA8. */
+export type ColorFormat = 'linear' | 'srgb'
+
+/** Depth-attachment state for a pipeline. */
+export interface DepthState {
+  test: boolean
+  write: boolean
+  /** Depth comparison. Default `'less-equal'`. */
+  compare?: CompareFn
+  /** Slope-scaled depth bias (shadow acne control). Default `0`. */
+  biasSlopeScale?: number
+  /** Constant depth bias. Default `0`. */
+  biasConstant?: number
+}
+
+/** Color-target state for a pipeline, or `null` for a depth-only pipeline. */
+export interface ColorState {
+  format: ColorFormat
+  blend: GfxBlendMode
+}
+
+export interface PipelineDesc {
+  shader: ShaderModule
+  /** One entry per vertex buffer slot the draw will bind, in order. */
+  vertexLayout: VertexBufferLayout[]
+  /** Bind group layouts by group index (index 0 = `@group(0)`, …). Dense. */
+  bindGroupLayouts: BindGroupLayout[]
+  /** Color target, or `null` for a depth-only pipeline (shadow passes). */
+  color: ColorState | null
+  /** Depth state, or `null` for no depth (the painter-ordered 2D pipelines). */
+  depth: DepthState | null
+  cull: CullMode
+  frontFace: FrontFace
+  primitive: PrimitiveTopology
+  /** MSAA sample count of the target this renders into (`1` = no MSAA). */
+  samples: number
+  label?: string
+}
+
+/**
+ * A compute pipeline: a `@compute` shader module plus the bind-group layouts
+ * its dispatches bind against. WebGPU only.
+ */
+export interface ComputePipelineDesc {
+  shader: ShaderModule
+  /** Bind group layouts by group index (index 0 = `@group(0)`, …). Dense. */
+  bindGroupLayouts: BindGroupLayout[]
+  label?: string
+}
+
+/**
+ * One compute dispatch: the pipeline, its bind groups, and the workgroup grid
+ * size. `y`/`z` default to `1`. Recorded inside a compute pass.
+ */
+export interface ComputeDispatch {
+  pipeline: ComputePipeline
+  bindGroups: DrawBindGroup[]
+  x: number
+  y?: number
+  z?: number
+}
+
+// --- resource creation opts -------------------------------------------------
 
 export interface Texture2DOpts {
   width: number
@@ -141,149 +394,232 @@ export interface Texture2DOpts {
   filter?: 'nearest' | 'linear'
   wrap?: 'clamp' | 'repeat'
   /**
-   * Allocate `SRGB8_ALPHA8` storage so sampling decodes sRGB → linear in
-   * hardware (and mip generation / filtering happen in linear space). Set for
-   * glTF base-color and emissive textures; leave off (default `RGBA8`) for
-   * normal, metallic-roughness, and occlusion maps, whose bytes are linear
-   * data. Create the texture at the source's exact size so the first
-   * {@link GfxDevice.updateTexture2D} takes the in-place `texSubImage2D` path
-   * and preserves this internal format.
+   * Allocate sRGB storage so sampling decodes sRGB → linear in hardware. Set
+   * for glTF base-color / emissive textures; leave off (default linear `RGBA8`)
+   * for normal / metallic-roughness / occlusion maps.
    */
   srgb?: boolean
-  /**
-   * Allocate a mip chain and select a mipmapped min-filter (trilinear when
-   * `filter` is `'linear'`). Mips are (re)generated after each full
-   * {@link GfxDevice.updateTexture2D} upload; the partial
-   * {@link GfxDevice.updateTextureSubImage2D} path never regenerates, so
-   * atlas-style textures must stay non-mipmapped. Default `false`.
-   */
+  /** Allocate a mip chain and select a mipmapped min-filter. Default `false`. */
   mipmap?: boolean
   /**
-   * Anisotropic-filtering sample cap for minified mipmapped textures, clamped
-   * to the driver max; ignored when `EXT_texture_filter_anisotropic` is absent
-   * or the texture is not mipmapped. Default `1` (isotropic).
+   * Anisotropic-filtering cap for minified mipmapped textures, clamped to the
+   * driver max; ignored when unsupported or the texture is not mipmapped.
    */
   anisotropy?: number
+  /**
+   * Allocate with storage-texture usage so a compute shader can write it (and
+   * still sample it later). WebGPU only; throws on WebGL2, which has no
+   * compute.
+   */
+  storage?: boolean
 }
 
 export interface TextureUploadOpts {
   flipY?: boolean
   premultiply?: boolean
+  /**
+   * The texture is sampled with object-space UVs (e.g. a glTF mesh's own UVs),
+   * not the screen-space UVs the 2D pass uses. WebGL2 ignores this. WebGPU uses
+   * it to skip the render-origin V-flip it otherwise applies (so 2D
+   * screen-space textures match WebGL's bottom-up sampling); a mesh's
+   * object-space UVs must not be flipped, or its texture samples upside-down.
+   */
+  objectSpaceUV?: boolean
 }
 
 export interface RenderTargetOpts {
   width: number
   height: number
   /**
-   * MSAA sample count. Default `1` (no MSAA, a plain color texture attachment).
-   * Values `> 1` allocate a multisample color renderbuffer; the render target
-   * then **cannot be sampled as a texture** (no multisample texture attachments
-   * in WebGL2 core). Callers that need to read the render target as a texture
-   * must add an explicit resolve pass (blit to a single-sample texture).
-   * Backends clamp to the driver's `MAX_SAMPLES`.
+   * MSAA sample count. Default `1`. `> 1` allocates a multisample color
+   * attachment that cannot be sampled as a texture; read it back through a pass
+   * `resolveTarget`. Backends clamp to their max.
    */
   samples?: number
   /**
-   * Attach a depth-stencil buffer (`DEPTH24_STENCIL8`, sample count matched to
-   * the color attachment). Default `false` — the 2D renderer is painter-ordered
-   * and needs no depth. A future 3D pass opts in. (The default framebuffer's
-   * own `depth:false` at `getContext` is unrelated; this concerns FBO
-   * attachments.)
+   * Attach a depth buffer. Default `false` — the 2D renderer is painter-ordered
+   * and needs none; a 3D pass opts in.
    */
   depth?: boolean
   /**
-   * Color-attachment color space. `'linear'` (default) allocates `RGBA8`;
-   * `'srgb'` allocates `SRGB8_ALPHA8` so a target sampled by a later 3D shader
-   * decodes to linear on read and matches the on-screen surface's gamma. Only
-   * the single-sample texture path honors this (an offscreen `Viewport2DNode`
-   * target); the multisample renderbuffer path stays `RGBA8`.
+   * Allocate the depth attachment as a sampleable texture instead of the
+   * default renderbuffer, so a later pass can read it through
+   * {@link GfxDevice.depthTexture} + a `'texture-2d-depth'` binding (the AO
+   * G-buffer). Single-sample only — implies `samples: 1`. Requires `depth`.
    */
-  colorSpace?: 'linear' | 'srgb'
+  depthSampled?: boolean
+  /**
+   * Color-attachment format. `'linear'` (default) → `RGBA8`; `'srgb'` →
+   * sRGB-encoded. Only the single-sample path honors `'srgb'`.
+   */
+  colorSpace?: ColorFormat
 }
 
-export interface BeginFrameOpts {
+export type IndexType = 'u16' | 'u32'
+
+// --- render passes & draw ---------------------------------------------------
+
+export type LoadOp = 'clear' | 'load'
+export type StoreOp = 'store' | 'discard'
+
+/**
+ * The color attachment of a render pass. `resolveTarget` (a single-sample
+ * target) receives the MSAA resolve of `target` when `target.samples > 1` —
+ * this replaces a standalone post-hoc resolve, matching WebGPU where resolve is
+ * part of the pass that produced the samples.
+ */
+export interface ColorAttachment {
   target: RenderTarget
-  /** RGBA in `0..1`. Clears the target at frame start. */
-  clearColor?: readonly [number, number, number, number]
+  loadOp: LoadOp
+  storeOp?: StoreOp
   /**
-   * Clear the depth buffer at frame start. Set only when a depth-tested 3D pass
-   * follows and the target carries a depth attachment; a pure-2D frame leaves
-   * it unset so no depth clear is issued.
+   * Required when `loadOp === 'clear'`. Straight (non-premultiplied) RGBA in
+   * `0..1`; the backend premultiplies for the premultiplied-alpha surface.
    */
-  clearDepth?: boolean
+  clearColor?: readonly [number, number, number, number]
+  resolveTarget?: RenderTarget
+}
+
+/**
+ * Where a pass writes depth: a render target's own depth attachment, one layer
+ * of a shadow array, or one face of a shadow cube. The latter two make a
+ * depth-only pass (no color attachment) for shadow-map generation.
+ */
+export type DepthTarget =
+  | { renderTarget: RenderTarget }
+  | { shadowArray: ShadowArray; layer: number }
+  | { shadowCube: ShadowCube; face: number }
+
+export interface DepthAttachment {
+  target: DepthTarget
+  loadOp: LoadOp
+  storeOp?: StoreOp
+  /** Clear value when `loadOp === 'clear'`. Default `1.0`. */
+  clearValue?: number
+}
+
+/**
+ * A render pass: its attachments and their load/store ops. Omit `color` for a
+ * depth-only shadow pass; omit `depth` for a pure-2D pass. The pass sets the
+ * viewport to the attachment size.
+ */
+export interface RenderPassDesc {
+  color?: ColorAttachment
+  depth?: DepthAttachment
 }
 
 export interface BlitOpts {
   filter?: 'nearest' | 'linear'
 }
 
-// --- state -----------------------------------------------------------------
-
-export type GfxBlendMode = 'source-over' | 'lighter' | 'none'
+/** A vertex/instance buffer bound to a draw, with a byte offset into it. */
+export interface VertexBinding {
+  buffer: VBuffer
+  /**
+   * Byte offset where this buffer's data starts for the draw. Carries a
+   * command-list run's instance sub-range base (there is no portable
+   * base-instance, so the offset re-points the buffer instead).
+   */
+  offset: number
+}
 
 /**
- * Face-culling mode for the 3D pass. `'none'` draws both faces (the 2D
- * baseline, since 2D geometry has mixed winding). `'back'`/`'front'` cull the
- * back/front faces of CCW-front (glTF) triangles.
+ * One bind group attached to a draw. `dynamicOffsets` supplies a byte offset
+ * for each dynamic uniform slot in the group, **in ascending binding-number
+ * order of the dynamic entries** (not all entries), each a multiple of
+ * {@link DeviceLimits.minUniformBufferOffsetAlignment}.
  */
-export type CullMode = 'none' | 'back' | 'front'
+export interface DrawBindGroup {
+  group: number
+  bindGroup: BindGroup
+  dynamicOffsets?: number[]
+}
 
 /**
- * Index element width for an {@link IBuffer}. `'u16'` (`UNSIGNED_SHORT`, ≤ 65
- * 535 vertices) is the retained-2D default; `'u32'` (`UNSIGNED_INT`) covers
- * large 3D meshes.
+ * A single draw. All inputs are explicit: no ambient program/VAO/blend state.
+ * Supply either `vertexCount` (array draw) or `indexBuffer` + `indexCount`
+ * (indexed draw); `instanceCount > 1` draws instanced.
  */
-export type IndexType = 'u16' | 'u32'
+export interface DrawCall {
+  pipeline: Pipeline
+  /** Vertex buffers by slot, matching the pipeline's `vertexLayout` order. */
+  vertexBuffers: VertexBinding[]
+  bindGroups: DrawBindGroup[]
+  indexBuffer?: IBuffer
+  /** Array-draw vertex count (omit when indexed). */
+  vertexCount?: number
+  /** Indexed-draw index count (requires `indexBuffer`). */
+  indexCount?: number
+  /**
+   * First element: first vertex for an array draw, or first index (in elements,
+   * not bytes) for an indexed draw. Default `0`.
+   */
+  first?: number
+  /** Instances to draw. Default `1`. */
+  instanceCount?: number
+}
+
+// --- stats & limits ---------------------------------------------------------
 
 /**
- * Per-frame counts of _real_ GL state changes — incremented by the device only
- * after its redundant-call elision, so the HUD reflects driver work actually
- * done rather than calls issued. Reset in `beginFrame`; read after `endFrame`.
+ * Per-frame counts of real GPU state changes — incremented after the backend's
+ * redundant-call elision, so the HUD reflects work actually done. Reset in
+ * `beginFrame`.
  */
 export interface DeviceStats {
-  programSwitches: number
-  blendSwitches: number
+  pipelineSwitches: number
+  bindGroupSwitches: number
   textureBinds: number
 }
 
-// --- device interface ------------------------------------------------------
+export interface DeviceLimits {
+  /**
+   * Required byte alignment for dynamic uniform-buffer offsets
+   * (`UNIFORM_BUFFER_OFFSET_ALIGNMENT`, commonly 256). The dynamic-offset ring
+   * pads each slice up to this.
+   */
+  minUniformBufferOffsetAlignment: number
+}
+
+// --- device interface -------------------------------------------------------
 
 export interface GfxDevice {
-  /** Live counters of real GL state changes this frame (reset in `beginFrame`). */
   readonly deviceStats: DeviceStats
-
-  // Programs -----------------------------------------------------------------
-  createProgram(opts: ProgramOpts): Program
-  deleteProgram(p: Program): void
-  useProgram(p: Program): void
-
-  // Uniforms -----------------------------------------------------------------
-  setUniform1i(p: Program, name: string, v: number): void
-  setUniform1f(p: Program, name: string, v: number): void
-  setUniform2f(p: Program, name: string, x: number, y: number): void
-  setUniform4f(
-    p: Program,
-    name: string,
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-  ): void
-  setUniformMat3(p: Program, name: string, m: Float32Array): void
-  /** Set a `mat4` uniform (column-major 16-float array), e.g. a 3D view-proj. */
-  setUniformMat4(p: Program, name: string, m: Float32Array): void
+  readonly limits: DeviceLimits
+  /** Which backend this device is, for the debug HUD readout. */
+  readonly backend: GfxBackend
+  /** The backend's coordinate conventions (clip-depth, winding, texture rows). */
+  readonly ndc: NdcConventions
   /**
-   * Bind `tex` to the given texture unit and set the sampler uniform to that
-   * unit. Idempotent state hygiene, never relies on the default `TEXTURE0`.
+   * Whether this backend exposes the compute surface
+   * ({@link createComputePipeline} / {@link beginComputePass} /
+   * {@link dispatchCompute}). `true` on WebGPU, `false` on WebGL2. A feature
+   * that wants compute (e.g. ambient occlusion) branches on this and takes a
+   * fragment off-ramp when it is `false`.
    */
-  setUniformTexture(p: Program, name: string, tex: Texture, unit: number): void
+  readonly supportsCompute: boolean
 
-  // Buffers ------------------------------------------------------------------
+  // Shaders / pipelines / bind groups ---------------------------------------
+  createShaderModule(desc: ShaderModuleDesc): ShaderModule
+  deleteShaderModule(s: ShaderModule): void
+  /**
+   * Create (or return a memoized) pipeline for `desc`. Async because WebGPU
+   * compiles pipelines asynchronously; WebGL2 resolves immediately. Pipelines
+   * are pre-warmed at init/rebuild (never created inside the frame loop, which
+   * is synchronous). Identical descriptors return the same handle.
+   */
+  createPipeline(desc: PipelineDesc): Promise<Pipeline>
+  /**
+   * Create a compute pipeline. Async to match {@link createPipeline} (WebGPU
+   * compiles asynchronously). Throws when {@link supportsCompute} is `false`.
+   */
+  createComputePipeline(desc: ComputePipelineDesc): Promise<ComputePipeline>
+  createBindGroupLayout(entries: BindGroupLayoutEntry[]): BindGroupLayout
+  createBindGroup(layout: BindGroupLayout, entries: BindGroupEntry[]): BindGroup
+  deleteBindGroup(g: BindGroup): void
+
+  // Vertex buffers ----------------------------------------------------------
   createVertexBuffer(byteSize: number): VBuffer
-  /**
-   * Write `src` into `buf` at `byteOffset`. `srcOffset` and `byteLength` slice
-   * the source view; defaults cover the whole `src`.
-   */
   updateBufferSubData(
     buf: VBuffer,
     byteOffset: number,
@@ -293,37 +629,29 @@ export interface GfxDevice {
   ): void
   deleteBuffer(buf: VBuffer): void
   /**
-   * Reallocate `buf`'s storage at its current byte size (`bufferData` with a
-   * null/size argument), detaching whatever the GPU is still reading. Used
-   * after a mid-frame overflow submit so the append cursor can restart at 0
-   * without overwriting data an in-flight draw call still references.
+   * Reallocate `buf`'s storage at its current size, detaching whatever the GPU
+   * is still reading. Used after a mid-frame overflow submit so the append
+   * cursor can restart without overwriting data an in-flight draw references.
    */
   orphanBuffer(buf: VBuffer): void
 
-  // Uniform buffers ----------------------------------------------------------
-  /** Allocate a uniform-block buffer of `byteSize` (std140-laid-out by callers). */
+  // Uniform buffers ---------------------------------------------------------
   createUniformBuffer(byteSize: number): UBuffer
-  /** Overwrite `buf` from offset 0 with `data`. */
-  updateUniformBuffer(buf: UBuffer, data: Float32Array): void
+  /** Write `data` into `buf` at `byteOffset` (default 0). */
+  updateUniformBuffer(
+    buf: UBuffer,
+    data: ArrayBufferView,
+    byteOffset?: number,
+  ): void
   /**
-   * Bind `buf` to the given binding index, so every program whose matching
-   * uniform block was pointed there (via `ProgramOpts.uniformBlocks`) reads
-   * it.
+   * Reallocate a uniform buffer's storage — the UBO-ring analogue of
+   * {@link orphanBuffer}.
    */
-  bindUniformBufferBase(buf: UBuffer, index: number): void
+  orphanUniformBuffer(buf: UBuffer): void
   deleteUniformBuffer(buf: UBuffer): void
 
-  // Index buffers ------------------------------------------------------------
-  /**
-   * Allocate an index buffer of `byteSize`. `type` picks the element width and
-   * is captured on the buffer, so a VAO built with it draws with the matching
-   * `drawElements` index type; defaults to `'u16'`.
-   */
+  // Index buffers -----------------------------------------------------------
   createIndexBuffer(byteSize: number, type?: IndexType): IBuffer
-  /**
-   * Write indices into `buf` at `byteOffset`. Pass a `Uint16Array` for a
-   * `'u16'` buffer, a `Uint32Array` for a `'u32'` one.
-   */
   updateIndexBufferSubData(
     buf: IBuffer,
     byteOffset: number,
@@ -331,14 +659,8 @@ export interface GfxDevice {
   ): void
   deleteIndexBuffer(buf: IBuffer): void
 
-  // Textures -----------------------------------------------------------------
+  // Textures ----------------------------------------------------------------
   createTexture2D(opts: Texture2DOpts): Texture
-  /**
-   * Upload `source` into a sub-region of `tex` starting at `(xOffset,
-   * yOffset)`. Used by the sprite atlas to poke one 66×66 tile at a time ,
-   * vastly cheaper than re-uploading the whole 1024×1024 atlas. `flipY` and
-   * `premultiply` are per-call unpack flags (same shape as `updateTexture2D`).
-   */
   updateTextureSubImage2D(
     tex: Texture,
     xOffset: number,
@@ -346,11 +668,7 @@ export interface GfxDevice {
     source: TexImageSource,
     opts?: TextureUploadOpts,
   ): void
-  /**
-   * Upload `source` into `tex`. `source === null` reallocates storage at the
-   * texture's current size (used for FBO color attachments). `flipY` and
-   * `premultiply` toggle the WebGL unpack flags for this call only.
-   */
+  /** `source === null` reallocates storage at the texture's current size. */
   updateTexture2D(
     tex: Texture,
     source: TexImageSource | null,
@@ -358,162 +676,78 @@ export interface GfxDevice {
   ): void
   deleteTexture(tex: Texture): void
 
-  // Vertex arrays ------------------------------------------------------------
-  /**
-   * Create a VAO capturing `attribs`. An optional `indexBuffer` is bound into
-   * the VAO as its `ELEMENT_ARRAY_BUFFER` (VAO state), so a later `bindVao` +
-   * `drawElements` draws indexed against it.
-   */
-  createVao(
-    program: Program,
-    attribs: AttribBinding[],
-    indexBuffer?: IBuffer,
-  ): Vao
-  bindVao(vao: Vao): void
-  deleteVao(vao: Vao): void
-
-  // Render targets -----------------------------------------------------------
+  // Render targets ----------------------------------------------------------
   createRenderTarget(opts: RenderTargetOpts): RenderTarget
   resizeRenderTarget(rt: RenderTarget, width: number, height: number): void
   deleteRenderTarget(rt: RenderTarget): void
   /**
-   * Bind `target`'s framebuffer and set the viewport to its size, without
-   * clearing and without the per-frame ring/stat bookkeeping `beginFrame` does.
-   * The lightweight bind a post-process pass uses to redirect fullscreen draws
-   * into a ping-pong target it will fully overwrite.
+   * The sampleable color texture backing a single-sample render target (for a
+   * post-process pass or a `Viewport2DNode` quad). Throws for a multisample
+   * target — resolve it via a pass `resolveTarget` first.
    */
-  bindRenderTarget(target: RenderTarget): void
+  colorTexture(rt: RenderTarget): Texture
   /**
-   * Copy/resolve the color of `src` into `dst` (framebuffer→framebuffer blit).
-   * Performs the MSAA resolve when `src.samples > 1`; `dst` must be
-   * single-sample (texture-backed) so the result is sampleable. Both targets
-   * must share the same size and internal format (the WebGL2
-   * multisample-resolve constraint). Used by the post-process pipeline to
-   * resolve the screen frame into a sampleable texture before running effects.
+   * The sampleable depth texture backing a render target allocated with
+   * `depthSampled: true`. Bound through a `'texture-2d-depth'` entry. Throws
+   * for a multisample target or one without a sampleable depth attachment.
    */
-  resolveTo(src: RenderTarget, dst: RenderTarget): void
+  depthTexture(rt: RenderTarget): Texture
 
-  // Shadow maps --------------------------------------------------------------
-  /**
-   * Allocate a `size`×`size`×`layers` depth-array shadow map
-   * (directional/spot).
-   */
-  createShadowArray(size: number, layers: number): ShadowArray
-  /** Allocate a `size`×`size` depth-cubemap shadow map (one point light). */
-  createShadowCube(size: number): ShadowCube
+  // Shadow maps -------------------------------------------------------------
+  createShadowArray(
+    size: number,
+    layers: number,
+    compare?: CompareFn,
+  ): ShadowArray
+  createShadowCube(size: number, compare?: CompareFn): ShadowCube
   deleteShadowArray(s: ShadowArray): void
   deleteShadowCube(s: ShadowCube): void
-  /**
-   * Bind `s`'s `layer` as the depth target and clear it, for a depth-only pass
-   * (no color attachment). Sets the viewport to the map size. The next
-   * {@link GfxDevice.beginFrame} rebinds the screen target and its viewport.
-   */
-  beginShadowLayer(s: ShadowArray, layer: number): void
-  /** Bind one cube `face` (0..5) of `s` as the depth target and clear it. */
-  beginShadowCubeFace(s: ShadowCube, face: number): void
-  /**
-   * End a shadow pass (depth-state hygiene; the FBO rebinds on the next
-   * `beginFrame`).
-   */
-  endShadowPass(): void
-  /** Bind a shadow array to a unit and set its `sampler2DArrayShadow` uniform. */
-  setUniformShadowArray(
-    p: Program,
-    name: string,
-    s: ShadowArray,
-    unit: number,
-  ): void
-  /** Bind a shadow cube to a unit and set its `samplerCubeShadow` uniform. */
-  setUniformShadowCube(
-    p: Program,
-    name: string,
-    s: ShadowCube,
-    unit: number,
-  ): void
-  /**
-   * Set a `mat4[]` uniform from a packed column-major float array (16 per
-   * matrix).
-   */
-  setUniformMat4Array(p: Program, name: string, m: Float32Array): void
 
-  // Frame lifecycle ----------------------------------------------------------
-  beginFrame(opts: BeginFrameOpts): void
+  // Frame lifecycle & passes ------------------------------------------------
+  /** Start a frame: reset per-frame stats; open the command encoder (WebGPU). */
+  beginFrame(): void
+  /** Open a render pass with the given attachments and load/store ops. */
+  beginRenderPass(desc: RenderPassDesc): void
+  /** Close the current render pass. */
+  endRenderPass(): void
+  /**
+   * Open a compute pass. Like a render pass it records into the frame's shared
+   * encoder (opened lazily), so a compute dispatch may be the first work in a
+   * frame — before any render pass or `beginFrame`. WebGPU only. No-op
+   * semantics are not offered: calling this when {@link supportsCompute} is
+   * `false` throws.
+   */
+  beginComputePass(): void
+  /** Record a compute dispatch into the current compute pass. */
+  dispatchCompute(dispatch: ComputeDispatch): void
+  /** Close the current compute pass. */
+  endComputePass(): void
+  /** Submit the frame's recorded work. */
   endFrame(): void
 
-  // State --------------------------------------------------------------------
-  /**
-   * Set the blend mode. `'source-over'` premultiplied compositing (2D default),
-   * `'lighter'` additive, `'none'` disables blending (`gl.disable(BLEND)`) for
-   * full-overwrite passes like post-processing, where every pixel is written
-   * and blending against stale contents would be both wrong and wasted
-   * bandwidth.
-   */
-  setBlend(mode: GfxBlendMode): void
-  /**
-   * Enable/disable depth testing. Cached; the 3D pass turns it on, then
-   * {@link GfxDevice.resetToBaseline} turns it off before the 2D layers draw.
-   */
-  setDepthTest(enabled: boolean): void
-  /** Enable/disable depth-buffer writes (`depthMask`). Cached. */
-  setDepthWrite(enabled: boolean): void
-  /** Set face culling. Cached. See {@link CullMode}. */
-  setCullFace(mode: CullMode): void
-  /**
-   * Restore the state the 2D pipeline expects at the start of a layer pass:
-   * depth test off, depth writes on, cull off, blend `source-over`. Routes
-   * through the cached setters so the internal state cache stays truthful. Call
-   * between the 3D pass and the 2D layers.
-   */
-  resetToBaseline(): void
+  // Draw --------------------------------------------------------------------
+  /** Record a draw into the current render pass. */
+  draw(call: DrawCall): void
 
-  // Draw ---------------------------------------------------------------------
-  drawArrays(first: number, count: number): void
-  /** Non-indexed `LINES` draw of `count` vertices from `first` (debug gizmos). */
-  drawLines(first: number, count: number): void
-  drawArraysInstanced(first: number, count: number, instanceCount: number): void
+  // Present -----------------------------------------------------------------
   /**
-   * Indexed draw of `count` `UNSIGNED_SHORT` indices starting at `byteOffset`
-   * into the bound VAO's element buffer. `bindVao` a VAO created with an index
-   * buffer first.
+   * Present `source`'s color to the default framebuffer (the canvas). WebGL2
+   * blits; WebGPU draws a fullscreen pass into the swapchain texture. Called
+   * outside a render pass.
    */
-  drawElements(count: number, byteOffset: number): void
-  /**
-   * Instanced draw of `instanceCount` instances starting at `baseByteOffset`
-   * into `instanceBuffer`. WebGL2 has no base-instance parameter, so this
-   * re-points each per-instance (divisor-1) attribute to `baseByteOffset +
-   * binding.offset` before drawing — the record/submit path's way of issuing
-   * one recorded run's sub-range. `vao` supplies the divisor-0 vertex attribute
-   * (the shared unit quad); `instanceAttribs` must be exactly the divisor-1
-   * bindings, all reading from `instanceBuffer`.
-   */
-  drawInstancedRange(
-    vao: Vao,
-    instanceBuffer: VBuffer,
-    instanceAttribs: readonly AttribBinding[],
-    baseByteOffset: number,
-    vertCount: number,
-    instanceCount: number,
-  ): void
-
-  // Present / blit -----------------------------------------------------------
-  /**
-   * Blit the current frame's render target to the default framebuffer (the
-   * canvas). Called by GpuGfx from `endFrame`. `dstWidth`/`dstHeight` are the
-   * canvas drawing-buffer size, normally equal to the FBO size.
-   */
-  blitToDefault(
+  present(
     source: RenderTarget,
     dstWidth: number,
     dstHeight: number,
     opts?: BlitOpts,
   ): void
 
-  // Context loss -------------------------------------------------------------
+  // Context loss ------------------------------------------------------------
   isContextLost(): boolean
   /** Register a listener; returns an unsubscribe function. */
   onContextLost(cb: () => void): () => void
   onContextRestored(cb: () => void): () => void
 
-  // Teardown -----------------------------------------------------------------
+  // Teardown ----------------------------------------------------------------
   destroy(): void
 }

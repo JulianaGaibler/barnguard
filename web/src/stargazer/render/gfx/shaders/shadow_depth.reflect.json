@@ -1,0 +1,14 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 1,
+      "glslName": "ShadowCam_block_0Vertex"
+    },
+    {
+      "binding": 5,
+      "glslName": "ShadowObject_block_1Vertex"
+    }
+  ],
+  "samplers": []
+}

@@ -10,8 +10,26 @@ in vec3 a_position;
 in vec3 a_normal;
 in vec2 a_uv;
 
-uniform mat4 u_model;
-uniform mat4 u_viewProj;
+// Per-frame block (see CAMERA3D_UBO_BINDING). Declared identically in the
+// fragment stage; the vertex stage only reads `u_viewProj`.
+layout(std140) uniform FlatFrame {
+  mat4 u_viewProj;
+  vec4 u_eyePos;
+  vec4 u_ambient;
+  vec4 u_fogColor;
+  vec4 u_fogParams;
+  vec4 u_lightDir;
+  vec4 u_lightColor;
+  vec4 u_debug; // x = debug mode
+};
+
+// Per-object block, std140 (dynamic-offset ring). `u_flags.x` = lit,
+// `u_flags.y` = useTexture.
+layout(std140) uniform FlatObject {
+  mat4 u_model;
+  vec4 u_color;
+  vec4 u_flags;
+};
 
 out vec3 v_worldPos;
 out vec3 v_normal;

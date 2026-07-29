@@ -1,9 +1,23 @@
-import type { GfxDevice, Program, VBuffer, Vao } from './GfxDevice'
+import type {
+  BindGroup,
+  BindGroupLayout,
+  ColorFormat,
+  GfxDevice,
+  Pipeline,
+  ShaderModule,
+  UBuffer,
+  VBuffer,
+  VertexBufferLayout,
+} from './GfxDevice'
 import type { Mat4 } from '../../math/Mat4'
 import { mat4TransformPoint } from '../../math/Mat4'
 import { vec3 } from '../../math/Vec3'
-import debugLineVertSrc from './webgl2/shaders/debugLine.vert.glsl?raw'
-import debugLineFragSrc from './webgl2/shaders/debugLine.frag.glsl?raw'
+import { CAMERA3D_UBO_BINDING } from './batchLayout'
+import type { ShaderReflection } from './GfxDevice'
+import debugLineWgsl from './shaders/debugLine.wgsl?raw'
+import debugLineVertSrc from './shaders/debugLine.gen.vert.glsl?raw'
+import debugLineFragSrc from './shaders/debugLine.gen.frag.glsl?raw'
+import debugLineReflect from './shaders/debugLine.reflect.json'
 
 /** RGBA in `0..1` for a debug line. */
 export type LineColor = readonly [number, number, number, number]
@@ -15,78 +29,138 @@ const LOC_COLOR = 1
 
 /**
  * Accumulates world-space line segments for the 3D debug pass and draws them
- * through the {@link GfxDevice} seam as `GL_LINES`, projected by the active 3D
- * camera. `Stage` owns one instance and drives it each frame while a 3D debug
- * overlay is on: `begin()`, push gizmos, then `flush(device, viewProj)`.
+ * through the {@link GfxDevice} seam as line primitives, projected by the active
+ * 3D camera. `Stage` owns one instance and drives it each frame while a 3D
+ * debug overlay is on: `begin()`, push gizmos, then `flush(viewProj)`.
  *
- * Two groups: **occluded** lines depth-test against the scene (a grid or AABB
- * sits behind solid geometry); **overlay** lines ignore depth (a selection
- * highlight or pick ray stays visible through meshes). Neither writes depth, so
- * gizmos never corrupt the buffer the meshes share.
- *
- * Not part of the public API; used by `DebugController`/`Stage`.
+ * Two groups: **occluded** lines depth-test against the scene; **overlay**
+ * lines ignore depth. Each maps to a `line-list` pipeline variant differing
+ * only in depth-test; neither writes depth, so gizmos never corrupt the mesh
+ * buffer.
  */
 export class DebugLine3DRenderer {
   readonly #device: GfxDevice
-  #program: Program
-  #vbo: VBuffer
-  #vao: Vao
+  readonly #targetColor: { format: ColorFormat; samples: number }
+  #shader!: ShaderModule
+  #occludedPipeline!: Pipeline
+  #overlayPipeline!: Pipeline
+  #vertexLayout!: VertexBufferLayout[]
+  #camLayout!: BindGroupLayout
+  #camUbo!: UBuffer
+  #camBindGroup!: BindGroup
+  #vbo!: VBuffer
   #capacityVerts: number
   #scratch: Float32Array
+  #ready = false
+  #warmupSeq = 0
   readonly #offRestore: () => void
 
   // Interleaved vertex data for the current frame, split by depth behavior.
   #occluded: number[] = []
   #overlay: number[] = []
 
-  constructor(device: GfxDevice, initialVerts = 4096) {
+  constructor(
+    device: GfxDevice,
+    targetColor: { format: ColorFormat; samples: number },
+    initialVerts = 4096,
+  ) {
     this.#device = device
+    // Own a private copy: `retarget` mutates this, and the caller may share the
+    // object it passed.
+    this.#targetColor = { ...targetColor }
     this.#capacityVerts = initialVerts
     this.#scratch = new Float32Array(initialVerts * FLOATS_PER_VERT)
-    this.#program = this.#createProgram()
-    this.#vbo = device.createVertexBuffer(this.#scratch.byteLength)
-    this.#vao = this.#createVao()
-    this.#offRestore = device.onContextRestored(() => this.#onContextRestored())
+    this.#createResources()
+    this.#offRestore = device.onContextRestored(() => this.#createResources())
   }
 
-  #createProgram(): Program {
-    return this.#device.createProgram({
-      vertexSrc: debugLineVertSrc,
-      fragmentSrc: debugLineFragSrc,
-      attribs: { a_position: LOC_POSITION, a_color: LOC_COLOR },
-    })
+  /** Whether the pipelines are warm; `flush` no-ops until then. */
+  get ready(): boolean {
+    return this.#ready
   }
 
-  #createVao(): Vao {
-    const stride = FLOATS_PER_VERT * 4
-    return this.#device.createVao(this.#program, [
-      {
-        buffer: this.#vbo,
-        location: LOC_POSITION,
-        size: 3,
-        type: 'float',
-        normalized: false,
-        offset: 0,
-        stride,
-        divisor: 0,
+  #createResources(): void {
+    const device = this.#device
+    this.#shader = device.createShaderModule({
+      glsl: { vertex: debugLineVertSrc, fragment: debugLineFragSrc },
+      wgsl: {
+        code: debugLineWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
       },
+      reflection: debugLineReflect as ShaderReflection,
+      label: 'debugLine',
+    })
+    this.#vbo = device.createVertexBuffer(this.#scratch.byteLength)
+    this.#vertexLayout = [
       {
-        buffer: this.#vbo,
-        location: LOC_COLOR,
-        size: 4,
-        type: 'float',
-        normalized: false,
-        offset: 12,
-        stride,
-        divisor: 0,
+        arrayStride: FLOATS_PER_VERT * 4,
+        stepMode: 'vertex',
+        attributes: [
+          { location: LOC_POSITION, format: 'float32x3', offset: 0 },
+          { location: LOC_COLOR, format: 'float32x4', offset: 12 },
+        ],
+      },
+    ]
+    this.#camLayout = device.createBindGroupLayout([
+      { binding: CAMERA3D_UBO_BINDING, type: 'uniform-buffer' },
+    ])
+    this.#camUbo = device.createUniformBuffer(64) // mat4
+    this.#camBindGroup = device.createBindGroup(this.#camLayout, [
+      {
+        binding: CAMERA3D_UBO_BINDING,
+        resource: { uniformBuffer: this.#camUbo },
       },
     ])
+    void this.#warmup()
   }
 
-  #onContextRestored(): void {
-    this.#program = this.#createProgram()
-    this.#vbo = this.#device.createVertexBuffer(this.#scratch.byteLength)
-    this.#vao = this.#createVao()
+  /**
+   * Re-point the pipelines at a new target color format / sample count and
+   * re-warm. `Stage` calls this after a live MSAA swap so the baked sample
+   * count matches the resized target. No-op when unchanged; `ready` drops until
+   * the async re-warm finishes, so `flush` skips the pass in the meantime.
+   */
+  retarget(targetColor: { format: ColorFormat; samples: number }): void {
+    if (
+      this.#targetColor.format === targetColor.format &&
+      this.#targetColor.samples === targetColor.samples
+    )
+      return
+    this.#targetColor.format = targetColor.format
+    this.#targetColor.samples = targetColor.samples
+    void this.#warmup()
+  }
+
+  async #warmup(): Promise<void> {
+    this.#ready = false
+    const seq = ++this.#warmupSeq
+    const base = {
+      shader: this.#shader,
+      vertexLayout: this.#vertexLayout,
+      bindGroupLayouts: [this.#camLayout],
+      color: {
+        format: this.#targetColor.format,
+        blend: 'source-over' as const,
+      },
+      cull: 'none' as const,
+      frontFace: this.#device.ndc.frontFace,
+      primitive: 'line-list' as const,
+      samples: this.#targetColor.samples,
+    }
+    const occluded = await this.#device.createPipeline({
+      ...base,
+      depth: { test: true, write: false },
+    })
+    if (seq !== this.#warmupSeq) return
+    const overlay = await this.#device.createPipeline({
+      ...base,
+      depth: { test: false, write: false },
+    })
+    if (seq !== this.#warmupSeq) return
+    this.#occludedPipeline = occluded
+    this.#overlayPipeline = overlay
+    this.#ready = true
   }
 
   /** Clear both groups for a new frame. */
@@ -148,36 +222,37 @@ export class DebugLine3DRenderer {
     L(minX, minY, maxZ, minX, maxY, maxZ)
   }
 
-  /** RGB axes of length `size` from `(ox,oy,oz)`: X red, Y green, Z blue. */
-  axes(
-    ox: number,
-    oy: number,
-    oz: number,
-    size: number,
-    overlay = false,
-  ): void {
-    this.line(ox, oy, oz, ox + size, oy, oz, [1, 0.25, 0.25, 1], overlay)
-    this.line(ox, oy, oz, ox, oy + size, oz, [0.3, 1, 0.35, 1], overlay)
-    this.line(ox, oy, oz, ox, oy, oz + size, [0.35, 0.55, 1, 1], overlay)
+  /**
+   * The three world axes through the origin, each spanning `[-half, +half]` so
+   * they read as infinite reference lines rather than short rays. X red, Y
+   * green, Z blue. Depth-tested by default so geometry occludes them.
+   */
+  originAxes(half: number, overlay = false): void {
+    this.line(-half, 0, 0, half, 0, 0, [1, 0.25, 0.25, 1], overlay)
+    this.line(0, -half, 0, 0, half, 0, [0.3, 1, 0.35, 1], overlay)
+    this.line(0, 0, -half, 0, 0, half, [0.35, 0.55, 1, 1], overlay)
   }
 
   /**
-   * XZ ground grid centered at the origin: `divisions` cells each `step` wide,
-   * with the two center axis lines accented.
+   * XZ ground grid of `divisions` cells (`step` wide) centered on `(cx, cz)`,
+   * snapped to the grid so the lines stay put as the center moves. Centering it
+   * on the camera makes the ground read as infinite without unbounded geometry.
+   * Draws no accented center cross, use {@link originAxes} for the world axes.
    */
-  grid(
+  groundGrid(
+    cx: number,
+    cz: number,
     step: number,
     divisions: number,
     color: LineColor,
-    axisColor: LineColor,
   ): void {
     const half = (step * divisions) / 2
+    const sx = Math.round(cx / step) * step
+    const sz = Math.round(cz / step) * step
     for (let i = 0; i <= divisions; i++) {
-      const p = -half + i * step
-      const isAxis = Math.abs(p) < step * 0.001
-      const c = isAxis ? axisColor : color
-      this.line(p, 0, -half, p, 0, half, c)
-      this.line(-half, 0, p, half, 0, p, c)
+      const off = -half + i * step
+      this.line(sx + off, 0, sz - half, sx + off, 0, sz + half, color)
+      this.line(sx - half, 0, sz + off, sx + half, 0, sz + off, color)
     }
   }
 
@@ -249,6 +324,7 @@ export class DebugLine3DRenderer {
 
   /** Upload the frame's segments and draw them, projected by `viewProj`. */
   flush(viewProj: Mat4): void {
+    if (!this.#ready) return
     const total = this.#occluded.length + this.#overlay.length
     if (total === 0) return
     const device = this.#device
@@ -257,10 +333,8 @@ export class DebugLine3DRenderer {
     if (vertsNeeded > this.#capacityVerts) {
       this.#capacityVerts = Math.ceil(vertsNeeded * 1.5)
       this.#scratch = new Float32Array(this.#capacityVerts * FLOATS_PER_VERT)
-      device.deleteVao(this.#vao)
       device.deleteBuffer(this.#vbo)
       this.#vbo = device.createVertexBuffer(this.#scratch.byteLength)
-      this.#vao = this.#createVao()
     }
 
     // Pack occluded first, then overlay, into the single buffer.
@@ -268,29 +342,39 @@ export class DebugLine3DRenderer {
     scratch.set(this.#occluded, 0)
     scratch.set(this.#overlay, this.#occluded.length)
     device.updateBufferSubData(this.#vbo, 0, scratch, 0, total * 4)
+    device.updateUniformBuffer(
+      this.#camUbo,
+      viewProj as unknown as Float32Array,
+    )
 
-    device.useProgram(this.#program)
-    device.setUniformMat4(this.#program, 'u_viewProj', viewProj)
-    device.setDepthWrite(false)
-    device.setCullFace('none')
-    device.bindVao(this.#vao)
-
+    const bindGroups = [{ group: 0, bindGroup: this.#camBindGroup }]
     const occludedVerts = this.#occluded.length / FLOATS_PER_VERT
     if (occludedVerts > 0) {
-      device.setDepthTest(true)
-      device.drawLines(0, occludedVerts)
+      device.draw({
+        pipeline: this.#occludedPipeline,
+        vertexBuffers: [{ buffer: this.#vbo, offset: 0 }],
+        bindGroups,
+        vertexCount: occludedVerts,
+        first: 0,
+      })
     }
     const overlayVerts = this.#overlay.length / FLOATS_PER_VERT
     if (overlayVerts > 0) {
-      device.setDepthTest(false)
-      device.drawLines(occludedVerts, overlayVerts)
+      device.draw({
+        pipeline: this.#overlayPipeline,
+        vertexBuffers: [{ buffer: this.#vbo, offset: 0 }],
+        bindGroups,
+        vertexCount: overlayVerts,
+        first: occludedVerts,
+      })
     }
   }
 
   destroy(): void {
     this.#offRestore()
-    this.#device.deleteVao(this.#vao)
     this.#device.deleteBuffer(this.#vbo)
-    this.#device.deleteProgram(this.#program)
+    this.#device.deleteUniformBuffer(this.#camUbo)
+    this.#device.deleteBindGroup(this.#camBindGroup)
+    this.#device.deleteShaderModule(this.#shader)
   }
 }

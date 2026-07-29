@@ -48,6 +48,13 @@ export interface EngineEvents {
   contextlost: { restorable: boolean }
   /** The rendering context came back and GL resources have been rebuilt. */
   contextrestored: void
+  /**
+   * The active backend's device was lost with no in-place recovery (a WebGPU
+   * device loss). The canvas is committed to its context type, so the Svelte
+   * host recovers by remounting on a fresh canvas forced to WebGL2, it does not
+   * try to rebuild in place. Carries the backend that was lost.
+   */
+  backendlost: { backend: 'webgpu' | 'webgl2' }
   /** The engine was destroyed. */
   destroyed: void
 }

@@ -7,6 +7,7 @@ import {
   mat4Multiply,
   mat4TransformPoint,
   type Mat4,
+  type ClipDepth,
 } from '../math/Mat4'
 import { vec3, vec3Normalize, vec3Sub, type Vec3 } from '../math/Vec3'
 import type { Ray } from '../math/Ray'
@@ -94,6 +95,10 @@ export class CameraNode3D extends Node3D implements CameraView3D {
   get aspect(): number {
     return this.#proj.aspect
   }
+  setClipDepth(clipDepth: ClipDepth): void {
+    this.#proj.clipDepth = clipDepth
+  }
+
   setAspect(aspect: number): void {
     this.#proj.setAspect(aspect)
     this.#projGen++
@@ -155,6 +160,12 @@ export class CameraNode3D extends Node3D implements CameraView3D {
   /** Projection matrix (ortho↔perspective blend). */
   get projection(): Mat4 {
     return this.#proj.projection
+  }
+
+  /** Inverse of {@link CameraNode3D.projection} (clip → view). */
+  get invProjection(): Mat4 {
+    // Projection is view-independent, so it delegates straight to the helper.
+    return this.#proj.invProjection
   }
 
   /** View matrix (inverse of the node's world pose). */

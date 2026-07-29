@@ -188,6 +188,8 @@ export { Vignette } from './render/postfx/effects/Vignette'
 export type { VignetteOptions } from './render/postfx/effects/Vignette'
 export { VignetteBlur } from './render/postfx/effects/VignetteBlur'
 export type { VignetteBlurOptions } from './render/postfx/effects/VignetteBlur'
+export { AmbientOcclusion } from './render/gfx/ao/AmbientOcclusion'
+export type { AoPreset } from './render/gfx/ao/AmbientOcclusion'
 export type {
   Gfx2D,
   GfxBlend,

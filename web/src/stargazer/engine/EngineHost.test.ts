@@ -68,3 +68,37 @@ describe('EngineHost retry ladder', () => {
     host.destroy()
   })
 })
+
+describe('EngineHost WebGPU loss', () => {
+  it('a lost WebGPU device fires backendlost + onBackendLost, not the ladder', () => {
+    const canvas = document.createElement('canvas')
+    const device = new MockGfxDevice('webgpu')
+    const onBackendLost = vi.fn()
+    const onReload = vi.fn()
+    const host = createEngineHost({
+      canvas,
+      onBackendLost,
+      onReload,
+      gpuDevice: device,
+    })
+    const events: Array<{ backend: string }> = []
+    host.events.on('backendlost', (e) => events.push(e))
+
+    device.simulateContextLost()
+
+    expect(onBackendLost).toHaveBeenCalledTimes(1)
+    expect(onReload).not.toHaveBeenCalled()
+    expect(events).toEqual([{ backend: 'webgpu' }])
+    host.destroy()
+  })
+
+  it('without an override a lost WebGPU device reloads', () => {
+    const canvas = document.createElement('canvas')
+    const device = new MockGfxDevice('webgpu')
+    const onReload = vi.fn()
+    const host = createEngineHost({ canvas, onReload, gpuDevice: device })
+    device.simulateContextLost()
+    expect(onReload).toHaveBeenCalledTimes(1)
+    host.destroy()
+  })
+})

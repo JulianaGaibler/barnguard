@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/printer-driver", "crates/server"]
+members = ["crates/printer-driver", "crates/server", "crates/shader-gen"]
 
 [workspace.package]
 edition = "2021"

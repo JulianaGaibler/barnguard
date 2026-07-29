@@ -6,15 +6,18 @@ precision highp float;
 
 in vec2 v_uv;
 uniform sampler2D u_tex;
-uniform float u_intensity; // 0 = off, 1 = corners fully black
-uniform float u_radius;    // distance from center where darkening begins
-uniform float u_softness;  // width of the falloff band
+
+// Per-pass params, std140 block (see POST_PARAMS_UBO_BINDING).
+// x = intensity (0 = off, 1 = corners black), y = radius, z = softness.
+layout(std140) uniform Params {
+  vec4 u_vig;
+};
 
 out vec4 outColor;
 
 void main() {
   vec4 src = texture(u_tex, v_uv);
   float d = distance(v_uv, vec2(0.5));
-  float v = 1.0 - u_intensity * smoothstep(u_radius, u_radius + u_softness, d);
+  float v = 1.0 - u_vig.x * smoothstep(u_vig.y, u_vig.y + u_vig.z, d);
   outColor = src * v;
 }

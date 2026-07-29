@@ -39,6 +39,7 @@ import {
   type DebugRenderMode,
   type GpuGfxStats,
 } from './GpuBatchContext'
+import type { GpuProgram } from './GpuProgram'
 import { ColoredTriProgram } from './programs/coloredTri'
 import { TexturedQuadProgram } from './programs/texturedQuad'
 import { StrokeProgram } from './programs/stroke'
@@ -140,6 +141,22 @@ export class GpuGfx implements Gfx2D {
    * render).
    */
   #present: boolean
+  /**
+   * Single-sample resolve target, allocated only when the main target is MSAA.
+   * The main pass resolves into it on `endRenderPass`; `present` blits it to
+   * the canvas (single-sample, so scaling is allowed) and a post-process pass
+   * or a `Viewport2DNode` samples it.
+   */
+  #resolveTarget: RenderTarget | null = null
+  /**
+   * Whether pipelines have finished their async pre-warm. The stage skips
+   * rendering until this is true (WebGL2 resolves within a microtask; WebGPU
+   * takes longer).
+   */
+  #ready = false
+  #warmupSeq = 0
+  /** Resolves when the current warm-up completes; awaited by tests. */
+  #warmupPromise: Promise<void> = Promise.resolve()
 
   constructor(
     canvas: HTMLCanvasElement,
@@ -165,9 +182,36 @@ export class GpuGfx implements Gfx2D {
     this.#initGpuResources()
   }
 
+  /** All draw programs, in construction/registration order. */
+  get #programs(): GpuProgram[] {
+    return [
+      this.#coloredTri,
+      this.#texturedQuad,
+      this.#stroke,
+      this.#shape,
+      this.#gradientRadial,
+      this.#maskedGradient,
+      this.#textQuad,
+    ]
+  }
+
+  /** Whether pipelines are warm and the surface can render this frame. */
+  get ready(): boolean {
+    return this.#ready
+  }
+
   /**
-   * (Re)create every GL resource. Called from the constructor and from
-   * `rebuildResources` on context restore.
+   * Resolves once pipelines have warmed. Test hook (production polls
+   * {@link ready}).
+   */
+  get whenReady(): Promise<void> {
+    return this.#warmupPromise
+  }
+
+  /**
+   * (Re)create every backend resource. Called from the constructor and from
+   * `rebuildResources` on context restore. Kicks off the async pipeline
+   * warm-up.
    */
   #initGpuResources(): void {
     const device = this.#device
@@ -175,16 +219,19 @@ export class GpuGfx implements Gfx2D {
     const unit = new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1])
     device.updateBufferSubData(unitQuadBuffer, 0, unit)
     this.#ctx.unitQuadBuffer = unitQuadBuffer
-    // Shared per-frame projection UBO; the programs' `Frame` block reads it.
+    // 1×1 placeholder, bound to sampler slots a shader declares but doesn't
+    // sample this draw (contents never read, so no upload needed).
+    this.#ctx.placeholderTexture = device.createTexture2D({
+      width: 1,
+      height: 1,
+      filter: 'nearest',
+      wrap: 'clamp',
+    })
+    // Shared per-frame projection UBO + its bind group; every 2D pipeline's
+    // group 0 reads it.
     this.#ctx.initFrameUbo()
 
-    this.#coloredTri.init(device, this.#ctx)
-    this.#texturedQuad.init(device, this.#ctx)
-    this.#stroke.init(device, this.#ctx)
-    this.#shape.init(device, this.#ctx)
-    this.#gradientRadial.init(device, this.#ctx)
-    this.#maskedGradient.init(device, this.#ctx)
-    this.#textQuad.init(device, this.#ctx)
+    for (const p of this.#programs) p.init(device, this.#ctx)
 
     this.#target = device.createRenderTarget({
       width: this.#targetWidth,
@@ -192,19 +239,70 @@ export class GpuGfx implements Gfx2D {
       samples: this.#samples,
       depth: this.#depthEnabled,
     })
-    // Reflect the effective (post-clamp) sample count in stats so the HUD
-    // shows what the driver actually gave us, not what we asked for.
     this.stats.msaaSamples = this.#target.samples
+    this.#ctx.targetColor = {
+      format: this.#target.colorSpace,
+      samples: this.#target.samples,
+    }
+    this.#ensureResolveTarget()
 
-    // TextureManager owns every texture, atlas, per-source cache,
-    // static-map, gradient LUTs. On rebuild it re-creates GL resources
-    // from surviving CPU-side backing state.
     if (this.#textureManager) {
       this.#textureManager.rebuild(device)
     } else {
       this.#textureManager = new TextureManager(device)
     }
     this.#ctx.textureManager = this.#textureManager
+
+    this.#warmupPromise = this.#warmupPipelines()
+  }
+
+  /**
+   * Create every program's pipeline variants for the current target color
+   * format + sample count. Async (WebGPU compiles pipelines asynchronously);
+   * `#ready` gates rendering until it resolves. A `#warmupSeq` guard drops a
+   * stale warm-up if the target changed again mid-flight (MSAA swap, resize).
+   */
+  async #warmupPipelines(): Promise<void> {
+    this.#ready = false
+    const seq = ++this.#warmupSeq
+    this.#ctx.targetColor = {
+      format: this.#target.colorSpace,
+      samples: this.#target.samples,
+    }
+    for (const p of this.#programs) {
+      await p.warmup(this.#device, this.#ctx)
+      if (seq !== this.#warmupSeq) return
+    }
+    if (seq === this.#warmupSeq) this.#ready = true
+  }
+
+  /**
+   * Allocate (or reallocate) the single-sample resolve target when the main
+   * target is MSAA; drop it when it isn't. Matches the main target's size +
+   * color space so the MSAA resolve blit is format- and bounds-compatible.
+   */
+  #ensureResolveTarget(): void {
+    if (this.#target.samples > 1) {
+      if (this.#resolveTarget)
+        this.#device.deleteRenderTarget(this.#resolveTarget)
+      this.#resolveTarget = this.#device.createRenderTarget({
+        width: this.#targetWidth,
+        height: this.#targetHeight,
+        samples: 1,
+        colorSpace: this.#target.colorSpace,
+      })
+    } else if (this.#resolveTarget) {
+      this.#device.deleteRenderTarget(this.#resolveTarget)
+      this.#resolveTarget = null
+    }
+  }
+
+  /**
+   * The sampleable / presentable target: the resolved one under MSAA, else the
+   * target.
+   */
+  get #presentSource(): RenderTarget {
+    return this.#resolveTarget ?? this.#target
   }
 
   /**
@@ -218,6 +316,18 @@ export class GpuGfx implements Gfx2D {
   /** The backend device, for the 3D pass to draw through the same frame/target. */
   get device(): GfxDevice {
     return this.#device
+  }
+
+  /**
+   * Color format + sample count of the offscreen target, so the 3D pass
+   * (`MeshRenderer`, `DebugLine3DRenderer`) can build pipelines matching the
+   * shared target it draws into.
+   */
+  get targetColor(): {
+    format: import('./GfxDevice').ColorFormat
+    samples: number
+  } {
+    return { ...this.#ctx.targetColor }
   }
 
   /**
@@ -238,6 +348,9 @@ export class GpuGfx implements Gfx2D {
       depth: true,
     })
     this.stats.msaaSamples = this.#target.samples
+    this.#ensureResolveTarget()
+    // Color format + sample count are unchanged (only a depth attachment was
+    // added), so the 2D pipelines stay valid — no re-warm needed.
   }
 
   // --- frame lifecycle ------------------------------------------------------
@@ -276,10 +389,24 @@ export class GpuGfx implements Gfx2D {
     const clear: readonly [number, number, number, number] = opts.transparent
       ? [0, 0, 0, 0]
       : rgbaTuple(parseColor(opts.clearColor))
-    this.#device.beginFrame({
-      target: this.#target,
-      clearColor: clear,
-      clearDepth: this.#depthEnabled,
+    this.#device.beginFrame()
+    // Open the main pass: clear color (+ depth when a 3D pass follows), and
+    // resolve MSAA into the single-sample resolve target on pass end. The pass
+    // stays open across the 3D immediate draws and the 2D command-list replay
+    // (in `endFrame`), closing in `endFrame`.
+    this.#device.beginRenderPass({
+      color: {
+        target: this.#target,
+        loadOp: 'clear',
+        clearColor: clear,
+        resolveTarget: this.#resolveTarget ?? undefined,
+      },
+      depth: this.#depthEnabled
+        ? {
+            target: { renderTarget: this.#target },
+            loadOp: 'clear',
+          }
+        : undefined,
     })
     this.#ctx.curBlend = 'source-over'
   }
@@ -302,16 +429,19 @@ export class GpuGfx implements Gfx2D {
     if (this.#device.isContextLost()) {
       return
     }
+    // Replay the recorded 2D command list into the still-open main pass, then
+    // close it (resolving MSAA into the resolve target).
     this.#ctx.submitFrame()
-    // Real GL state-change counts come from the device (post-elision), so the
-    // HUD reflects work actually done rather than calls issued.
+    this.#device.endRenderPass()
+    // Real GPU state-change counts come from the device (post-elision).
+    // `blendSwitches` is derived from the run blend transitions in submitFrame
+    // (blend is baked into pipeline variants now, not a standalone device call).
     const dc = this.#device.deviceStats
-    this.stats.programSwitches = dc.programSwitches
-    this.stats.blendSwitches = dc.blendSwitches
+    this.stats.programSwitches = dc.pipelineSwitches
     this.stats.textureBinds = dc.textureBinds
     if (this.#present) {
-      this.#device.blitToDefault(
-        this.#target,
+      this.#device.present(
+        this.#presentSource,
         this.#canvas.width,
         this.#canvas.height,
         { filter: 'linear' },
@@ -326,17 +456,19 @@ export class GpuGfx implements Gfx2D {
    * renderbuffer (`samples > 1`), which cannot be sampled; use `samples: 1`.
    */
   get colorTexture(): Texture | null {
-    const t = this.#target as { color?: Texture }
-    return t.color ?? null
+    // The present source is always single-sample (the resolve target under
+    // MSAA, else the target), so it's sampleable.
+    return this.#device.colorTexture(this.#presentSource)
   }
 
   /**
-   * The offscreen render target this surface draws into. A post-process
-   * pipeline reads it as the resolve source (after `setPresent(false)` +
-   * `endFrame` have submitted the frame without blitting).
+   * The resolved, sampleable target a post-process pipeline reads (after
+   * `setPresent(false)` + `endFrame` have submitted + resolved the frame).
+   * Under MSAA this is the single-sample resolve target; otherwise the target
+   * itself.
    */
   get target(): RenderTarget {
-    return this.#target
+    return this.#presentSource
   }
 
   /** Current target size in device pixels, for sizing downstream targets. */
@@ -363,6 +495,8 @@ export class GpuGfx implements Gfx2D {
     this.#targetWidth = pixelW
     this.#targetHeight = pixelH
     this.#device.resizeRenderTarget(this.#target, pixelW, pixelH)
+    if (this.#resolveTarget)
+      this.#device.resizeRenderTarget(this.#resolveTarget, pixelW, pixelH)
   }
 
   /** No-op. `WebGL2Device.onRestored` drives reacquisition. */
@@ -478,6 +612,9 @@ export class GpuGfx implements Gfx2D {
       depth: this.#depthEnabled,
     })
     this.stats.msaaSamples = this.#target.samples
+    this.#ensureResolveTarget()
+    // Sample count changed, so pipelines must be rebuilt for the new count.
+    this.#warmupPromise = this.#warmupPipelines()
   }
 
   /** Current effective MSAA sample count (post-clamp). */

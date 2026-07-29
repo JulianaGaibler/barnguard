@@ -21,6 +21,25 @@
   import type { GameEvents } from '@src/displays/stallwaechter/game'
 
   type GameOverPayload = GameEvents['gameOver']
+  type Gfx = 'webgpu' | 'webgl2' | 'auto'
+
+  // Backend selection + WebGPU-loss recovery. The `?gfx` URL param seeds the
+  // choice. A lost WebGPU device can't reuse its canvas, so recovery bumps
+  // `canvasKey` (re-keying the `<canvas>` so `mountEngine` rebuilds on a fresh
+  // node) and forces WebGL2 for the remount.
+  function urlBackend(): Gfx {
+    const g = new URLSearchParams(location.search).get('gfx')
+    return g === 'webgpu' || g === 'webgl2' ? g : 'auto'
+  }
+  let forcedBackend = $state<'webgl2' | null>(null)
+  let canvasKey = $state(0)
+  const backend = $derived<Gfx>(forcedBackend ?? urlBackend())
+
+  function onBackendLost(): void {
+    console.warn('[stallwaechter] WebGPU device lost, remounting on WebGL2')
+    forcedBackend = 'webgl2'
+    canvasKey++
+  }
 
   let host = $state<EngineHost | null>(null)
   let session = $state<GameSession | null>(null)
@@ -144,8 +163,8 @@
     isRoundActive && activeStateId !== null
       ? $t.states[activeStateId]
       : session !== null && !loadError && $selectedStateId === null
-        ? // Hide the "pick a state" prompt once a state is selected ;
-          // the confirm card takes over the choice at that point and the
+        ? // Hide the "pick a state" prompt once a state is selected, the
+          // confirm card takes over the choice at that point and the
           // corner prompt would just repeat what the card already says.
           $t.game.idleHint
         : null,
@@ -174,7 +193,7 @@
   })
 
   // Keep the outbound store in sync if the debug HUD is toggled via
-  // keyboard shortcut inside the controller (Y key). Two-way binding ;
+  // keyboard shortcut inside the controller (Y key). Two-way binding,
   // without this, pressing Y wouldn't update the booth-menu label.
   $effect(() => {
     if (!host) return
@@ -203,16 +222,20 @@
     {/if}
   </div>
 
-  <canvas
-    class="game__canvas"
-    use:mountEngine={{
-      options: {
-        transparent: true,
-      },
-      onReady: onEngineReady,
-      onDestroy: onEngineDestroy,
-    }}
-  ></canvas>
+  {#key canvasKey}
+    <canvas
+      class="game__canvas"
+      use:mountEngine={{
+        backend,
+        onBackendLost,
+        options: {
+          transparent: true,
+        },
+        onReady: onEngineReady,
+        onDestroy: onEngineDestroy,
+      }}
+    ></canvas>
+  {/key}
 
   {#if !session && !loadError}
     <div class="game__center">

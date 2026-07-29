@@ -1,4 +1,4 @@
-import type { Mat4 } from '../math/Mat4'
+import type { ClipDepth, Mat4 } from '../math/Mat4'
 import type { Vec3 } from '../math/Vec3'
 import type { Ray } from '../math/Ray'
 import type { ScreenProjection, Projectionness } from './Camera3D'
@@ -16,6 +16,8 @@ export interface CameraView3D {
   readonly view: Mat4
   /** Projection matrix (ortho↔perspective blend). */
   readonly projection: Mat4
+  /** Inverse of {@link CameraView3D.projection} (clip → view). */
+  readonly invProjection: Mat4
   /** Combined `projection × view` (world → clip). */
   readonly viewProjection: Mat4
   /** Inverse of {@link CameraView3D.viewProjection} (clip → world). */
@@ -43,4 +45,9 @@ export interface CameraView3D {
   eyePosition(out?: Vec3): Vec3
   /** Set the viewport aspect (width / height). */
   setAspect(aspect: number): void
+  /**
+   * Set the NDC depth convention the projection targets, from the active
+   * backend (`device.ndc.clipDepth`). WebGL keeps `[-1,1]`, WebGPU `[0,1]`.
+   */
+  setClipDepth(clipDepth: ClipDepth): void
 }

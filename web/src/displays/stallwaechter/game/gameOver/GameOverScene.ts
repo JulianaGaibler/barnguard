@@ -1,5 +1,4 @@
 import {
-  Path2DNode,
   Node2D,
   CameraNode2D,
   easings,
@@ -13,7 +12,11 @@ import {
 } from '@src/stargazer'
 import { PacketNode } from '../nodes/PacketNode'
 import { PacketMotionTrailNode } from '../nodes/PacketMotionTrailNode'
-import { DebrisBurstNode } from '../nodes/DebrisBurstNode'
+import {
+  spawnImpactFlash,
+  spawnCollisionDebris,
+  spawnBorderBreachDebris,
+} from '../lossVisuals'
 import { TUNING } from '../data/tuning'
 import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
 import {
@@ -156,9 +159,6 @@ export class GameOverScene {
   readonly #sessionAbort = new AbortController()
   #offFrame: (() => void) | null = null
   #destroyed = false
-  /** Monotonic counter so multiple impact flashes have unique scene ids. */
-  #flashIdSeq = 0
-
   // --- collision state ---
   #leftPacket: PacketNode | null = null
   #rightPacket: PacketNode | null = null
@@ -518,26 +518,9 @@ export class GameOverScene {
     // Match the live game's border-breach sequence: impact flash first,
     // then the directional wall-shard burst.
     this.#spawnImpactFlash(at)
-    // Border-breach shrapnel, same config the live game uses.
-    const c = TUNING.lossAnim.borderBreach
-    const burst = new DebrisBurstNode({
-      center: at,
-      count: c.count,
-      triangleFraction: c.triangleFraction,
-      initialSpeedWorld: c.initialSpeedWorld,
-      dampingPerSec: c.dampingPerSec,
-      emitDirectionRad: this.#escapeHeadingRad,
-      emitSpreadRad: c.emitSpreadRad,
-      initialAngleOffsetRad: c.initialAngleOffsetRad,
-      angInitialRadPerSec: c.angInitialRadPerSec,
-      angInitialDampingPerSec: c.angInitialDampingPerSec,
-      angBaseAbsRadPerSec: c.angBaseAbsRadPerSec,
-      triangleSideWorld: c.triangleSideWorld,
-      lineLengthWorld: c.lineLengthWorld,
-      lineWidthCssPx: c.lineWidthCssPx,
-      color: c.color,
-    })
-    this.#stage.tree.root.add(burst)
+    // Border-breach shrapnel along the escape heading, same config the live
+    // game uses.
+    spawnBorderBreachDebris(this.#stage.tree.root, at, this.#escapeHeadingRad)
 
     // Fade the border line out.
     const line = this.#borderLine
@@ -559,57 +542,14 @@ export class GameOverScene {
     }
   }
 
+  // The loss visuals are shared with the live round (see `lossVisuals.ts`);
+  // these wrappers pin them to this scene's own stage tree.
   #spawnCollisionDebris(at: Vec2): void {
-    // Same code path the live game uses in `session.spawnCollisionDebris`
-    //, every knob (speed range, damping, equidistant emission) lives on
-    // `TUNING.lossAnim.debris` so the game-over vignette and the live
-    // in-round collision look identical.
-    const c = TUNING.lossAnim.debris
-    const burst = new DebrisBurstNode({
-      center: at,
-      count: c.count,
-      triangleFraction: c.triangleFraction,
-      initialSpeedWorld: c.initialSpeedWorld,
-      dampingPerSec: c.dampingPerSec,
-      angInitialRadPerSec: c.angInitialRadPerSec,
-      angInitialDampingPerSec: c.angInitialDampingPerSec,
-      angBaseAbsRadPerSec: c.angBaseAbsRadPerSec,
-      triangleSideWorld: c.triangleSideWorld,
-      lineLengthWorld: c.lineLengthWorld,
-      lineWidthCssPx: c.lineWidthCssPx,
-      color: c.color,
-      equidistantEmission: c.equidistantEmission,
-    })
-    this.#stage.tree.root.add(burst)
+    spawnCollisionDebris(this.#stage.tree.root, at)
   }
 
-  /**
-   * Mirror of the live game's `session.spawnImpactFlash`, a scaled + fading
-   * white sparkle at the impact point. Reuses the same pre-centred
-   * `impactFlashPath` from `loadGameAssets`.
-   */
   #spawnImpactFlash(at: Vec2): void {
-    const cfg = TUNING.lossAnim.impactFlash
-    const flash = new Path2DNode({
-      id: `gameover-impact-flash-${this.#flashIdSeq++}`,
-      path: this.#impactFlashPath,
-      fill: cfg.color,
-      hitMode: 'none',
-    })
-    flash.transform.x = at.x
-    flash.transform.y = at.y
-    flash.transform.scaleX = cfg.scaleFrom
-    flash.transform.scaleY = cfg.scaleFrom
-    this.#stage.tree.root.add(flash)
-    flash
-      .tween(
-        { scaleX: cfg.scaleTo, scaleY: cfg.scaleTo, alpha: 0 },
-        { duration: cfg.durationSec, easing: easings.outCubic },
-      )
-      .then(() => {
-        if (!flash.isDestroyed) flash.destroy()
-      })
-      .catch(ignoreAbort)
+    spawnImpactFlash(this.#stage.tree.root, at, this.#impactFlashPath)
   }
 
   /**

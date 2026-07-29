@@ -3,7 +3,6 @@
 // shader/VAO/stream plumbing and the buffer write. The LUT is bound as
 // `ctx.curTexture` (this program has no second texture, unlike `maskedGradient`).
 
-import type { AttribBinding, GfxDevice, Program, Vao } from '../GfxDevice'
 import { RingStream } from '../RingStream'
 import {
   GRADIENT_BUFFER_BYTES,
@@ -11,38 +10,53 @@ import {
   LOC_GRAD_CENTER,
   LOC_GRAD_RADALPHA,
   LOC_GRAD_UNIT,
-  FRAME_UBO_BINDING,
-  RING_SIZE,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
-import type { Texture } from '../GfxDevice'
-import { drawInstancedRun } from './instancedRun'
-import gradientRadialVertSrc from '../webgl2/shaders/gradientRadial.vert.glsl?raw'
-import gradientRadialFragSrc from '../webgl2/shaders/gradientRadial.frag.glsl?raw'
+import type {
+  BindGroup,
+  BindGroupLayout,
+  GfxDevice,
+  Pipeline,
+  ShaderModule,
+  Texture,
+  VertexBufferLayout,
+} from '../GfxDevice'
+import {
+  drawInstancedRun,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
+import type { ShaderReflection } from '../GfxDevice'
+import gradientRadialWgsl from '../shaders/gradientRadial.wgsl?raw'
+import gradientRadialVertSrc from '../shaders/gradientRadial.gen.vert.glsl?raw'
+import gradientRadialFragSrc from '../shaders/gradientRadial.gen.frag.glsl?raw'
+import gradientRadialReflect from '../shaders/gradientRadial.reflect.json'
 
 export class GradientRadialProgram implements GpuProgram {
   readonly kind = 'gradientRadial' as const
 
-  #program!: Program
+  #shader!: ShaderModule
   #stream!: RingStream
-  #vaos: Vao[] = new Array(RING_SIZE)
-  #instanceAttribs: AttribBinding[] = []
+  #pipelines: Map<string, Pipeline> = new Map()
+  #vertexLayout: VertexBufferLayout[] = []
+  #materialLayout!: BindGroupLayout
+  #bindGroups = new WeakMap<Texture, BindGroup>()
 
   get stream(): RingStream {
     return this.#stream
   }
 
-  init(device: GfxDevice, ctx: GpuBatchContext): void {
-    this.#program = device.createProgram({
-      vertexSrc: gradientRadialVertSrc,
-      fragmentSrc: gradientRadialFragSrc,
-      attribs: {
-        a_unit: LOC_GRAD_UNIT,
-        a_center: LOC_GRAD_CENTER,
-        a_radAlpha: LOC_GRAD_RADALPHA,
+  init(device: GfxDevice, _ctx: GpuBatchContext): void {
+    this.#shader = device.createShaderModule({
+      glsl: { vertex: gradientRadialVertSrc, fragment: gradientRadialFragSrc },
+      wgsl: {
+        code: gradientRadialWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
       },
-      uniformBlocks: { Frame: FRAME_UBO_BINDING },
+      reflection: gradientRadialReflect as ShaderReflection,
+      label: 'gradientRadial',
     })
     this.#stream = new RingStream(
       device,
@@ -50,45 +64,40 @@ export class GradientRadialProgram implements GpuProgram {
       GRADIENT_INSTANCE_STRIDE,
       'gradientRadial',
     )
-    this.#vaos = new Array(RING_SIZE)
-    for (let slot = 0; slot < RING_SIZE; slot++) {
-      const attribs: AttribBinding[] = [
-        {
-          buffer: ctx.unitQuadBuffer,
-          location: LOC_GRAD_UNIT,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: 8,
-          divisor: 0,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_GRAD_CENTER,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 0,
-          stride: GRADIENT_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-        {
-          buffer: this.#stream.buffers[slot],
-          location: LOC_GRAD_RADALPHA,
-          size: 2,
-          type: 'float',
-          normalized: false,
-          offset: 8,
-          stride: GRADIENT_INSTANCE_STRIDE,
-          divisor: 1,
-        },
-      ]
-      this.#vaos[slot] = device.createVao(this.#program, attribs)
-      if (slot === 0) {
-        this.#instanceAttribs = attribs.filter((a) => a.divisor === 1)
-      }
+    this.#materialLayout = device.createBindGroupLayout([
+      { binding: 0, type: 'texture-2d' },
+    ])
+    this.#bindGroups = new WeakMap()
+    this.#vertexLayout = [
+      unitQuadLayout(LOC_GRAD_UNIT),
+      {
+        arrayStride: GRADIENT_INSTANCE_STRIDE,
+        stepMode: 'instance',
+        attributes: [
+          { location: LOC_GRAD_CENTER, format: 'float32x2', offset: 0 },
+          { location: LOC_GRAD_RADALPHA, format: 'float32x2', offset: 8 },
+        ],
+      },
+    ]
+  }
+
+  async warmup(device: GfxDevice, ctx: GpuBatchContext): Promise<void> {
+    this.#pipelines = await warmupBlendPipelines(device, ctx, {
+      shader: this.#shader,
+      vertexLayout: this.#vertexLayout,
+      bindGroupLayouts: [ctx.frameBindGroupLayout, this.#materialLayout],
+    })
+  }
+
+  #bindGroupFor(ctx: GpuBatchContext, tex: Texture): BindGroup {
+    let bg = this.#bindGroups.get(tex)
+    if (!bg) {
+      bg = ctx.device.createBindGroup(this.#materialLayout, [
+        { binding: 0, resource: { texture: tex } },
+      ])
+      this.#bindGroups.set(tex, bg)
     }
+    return bg
   }
 
   /**
@@ -109,19 +118,15 @@ export class GradientRadialProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    const material = run.texture ? this.#bindGroupFor(ctx, run.texture) : null
     drawInstancedRun(
       ctx,
-      this.#program,
-      this.#vaos,
+      this.#pipelines,
+      ctx.unitQuadBuffer,
       this.#stream,
-      this.#instanceAttribs,
       GRADIENT_INSTANCE_STRIDE,
       run,
-      () => {
-        if (run.texture) {
-          ctx.device.setUniformTexture(this.#program, 'u_stops', run.texture, 0)
-        }
-      },
+      material,
     )
   }
 }

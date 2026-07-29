@@ -3,6 +3,7 @@ import type { Engine, RegisteredPhysicsWorld } from '../engine/Engine'
 import type { CameraView2D } from '../camera/CameraView2D'
 import type { Stage } from '../render/Stage'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { GfxBackend } from '../render/gfx/GfxDevice'
 import type { BitmapMask } from '../assets/BitmapMask'
 import { DebugCamera } from './DebugCamera'
 import { DebugCamera3D } from './DebugCamera3D'
@@ -12,18 +13,17 @@ import type { Node3D } from '../scene/Node3D'
 import { MeshNode } from '../nodes/MeshNode'
 import { Viewport2DNode } from '../nodes/Viewport2DNode'
 import type { DebugLine3DRenderer } from '../render/gfx/DebugLine3DRenderer'
-import { mat4TransformPoint } from '../math/Mat4'
-import { vec3, vec3Cross, vec3Normalize, type Vec3 } from '../math/Vec3'
-import {
-  Light3D,
-  DirectionalLight3D,
-  PointLight3D,
-  SpotLight3D,
-} from '../nodes/Light3D'
-import type { LineColor } from '../render/gfx/DebugLine3DRenderer'
+import { Light3D } from '../nodes/Light3D'
 import type { RenderQuality } from '../render/RenderQuality'
+import type { AmbientOcclusion } from '../render/gfx/ao/AmbientOcclusion'
 import { walkTree } from '../scene/traverse'
 import { drawGrid } from './DebugGridRenderer'
+import {
+  pushObb,
+  drawLightGizmo,
+  pushWireframe,
+  pushQuadWireframe,
+} from './DebugGizmo3DRenderer'
 import { drawNodeOutlines } from './DebugOutlineRenderer'
 import { drawLayoutOutlines } from './DebugLayoutRenderer'
 import { drawPointerOverlay } from './DebugPointerRenderer'
@@ -65,7 +65,8 @@ export type DebugCameraMode = 'active' | 'debug-2d' | 'debug-3d'
  * `wireframe` overlays triangle edges; `unshaded` shows flat albedo (no
  * lighting); `normals` colors fragments by world normal.
  */
-export type DebugRenderMode = 'normal' | 'wireframe' | 'unshaded' | 'normals'
+export type DebugRenderMode =
+  'normal' | 'wireframe' | 'unshaded' | 'normals' | 'ao'
 
 export interface DebugToggleState {
   hud: boolean
@@ -83,6 +84,8 @@ export interface DebugToggleState {
   paused: boolean
   pointerOverlay: boolean
   physics: PhysicsOverlayFlags
+  /** Whether the fly camera currently holds the pointer lock (mouse-look on). */
+  flyPointerLocked: boolean
 }
 
 /**
@@ -156,6 +159,8 @@ export interface DebugStatsSnapshot {
   }
   /** Per-frame GPU pipeline stats for the active stage. */
   gpu: DebugGpuStatsReadout
+  /** Which rendering backend the active stage's device is. */
+  backend: GfxBackend
   cameraMode: 'game' | 'debug'
   cameraFollowing: boolean
   viewport: { x: number; y: number; width: number; height: number }
@@ -181,6 +186,10 @@ export interface DebugStatsSnapshot {
   physics: PhysicsWorldReadout[]
   /** 3D world stats for the active stage, or `null` when it has no 3D content. */
   world3d: World3DReadout | null
+  /** Whether the fly camera currently holds the pointer lock (mouse-look on). */
+  flyPointerLocked: boolean
+  /** The fly camera's persistent scroll-adjustable speed multiplier. */
+  flySpeedMultiplier: number
 }
 
 /**
@@ -348,6 +357,8 @@ export class DebugController {
   #_debugSpace: '2d' | '3d' = '2d'
   /** 3D fly-camera, created lazily the first time 3D mode's camera activates. */
   #debugCamera3d: DebugCamera3D | null = null
+  /** Whether the pointer is locked to the canvas for fly-camera mouse-look. */
+  #_flyPointerLocked = false
   /** 3D node whose bounds the gizmo pass highlights, driven by the Scene panel. */
   #highlightedNode3d: Node3D | null = null
   #_physicsFlags: PhysicsOverlayFlags = {
@@ -434,6 +445,71 @@ export class DebugController {
       canvas.removeEventListener('pointercancel', onPointerLeave)
     })
 
+    // Fly-camera mouse-look via Pointer Lock. A mouse press on the canvas while
+    // the 3D fly camera is active requests the lock (cursor hidden, unlimited
+    // turning). We hook `pointerdown`, not `click`: the InputSystem calls
+    // `preventDefault` + `setPointerCapture` on canvas `pointerdown`, which
+    // suppresses the synthetic `click`. A separate bubble-phase listener still
+    // fires (InputSystem does not stopPropagation), and `pointerdown` is a valid
+    // user gesture for the lock request. Non-mouse pointers keep the touch pad.
+    const onLockPointerDown = (e: PointerEvent): void => {
+      if (e.pointerType !== 'mouse') return
+      if (!this.camera3dActive || this.#_flyPointerLocked) return
+      // May reject during the browser's brief post-Esc lock-out, or if the
+      // gesture is stale. Swallow it rather than spamming the console.
+      const p = canvas.requestPointerLock() as unknown as
+        Promise<void> | undefined
+      if (p && typeof p.catch === 'function') p.catch(() => {})
+    }
+    const onLockError = (): void => {
+      this.#_flyPointerLocked = false
+    }
+    // While locked the browser reports raw motion through `movementX/Y`. The fly
+    // camera is created lazily, so null-guard it.
+    const onLockMove = (e: MouseEvent): void => {
+      if (this.#_flyPointerLocked)
+        this.#debugCamera3d?.look(e.movementX, e.movementY)
+    }
+    const onLockChange = (): void => {
+      this.#_flyPointerLocked = document.pointerLockElement === canvas
+      // Esc unlocks but stays in fly mode. Drop any held sprint so the camera
+      // does not keep sprinting after the mouse releases.
+      if (!this.#_flyPointerLocked) this.#debugCamera3d?.setSprint(false)
+      this.#emitToggle()
+    }
+    // Scroll adjusts the persistent fly speed while the 3D fly camera is active.
+    const onWheel = (e: WheelEvent): void => {
+      if (!this.camera3dActive || !this.#debugCamera3d) return
+      this.#debugCamera3d.adjustSpeedMultiplier(e.deltaY)
+      e.preventDefault()
+    }
+    canvas.addEventListener('pointerdown', onLockPointerDown)
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    document.addEventListener('mousemove', onLockMove)
+    document.addEventListener('pointerlockchange', onLockChange)
+    document.addEventListener('pointerlockerror', onLockError)
+    this.#disposeCallbacks.push(() => {
+      canvas.removeEventListener('pointerdown', onLockPointerDown)
+      canvas.removeEventListener('wheel', onWheel)
+      document.removeEventListener('mousemove', onLockMove)
+      document.removeEventListener('pointerlockchange', onLockChange)
+      document.removeEventListener('pointerlockerror', onLockError)
+    })
+
+    // Releasing focus (tab switch, window blur) can strand held keys and the
+    // pointer lock. Clear movement, sprint, and the lock so the camera does not
+    // fly off on its own while the tab is hidden.
+    const onDefocus = (): void => {
+      this.#debugCamera3d?.clearKeys()
+      this.#exitPointerLock()
+    }
+    document.addEventListener('visibilitychange', onDefocus)
+    window.addEventListener('blur', onDefocus)
+    this.#disposeCallbacks.push(() => {
+      document.removeEventListener('visibilitychange', onDefocus)
+      window.removeEventListener('blur', onDefocus)
+    })
+
     // Camera step runs BEFORE input reprojection so a WASD-panning debug
     // camera doesn't drag pointer state behind by one frame. Sized against
     // the active stage so pan feel is consistent regardless of canvas.
@@ -518,6 +594,18 @@ export class DebugController {
   get quality(): RenderQuality {
     return this.engine.quality
   }
+  /**
+   * The primary stage's ambient-occlusion controller, created on access — the
+   * Rendering panel touches this only when the operator enables AO, so a 3D
+   * scene that never turns it on warms no AO pipelines.
+   */
+  get ambientOcclusion(): AmbientOcclusion {
+    return this.engine.primaryStage.ambientOcclusion
+  }
+  /** The AO controller only if already created (for read-only HUD mirroring). */
+  get ambientOcclusionPeek(): AmbientOcclusion | null {
+    return this.engine.primaryStage.peekAmbientOcclusion()
+  }
   get perfMarks(): boolean {
     return this.engine.perfMarks
   }
@@ -569,6 +657,9 @@ export class DebugController {
    */
   setActiveStage(stage: Stage | null): void {
     if (this.#_activeStage === stage) return
+    // Do not keep the mouse captured across a stage switch (the fly camera
+    // retargets to the new stage).
+    this.#exitPointerLock()
     // Passing the primary stage explicitly normalises to null.
     if (stage === this.engine.primaryStage) stage = null
     this.#_activeStage = stage
@@ -590,6 +681,7 @@ export class DebugController {
    */
   onStageDetached(stage: Stage): void {
     if (this.#_activeStage !== stage) return
+    this.#exitPointerLock()
     this.#_activeStage = null
     this.camera.setGameCamera(this.engine.primaryStage.currentCamera2D)
     if (this.#_cameraActive) {
@@ -671,7 +763,9 @@ export class DebugController {
       ? 1
       : this.#_renderMode === 'normals'
         ? 2
-        : 0
+        : this.#_renderMode === 'ao'
+          ? 3
+          : 0
   }
 
   /** The camera driving the debug view; see `DebugCameraMode`. */
@@ -723,6 +817,13 @@ export class DebugController {
   #stopDebugCameras(): void {
     this.camera.clearKeys()
     this.#debugCamera3d?.clearKeys()
+    this.#exitPointerLock()
+  }
+
+  /** Release the fly-camera pointer lock if this canvas currently holds it. */
+  #exitPointerLock(): void {
+    if (document.pointerLockElement === this.engine.canvas)
+      document.exitPointerLock()
   }
 
   /**
@@ -933,6 +1034,7 @@ export class DebugController {
       count: p.count,
       nodeCounts: counts,
       gpu,
+      backend: active.backend,
       cameraMode: this.#_cameraActive ? 'debug' : 'game',
       cameraFollowing: this.#_followGameCamera,
       viewport: cam ? { ...cam.viewport } : { x: 0, y: 0, width: 0, height: 0 },
@@ -952,6 +1054,8 @@ export class DebugController {
       activeHasInput: stageInput !== null,
       physics,
       world3d,
+      flyPointerLocked: this.#_flyPointerLocked,
+      flySpeedMultiplier: this.#debugCamera3d?.speedMultiplier ?? 1,
     }
   }
 
@@ -1163,19 +1267,21 @@ export class DebugController {
     cam3d: CameraView3D,
     lines: DebugLine3DRenderer,
   ): void {
-    void cam3d
     // The ground grid draws only in 3D mode, so it never coexists with the 2D
-    // screen grid (which the 2D overlay draws in 2D mode).
+    // screen grid (which the 2D overlay draws in 2D mode). It follows the camera
+    // (snapped to the grid) so it reads as infinite, and the three world axes
+    // span far in both directions through the origin.
     if (this.#_gridVisible && this.#_debugSpace === '3d') {
-      lines.grid(1, 20, [1, 1, 1, 0.12], [1, 1, 1, 0.35])
-      lines.axes(0, 0, 0, 1.5)
+      const eye = cam3d.eyePosition()
+      lines.groundGrid(eye.x, eye.z, 1, 40, [1, 1, 1, 0.12])
+      lines.originAxes(1000)
     }
     if (this.#_outlinesVisible) {
       walkTree(stage.tree.root, (n) => {
         if (n instanceof MeshNode) {
           const b = n.localBounds()
           if (b)
-            this.#pushObb(
+            pushObb(
               lines,
               b.min,
               b.max,
@@ -1184,7 +1290,7 @@ export class DebugController {
               false,
             )
         } else if (n instanceof Viewport2DNode) {
-          this.#pushObb(
+          pushObb(
             lines,
             { x: -0.5, y: -0.5, z: 0 },
             { x: 0.5, y: 0.5, z: 0 },
@@ -1200,10 +1306,10 @@ export class DebugController {
     if (this.#_renderMode === 'wireframe') {
       walkTree(stage.tree.root, (n) => {
         if (n instanceof MeshNode && n.geometry && n.visible) {
-          this.#pushWireframe(lines, n)
+          pushWireframe(lines, n)
         } else if (n instanceof Viewport2DNode && n.visible) {
           // The viewport quad is two triangles; show its border + diagonal.
-          this.#pushQuadWireframe(lines, n.worldMatrix)
+          pushQuadWireframe(lines, n.worldMatrix)
         }
       })
     }
@@ -1213,11 +1319,11 @@ export class DebugController {
       const c: [number, number, number, number] = [1, 1, 0.3, 1]
       if (hi instanceof MeshNode) {
         const b = hi.localBounds()
-        if (b) this.#pushObb(lines, b.min, b.max, hi.worldMatrix, c, true)
+        if (b) pushObb(lines, b.min, b.max, hi.worldMatrix, c, true)
       } else if (hi instanceof Viewport2DNode) {
         // Flat quad, matching the viewport surface (also used when a node inside
         // its embedded 2D scene is selected in the tree).
-        this.#pushObb(
+        pushObb(
           lines,
           { x: -0.5, y: -0.5, z: 0 },
           { x: 0.5, y: 0.5, z: 0 },
@@ -1226,9 +1332,9 @@ export class DebugController {
           true,
         )
       } else if (hi instanceof Light3D) {
-        this.#drawLightGizmo(lines, hi)
+        drawLightGizmo(lines, hi)
       } else {
-        this.#pushObb(
+        pushObb(
           lines,
           { x: -0.5, y: -0.5, z: -0.5 },
           { x: 0.5, y: 0.5, z: 0.5 },
@@ -1241,248 +1347,6 @@ export class DebugController {
     if (this.camera3dActive && stage.currentCamera3D) {
       lines.frustum(stage.currentCamera3D.invViewProjection, [1, 0.8, 0.3, 0.8])
     }
-  }
-
-  /** Push the 12 edges of a local AABB transformed by `world` (an oriented box). */
-  #pushObb(
-    lines: DebugLine3DRenderer,
-    min: { x: number; y: number; z: number },
-    max: { x: number; y: number; z: number },
-    world: import('../math/Mat4').Mat4,
-    color: readonly [number, number, number, number],
-    overlay: boolean,
-  ): void {
-    const c: Array<{ x: number; y: number; z: number }> = []
-    for (const z of [min.z, max.z]) {
-      for (const y of [min.y, max.y]) {
-        for (const x of [min.x, max.x]) {
-          c.push({ ...mat4TransformPoint(vec3(), world, x, y, z) })
-        }
-      }
-    }
-    // Corner index bits: x=1, y=2, z=4.
-    const e = (a: number, b: number): void =>
-      lines.line(c[a].x, c[a].y, c[a].z, c[b].x, c[b].y, c[b].z, color, overlay)
-    e(0, 1)
-    e(1, 3)
-    e(3, 2)
-    e(2, 0) // z=min face
-    e(4, 5)
-    e(5, 7)
-    e(7, 6)
-    e(6, 4) // z=max face
-    e(0, 4)
-    e(1, 5)
-    e(2, 6)
-    e(3, 7) // connectors
-  }
-
-  /**
-   * Draw the selected light's shape in its own color: a directional light's
-   * aim, a point light's range sphere, or a spot light's cone. Lines overlay
-   * geometry so the gizmo reads through the scene.
-   */
-  #drawLightGizmo(lines: DebugLine3DRenderer, light: Light3D): void {
-    const w = light.worldMatrix
-    const px = w[12]
-    const py = w[13]
-    const pz = w[14]
-    const f = vec3Normalize(vec3(), vec3(-w[8], -w[9], -w[10])) // world −Z (aim)
-    const col: LineColor = [light.color[0], light.color[1], light.color[2], 1]
-    // Basis spanning the plane perpendicular to the aim, for circles/cones.
-    const up0 = Math.abs(f.y) > 0.99 ? vec3(1, 0, 0) : vec3(0, 1, 0)
-    const right = vec3Normalize(vec3(), vec3Cross(vec3(), up0, f))
-    const up = vec3Cross(vec3(), f, right)
-
-    if (light instanceof DirectionalLight3D) {
-      const len = 2
-      lines.ray(px, py, pz, f.x, f.y, f.z, len, col)
-      const tx = px + f.x * len
-      const ty = py + f.y * len
-      const tz = pz + f.z * len
-      const h = 0.2
-      for (const s of [1, -1]) {
-        lines.line(
-          tx,
-          ty,
-          tz,
-          tx - f.x * h + right.x * h * s,
-          ty - f.y * h + right.y * h * s,
-          tz - f.z * h + right.z * h * s,
-          col,
-          true,
-        )
-      }
-      this.#circleGizmo(lines, px, py, pz, right, up, 0.3, 16, col)
-    } else if (light instanceof PointLight3D) {
-      // A small solid-color marker keeps the light spottable even when its range
-      // sphere is huge; the range sphere itself is drawn faint.
-      this.#sphereGizmo(lines, px, py, pz, 0.15, 16, col)
-      if (light.range > 0) {
-        const faint: LineColor = [col[0], col[1], col[2], 0.35]
-        this.#sphereGizmo(lines, px, py, pz, light.range, 28, faint)
-      }
-    } else if (light instanceof SpotLight3D) {
-      const len = light.range > 0 ? light.range : 3
-      const rad = Math.tan(Math.min(light.outerConeAngle, 1.45)) * len
-      const bx = px + f.x * len
-      const by = py + f.y * len
-      const bz = pz + f.z * len
-      this.#circleGizmo(lines, bx, by, bz, right, up, rad, 28, col)
-      for (const [rc, uc] of [
-        [1, 0],
-        [-1, 0],
-        [0, 1],
-        [0, -1],
-      ] as const) {
-        lines.line(
-          px,
-          py,
-          pz,
-          bx + right.x * rad * rc + up.x * rad * uc,
-          by + right.y * rad * rc + up.y * rad * uc,
-          bz + right.z * rad * rc + up.z * rad * uc,
-          col,
-          true,
-        )
-      }
-      if (light.innerConeAngle > 0) {
-        const rin = Math.tan(Math.min(light.innerConeAngle, 1.45)) * len
-        this.#circleGizmo(lines, bx, by, bz, right, up, rin, 28, [
-          col[0],
-          col[1],
-          col[2],
-          0.4,
-        ])
-      }
-    }
-  }
-
-  /** Three axis-aligned rings approximating a wireframe sphere. */
-  #sphereGizmo(
-    lines: DebugLine3DRenderer,
-    cx: number,
-    cy: number,
-    cz: number,
-    r: number,
-    segments: number,
-    color: LineColor,
-  ): void {
-    this.#circleGizmo(
-      lines,
-      cx,
-      cy,
-      cz,
-      vec3(1, 0, 0),
-      vec3(0, 1, 0),
-      r,
-      segments,
-      color,
-    )
-    this.#circleGizmo(
-      lines,
-      cx,
-      cy,
-      cz,
-      vec3(1, 0, 0),
-      vec3(0, 0, 1),
-      r,
-      segments,
-      color,
-    )
-    this.#circleGizmo(
-      lines,
-      cx,
-      cy,
-      cz,
-      vec3(0, 1, 0),
-      vec3(0, 0, 1),
-      r,
-      segments,
-      color,
-    )
-  }
-
-  /** A closed circle centered at `c`, spanning the `u`/`v` plane, `r` radius. */
-  #circleGizmo(
-    lines: DebugLine3DRenderer,
-    cx: number,
-    cy: number,
-    cz: number,
-    u: Vec3,
-    v: Vec3,
-    r: number,
-    segments: number,
-    color: LineColor,
-  ): void {
-    let prevX = 0
-    let prevY = 0
-    let prevZ = 0
-    for (let i = 0; i <= segments; i++) {
-      const t = (i / segments) * Math.PI * 2
-      const ca = Math.cos(t) * r
-      const sa = Math.sin(t) * r
-      const x = cx + u.x * ca + v.x * sa
-      const y = cy + u.y * ca + v.y * sa
-      const z = cz + u.z * ca + v.z * sa
-      if (i > 0) lines.line(prevX, prevY, prevZ, x, y, z, color, true)
-      prevX = x
-      prevY = y
-      prevZ = z
-    }
-  }
-
-  /**
-   * Push a mesh's triangle edges as world-space lines (the wireframe/"mesh"
-   * view). Occluded (depth-tested), so the shaded fill hides back-facing edges.
-   * O(triangles); only runs while the HUD is open in wireframe mode.
-   */
-  #pushWireframe(lines: DebugLine3DRenderer, mesh: MeshNode): void {
-    const g = mesh.geometry
-    if (!g) return
-    const pos = g.positions
-    const idx = g.indices
-    const w = mesh.worldMatrix
-    const color: readonly [number, number, number, number] = [
-      0.5, 1, 0.65, 0.85,
-    ]
-    const a = vec3()
-    const b = vec3()
-    const c = vec3()
-    for (let t = 0; t + 2 < idx.length; t += 3) {
-      const i0 = idx[t] * 3
-      const i1 = idx[t + 1] * 3
-      const i2 = idx[t + 2] * 3
-      mat4TransformPoint(a, w, pos[i0], pos[i0 + 1], pos[i0 + 2])
-      mat4TransformPoint(b, w, pos[i1], pos[i1 + 1], pos[i1 + 2])
-      mat4TransformPoint(c, w, pos[i2], pos[i2 + 1], pos[i2 + 2])
-      lines.line(a.x, a.y, a.z, b.x, b.y, b.z, color)
-      lines.line(b.x, b.y, b.z, c.x, c.y, c.z, color)
-      lines.line(c.x, c.y, c.z, a.x, a.y, a.z, color)
-    }
-  }
-
-  /**
-   * Wireframe for a unit quad (a `Viewport2DNode` surface): the 4 border edges
-   * plus one diagonal, showing its two triangles. Local corners span `[-0.5,
-   * 0.5]` in x/y at z = 0, transformed by `world`.
-   */
-  #pushQuadWireframe(
-    lines: DebugLine3DRenderer,
-    world: import('../math/Mat4').Mat4,
-  ): void {
-    const color: readonly [number, number, number, number] = [
-      0.5, 1, 0.65, 0.85,
-    ]
-    const tl = mat4TransformPoint(vec3(), world, -0.5, 0.5, 0)
-    const tr = mat4TransformPoint(vec3(), world, 0.5, 0.5, 0)
-    const br = mat4TransformPoint(vec3(), world, 0.5, -0.5, 0)
-    const bl = mat4TransformPoint(vec3(), world, -0.5, -0.5, 0)
-    lines.line(tl.x, tl.y, tl.z, tr.x, tr.y, tr.z, color)
-    lines.line(tr.x, tr.y, tr.z, br.x, br.y, br.z, color)
-    lines.line(br.x, br.y, br.z, bl.x, bl.y, bl.z, color)
-    lines.line(bl.x, bl.y, bl.z, tl.x, tl.y, tl.z, color)
-    lines.line(tl.x, tl.y, tl.z, br.x, br.y, br.z, color) // diagonal
   }
 
   /**
@@ -1529,6 +1393,7 @@ export class DebugController {
   }
 
   destroy(): void {
+    this.#exitPointerLock()
     for (const fn of this.#disposeCallbacks) fn()
     this.#disposeCallbacks.length = 0
   }
@@ -1547,6 +1412,7 @@ export class DebugController {
       paused: this.engine.paused,
       pointerOverlay: this.#_pointerOverlayVisible,
       physics: { ...this.#_physicsFlags },
+      flyPointerLocked: this.#_flyPointerLocked,
     })
   }
 
@@ -1555,9 +1421,25 @@ export class DebugController {
     if (
       target instanceof HTMLInputElement ||
       target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
       (target instanceof HTMLElement && target.isContentEditable)
     ) {
+      return
+    }
+    // A focused <select> (e.g. the camera-mode dropdown that just engaged the
+    // fly camera) would otherwise typeahead on WASD and change its own value.
+    // While a debug camera is active, drop its focus so the key drives the
+    // camera instead (the routing + preventDefault below then applies).
+    if (target instanceof HTMLSelectElement) {
+      if (!this.#_cameraActive) return
+      target.blur()
+    }
+    // Hold-Shift sprints the 3D fly camera. Not routed as a control key and not
+    // prevent-defaulted, so browser/OS Shift-combos are unaffected.
+    if (
+      this.camera3dActive &&
+      (e.code === 'ShiftLeft' || e.code === 'ShiftRight')
+    ) {
+      this.#debugCamera3d?.setSprint(true)
       return
     }
     // Feed control keys to whichever debug camera the current space engages.
@@ -1632,6 +1514,12 @@ export class DebugController {
   }
 
   #onKeyUp(e: KeyboardEvent): void {
+    // Clear sprint before the active-guard so a Shift release that lands after
+    // the camera toggled off is not swallowed (leaving sprint stuck on).
+    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      this.#debugCamera3d?.setSprint(false)
+      return
+    }
     if (!this.#_cameraActive) return
     if (this.#_debugSpace === '2d' && DebugCamera.isControlKey(e.code)) {
       this.camera.setKey(e.code, false)

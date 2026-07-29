@@ -1,17 +1,37 @@
+/**
+ * Test-only `GfxDevice` that records the command stream (pipelines, bind
+ * groups, passes, draws, uploads) into in-memory lists. It emulates no GL state
+ * — it hands back plausibly-shaped opaque handles and logs what was asked of
+ * it, so program/renderer logic can be asserted without a real context. Handle
+ * equality is by identity.
+ */
+
 import type {
-  AttribBinding,
-  BeginFrameOpts,
+  BindGroup,
+  BindGroupEntry,
+  BindGroupLayout,
+  BindGroupLayoutEntry,
   BlitOpts,
+  CompareFn,
+  ComputeDispatch,
+  ComputePipeline,
+  ComputePipelineDesc,
   CullMode,
+  DeviceLimits,
+  NdcConventions,
   DeviceStats,
-  GfxBlendMode,
+  DrawCall,
+  GfxBackend,
   GfxDevice,
   IBuffer,
   IndexType,
-  Program,
-  ProgramOpts,
+  Pipeline,
+  PipelineDesc,
+  RenderPassDesc,
   RenderTarget,
   RenderTargetOpts,
+  ShaderModule,
+  ShaderModuleDesc,
   ShadowArray,
   ShadowCube,
   Texture,
@@ -19,207 +39,224 @@ import type {
   TextureUploadOpts,
   UBuffer,
   VBuffer,
-  Vao,
 } from '../GfxDevice'
 
-export interface DrawRecord {
-  kind: 'arrays' | 'lines' | 'instanced' | 'instancedRange' | 'elements'
-  first: number
-  count: number
-  instanceCount?: number
-  /**
-   * For `instancedRange`: the re-point base byte offset into the instance
-   * buffer.
-   */
-  baseByteOffset?: number
-  /** For `elements`: the index-buffer byte offset. */
-  byteOffset?: number
-  /** Program identity at the time of the draw, for asserting program switches. */
-  program: Program | null
-  /** Blend mode at the time of the draw, for asserting blend switches. */
-  blend: GfxBlendMode
-  /** Sampler texture bound (last-set) at time of draw, if any. */
-  texture: Texture | null
-  /** For `elements`: the VAO bound at draw time (identifies retained geometry). */
-  vao?: Vao | null
-  /**
-   * A copy of the most recent buffer upload made to whichever VBO this program
-   * was reading from. Populated by `updateBufferSubData` and captured at draw
-   * time so tests can inspect vertex/instance data.
-   */
-  bufferSnapshot?: ArrayBuffer
+interface MockBuffer extends VBuffer {
+  id: number
+}
+interface MockIndexBuffer extends IBuffer {
+  id: number
+  indexType: IndexType
+}
+interface MockPipeline extends Pipeline {
+  desc: PipelineDesc
+}
+interface MockComputePipeline extends ComputePipeline {
+  desc: ComputePipelineDesc
+}
+interface MockBindGroup extends BindGroup {
+  layout: BindGroupLayout
+  entries: BindGroupEntry[]
 }
 
 /**
- * Test-only `GfxDevice` that records draw calls into an in-memory list. All
- * other operations are cheap stubs that hand back plausibly-shaped handles so
- * `GpuGfx` can run its create/upload/draw flow unchanged. Handle equality is by
- * identity, you can compare handles across calls.
+ * A recorded draw, flattened for assertion. Alongside the raw `DrawCall` fields
+ * it exposes semantics _derived_ from the pipeline + bind groups so tests can
+ * assert on draw category, program identity, blend, and bound texture without
+ * reaching into pipeline descriptors.
  */
+export interface DrawRecord {
+  pipeline: MockPipeline
+  vertexBuffers: { buffer: VBuffer; offset: number }[]
+  bindGroups: DrawCall['bindGroups']
+  indexBuffer?: IBuffer
+  vertexCount?: number
+  indexCount?: number
+  first: number
+  instanceCount: number
+  /** Snapshot of the last vertex buffer's most recent upload, for inspection. */
+  bufferSnapshot?: ArrayBuffer
+  // --- derived (for test assertions) ---------------------------------------
+  /**
+   * Draw category derived from the call shape: `'elements'` (indexed),
+   * `'lines'` (line-list pipeline), `'instancedRange'` (an instanced program —
+   * more than one vertex buffer, i.e. a unit quad + an instance buffer), else
+   * `'arrays'`.
+   */
+  kind: 'arrays' | 'lines' | 'instancedRange' | 'elements'
+  /** Element count: index count for indexed draws, else vertex count. */
+  count: number
+  /**
+   * Program identity (the pipeline's shader module; stable across blend
+   * variants).
+   */
+  program: ShaderModule | null
+  /** The pipeline's blend mode. */
+  blend: string
+  /** First texture bound across the draw's bind groups, or `null`. */
+  texture: Texture | null
+}
+
+/** One recorded render pass. */
+export interface PassRecord {
+  desc: RenderPassDesc
+  drawCount: number
+}
+
 export class MockGfxDevice implements GfxDevice {
   readonly draws: DrawRecord[] = []
-  readonly programs: Program[] = []
+  readonly passes: PassRecord[] = []
+  readonly shaders: ShaderModule[] = []
+  readonly pipelines: MockPipeline[] = []
+  readonly bindGroupLayouts: BindGroupLayout[] = []
+  readonly bindGroups: BindGroup[] = []
   readonly buffers: VBuffer[] = []
   readonly textures: Texture[] = []
-  readonly vaos: Vao[] = []
   readonly renderTargets: RenderTarget[] = []
-  /** Every `resolveTo(src → dst)` FBO→FBO resolve, in order. */
-  readonly resolves: { src: RenderTarget; dst: RenderTarget }[] = []
-  /** Every `bindRenderTarget` target, in order (post-fx ping-pong binds). */
+  readonly shadowArrays: ShadowArray[] = []
+  readonly shadowCubes: ShadowCube[] = []
   readonly boundTargets: RenderTarget[] = []
-  /** Every `blitToDefault` present, in order. */
-  readonly blits: {
+  readonly presents: {
     source: RenderTarget
     dstWidth: number
     dstHeight: number
   }[] = []
-  /** Count of `deleteRenderTarget` calls (pool realloc / teardown). */
   deletedRenderTargets = 0
 
-  #curProgram: Program | null = null
-  #curBlend: GfxBlendMode = 'source-over'
-  #curTexture: Texture | null = null
-  /** Texture bound per unit, mirrors the real device's elision for stats. */
-  #boundTex: (Texture | null)[] = []
-  #lastBufferBytes: ArrayBuffer | null = null
-
-  /**
-   * Real-GL-change counters, mirrored from the WebGL2 device (see
-   * `DeviceStats`).
-   */
   readonly deviceStats: DeviceStats = {
-    programSwitches: 0,
-    blendSwitches: 0,
+    pipelineSwitches: 0,
+    bindGroupSwitches: 0,
     textureBinds: 0,
   }
-  // Per-buffer copy of the most recent upload. Under record/submit every stream
-  // uploads before any draw replays, so `#lastBufferBytes` alone would attach
-  // the last-uploaded stream to every draw. `drawInstancedRange` gets its
-  // buffer handle, so it looks the right copy up here.
+  readonly limits: DeviceLimits = { minUniformBufferOffsetAlignment: 256 }
+  readonly backend: GfxBackend
+  /** Mirrors the emulated backend: WebGPU exposes compute, WebGL2 does not. */
+  readonly supportsCompute: boolean
+  readonly computePipelines: MockComputePipeline[] = []
+  readonly computeDispatches: {
+    pipeline: ComputePipeline
+    x: number
+    y: number
+    z: number
+  }[] = []
+  computePassBegins = 0
+  computePassEnds = 0
+  /**
+   * Conventions of the emulated backend, so the mock is a faithful vehicle for
+   * cross-backend coordinate-conformance tests: GL (`[-1,1]` depth, bottom-up
+   * rows) for `'webgl2'`, WebGPU (`[0,1]` depth, top-down rows) for `'webgpu'`.
+   * Front-face winding is `'ccw'` on both, matching the real devices.
+   */
+  readonly ndc: NdcConventions
+
+  // Derived device-level mirrors for tests that assert render state without
+  // inspecting pipeline descriptors: the last-drawn pipeline's cull/depth, and
+  // the shadow render passes begun/ended this session.
+  cull: CullMode = 'none'
+  depthTest = false
+  depthWrite = true
+  readonly shadowLayerBegins: number[] = []
+  readonly shadowCubeFaceBegins: number[] = []
+  shadowPassEnds = 0
+  #curPassShadow = false
+
+  #nextId = 1
+  #curPipeline: MockPipeline | null = null
+  #curPass: PassRecord | null = null
+  #lastBufferBytes: ArrayBuffer | null = null
   #bufferBytes = new Map<VBuffer, ArrayBuffer>()
   #lostCbs = new Set<() => void>()
   #restoredCbs = new Set<() => void>()
 
-  createProgram(_opts: ProgramOpts): Program {
-    const p = { __gfxProgram: undefined as never }
-    this.programs.push(p)
-    return p
-  }
-  deleteProgram(_p: Program): void {
-    /* noop */
-  }
-  useProgram(p: Program): void {
-    if (this.#curProgram === p) return
-    this.#curProgram = p
-    this.deviceStats.programSwitches++
-  }
-  /** Test-visible uniform log (last-write-wins per (program, name)). */
-  capturedUniforms = new Map<Program, Map<string, Float32Array | number>>()
-  #recordUniform(p: Program, name: string, value: Float32Array | number): void {
-    let byName = this.capturedUniforms.get(p)
-    if (!byName) {
-      byName = new Map()
-      this.capturedUniforms.set(p, byName)
-    }
-    // For mat3s we copy so the caller's mutations don't leak in.
-    byName.set(
-      name,
-      value instanceof Float32Array ? new Float32Array(value) : value,
-    )
-  }
-  setUniform1i(p: Program, n: string, v: number): void {
-    this.#recordUniform(p, n, v)
-  }
-  setUniform1f(p: Program, n: string, v: number): void {
-    this.#recordUniform(p, n, v)
-  }
-  setUniform2f(p: Program, n: string, x: number, y: number): void {
-    this.#recordUniform(p, n, new Float32Array([x, y]))
-  }
-  setUniform4f(
-    p: Program,
-    n: string,
-    x: number,
-    y: number,
-    z: number,
-    w: number,
-  ): void {
-    this.#recordUniform(p, n, new Float32Array([x, y, z, w]))
-  }
-  setUniformMat3(p: Program, n: string, m: Float32Array): void {
-    this.#recordUniform(p, n, m)
-  }
-  setUniformMat4(p: Program, n: string, m: Float32Array): void {
-    this.#recordUniform(p, n, m)
-  }
-  setUniformTexture(_p: Program, _n: string, t: Texture, unit: number): void {
-    if (this.#boundTex[unit] !== t) {
-      this.#boundTex[unit] = t
-      this.deviceStats.textureBinds++
-    }
-    this.#curTexture = t
+  /**
+   * Records the command stream and emulates no GL/GPU state. `backend` defaults
+   * to `'webgl2'`. Pass `'webgpu'` to exercise the host's backend-specific
+   * loss-recovery paths against a mock.
+   */
+  constructor(backend: GfxBackend = 'webgl2') {
+    this.backend = backend
+    this.supportsCompute = backend === 'webgpu'
+    this.ndc =
+      backend === 'webgpu'
+        ? { clipDepth: 'zero-to-one', frontFace: 'ccw', textureTopDown: true }
+        : {
+            clipDepth: 'neg-one-to-one',
+            frontFace: 'ccw',
+            textureTopDown: false,
+          }
   }
 
-  // --- shadow maps (test-visible records) -----------------------------------
-  readonly shadowArrays: ShadowArray[] = []
-  readonly shadowCubes: ShadowCube[] = []
-  /** Layers begun this session (assert a caster rendered into layer 0, etc.). */
-  readonly shadowLayerBegins: number[] = []
-  /** Cube faces begun (assert 6 per point caster). */
-  readonly shadowCubeFaceBegins: number[] = []
-  shadowPassEnds = 0
+  // --- shaders / pipelines / bind groups ------------------------------------
 
-  createShadowArray(size: number, layers: number): ShadowArray {
-    const s = { __gfxShadowArray: undefined as never, size, layers }
-    this.shadowArrays.push(s)
+  createShaderModule(_desc: ShaderModuleDesc): ShaderModule {
+    const s = { __gfxShader: undefined as never }
+    this.shaders.push(s)
     return s
   }
-  createShadowCube(size: number): ShadowCube {
-    const s = { __gfxShadowCube: undefined as never, size }
-    this.shadowCubes.push(s)
-    return s
-  }
-  deleteShadowArray(_s: ShadowArray): void {
+  deleteShaderModule(_s: ShaderModule): void {
     /* noop */
   }
-  deleteShadowCube(_s: ShadowCube): void {
+  createPipeline(desc: PipelineDesc): Promise<Pipeline> {
+    const p = { __gfxPipeline: undefined as never, desc } as MockPipeline
+    this.pipelines.push(p)
+    return Promise.resolve(p)
+  }
+  createComputePipeline(desc: ComputePipelineDesc): Promise<ComputePipeline> {
+    if (!this.supportsCompute) {
+      throw new Error('MockGfxDevice: compute unsupported on this backend')
+    }
+    const p = {
+      __gfxComputePipeline: undefined as never,
+      desc,
+    } as MockComputePipeline
+    this.computePipelines.push(p)
+    return Promise.resolve(p)
+  }
+  beginComputePass(): void {
+    this.computePassBegins++
+  }
+  dispatchCompute(dispatch: ComputeDispatch): void {
+    this.computeDispatches.push({
+      pipeline: dispatch.pipeline,
+      x: dispatch.x,
+      y: dispatch.y ?? 1,
+      z: dispatch.z ?? 1,
+    })
+  }
+  endComputePass(): void {
+    this.computePassEnds++
+  }
+  createBindGroupLayout(_entries: BindGroupLayoutEntry[]): BindGroupLayout {
+    const l = { __gfxBindGroupLayout: undefined as never }
+    this.bindGroupLayouts.push(l)
+    return l
+  }
+  createBindGroup(
+    layout: BindGroupLayout,
+    entries: BindGroupEntry[],
+  ): BindGroup {
+    const g = {
+      __gfxBindGroup: undefined as never,
+      layout,
+      entries: entries.slice(),
+    } as MockBindGroup
+    this.bindGroups.push(g)
+    return g
+  }
+  deleteBindGroup(_g: BindGroup): void {
     /* noop */
   }
-  beginShadowLayer(_s: ShadowArray, layer: number): void {
-    this.shadowLayerBegins.push(layer)
-  }
-  beginShadowCubeFace(_s: ShadowCube, face: number): void {
-    this.shadowCubeFaceBegins.push(face)
-  }
-  endShadowPass(): void {
-    this.shadowPassEnds++
-  }
-  setUniformShadowArray(
-    p: Program,
-    n: string,
-    _s: ShadowArray,
-    unit: number,
-  ): void {
-    this.#recordUniform(p, n, unit)
-  }
-  setUniformShadowCube(
-    p: Program,
-    n: string,
-    _s: ShadowCube,
-    unit: number,
-  ): void {
-    this.#recordUniform(p, n, unit)
-  }
-  setUniformMat4Array(p: Program, n: string, m: Float32Array): void {
-    this.#recordUniform(p, n, m)
-  }
+
+  // --- vertex buffers -------------------------------------------------------
 
   createVertexBuffer(_byteSize: number): VBuffer {
-    const b = { __gfxBuffer: undefined as never }
+    const b = {
+      __gfxBuffer: undefined as never,
+      id: this.#nextId++,
+    } as MockBuffer
     this.buffers.push(b)
     return b
   }
-  /** Test-visible log of every buffer upload (assert "one upload per stream"). */
   readonly uploads: Array<{ buffer: VBuffer; byteLength: number }> = []
   updateBufferSubData(
     buf: VBuffer,
@@ -228,21 +265,14 @@ export class MockGfxDevice implements GfxDevice {
     srcOffsetBytes = 0,
     byteLength?: number,
   ): void {
-    // Snapshot the uploaded range so subsequent draw calls can attach it to
-    // their `DrawRecord` for inspection (tests: dashStart continuity, etc.).
-    const bpe = (src as { BYTES_PER_ELEMENT?: number }).BYTES_PER_ELEMENT ?? 1
     const len = byteLength ?? src.byteLength - srcOffsetBytes
     const start = src.byteOffset + srcOffsetBytes
-    // Slice the underlying buffer for a stable copy. Cast away
-    // `SharedArrayBuffer` since we only ever hand in normal ArrayBuffers
-    // (dual-view Float32/Uint32 backed by `new ArrayBuffer(...)`).
     this.#lastBufferBytes = (src.buffer as ArrayBuffer).slice(
       start,
       start + len,
     )
     this.#bufferBytes.set(buf, this.#lastBufferBytes)
     this.uploads.push({ buffer: buf, byteLength: len })
-    void bpe
   }
   deleteBuffer(_b: VBuffer): void {
     /* noop */
@@ -251,33 +281,53 @@ export class MockGfxDevice implements GfxDevice {
     /* noop */
   }
 
-  /** Uniform buffers created (assert one projection UBO built once). */
+  // --- uniform buffers ------------------------------------------------------
+
   readonly uniformBuffers: UBuffer[] = []
-  /** Test-visible log of uniform-buffer uploads (assert one `u_proj`/frame). */
-  readonly uniformUploads: Array<{ buffer: UBuffer; data: Float32Array }> = []
+  readonly uniformUploads: Array<{
+    buffer: UBuffer
+    data: ArrayBufferView
+    byteOffset: number
+  }> = []
   createUniformBuffer(_byteSize: number): UBuffer {
     const b = { __gfxUniformBuffer: undefined as never }
     this.uniformBuffers.push(b)
     return b
   }
-  updateUniformBuffer(buffer: UBuffer, data: Float32Array): void {
-    this.uniformUploads.push({ buffer, data: new Float32Array(data) })
+  updateUniformBuffer(
+    buffer: UBuffer,
+    data: ArrayBufferView,
+    byteOffset = 0,
+  ): void {
+    // Copy so later caller mutations don't leak into the recorded value.
+    const copy = new Uint8Array(data.byteLength)
+    copy.set(
+      new Uint8Array(
+        data.buffer as ArrayBuffer,
+        data.byteOffset,
+        data.byteLength,
+      ),
+    )
+    this.uniformUploads.push({ buffer, data: copy, byteOffset })
   }
-  bindUniformBufferBase(_buffer: UBuffer, _index: number): void {
+  orphanUniformBuffer(_b: UBuffer): void {
     /* noop */
   }
   deleteUniformBuffer(_b: UBuffer): void {
     /* noop */
   }
 
-  /** Index buffers created (assert retained geometry uploads once). */
+  // --- index buffers --------------------------------------------------------
+
   readonly indexBuffers: IBuffer[] = []
-  /** Test-visible log of index-buffer uploads. */
   readonly indexUploads: Array<{ buffer: IBuffer; byteLength: number }> = []
-  /** Test-visible index widths, parallel to `indexBuffers`. */
   readonly indexBufferTypes: IndexType[] = []
   createIndexBuffer(_byteSize: number, type: IndexType = 'u16'): IBuffer {
-    const b = { __gfxIndexBuffer: undefined as never }
+    const b = {
+      __gfxIndexBuffer: undefined as never,
+      id: this.#nextId++,
+      indexType: type,
+    } as MockIndexBuffer
     this.indexBuffers.push(b)
     this.indexBufferTypes.push(type)
     return b
@@ -292,6 +342,8 @@ export class MockGfxDevice implements GfxDevice {
   deleteIndexBuffer(_b: IBuffer): void {
     /* noop */
   }
+
+  // --- textures -------------------------------------------------------------
 
   createTexture2D(opts: Texture2DOpts): Texture {
     const t = {
@@ -309,7 +361,6 @@ export class MockGfxDevice implements GfxDevice {
   ): void {
     /* noop */
   }
-  /** Test-visible counter, how many times a sub-image upload happened. */
   subImageUploads: Array<{ tex: Texture; x: number; y: number }> = []
   updateTextureSubImage2D(
     tex: Texture,
@@ -320,48 +371,31 @@ export class MockGfxDevice implements GfxDevice {
   ): void {
     this.subImageUploads.push({ tex, x: xOffset, y: yOffset })
   }
-  deleteTexture(t: Texture): void {
-    for (let u = 0; u < this.#boundTex.length; u++) {
-      if (this.#boundTex[u] === t) this.#boundTex[u] = null
-    }
-  }
-
-  #curVao: Vao | null = null
-  createVao(
-    _p: Program,
-    _attribs: AttribBinding[],
-    _indexBuffer?: IBuffer,
-  ): Vao {
-    const v = { __gfxVao: undefined as never }
-    this.vaos.push(v)
-    return v
-  }
-  bindVao(v: Vao): void {
-    this.#curVao = v
-  }
-  deleteVao(_v: Vao): void {
+  deleteTexture(_t: Texture): void {
     /* noop */
   }
 
+  // --- render targets -------------------------------------------------------
+
   createRenderTarget(opts: RenderTargetOpts): RenderTarget {
-    // Mock reports the requested sample count unclamped, real devices
-    // clamp to `MAX_SAMPLES`; the mock has no such cap so tests can
-    // assert what was asked for.
     const samples = Math.max(1, Math.floor(opts.samples ?? 1))
     const rt = {
       __gfxRenderTarget: undefined as never,
       width: opts.width,
       height: opts.height,
       samples,
-      // Test-visible: whether a depth-stencil attachment was requested.
       hasDepth: opts.depth === true,
-      // Test-visible: requested color space (`'srgb'` for a sampled 2D-in-3D
-      // target, else `'linear'`).
       colorSpace: opts.colorSpace ?? 'linear',
-      // Single-sample targets expose a sampleable color texture, mirroring the
-      // real device, so `GpuGfx.colorTexture` resolves in tests.
       color:
         samples === 1
+          ? {
+              __gfxTexture: undefined as never,
+              width: opts.width,
+              height: opts.height,
+            }
+          : undefined,
+      depthTex:
+        opts.depth && opts.depthSampled
           ? {
               __gfxTexture: undefined as never,
               width: opts.width,
@@ -378,136 +412,150 @@ export class MockGfxDevice implements GfxDevice {
   deleteRenderTarget(_rt: RenderTarget): void {
     this.deletedRenderTargets++
   }
-  bindRenderTarget(target: RenderTarget): void {
-    this.boundTargets.push(target)
+  colorTexture(rt: RenderTarget): Texture {
+    const c = (rt as { color?: Texture }).color
+    if (!c) throw new Error('MockGfxDevice.colorTexture: target is multisample')
+    return c
   }
-  resolveTo(src: RenderTarget, dst: RenderTarget): void {
-    this.resolves.push({ src, dst })
+  depthTexture(rt: RenderTarget): Texture {
+    const d = (rt as { depthTex?: Texture }).depthTex
+    if (!d)
+      throw new Error(
+        'MockGfxDevice.depthTexture: target has no sampleable depth attachment',
+      )
+    return d
   }
 
-  beginFrame(_opts: BeginFrameOpts): void {
-    // Match the real device: reset the per-frame counters; the binding caches
-    // persist across frames.
-    this.deviceStats.programSwitches = 0
-    this.deviceStats.blendSwitches = 0
+  // --- shadow maps ----------------------------------------------------------
+
+  createShadowArray(
+    size: number,
+    layers: number,
+    _compare?: CompareFn,
+  ): ShadowArray {
+    const s = { __gfxShadowArray: undefined as never, size, layers }
+    this.shadowArrays.push(s)
+    return s
+  }
+  createShadowCube(size: number, _compare?: CompareFn): ShadowCube {
+    const s = { __gfxShadowCube: undefined as never, size }
+    this.shadowCubes.push(s)
+    return s
+  }
+  deleteShadowArray(_s: ShadowArray): void {
+    /* noop */
+  }
+  deleteShadowCube(_s: ShadowCube): void {
+    /* noop */
+  }
+
+  // --- frame lifecycle & passes ---------------------------------------------
+
+  beginFrame(): void {
+    this.deviceStats.pipelineSwitches = 0
+    this.deviceStats.bindGroupSwitches = 0
     this.deviceStats.textureBinds = 0
+  }
+  beginRenderPass(desc: RenderPassDesc): void {
+    this.#curPass = { desc, drawCount: 0 }
+    this.passes.push(this.#curPass)
+    const dt = desc.depth?.target
+    if (dt && 'shadowArray' in dt) {
+      this.shadowLayerBegins.push(dt.layer)
+      this.#curPassShadow = true
+    } else if (dt && 'shadowCube' in dt) {
+      this.shadowCubeFaceBegins.push(dt.face)
+      this.#curPassShadow = true
+    } else {
+      this.#curPassShadow = false
+    }
+  }
+  endRenderPass(): void {
+    if (this.#curPassShadow) {
+      this.shadowPassEnds++
+      this.#curPassShadow = false
+    }
+    this.#curPass = null
   }
   endFrame(): void {
     /* noop */
   }
 
-  setBlend(mode: GfxBlendMode): void {
-    if (this.#curBlend === mode) return
-    this.#curBlend = mode
-    this.deviceStats.blendSwitches++
-  }
+  // --- draw -----------------------------------------------------------------
 
-  /** Test-visible 3D render state, mirroring the real device's cache. */
-  depthTest = false
-  depthWrite = true
-  cull: CullMode = 'none'
-  /** Count of `resetToBaseline` calls, for asserting the pass boundary. */
-  resetToBaselineCount = 0
-  setDepthTest(enabled: boolean): void {
-    this.depthTest = enabled
-  }
-  setDepthWrite(enabled: boolean): void {
-    this.depthWrite = enabled
-  }
-  setCullFace(mode: CullMode): void {
-    this.cull = mode
-  }
-  resetToBaseline(): void {
-    this.resetToBaselineCount++
-    this.setDepthTest(false)
-    this.setDepthWrite(true)
-    this.setCullFace('none')
-    this.setBlend('source-over')
-  }
-
-  drawArrays(first: number, count: number): void {
-    this.draws.push({
-      kind: 'arrays',
-      first,
-      count,
-      program: this.#curProgram,
-      blend: this.#curBlend,
-      texture: this.#curTexture,
-      bufferSnapshot: this.#lastBufferBytes ?? undefined,
-    })
-  }
-  drawLines(first: number, count: number): void {
-    this.draws.push({
-      kind: 'lines',
-      first,
-      count,
-      program: this.#curProgram,
-      blend: this.#curBlend,
-      texture: this.#curTexture,
-      bufferSnapshot: this.#lastBufferBytes ?? undefined,
-    })
-  }
-  drawArraysInstanced(
-    first: number,
-    count: number,
-    instanceCount: number,
-  ): void {
-    this.draws.push({
-      kind: 'instanced',
-      first,
-      count,
-      instanceCount,
-      program: this.#curProgram,
-      blend: this.#curBlend,
-      texture: this.#curTexture,
-      bufferSnapshot: this.#lastBufferBytes ?? undefined,
-    })
-  }
-  drawInstancedRange(
-    _vao: Vao,
-    instanceBuffer: VBuffer,
-    _instanceAttribs: readonly AttribBinding[],
-    baseByteOffset: number,
-    vertCount: number,
-    instanceCount: number,
-  ): void {
-    this.draws.push({
-      kind: 'instancedRange',
-      first: 0,
-      count: vertCount,
-      instanceCount,
-      baseByteOffset,
-      program: this.#curProgram,
-      blend: this.#curBlend,
-      texture: this.#curTexture,
-      bufferSnapshot:
-        this.#bufferBytes.get(instanceBuffer) ??
+  draw(call: DrawCall): void {
+    if (this.#curPipeline !== call.pipeline) {
+      this.#curPipeline = call.pipeline as MockPipeline
+      this.deviceStats.pipelineSwitches++
+    }
+    const lastVb = call.vertexBuffers[call.vertexBuffers.length - 1]
+    const snapshot = lastVb
+      ? (this.#bufferBytes.get(lastVb.buffer) ??
         this.#lastBufferBytes ??
-        undefined,
-    })
-  }
-  drawElements(count: number, byteOffset: number): void {
+        undefined)
+      : undefined
+    const pipeline = call.pipeline as MockPipeline
+    const desc = pipeline.desc
+    this.cull = desc.cull
+    this.depthTest = desc.depth?.test ?? false
+    this.depthWrite = desc.depth?.write ?? true
+    const kind: DrawRecord['kind'] = call.indexBuffer
+      ? 'elements'
+      : desc.primitive === 'line-list'
+        ? 'lines'
+        : call.vertexBuffers.length > 1
+          ? 'instancedRange'
+          : 'arrays'
+    // First texture bound anywhere in the draw's bind groups.
+    let texture: Texture | null = null
+    for (const dg of call.bindGroups) {
+      for (const e of (dg.bindGroup as MockBindGroup).entries) {
+        if ('texture' in e.resource) {
+          texture = e.resource.texture
+          break
+        }
+      }
+      if (texture) break
+    }
     this.draws.push({
-      kind: 'elements',
-      first: 0,
-      count,
-      byteOffset,
-      program: this.#curProgram,
-      blend: this.#curBlend,
-      texture: this.#curTexture,
-      // The bound VAO identifies which retained geometry drew.
-      vao: this.#curVao,
+      pipeline,
+      vertexBuffers: call.vertexBuffers.map((v) => ({
+        buffer: v.buffer,
+        offset: v.offset,
+      })),
+      bindGroups: call.bindGroups,
+      indexBuffer: call.indexBuffer,
+      vertexCount: call.vertexCount,
+      indexCount: call.indexCount,
+      first: call.first ?? 0,
+      instanceCount: call.instanceCount ?? 1,
+      bufferSnapshot: snapshot,
+      kind,
+      count: call.indexCount ?? call.vertexCount ?? 0,
+      program: desc.shader ?? null,
+      blend: desc.color?.blend ?? 'none',
+      texture,
     })
+    if (this.#curPass) this.#curPass.drawCount++
   }
 
-  blitToDefault(
+  /** Alias for {@link shaders} — tests refer to created programs. */
+  get programs(): ShaderModule[] {
+    return this.shaders
+  }
+
+  // --- present --------------------------------------------------------------
+
+  present(
     source: RenderTarget,
     dstWidth: number,
     dstHeight: number,
     _o?: BlitOpts,
   ): void {
-    this.blits.push({ source, dstWidth, dstHeight })
+    this.presents.push({ source, dstWidth, dstHeight })
   }
+
+  // --- context loss ---------------------------------------------------------
 
   isContextLost(): boolean {
     return false
@@ -525,43 +573,42 @@ export class MockGfxDevice implements GfxDevice {
     this.#restoredCbs.clear()
   }
 
-  // Test-only helpers ---------------------------------------------------------
+  // --- test-only helpers ----------------------------------------------------
 
-  /** Fire the registered `onContextLost` callbacks. */
   simulateContextLost(): void {
     for (const cb of this.#lostCbs) cb()
   }
-  /** Fire the registered `onContextRestored` callbacks. */
   simulateContextRestored(): void {
     for (const cb of this.#restoredCbs) cb()
   }
 
   reset(): void {
     this.draws.length = 0
+    this.passes.length = 0
     this.uploads.length = 0
     this.uniformUploads.length = 0
     this.indexUploads.length = 0
     this.subImageUploads.length = 0
-    this.resolves.length = 0
     this.boundTargets.length = 0
-    this.blits.length = 0
+    this.presents.length = 0
     this.deletedRenderTargets = 0
-    this.capturedUniforms.clear()
-    this.#bufferBytes.clear()
-    this.#lastBufferBytes = null
-    this.#curProgram = null
-    this.#curBlend = 'source-over'
-    this.#curTexture = null
-    this.#boundTex = []
-    this.#curVao = null
+    this.shadowLayerBegins.length = 0
+    this.shadowCubeFaceBegins.length = 0
+    this.shadowPassEnds = 0
+    this.computePipelines.length = 0
+    this.computeDispatches.length = 0
+    this.computePassBegins = 0
+    this.computePassEnds = 0
+    this.cull = 'none'
     this.depthTest = false
     this.depthWrite = true
-    this.cull = 'none'
-    this.resetToBaselineCount = 0
-    // Note: index/uniform buffer lists persist across reset() — they're created
-    // once at backend init, before the first frame's reset.
-    this.deviceStats.programSwitches = 0
-    this.deviceStats.blendSwitches = 0
+    this.#curPassShadow = false
+    this.#bufferBytes.clear()
+    this.#lastBufferBytes = null
+    this.#curPipeline = null
+    this.#curPass = null
+    this.deviceStats.pipelineSwitches = 0
+    this.deviceStats.bindGroupSwitches = 0
     this.deviceStats.textureBinds = 0
   }
 }
