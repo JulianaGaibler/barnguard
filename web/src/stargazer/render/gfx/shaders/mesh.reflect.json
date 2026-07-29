@@ -22,6 +22,10 @@
     {
       "binding": 0,
       "glslName": "_group_1_binding_0_fs"
+    },
+    {
+      "binding": 2,
+      "glslName": "_group_0_binding_2_fs"
     }
   ]
 }

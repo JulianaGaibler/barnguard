@@ -43,6 +43,7 @@
     "DebugLine3DRenderer",
     "GfxDevice",
     "Texture",
+    "MeshRenderer",
     "GpuGeometry",
     "TextureInspector",
     "TextureSource",

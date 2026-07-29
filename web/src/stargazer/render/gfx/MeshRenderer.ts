@@ -7,6 +7,7 @@ import type {
   IBuffer,
   IndexType,
   Pipeline,
+  RenderTarget,
   ShaderModule,
   ShadowArray,
   ShadowCube,
@@ -49,10 +50,8 @@ import {
   MESH_SHADOW_UBO_BINDING,
 } from './batchLayout'
 import { UboRing } from './programs/programCommon'
-import type {
-  TextureInspector,
-  TextureInspectorSnapshot,
-} from './TextureManager'
+import type { TextureInspector } from './TextureManager'
+import { ModelTextureInspector } from './ModelTextureInspector'
 import type { ShaderReflection } from './GfxDevice'
 import meshWgsl from './shaders/mesh.wgsl?raw'
 import meshVertSrc from './shaders/mesh.gen.vert.glsl?raw'
@@ -70,6 +69,10 @@ import shadowCubeWgsl from './shaders/shadow_cube.wgsl?raw'
 import shadowCubeVertSrc from './shaders/shadow_cube.gen.vert.glsl?raw'
 import shadowCubeFragSrc from './shaders/shadow_cube.gen.frag.glsl?raw'
 import shadowCubeReflect from './shaders/shadow_cube.reflect.json'
+import gbufferWgsl from './shaders/gbuffer.wgsl?raw'
+import gbufferVertSrc from './shaders/gbuffer.gen.vert.glsl?raw'
+import gbufferFragSrc from './shaders/gbuffer.gen.frag.glsl?raw'
+import gbufferReflect from './shaders/gbuffer.reflect.json'
 
 /**
  * The 3D pass's fallback lighting: a single directional light used when the
@@ -101,15 +104,6 @@ interface GpuMesh {
   hasTangent: boolean
 }
 
-interface ModelTexEntry {
-  roles: Set<string>
-  width: number
-  height: number
-  preview: HTMLCanvasElement | null
-}
-
-const MODEL_PREVIEW_MAX = 128
-
 const LOC_POSITION = 0
 const LOC_NORMAL = 1
 const LOC_UV = 2
@@ -121,20 +115,26 @@ const MAX_LIGHTS = 8
 const MAX_SHADOW_LAYERS = 4
 
 // --- std140 block byte sizes (must match the mesh shaders' UBO blocks) ------
-const FLAT_FRAME_BYTES = 176
+const FLAT_FRAME_BYTES = 208
 const FLAT_OBJECT_BYTES = 96
-const PBR_FRAME_BYTES = 144
+const PBR_FRAME_BYTES = 176
 const LIGHTS_BYTES = 656
 const SHADOW_FRAME_BYTES = 272
 const PBR_OBJECT_BYTES = 224
 const SHADOW_CAM_BYTES = 64
 const CUBE_CAM_BYTES = 96
 const SHADOW_OBJECT_BYTES = 64
+// AO G-buffer prepass blocks: frame = view-projection + view (two mat4) +
+// near/far (vec4); object = model (one mat4). The view matrix + near/far turn
+// window depth into the linear view depth the prepass writes.
+const GBUFFER_FRAME_BYTES = 144
+const GBUFFER_OBJECT_BYTES = 64
 
 // Texture units (globally unique with the UBO bindings; the WebGL2 backend
 // flattens bind groups to these numbers). Flat `u_texture` shares unit 0 with
 // the PBR material base slot but they never coexist in one draw.
 const U_TEX = 0
+const U_AO = 2 // screen-space AO texture in the frame group (sampler at +16 = 18)
 const U_SHADOW_ARRAY = 8
 const U_SHADOW_CUBE = 9
 const U_PBR_TEX_BASE = 10 // baseColor..diffuseTransmission → 10..15
@@ -163,11 +163,13 @@ export class MeshRenderer {
   #pbrShader!: ShaderModule
   #shadowShader!: ShaderModule
   #cubeShader!: ShaderModule
+  #gbufferShader!: ShaderModule
   /** Flat / PBR pipelines keyed by `${cull}|${depthWrite}`. */
   #flatPipelines = new Map<string, Pipeline>()
   #pbrPipelines = new Map<string, Pipeline>()
   #shadowPipeline!: Pipeline
   #cubePipeline!: Pipeline
+  #gbufferPipeline!: Pipeline
   #ready = false
   #warmupSeq = 0
 
@@ -179,16 +181,27 @@ export class MeshRenderer {
   #shadowCamLayout!: BindGroupLayout
   #shadowObjectLayout!: BindGroupLayout
   #cubeCamLayout!: BindGroupLayout
+  #gbufferFrameLayout!: BindGroupLayout
+  #gbufferObjectLayout!: BindGroupLayout
 
   // Per-frame UBOs + bind groups.
   #flatFrameUbo!: UBuffer
-  #flatFrameBindGroup!: BindGroup
+  #flatFrameBindGroup: BindGroup | null = null
+  #flatFrameBoundAo: Texture | null = null
   #pbrFrameUbo!: UBuffer
   #lightsUbo!: UBuffer
   #shadowFrameUbo!: UBuffer
   #pbrFrameBindGroup: BindGroup | null = null
   #pbrFrameBoundArray: ShadowArray | null = null
   #pbrFrameBoundCube: ShadowCube | null = null
+  #pbrFrameBoundAo: Texture | null = null
+
+  // Screen-space AO state, pushed each frame by the stage before `render`.
+  #aoTex: Texture | null = null
+  #aoEnabled = false
+  #aoPixelW = 0
+  #aoPixelH = 0
+  #aoDirectStrength = 0
   // Shadow-pass camera UBOs, one slice per layer/face via a dynamic-offset ring.
   // A shared buffer would clobber under WebGPU's deferred submission (every pass
   // would read the last-written matrix). The ring gives each pass its own slice.
@@ -202,6 +215,11 @@ export class MeshRenderer {
   #pbrObjectRing!: UboRing
   #shadowObjectRing!: UboRing
   #shadowObjectBindGroup!: BindGroup
+  // AO G-buffer prepass: a per-frame UBO + a per-object ring.
+  #gbufferFrameUbo!: UBuffer
+  #gbufferFrameBindGroup!: BindGroup
+  #gbufferObjectRing!: UboRing
+  #gbufferObjectBindGroup!: BindGroup
 
   // Staging buffers for the UBO writes.
   readonly #flatFrameStaging = new Float32Array(FLAT_FRAME_BYTES / 4)
@@ -214,6 +232,8 @@ export class MeshRenderer {
   readonly #pbrObjStaging = new Float32Array(PBR_OBJECT_BYTES / 4)
   readonly #camStaging = new Float32Array(CUBE_CAM_BYTES / 4)
   readonly #objStaging = new Float32Array(SHADOW_OBJECT_BYTES / 4)
+  readonly #gbufFrameStaging = new Float32Array(GBUFFER_FRAME_BYTES / 4)
+  readonly #gbufObjStaging = new Float32Array(GBUFFER_OBJECT_BYTES / 4)
 
   #cache = new WeakMap<MeshNode, GpuMesh>()
   readonly #uploaded = new Set<MeshNode>()
@@ -223,8 +243,7 @@ export class MeshRenderer {
   readonly #normalMat: Mat3 = mat3()
   #texCache = new WeakMap<TextureImage, Map<string, Texture>>()
   #decoding = new Set<TextureImage>()
-  readonly #modelTextures = new Map<TextureImage, ModelTexEntry>()
-  readonly #previewDecoding = new Set<TextureImage>()
+  readonly #modelInspector = new ModelTextureInspector()
   #uploadedTextures = new Set<Texture>()
   #epoch = 0
   #shadowArray: ShadowArray | null = null
@@ -248,7 +267,9 @@ export class MeshRenderer {
     fog: Fog = new Fog(),
   ) {
     this.#device = device
-    this.#targetColor = targetColor
+    // Own a private copy: `retarget` mutates this, and the caller may share the
+    // object it passed.
+    this.#targetColor = { ...targetColor }
     this.#quality = quality
     this.#fog = fog
     this.#createResources()
@@ -260,11 +281,34 @@ export class MeshRenderer {
     return this.#ready
   }
 
+  /**
+   * Re-point the color pipelines at a new target color format / sample count
+   * and re-warm them. `Stage` calls this after a live MSAA swap so the baked
+   * pipeline sample count matches the resized render target. No-op when
+   * unchanged. `ready` drops until the async re-warm completes, so `Stage`
+   * skips the 3D pass in the meantime. The depth-only shadow pipelines are
+   * single-sample and unaffected, but the shared re-warm rebuilds them too.
+   */
+  retarget(targetColor: { format: ColorFormat; samples: number }): void {
+    if (
+      this.#targetColor.format === targetColor.format &&
+      this.#targetColor.samples === targetColor.samples
+    )
+      return
+    this.#targetColor.format = targetColor.format
+    this.#targetColor.samples = targetColor.samples
+    void this.#warmup()
+  }
+
   #createResources(): void {
     const device = this.#device
     this.#flatShader = device.createShaderModule({
       glsl: { vertex: meshVertSrc, fragment: meshFragSrc },
-      wgsl: { code: meshWgsl, vertexEntry: 'vs_main', fragmentEntry: 'fs_main' },
+      wgsl: {
+        code: meshWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
       reflection: meshReflect as ShaderReflection,
       label: 'mesh-flat',
     })
@@ -298,10 +342,21 @@ export class MeshRenderer {
       reflection: shadowCubeReflect as ShaderReflection,
       label: 'shadow-cube',
     })
+    this.#gbufferShader = device.createShaderModule({
+      glsl: { vertex: gbufferVertSrc, fragment: gbufferFragSrc },
+      wgsl: {
+        code: gbufferWgsl,
+        vertexEntry: 'vs_main',
+        fragmentEntry: 'fs_main',
+      },
+      reflection: gbufferReflect as ShaderReflection,
+      label: 'ao-gbuffer',
+    })
 
     // Bind-group layouts.
     this.#flatFrameLayout = device.createBindGroupLayout([
       { binding: CAMERA3D_UBO_BINDING, type: 'uniform-buffer' },
+      { binding: U_AO, type: 'texture-2d' },
     ])
     this.#flatObjectLayout = device.createBindGroupLayout([
       {
@@ -315,6 +370,7 @@ export class MeshRenderer {
       { binding: CAMERA3D_UBO_BINDING, type: 'uniform-buffer' },
       { binding: MESH_LIGHTS_UBO_BINDING, type: 'uniform-buffer' },
       { binding: MESH_SHADOW_UBO_BINDING, type: 'uniform-buffer' },
+      { binding: U_AO, type: 'texture-2d' },
       { binding: U_SHADOW_ARRAY, type: 'texture-2d-array-shadow' },
       { binding: U_SHADOW_CUBE, type: 'texture-cube-shadow' },
     ])
@@ -350,15 +406,23 @@ export class MeshRenderer {
         dynamicOffset: true,
       },
     ])
+    this.#gbufferFrameLayout = device.createBindGroupLayout([
+      { binding: CAMERA3D_UBO_BINDING, type: 'uniform-buffer' },
+    ])
+    this.#gbufferObjectLayout = device.createBindGroupLayout([
+      {
+        binding: MESH_OBJECT_UBO_BINDING,
+        type: 'uniform-buffer',
+        dynamicOffset: true,
+      },
+    ])
 
     // Per-frame UBOs + stable bind groups.
     this.#flatFrameUbo = device.createUniformBuffer(FLAT_FRAME_BYTES)
-    this.#flatFrameBindGroup = device.createBindGroup(this.#flatFrameLayout, [
-      {
-        binding: CAMERA3D_UBO_BINDING,
-        resource: { uniformBuffer: this.#flatFrameUbo },
-      },
-    ])
+    // The flat frame bind group is built lazily in `#beginFlat` so it can bind
+    // the current AO texture (or the white fallback) and rebuild when it changes.
+    this.#flatFrameBindGroup = null
+    this.#flatFrameBoundAo = null
     this.#pbrFrameUbo = device.createUniformBuffer(PBR_FRAME_BYTES)
     this.#lightsUbo = device.createUniformBuffer(LIGHTS_BYTES)
     this.#shadowFrameUbo = device.createUniformBuffer(SHADOW_FRAME_BYTES)
@@ -410,6 +474,36 @@ export class MeshRenderer {
           resource: {
             uniformBuffer: this.#shadowObjectRing.buffer,
             size: SHADOW_OBJECT_BYTES,
+          },
+        },
+      ],
+    )
+
+    // AO G-buffer prepass: one per-frame block, one per-object ring.
+    this.#gbufferFrameUbo = device.createUniformBuffer(GBUFFER_FRAME_BYTES)
+    this.#gbufferFrameBindGroup = device.createBindGroup(
+      this.#gbufferFrameLayout,
+      [
+        {
+          binding: CAMERA3D_UBO_BINDING,
+          resource: { uniformBuffer: this.#gbufferFrameUbo },
+        },
+      ],
+    )
+    this.#gbufferObjectRing = new UboRing(
+      device,
+      GBUFFER_OBJECT_BYTES,
+      1024,
+      'gbufObj',
+    )
+    this.#gbufferObjectBindGroup = device.createBindGroup(
+      this.#gbufferObjectLayout,
+      [
+        {
+          binding: MESH_OBJECT_UBO_BINDING,
+          resource: {
+            uniformBuffer: this.#gbufferObjectRing.buffer,
+            size: GBUFFER_OBJECT_BYTES,
           },
         },
       ],
@@ -492,6 +586,21 @@ export class MeshRenderer {
       samples: 1,
       label: 'shadow-cube',
     })
+    if (seq !== this.#warmupSeq) return
+    // AO G-buffer prepass: single-sample RGBA8 packing view normal (RG) + 16-bit
+    // linear depth (BA). No blend; it overwrites every covered pixel.
+    this.#gbufferPipeline = await device.createPipeline({
+      shader: this.#gbufferShader,
+      vertexLayout: [this.#posLayout(), this.#normalLayout()],
+      bindGroupLayouts: [this.#gbufferFrameLayout, this.#gbufferObjectLayout],
+      color: { format: 'linear', blend: 'none' },
+      depth: { test: true, write: true },
+      cull: 'back',
+      frontFace: device.ndc.frontFace,
+      primitive: 'triangle-list',
+      samples: 1,
+      label: 'ao-gbuffer',
+    })
     if (seq === this.#warmupSeq) this.#ready = true
   }
 
@@ -500,6 +609,13 @@ export class MeshRenderer {
       arrayStride: 12,
       stepMode: 'vertex',
       attributes: [{ location: LOC_POSITION, format: 'float32x3', offset: 0 }],
+    }
+  }
+  #normalLayout(): import('./GfxDevice').VertexBufferLayout {
+    return {
+      arrayStride: 12,
+      stepMode: 'vertex',
+      attributes: [{ location: LOC_NORMAL, format: 'float32x3', offset: 0 }],
     }
   }
   #flatVertexLayout(): import('./GfxDevice').VertexBufferLayout[] {
@@ -551,6 +667,48 @@ export class MeshRenderer {
    * inside the stage's main render pass; each pipeline bakes its own depth/cull
    * state, so no device state is set imperatively.
    */
+  /**
+   * Push this frame's screen-space AO for the mesh shaders to sample. `tex` is
+   * the blurred AO texture (null when AO is off), `enabled` gates the ambient
+   * modulation, and `pixelW`/`pixelH` size the screen-space lookup. Call before
+   * {@link MeshRenderer.render}.
+   */
+  setAmbientOcclusion(
+    tex: Texture | null,
+    enabled: boolean,
+    pixelW: number,
+    pixelH: number,
+    directStrength: number,
+  ): void {
+    this.#aoTex = tex
+    this.#aoEnabled = enabled && tex !== null
+    this.#aoPixelW = pixelW
+    this.#aoPixelH = pixelH
+    this.#aoDirectStrength = directStrength
+  }
+
+  /** The AO texture to bind, or the 1×1 white fallback when AO is off. */
+  #aoResolved(): Texture {
+    return this.#aoTex ?? this.#whiteTex
+  }
+
+  /**
+   * Write `aoParams` (@word `o`): enabled, flip-uv.y, resW, resH, then
+   * `aoParams2` (@word `o+4`): direct-light AO strength.
+   */
+  #writeAoParams(s: Float32Array, o: number): void {
+    s[o] = this.#aoEnabled ? 1 : 0
+    // The fragment position and the AO render target share an FBO origin per
+    // backend, so no V-flip is needed. Kept as a param for tuning.
+    s[o + 1] = 0
+    s[o + 2] = this.#aoPixelW
+    s[o + 3] = this.#aoPixelH
+    s[o + 4] = this.#aoEnabled ? this.#aoDirectStrength : 0
+    s[o + 5] = 0
+    s[o + 6] = 0
+    s[o + 7] = 0
+  }
+
   render(camera: CameraView3D, root: Node, debugMode = 0): void {
     // The uploaded view-projection must land depth in the backend's clip range
     // (WebGPU keeps [0,1], WebGL [-1,1]). The camera rebuilds only on a change.
@@ -801,6 +959,84 @@ export class MeshRenderer {
     })
   }
 
+  /**
+   * Ambient-occlusion G-buffer prepass: draw opaque, AO-receiving geometry into
+   * `target` — the view-space normal (octahedral in RG) to the color
+   * attachment, depth to the sampleable depth attachment. Runs single-sample
+   * before the main pass; the AO pass reads both to estimate occlusion.
+   * Transparent meshes are skipped (they write no depth), matching the
+   * shadow-caster set. No-op until pipelines warm.
+   */
+  renderGBuffer(camera: CameraView3D, root: Node, target: RenderTarget): void {
+    if (!this.#ready) return
+    const device = this.#device
+    camera.setClipDepth(device.ndc.clipDepth)
+    const casters: MeshNode[] = []
+    walkTree(root, (n) => {
+      if (
+        n instanceof MeshNode &&
+        n.geometry &&
+        !isBlended(n) &&
+        isEffectivelyVisible(n)
+      ) {
+        casters.push(n)
+      }
+    })
+    // Frame block: view-projection + view + near/far, so the prepass can write
+    // linear view depth.
+    const f = this.#gbufFrameStaging
+    f.set(camera.viewProjection as unknown as Float32Array, 0)
+    f.set(camera.view as unknown as Float32Array, 16)
+    f[32] = camera.near
+    f[33] = camera.far
+    device.updateUniformBuffer(this.#gbufferFrameUbo, f)
+    this.#gbufferObjectRing.reset()
+    device.beginRenderPass({
+      color: {
+        target,
+        loadOp: 'clear',
+        // (0.5, 0.5) octahedral-decodes to +Z. The cleared background normal is
+        // arbitrary — the AO pass ignores far-depth texels.
+        clearColor: [0.5, 0.5, 0, 1],
+      },
+      depth: {
+        target: { renderTarget: target },
+        loadOp: 'clear',
+        clearValue: 1,
+      },
+    })
+    for (const caster of casters) this.#drawGBufferCaster(caster)
+    device.endRenderPass()
+  }
+
+  /** Draw one caster into the current G-buffer pass (position + normal). */
+  #drawGBufferCaster(caster: MeshNode): void {
+    const gpu = this.#ensureUpload(caster)
+    if (!gpu) return
+    const device = this.#device
+    const s = this.#gbufObjStaging
+    s.set(caster.worldMatrix as unknown as Float32Array, 0)
+    const off = this.#gbufferObjectRing.push(device, s)
+    if (off < 0) return
+    device.draw({
+      pipeline: this.#gbufferPipeline,
+      vertexBuffers: [
+        { buffer: gpu.posBuf, offset: 0 },
+        { buffer: gpu.normBuf, offset: 0 },
+      ],
+      indexBuffer: gpu.ibo,
+      bindGroups: [
+        { group: 0, bindGroup: this.#gbufferFrameBindGroup },
+        {
+          group: 1,
+          bindGroup: this.#gbufferObjectBindGroup,
+          dynamicOffsets: [off],
+        },
+      ],
+      indexCount: gpu.indexCount,
+    })
+  }
+
   #castersFar(aabb: Aabb, px: number, py: number, pz: number): number {
     let far = 0.1
     for (let i = 0; i < 8; i++) {
@@ -898,7 +1134,21 @@ export class MeshRenderer {
     s[37] = l.color[1]
     s[38] = l.color[2] // u_lightColor @36
     s[40] = debugMode // u_debug @40
-    this.#device.updateUniformBuffer(this.#flatFrameUbo, s)
+    this.#writeAoParams(s, 44) // u_aoParams @44
+    const device = this.#device
+    device.updateUniformBuffer(this.#flatFrameUbo, s)
+    // Rebuild the frame bind group when the bound AO texture changes.
+    const ao = this.#aoResolved()
+    if (!this.#flatFrameBindGroup || this.#flatFrameBoundAo !== ao) {
+      this.#flatFrameBindGroup = device.createBindGroup(this.#flatFrameLayout, [
+        {
+          binding: CAMERA3D_UBO_BINDING,
+          resource: { uniformBuffer: this.#flatFrameUbo },
+        },
+        { binding: U_AO, resource: { texture: ao } },
+      ])
+      this.#flatFrameBoundAo = ao
+    }
   }
 
   /**
@@ -923,6 +1173,7 @@ export class MeshRenderer {
     f[22] = amb[2]
     this.#writeFog(f, 24)
     f[32] = debugMode
+    this.#writeAoParams(f, 36) // u_aoParams @36
     device.updateUniformBuffer(this.#pbrFrameUbo, f)
 
     this.#writeLights(lights)
@@ -941,13 +1192,15 @@ export class MeshRenderer {
     sf[67] = device.ndc.textureTopDown ? 1 : 0
     device.updateUniformBuffer(this.#shadowFrameUbo, sf)
 
-    // Rebuild the frame bind group only when the bound shadow maps change.
+    // Rebuild the frame bind group when the bound shadow maps or AO texture change.
     const arr = this.#arrayForBind()
     const cube = this.#cubeForBind()
+    const ao = this.#aoResolved()
     if (
       !this.#pbrFrameBindGroup ||
       this.#pbrFrameBoundArray !== arr ||
-      this.#pbrFrameBoundCube !== cube
+      this.#pbrFrameBoundCube !== cube ||
+      this.#pbrFrameBoundAo !== ao
     ) {
       this.#pbrFrameBindGroup = device.createBindGroup(this.#pbrFrameLayout, [
         {
@@ -962,11 +1215,13 @@ export class MeshRenderer {
           binding: MESH_SHADOW_UBO_BINDING,
           resource: { uniformBuffer: this.#shadowFrameUbo },
         },
+        { binding: U_AO, resource: { texture: ao } },
         { binding: U_SHADOW_ARRAY, resource: { shadowArray: arr } },
         { binding: U_SHADOW_CUBE, resource: { shadowCube: cube } },
       ])
       this.#pbrFrameBoundArray = arr
       this.#pbrFrameBoundCube = cube
+      this.#pbrFrameBoundAo = ao
     }
   }
 
@@ -1127,7 +1382,8 @@ export class MeshRenderer {
       ],
       indexBuffer: gpu.ibo,
       bindGroups: [
-        { group: 0, bindGroup: this.#flatFrameBindGroup },
+        // Set by `#beginFlat`, which runs before any flat draw.
+        { group: 0, bindGroup: this.#flatFrameBindGroup! },
         { group: 1, bindGroup: objBg, dynamicOffsets: [dynOffset] },
       ],
       indexCount: gpu.indexCount,
@@ -1250,7 +1506,7 @@ export class MeshRenderer {
     samplerName: string,
   ): Texture | null {
     if (!slot) return null
-    this.#trackModelTexture(slot.image, samplerName)
+    this.#modelInspector.track(slot.image, samplerName)
     return this.#ensureTexture(slot.image, slot.srgb, slot.sampler)
   }
 
@@ -1285,11 +1541,7 @@ export class MeshRenderer {
       premultiply: false,
       objectSpaceUV: true,
     })
-    const tracked = this.#modelTextures.get(image)
-    if (tracked) {
-      tracked.width = bmp.width
-      tracked.height = bmp.height
-    }
+    this.#modelInspector.setUploadedSize(image, bmp.width, bmp.height)
     bmp.close()
     image.bitmap = null
     if (!variants) {
@@ -1323,85 +1575,7 @@ export class MeshRenderer {
   }
 
   get textureInspector(): TextureInspector | null {
-    return this.#modelTextures.size > 0 ? this.#modelInspector : null
-  }
-
-  readonly #modelInspector: TextureInspector = {
-    snapshot: () => this.#modelSnapshot(),
-    renderLabelPreview: () => null,
-  }
-
-  #trackModelTexture(image: TextureImage, samplerName: string): void {
-    const role = samplerName.replace(/^u_/, '').replace(/Tex$/, '')
-    let entry = this.#modelTextures.get(image)
-    if (!entry) {
-      entry = { roles: new Set(), width: 0, height: 0, preview: null }
-      this.#modelTextures.set(image, entry)
-    }
-    entry.roles.add(role)
-  }
-
-  #modelSnapshot(): TextureInspectorSnapshot {
-    const perSource: TextureInspectorSnapshot['perSource'] = []
-    for (const [image, entry] of this.#modelTextures) {
-      if (entry.preview) {
-        perSource.push({
-          width: entry.width,
-          height: entry.height,
-          source: entry.preview,
-          label: [...entry.roles].join(' + '),
-        })
-      } else {
-        this.#decodeModelPreview(image)
-      }
-    }
-    return {
-      atlas: {
-        width: 0,
-        height: 0,
-        tileSize: 0,
-        capacity: 0,
-        used: 0,
-        full: false,
-        canvas: null,
-        bindings: [],
-      },
-      perSource,
-      labels: [],
-      labelCount: 0,
-      labelCap: 0,
-      labelRegensThisFrame: 0,
-      labelMaxRegensPerFrame: 0,
-    }
-  }
-
-  #decodeModelPreview(image: TextureImage): void {
-    if (
-      this.#previewDecoding.has(image) ||
-      !image.bytes ||
-      typeof createImageBitmap === 'undefined'
-    )
-      return
-    this.#previewDecoding.add(image)
-    const blob = new Blob([image.bytes as BlobPart], { type: image.mimeType })
-    void createImageBitmap(blob, {
-      imageOrientation: 'none',
-      colorSpaceConversion: 'none',
-    }).then(
-      (bmp) => {
-        this.#previewDecoding.delete(image)
-        const entry = this.#modelTextures.get(image)
-        if (entry) {
-          entry.width = bmp.width
-          entry.height = bmp.height
-          entry.preview = downscaleToCanvas(bmp, MODEL_PREVIEW_MAX)
-        }
-        bmp.close()
-      },
-      () => {
-        this.#previewDecoding.delete(image)
-      },
-    )
+    return this.#modelInspector.hasEntries ? this.#modelInspector : null
   }
 
   #ensureUpload(mesh: MeshNode): GpuMesh | null {
@@ -1517,20 +1691,8 @@ export class MeshRenderer {
     if (this.#shadowCube) this.#device.deleteShadowCube(this.#shadowCube)
     if (this.#placeholderCube)
       this.#device.deleteShadowCube(this.#placeholderCube)
-    this.#modelTextures.clear()
-    this.#previewDecoding.clear()
+    this.#modelInspector.clear()
   }
-}
-
-/** Draw a bitmap into a fresh canvas contained within a `max`-px box. */
-function downscaleToCanvas(bmp: ImageBitmap, max: number): HTMLCanvasElement {
-  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height))
-  const canvas = document.createElement('canvas')
-  canvas.width = Math.max(1, Math.round(bmp.width * scale))
-  canvas.height = Math.max(1, Math.round(bmp.height * scale))
-  const ctx = canvas.getContext('2d')
-  if (ctx) ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height)
-  return canvas
 }
 
 /**

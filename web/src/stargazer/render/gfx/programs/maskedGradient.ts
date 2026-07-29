@@ -23,7 +23,11 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import {
+  drawInstancedRun,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
 import maskedGradientWgsl from '../shaders/maskedRadialGradient.wgsl?raw'
 import maskedGradientVertSrc from '../shaders/maskedRadialGradient.gen.vert.glsl?raw'

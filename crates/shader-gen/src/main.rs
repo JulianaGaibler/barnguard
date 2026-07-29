@@ -158,6 +158,19 @@ fn generate(wgsl_path: &Path) -> Result<(), String> {
 
     let module = naga::front::wgsl::parse_str(&src)
         .map_err(|e| format!("{name}.wgsl parse error:\n{}", e.emit_to_string(&src)))?;
+
+    // Compute-only WGSL (a `@compute` shader with no vs_main/fs_main) is a
+    // WebGPU-only source: naga's GLSL-ES backend cannot emit compute, and the
+    // WebGL2 path takes a fragment off-ramp instead. Skip generation rather than
+    // fail the run, so `*.compute.wgsl` can live alongside the rendered shaders.
+    let has_render_stage = module.entry_points.iter().any(|ep| {
+        matches!(ep.stage, ShaderStage::Vertex | ShaderStage::Fragment)
+    });
+    if !has_render_stage {
+        println!("{name}: compute-only WGSL, skipping GLSL generation");
+        return Ok(());
+    }
+
     let mut validator = Validator::new(ValidationFlags::all(), Capabilities::all());
     let info = validator
         .validate(&module)

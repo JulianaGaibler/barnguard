@@ -7,6 +7,7 @@ export const demos: Record<string, () => Promise<DemoFn>> = {
   scene: () => import('./demo-scene').then((m) => m.default),
   scene3d: () => import('./demo-scene3d').then((m) => m.default),
   boxes3d: () => import('./demo-boxes3d').then((m) => m.default),
+  ao: () => import('./demo-ao').then((m) => m.default),
   texcube: () => import('./demo-texcube').then((m) => m.default),
   debug: () => import('./demo-debug').then((m) => m.default),
   svg: () => import('./demo-svg').then((m) => m.default),

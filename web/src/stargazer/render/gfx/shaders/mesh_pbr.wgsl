@@ -31,8 +31,25 @@ struct PbrFrame {
   fogColor: vec4<f32>,
   fogParams: vec4<f32>,
   debug: vec4<f32>,    // x = debug mode
+  aoParams: vec4<f32>, // x = ssao enabled, y = flip uv.y, zw = resolution px
+  aoParams2: vec4<f32>, // x = direct-light AO strength (0 = physical, ambient only)
 };
 @group(0) @binding(1) var<uniform> frame: PbrFrame;
+
+// Screen-space ambient occlusion, sampled at the fragment's screen position.
+@group(0) @binding(2) var u_ao: texture_2d<f32>;
+@group(0) @binding(18) var u_aoSamp: sampler;
+
+fn sampleSSAO(fragPos: vec4<f32>) -> f32 {
+  if (frame.aoParams.x < 0.5) {
+    return 1.0;
+  }
+  var uv = fragPos.xy / frame.aoParams.zw;
+  if (frame.aoParams.y > 0.5) {
+    uv.y = 1.0 - uv.y;
+  }
+  return textureSampleLevel(u_ao, u_aoSamp, uv, 0.0).r;
+}
 
 struct PbrObject {
   model: mat4x4<f32>,
@@ -287,6 +304,11 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
     N = normalize(TBN * tn);
   }
 
+  // AO debug view (mode 3): show the raw AO buffer as greyscale.
+  if (debugMode > 2.5) {
+    let s = sampleSSAO(in.pos);
+    return vec4<f32>(s * alpha, s * alpha, s * alpha, alpha);
+  }
   if (debugMode > 1.5) {
     return vec4<f32>((N * 0.5 + 0.5) * alpha, alpha);
   }
@@ -308,6 +330,12 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
   let diffuseColor = baseColor.rgb * (1.0 - metallic);
 
   let diffuseTransmission = obj.matParams1.y;
+  // Screen-space AO. `ssao` scales the ambient (indirect) term below; `aoDirect`
+  // optionally folds AO into the DIFFUSE direct light too (stylized — off at
+  // strength 0), never into specular (a direct highlight stays sharp in a
+  // crevice).
+  let ssao = sampleSSAO(in.pos);
+  let aoDirect = mix(1.0, ssao, frame.aoParams2.x);
   let lightCount = lights.lightCountV.x;
   var Lo = vec3<f32>(0.0);
   for (var i = 0; i < MAX_LIGHTS; i = i + 1) {
@@ -345,21 +373,28 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
     let F = fresnelSchlick(max(dot(H, V), 0.0), F0);
     let spec = (NDF * G * F) / max(4.0 * NdotV * NdotL, 1e-4);
     let kd = (vec3<f32>(1.0) - F) * (1.0 - metallic);
-    Lo = Lo + (kd * diffuseColor / PI + spec) * radiance * NdotL;
+    // AO on the diffuse lobe only (via aoDirect); specular is left untouched.
+    Lo = Lo + (kd * diffuseColor / PI * aoDirect + spec) * radiance * NdotL;
     if (diffuseTransmission > 0.0) {
       var tcol = diffuseColor;
       if (obj.hasTex1.y > 0.5) {
         tcol = tcol * diffTransTexel.rgb;
       }
-      Lo = Lo + tcol * (diffuseTransmission * max(dot(-N, L), 0.0)) * radiance;
+      Lo = Lo + tcol * (diffuseTransmission * max(dot(-N, L), 0.0)) * radiance * aoDirect;
     }
   }
 
-  var ao = 1.0;
+  // Material occlusion map (glTF) — indirect only, per spec.
+  var matAo = 1.0;
   if (obj.hasTex0.w > 0.5) {
-    ao = mix(1.0, occTexel.r, obj.matParams0.z);
+    matAo = mix(1.0, occTexel.r, obj.matParams0.z);
   }
-  var color = (Lo + frame.ambient.xyz * diffuseColor) * ao;
+  // Ambient (indirect) is occluded by both the screen-space AO and the material
+  // occlusion map (combined via min). Direct light `Lo` is NOT scaled here — per
+  // the glTF spec occlusion affects indirect only (any direct AO was already
+  // folded into the diffuse lobe above, via aoDirect).
+  let indirectAo = min(ssao, matAo);
+  var color = Lo + frame.ambient.xyz * diffuseColor * indirectAo;
 
   var emissive = obj.emissiveFactor.xyz;
   if (obj.hasTex1.x > 0.5) {

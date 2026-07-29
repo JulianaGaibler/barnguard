@@ -13,6 +13,9 @@ import type {
   BindGroupLayoutEntry,
   BlitOpts,
   CompareFn,
+  ComputeDispatch,
+  ComputePipeline,
+  ComputePipelineDesc,
   CullMode,
   DeviceLimits,
   NdcConventions,
@@ -47,6 +50,9 @@ interface MockIndexBuffer extends IBuffer {
 }
 interface MockPipeline extends Pipeline {
   desc: PipelineDesc
+}
+interface MockComputePipeline extends ComputePipeline {
+  desc: ComputePipelineDesc
 }
 interface MockBindGroup extends BindGroup {
   layout: BindGroupLayout
@@ -124,11 +130,24 @@ export class MockGfxDevice implements GfxDevice {
   }
   readonly limits: DeviceLimits = { minUniformBufferOffsetAlignment: 256 }
   readonly backend: GfxBackend
-  readonly ndc: NdcConventions = {
-    clipDepth: 'neg-one-to-one',
-    frontFace: 'ccw',
-    textureTopDown: false,
-  }
+  /** Mirrors the emulated backend: WebGPU exposes compute, WebGL2 does not. */
+  readonly supportsCompute: boolean
+  readonly computePipelines: MockComputePipeline[] = []
+  readonly computeDispatches: {
+    pipeline: ComputePipeline
+    x: number
+    y: number
+    z: number
+  }[] = []
+  computePassBegins = 0
+  computePassEnds = 0
+  /**
+   * Conventions of the emulated backend, so the mock is a faithful vehicle for
+   * cross-backend coordinate-conformance tests: GL (`[-1,1]` depth, bottom-up
+   * rows) for `'webgl2'`, WebGPU (`[0,1]` depth, top-down rows) for `'webgpu'`.
+   * Front-face winding is `'ccw'` on both, matching the real devices.
+   */
+  readonly ndc: NdcConventions
 
   // Derived device-level mirrors for tests that assert render state without
   // inspecting pipeline descriptors: the last-drawn pipeline's cull/depth, and
@@ -156,6 +175,15 @@ export class MockGfxDevice implements GfxDevice {
    */
   constructor(backend: GfxBackend = 'webgl2') {
     this.backend = backend
+    this.supportsCompute = backend === 'webgpu'
+    this.ndc =
+      backend === 'webgpu'
+        ? { clipDepth: 'zero-to-one', frontFace: 'ccw', textureTopDown: true }
+        : {
+            clipDepth: 'neg-one-to-one',
+            frontFace: 'ccw',
+            textureTopDown: false,
+          }
   }
 
   // --- shaders / pipelines / bind groups ------------------------------------
@@ -172,6 +200,31 @@ export class MockGfxDevice implements GfxDevice {
     const p = { __gfxPipeline: undefined as never, desc } as MockPipeline
     this.pipelines.push(p)
     return Promise.resolve(p)
+  }
+  createComputePipeline(desc: ComputePipelineDesc): Promise<ComputePipeline> {
+    if (!this.supportsCompute) {
+      throw new Error('MockGfxDevice: compute unsupported on this backend')
+    }
+    const p = {
+      __gfxComputePipeline: undefined as never,
+      desc,
+    } as MockComputePipeline
+    this.computePipelines.push(p)
+    return Promise.resolve(p)
+  }
+  beginComputePass(): void {
+    this.computePassBegins++
+  }
+  dispatchCompute(dispatch: ComputeDispatch): void {
+    this.computeDispatches.push({
+      pipeline: dispatch.pipeline,
+      x: dispatch.x,
+      y: dispatch.y ?? 1,
+      z: dispatch.z ?? 1,
+    })
+  }
+  endComputePass(): void {
+    this.computePassEnds++
   }
   createBindGroupLayout(_entries: BindGroupLayoutEntry[]): BindGroupLayout {
     const l = { __gfxBindGroupLayout: undefined as never }
@@ -341,6 +394,14 @@ export class MockGfxDevice implements GfxDevice {
               height: opts.height,
             }
           : undefined,
+      depthTex:
+        opts.depth && opts.depthSampled
+          ? {
+              __gfxTexture: undefined as never,
+              width: opts.width,
+              height: opts.height,
+            }
+          : undefined,
     }
     this.renderTargets.push(rt)
     return rt
@@ -355,6 +416,14 @@ export class MockGfxDevice implements GfxDevice {
     const c = (rt as { color?: Texture }).color
     if (!c) throw new Error('MockGfxDevice.colorTexture: target is multisample')
     return c
+  }
+  depthTexture(rt: RenderTarget): Texture {
+    const d = (rt as { depthTex?: Texture }).depthTex
+    if (!d)
+      throw new Error(
+        'MockGfxDevice.depthTexture: target has no sampleable depth attachment',
+      )
+    return d
   }
 
   // --- shadow maps ----------------------------------------------------------
@@ -526,6 +595,10 @@ export class MockGfxDevice implements GfxDevice {
     this.shadowLayerBegins.length = 0
     this.shadowCubeFaceBegins.length = 0
     this.shadowPassEnds = 0
+    this.computePipelines.length = 0
+    this.computeDispatches.length = 0
+    this.computePassBegins = 0
+    this.computePassEnds = 0
     this.cull = 'none'
     this.depthTest = false
     this.depthWrite = true

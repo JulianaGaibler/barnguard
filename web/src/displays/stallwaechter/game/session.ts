@@ -16,9 +16,10 @@ import { STATES, findState, type StateId } from './data/states'
 import { EpicenterNode } from './nodes/EpicenterNode'
 import { PacketNode } from './nodes/PacketNode'
 import {
-  DebrisBurstNode,
-  type DebrisBurstOptions,
-} from './nodes/DebrisBurstNode'
+  spawnImpactFlash as lossImpactFlash,
+  spawnCollisionDebris as lossCollisionDebris,
+  spawnBorderBreachDebris as lossBorderBreachDebris,
+} from './lossVisuals'
 import { EpicenterBehavior } from './behaviors/EpicenterBehavior'
 import { StateSelectionBehavior } from './behaviors/StateSelectionBehavior'
 import { PacketBehavior } from './behaviors/PacketBehavior'
@@ -215,7 +216,6 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   // Re-abortable scope for the camera tween: each `animateTo` cancels the prior.
   const cameraScope = new AbortScope()
   let packetIdSeq = 0
-  let flashIdSeq = 0
   // Re-abortable scope for the deferred game-over timers (ripple settle + the
   // gameOver-event grace); `reset()`/`destroy()` cancel them.
   const graceScope = new AbortScope()
@@ -578,81 +578,18 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     endRound('collision', selectedStateId)
   }
 
+  // The loss visuals are shared with the game-over vignette (see
+  // `lossVisuals.ts`); these thin wrappers pin them to the round's packet layer.
   function spawnImpactFlash(center: Vec2): void {
-    const cfg = TUNING.lossAnim.impactFlash
-    const flash = new Path2DNode({
-      id: `impact-flash-${flashIdSeq++}`,
-      path: assets.impactFlashPath,
-      fill: cfg.color,
-      hitMode: 'none',
-    })
-    flash.transform.x = center.x
-    flash.transform.y = center.y
-    flash.transform.scaleX = cfg.scaleFrom
-    flash.transform.scaleY = cfg.scaleFrom
-    packetLayer.add(flash)
-    void flash.autoDestroy(
-      flash.tween(
-        { scaleX: cfg.scaleTo, scaleY: cfg.scaleTo, alpha: 0 },
-        { duration: cfg.durationSec, easing: easings.outCubic },
-      ),
-    )
-  }
-
-  /**
-   * Attach a `DebrisBurstNode` to the packet layer. Cleaned up on reset. * the
-   * `packetLayer` walk in `clearGameplayNodes` picks it up alongside every
-   * other visual for the round.
-   */
-  function spawnDebrisBurst(opts: DebrisBurstOptions): void {
-    packetLayer.add(new DebrisBurstNode(opts))
+    lossImpactFlash(packetLayer, center, assets.impactFlashPath)
   }
 
   function spawnCollisionDebris(center: Vec2): void {
-    // Radial explosion, mix of triangles + lines. Shape + damping
-    // + emission uniformity come straight from `TUNING.lossAnim.debris`
-    // so the moment matches the game-over card's collision vignette.
-    const c = TUNING.lossAnim.debris
-    spawnDebrisBurst({
-      center,
-      count: c.count,
-      triangleFraction: c.triangleFraction,
-      initialSpeedWorld: c.initialSpeedWorld,
-      dampingPerSec: c.dampingPerSec,
-      angInitialRadPerSec: c.angInitialRadPerSec,
-      angInitialDampingPerSec: c.angInitialDampingPerSec,
-      angBaseAbsRadPerSec: c.angBaseAbsRadPerSec,
-      triangleSideWorld: c.triangleSideWorld,
-      lineLengthWorld: c.lineLengthWorld,
-      lineWidthCssPx: c.lineWidthCssPx,
-      color: c.color,
-      equidistantEmission: c.equidistantEmission,
-    })
+    lossCollisionDebris(packetLayer, center)
   }
 
   function spawnBorderBreachDebris(center: Vec2, headingRad: number): void {
-    // Directional lines-only burst along the packet's exit velocity.
-    // Border-colored; each line launches broadside to its flight path
-    // (`initialAngleOffsetRad = π/2`) and tumbles as it drifts out, a
-    // wall-shard read for the "border burst" moment.
-    const c = TUNING.lossAnim.borderBreach
-    spawnDebrisBurst({
-      center,
-      count: c.count,
-      triangleFraction: c.triangleFraction,
-      initialSpeedWorld: c.initialSpeedWorld,
-      dampingPerSec: c.dampingPerSec,
-      emitDirectionRad: headingRad,
-      emitSpreadRad: c.emitSpreadRad,
-      initialAngleOffsetRad: c.initialAngleOffsetRad,
-      angInitialRadPerSec: c.angInitialRadPerSec,
-      angInitialDampingPerSec: c.angInitialDampingPerSec,
-      angBaseAbsRadPerSec: c.angBaseAbsRadPerSec,
-      triangleSideWorld: c.triangleSideWorld,
-      lineLengthWorld: c.lineLengthWorld,
-      lineWidthCssPx: c.lineWidthCssPx,
-      color: c.color,
-    })
+    lossBorderBreachDebris(packetLayer, center, headingRad)
   }
 
   function endRound(

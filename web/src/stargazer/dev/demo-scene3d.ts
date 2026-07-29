@@ -103,6 +103,9 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     root.add(point)
   })
 
+  // Screen-space ambient occlusion for crevice/contact darkening on the models.
+  host.engine.ambientOcclusion.enabled = true
+
   host.start()
 
   const stop = (): void => host.destroy()

@@ -112,6 +112,9 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     root.add(fill)
   })
 
+  // Screen-space ambient occlusion darkens the box/ground contact creases.
+  host.engine.ambientOcclusion.enabled = true
+
   host.start()
 
   const stop = (): void => host.destroy()

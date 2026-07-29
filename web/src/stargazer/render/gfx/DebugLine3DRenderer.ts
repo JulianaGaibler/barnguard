@@ -52,6 +52,7 @@ export class DebugLine3DRenderer {
   #capacityVerts: number
   #scratch: Float32Array
   #ready = false
+  #warmupSeq = 0
   readonly #offRestore: () => void
 
   // Interleaved vertex data for the current frame, split by depth behavior.
@@ -64,7 +65,9 @@ export class DebugLine3DRenderer {
     initialVerts = 4096,
   ) {
     this.#device = device
-    this.#targetColor = targetColor
+    // Own a private copy: `retarget` mutates this, and the caller may share the
+    // object it passed.
+    this.#targetColor = { ...targetColor }
     this.#capacityVerts = initialVerts
     this.#scratch = new Float32Array(initialVerts * FLOATS_PER_VERT)
     this.#createResources()
@@ -112,8 +115,26 @@ export class DebugLine3DRenderer {
     void this.#warmup()
   }
 
+  /**
+   * Re-point the pipelines at a new target color format / sample count and
+   * re-warm. `Stage` calls this after a live MSAA swap so the baked sample
+   * count matches the resized target. No-op when unchanged; `ready` drops until
+   * the async re-warm finishes, so `flush` skips the pass in the meantime.
+   */
+  retarget(targetColor: { format: ColorFormat; samples: number }): void {
+    if (
+      this.#targetColor.format === targetColor.format &&
+      this.#targetColor.samples === targetColor.samples
+    )
+      return
+    this.#targetColor.format = targetColor.format
+    this.#targetColor.samples = targetColor.samples
+    void this.#warmup()
+  }
+
   async #warmup(): Promise<void> {
     this.#ready = false
+    const seq = ++this.#warmupSeq
     const base = {
       shader: this.#shader,
       vertexLayout: this.#vertexLayout,
@@ -127,14 +148,18 @@ export class DebugLine3DRenderer {
       primitive: 'line-list' as const,
       samples: this.#targetColor.samples,
     }
-    this.#occludedPipeline = await this.#device.createPipeline({
+    const occluded = await this.#device.createPipeline({
       ...base,
       depth: { test: true, write: false },
     })
-    this.#overlayPipeline = await this.#device.createPipeline({
+    if (seq !== this.#warmupSeq) return
+    const overlay = await this.#device.createPipeline({
       ...base,
       depth: { test: false, write: false },
     })
+    if (seq !== this.#warmupSeq) return
+    this.#occludedPipeline = occluded
+    this.#overlayPipeline = overlay
     this.#ready = true
   }
 
@@ -197,36 +222,37 @@ export class DebugLine3DRenderer {
     L(minX, minY, maxZ, minX, maxY, maxZ)
   }
 
-  /** RGB axes of length `size` from `(ox,oy,oz)`: X red, Y green, Z blue. */
-  axes(
-    ox: number,
-    oy: number,
-    oz: number,
-    size: number,
-    overlay = false,
-  ): void {
-    this.line(ox, oy, oz, ox + size, oy, oz, [1, 0.25, 0.25, 1], overlay)
-    this.line(ox, oy, oz, ox, oy + size, oz, [0.3, 1, 0.35, 1], overlay)
-    this.line(ox, oy, oz, ox, oy, oz + size, [0.35, 0.55, 1, 1], overlay)
+  /**
+   * The three world axes through the origin, each spanning `[-half, +half]` so
+   * they read as infinite reference lines rather than short rays. X red, Y
+   * green, Z blue. Depth-tested by default so geometry occludes them.
+   */
+  originAxes(half: number, overlay = false): void {
+    this.line(-half, 0, 0, half, 0, 0, [1, 0.25, 0.25, 1], overlay)
+    this.line(0, -half, 0, 0, half, 0, [0.3, 1, 0.35, 1], overlay)
+    this.line(0, 0, -half, 0, 0, half, [0.35, 0.55, 1, 1], overlay)
   }
 
   /**
-   * XZ ground grid centered at the origin: `divisions` cells each `step` wide,
-   * with the two center axis lines accented.
+   * XZ ground grid of `divisions` cells (`step` wide) centered on `(cx, cz)`,
+   * snapped to the grid so the lines stay put as the center moves. Centering it
+   * on the camera makes the ground read as infinite without unbounded geometry.
+   * Draws no accented center cross, use {@link originAxes} for the world axes.
    */
-  grid(
+  groundGrid(
+    cx: number,
+    cz: number,
     step: number,
     divisions: number,
     color: LineColor,
-    axisColor: LineColor,
   ): void {
     const half = (step * divisions) / 2
+    const sx = Math.round(cx / step) * step
+    const sz = Math.round(cz / step) * step
     for (let i = 0; i <= divisions; i++) {
-      const p = -half + i * step
-      const isAxis = Math.abs(p) < step * 0.001
-      const c = isAxis ? axisColor : color
-      this.line(p, 0, -half, p, 0, half, c)
-      this.line(-half, 0, p, half, 0, p, c)
+      const off = -half + i * step
+      this.line(sx + off, 0, sz - half, sx + off, 0, sz + half, color)
+      this.line(sx - half, 0, sz + off, sx + half, 0, sz + off, color)
     }
   }
 

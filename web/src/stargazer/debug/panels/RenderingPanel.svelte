@@ -10,7 +10,9 @@
     DebugSection,
     DebugRow,
     DebugSelect,
+    DebugSlider,
     ToggleButton,
+    DebugToggleGroup,
     TextureInspector,
     type DebugSelectOption,
   } from '../ui'
@@ -43,11 +45,12 @@
     webgpu: 'WebGPU',
     webgl2: 'WebGL2',
   }
-  const BACKEND_PREF_OPTIONS: readonly DebugSelectOption<BackendPreference>[] = [
-    { value: 'auto', label: 'Auto (prefer WebGPU)' },
-    { value: 'webgpu', label: 'WebGPU' },
-    { value: 'webgl2', label: 'WebGL2' },
-  ]
+  const BACKEND_PREF_OPTIONS: readonly DebugSelectOption<BackendPreference>[] =
+    [
+      { value: 'auto', label: 'Auto (prefer WebGPU)' },
+      { value: 'webgpu', label: 'WebGPU' },
+      { value: 'webgl2', label: 'WebGL2' },
+    ]
 
   // Render-mode / MSAA / perf-marks are per-stage engine state; mirror the
   // active stage's live values so an external toggle or a stage switch stays in
@@ -67,6 +70,12 @@
   let shadowSize = $state(1024)
   let anisotropy = $state(8)
   let shadowSoftness = $state(4)
+  // Ambient occlusion (primary stage's controller), mirrored live.
+  let aoOn = $state(false)
+  let aoPreset = $state<'low' | 'medium' | 'high'>('medium')
+  let aoIntensity = $state(1)
+  let aoRadius = $state(0.6)
+  let aoDirect = $state(0)
 
   const RENDER_MODE_OPTIONS_2D: readonly DebugSelectOption<CombinedRenderMode>[] =
     [
@@ -81,6 +90,7 @@
       { value: 'wireframe', label: '3D wireframe' },
       { value: 'unshaded', label: '3D unshaded (albedo)' },
       { value: 'normals', label: '3D normals' },
+      { value: 'ao', label: '3D ambient occlusion (raw)' },
     ]
   // 3D views only offered when the scene has 3D content.
   const renderModeOptions = $derived(
@@ -92,6 +102,7 @@
     'wireframe',
     'unshaded',
     'normals',
+    'ao',
   ])
 
   const MSAA_OPTIONS: readonly DebugSelectOption<number>[] = [
@@ -130,7 +141,13 @@
     { value: 9, label: 'Softer' },
     { value: 16, label: 'Softest' },
   ]
-
+  const AO_PRESET_OPTIONS: readonly DebugSelectOption<
+    'low' | 'medium' | 'high'
+  >[] = [
+    { value: 'low', label: 'Low (2×3)' },
+    { value: 'medium', label: 'Medium (3×4)' },
+    { value: 'high', label: 'High (4×6)' },
+  ]
   $effect(() => {
     void revision
     const active = debug.activeStage
@@ -151,6 +168,17 @@
     if (q.shadowMapSize !== shadowSize) shadowSize = q.shadowMapSize
     if (q.anisotropy !== anisotropy) anisotropy = q.anisotropy
     if (q.shadowSoftness !== shadowSoftness) shadowSoftness = q.shadowSoftness
+    // Read AO through the non-constructing peek so mirroring never warms the AO
+    // pipelines on a 3D scene that never enabled it.
+    const ao = debug.ambientOcclusionPeek
+    const liveAoOn = ao?.enabled ?? false
+    if (liveAoOn !== aoOn) aoOn = liveAoOn
+    if (ao) {
+      if (ao.preset !== aoPreset) aoPreset = ao.preset
+      if (ao.intensity !== aoIntensity) aoIntensity = ao.intensity
+      if (ao.radius !== aoRadius) aoRadius = ao.radius
+      if (ao.directStrength !== aoDirect) aoDirect = ao.directStrength
+    }
   })
 
   function handleRenderModeChange(mode: CombinedRenderMode): void {
@@ -216,6 +244,33 @@
     debug.quality.shadowSoftness = v
     shadowSoftness = debug.quality.shadowSoftness
   }
+
+  // AO handlers use `debug.ambientOcclusion` (constructs on demand) since the
+  // operator is actively turning it on / tuning it.
+  function handleAoToggle(): void {
+    debug.ambientOcclusion.enabled = !aoOn
+    aoOn = debug.ambientOcclusion.enabled
+  }
+
+  function handleAoPresetChange(v: 'low' | 'medium' | 'high'): void {
+    debug.ambientOcclusion.preset = v
+    aoPreset = debug.ambientOcclusion.preset
+  }
+
+  function handleAoIntensityChange(v: number): void {
+    debug.ambientOcclusion.intensity = v
+    aoIntensity = debug.ambientOcclusion.intensity
+  }
+
+  function handleAoDirectChange(v: number): void {
+    debug.ambientOcclusion.directStrength = v
+    aoDirect = debug.ambientOcclusion.directStrength
+  }
+
+  function handleAoRadiusChange(v: number): void {
+    debug.ambientOcclusion.radius = v
+    aoRadius = debug.ambientOcclusion.radius
+  }
 </script>
 
 <DebugSection title="Backend" bind:open={backendOpen}>
@@ -233,7 +288,11 @@
       onChange={handleMsaaChange}
     />
   </div>
-  <DebugRow label="Active" value={BACKEND_LABELS[stats.backend]} tone="accent" />
+  <DebugRow
+    label="Active"
+    value={BACKEND_LABELS[stats.backend]}
+    tone="accent"
+  />
 </DebugSection>
 
 <DebugSection title="Rendering" bind:open={renderOpen}>
@@ -285,29 +344,71 @@
 {#if stats.world3d}
   <DebugSection title="3D" bind:open={threeOpen}>
     <div class="debug-controls with-divider">
-      <ToggleButton
+      <DebugToggleGroup
+        label="Shadows"
         active={shadowsOn}
         onToggle={handleShadowsToggle}
-        label="Shadows"
-      />
-      <DebugSelect
-        label="Shadow resolution"
-        value={shadowSize}
-        options={SHADOW_SIZE_OPTIONS}
-        onChange={handleShadowSizeChange}
-      />
-      <DebugSelect
-        label="Shadow softness"
-        value={shadowSoftness}
-        options={SOFTNESS_OPTIONS}
-        onChange={handleSoftnessChange}
-      />
+      >
+        <DebugSelect
+          label="Shadow resolution"
+          value={shadowSize}
+          options={SHADOW_SIZE_OPTIONS}
+          onChange={handleShadowSizeChange}
+        />
+        <DebugSelect
+          label="Shadow softness"
+          value={shadowSoftness}
+          options={SOFTNESS_OPTIONS}
+          onChange={handleSoftnessChange}
+        />
+      </DebugToggleGroup>
+      <!-- Anisotropy is texture filtering, independent of shadows, so it stays
+           a standalone control rather than a shadow dependent. -->
       <DebugSelect
         label="Anisotropy"
         value={anisotropy}
         options={ANISO_OPTIONS}
         onChange={handleAnisotropyChange}
       />
+      <DebugToggleGroup
+        label="Ambient occlusion"
+        active={aoOn}
+        onToggle={handleAoToggle}
+      >
+        <DebugSelect
+          label="AO preset"
+          value={aoPreset}
+          options={AO_PRESET_OPTIONS}
+          onChange={handleAoPresetChange}
+        />
+        <DebugSlider
+          label="AO intensity"
+          value={aoIntensity}
+          min={0}
+          max={16}
+          step={0.1}
+          format={(v) => `${v.toFixed(1)}×`}
+          onInput={handleAoIntensityChange}
+        />
+        <DebugSlider
+          label="AO radius"
+          value={aoRadius}
+          min={0.1}
+          max={3}
+          step={0.05}
+          format={(v) => v.toFixed(2)}
+          onInput={handleAoRadiusChange}
+        />
+        <DebugSlider
+          label="AO on direct light"
+          value={aoDirect}
+          min={0}
+          max={1}
+          step={0.05}
+          format={(v) => (v === 0 ? 'off' : v.toFixed(2))}
+          onInput={handleAoDirectChange}
+        />
+      </DebugToggleGroup>
     </div>
     <DebugRow label="Nodes" value={stats.world3d.nodeCount} />
     <DebugRow label="Meshes" value={stats.world3d.meshCount} />

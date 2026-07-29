@@ -30,7 +30,8 @@ const PROBE_TIMEOUT_MS = 2000
  * or hangs on the first real submit, so a bare `requestDevice` is not enough:
  * this clears a 1×1 target inside a validation scope and waits for the work to
  * complete. A `<canvas>` is permanently bound to its first context type, so the
- * probe must NOT touch the real canvas (or a WebGL2 fallback on it would fail).
+ * probe must NOT touch the real canvas (or a WebGL2 fallback on it would
+ * fail).
  */
 async function probeWebGPU(): Promise<boolean> {
   if (!navigator.gpu) return false

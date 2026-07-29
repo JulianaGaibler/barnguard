@@ -32,8 +32,8 @@ async function setup(fog?: Fog) {
 }
 
 /**
- * The most recent per-frame UBO upload of the given byte size (FlatFrame=176,
- * PbrFrame=144).
+ * The most recent per-frame UBO upload of the given byte size (FlatFrame=208,
+ * PbrFrame=176).
  */
 function frameUpload(device: MockGfxDevice, bytes: number): Float32Array {
   for (let i = device.uniformUploads.length - 1; i >= 0; i--) {
@@ -106,6 +106,36 @@ describe('MeshRenderer', () => {
     world.updateTransforms()
     renderer.render(camera, world.root)
     expect(device.draws).toHaveLength(0)
+  })
+
+  it('re-warms color pipelines at the new sample count on retarget', async () => {
+    const { device, renderer } = await setup()
+    // Only the mesh color pipelines follow the main target's sample count; the
+    // single-sample G-buffer/shadow pipelines render to their own targets and
+    // are unaffected by retarget, so scope the assertion to `mesh-*`.
+    const colorPipes = () =>
+      device.pipelines.filter(
+        (p) => p.desc.color !== null && p.desc.label?.startsWith('mesh-'),
+      )
+    expect(colorPipes().every((p) => p.desc.samples === 1)).toBe(true)
+
+    renderer.retarget({ format: 'linear', samples: 4 })
+    expect(renderer.ready).toBe(false)
+    await untilReady(renderer)
+
+    // The pipelines drawn after re-warm bake the new count. (Older 1-sample
+    // handles remain recorded on the mock; the map now points at the 4-sample
+    // ones, so the latest color pipeline created carries samples 4.)
+    const latest = colorPipes().at(-1)
+    expect(latest?.desc.samples).toBe(4)
+  })
+
+  it('retarget is a no-op when the target color is unchanged', async () => {
+    const { device, renderer } = await setup()
+    const before = device.pipelines.length
+    renderer.retarget({ format: 'linear', samples: 1 })
+    expect(renderer.ready).toBe(true)
+    expect(device.pipelines.length).toBe(before)
   })
 
   it('draws a pbr material through the PBR program', async () => {
@@ -372,7 +402,7 @@ describe('MeshRenderer', () => {
     world.updateTransforms()
     renderer.render(camera, world.root)
 
-    const { color } = frameFog(frameUpload(device, 176)) // FlatFrame
+    const { color } = frameFog(frameUpload(device, 208)) // FlatFrame
     expect(color[3]).toBe(0) // w = enable flag
   })
 
@@ -385,7 +415,7 @@ describe('MeshRenderer', () => {
     world.updateTransforms()
     renderer.render(camera, world.root)
 
-    const { color, params } = frameFog(frameUpload(device, 176)) // FlatFrame
+    const { color, params } = frameFog(frameUpload(device, 208)) // FlatFrame
     expect(color[0]).toBeCloseTo(0.2)
     expect(color[1]).toBeCloseTo(0.4)
     expect(color[2]).toBeCloseTo(0.6)
@@ -404,7 +434,7 @@ describe('MeshRenderer', () => {
     world.updateTransforms()
     renderer.render(camera, world.root)
 
-    const { color, params } = frameFog(frameUpload(device, 144)) // PbrFrame
+    const { color, params } = frameFog(frameUpload(device, 176)) // PbrFrame
     expect(color[3]).toBe(1)
     expect(params[0]).toBe(1) // linear mode
     expect(params[2]).toBe(3) // start

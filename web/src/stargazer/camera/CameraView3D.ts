@@ -16,6 +16,8 @@ export interface CameraView3D {
   readonly view: Mat4
   /** Projection matrix (ortho↔perspective blend). */
   readonly projection: Mat4
+  /** Inverse of {@link CameraView3D.projection} (clip → view). */
+  readonly invProjection: Mat4
   /** Combined `projection × view` (world → clip). */
   readonly viewProjection: Mat4
   /** Inverse of {@link CameraView3D.viewProjection} (clip → world). */

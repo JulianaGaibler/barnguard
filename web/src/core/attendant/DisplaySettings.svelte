@@ -7,7 +7,7 @@
   target, so the technician can judge tappability, not just legibility.
 -->
 <script lang="ts">
-  import { DebugSection } from '@src/stargazer/debug/ui'
+  import { DebugSection, DebugSlider } from '@src/stargazer/debug/ui'
   import Button from '@src/core/ui/Button.svelte'
   import {
     uiScale,
@@ -21,12 +21,16 @@
   let pending = $state($uiScale)
   let dragging = $state(false)
 
-  function onInput(e: Event): void {
-    pending = Number((e.currentTarget as HTMLInputElement).value)
+  // Preview while dragging (cheap), commit on release. Reflowing the whole
+  // rem-based UI on every step is too heavy for low-end kiosk hardware, so the
+  // committed scale is only set on release, with the calibration overlay
+  // previewing the pending size in the meantime.
+  function preview(v: number): void {
+    pending = v
     dragging = true
   }
-  function onChange(e: Event): void {
-    setUiScale(Number((e.currentTarget as HTMLInputElement).value))
+  function commit(v: number): void {
+    setUiScale(v)
     dragging = false
   }
   function reset(): void {
@@ -37,19 +41,15 @@
 </script>
 
 <DebugSection title="Display" open>
-  <div class="ds-row">
-    <span class="ds-label">UI scale</span>
-    <span class="ds-value">×{pending.toFixed(2)}</span>
-  </div>
-  <input
-    class="ds-slider"
-    type="range"
+  <DebugSlider
+    label="UI scale"
+    value={$uiScale}
     min={UI_SCALE_MIN}
     max={UI_SCALE_MAX}
     step={UI_SCALE_STEP}
-    value={$uiScale}
-    oninput={onInput}
-    onchange={onChange}
+    format={(v) => `×${v.toFixed(2)}`}
+    onInput={preview}
+    onChange={commit}
   />
   <button type="button" class="debug-btn" onclick={reset}>Reset to 100%</button>
 </DebugSection>
@@ -67,19 +67,6 @@
 {/if}
 
 <style lang="sass">
-  .ds-row
-    display: flex
-    align-items: baseline
-    justify-content: space-between
-
-  .ds-value
-    font-variant-numeric: tabular-nums
-    opacity: 0.7
-
-  .ds-slider
-    width: 100%
-    margin-block: 6px
-
   // Full-screen preview shown only while dragging. Fixed physical reference
   // (CSS inch) beside a scaled sample control.
   .cal

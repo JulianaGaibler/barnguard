@@ -172,10 +172,10 @@ export function mat4Invert(dst: Mat4, src: Readonly<Mat4>): boolean {
 }
 
 /**
- * Depth-clip convention for a projection. `'neg-one-to-one'` maps clip-space `z`
- * into `[-1, 1]` (WebGL's NDC depth range); `'zero-to-one'` into `[0, 1]`
- * (WebGPU's). The backend picks it (a WebGPU projection must land depth in
- * `[0, 1]` or near geometry is clipped), so the camera reads it from the device.
+ * Depth-clip convention for a projection. `'neg-one-to-one'` maps clip-space
+ * `z` into `[-1, 1]` (WebGL's NDC depth range); `'zero-to-one'` into `[0, 1]`
+ * (WebGPU's). The backend picks it (a WebGPU projection must land depth in `[0,
+ * 1]` or near geometry is clipped), so the camera reads it from the device.
  *
  * @category Math
  */
@@ -185,7 +185,8 @@ export type ClipDepth = 'neg-one-to-one' | 'zero-to-one'
  * Right-handed perspective projection with a symmetric frustum. `fovY` is the
  * vertical field of view in radians; `aspect` is width / height. `far` may be
  * `Infinity` for an infinite far plane. `clipDepth` selects the NDC depth range
- * (default `'neg-one-to-one'`, WebGL); only the `z` row differs between the two.
+ * (default `'neg-one-to-one'`, WebGL); only the `z` row differs between the
+ * two.
  *
  * @category Math
  */
@@ -225,9 +226,10 @@ export function mat4Perspective(
 }
 
 /**
- * Right-handed orthographic projection mapping the box `[left, right] × [bottom,
- * top] × [near, far]` (camera space) into clip space. `clipDepth` selects the
- * NDC depth range (default `'neg-one-to-one'`, WebGL); only the `z` row differs.
+ * Right-handed orthographic projection mapping the box `[left, right] ×
+ * [bottom, top] × [near, far]` (camera space) into clip space. `clipDepth`
+ * selects the NDC depth range (default `'neg-one-to-one'`, WebGL); only the `z`
+ * row differs.
  *
  * @category Math
  */

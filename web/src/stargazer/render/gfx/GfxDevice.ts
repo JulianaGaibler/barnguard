@@ -58,6 +58,17 @@ export interface BindGroup {
   readonly __gfxBindGroup: unique symbol
 }
 
+/**
+ * An immutable compute pipeline: a `@compute` shader plus its bind-group
+ * layouts. Dispatched inside a compute pass ({@link GfxDevice.beginComputePass}
+ * / {@link GfxDevice.dispatchCompute}). WebGPU only —
+ * {@link GfxDevice.supportsCompute} is `false` on WebGL2, which has no compute
+ * stage.
+ */
+export interface ComputePipeline {
+  readonly __gfxComputePipeline: unique symbol
+}
+
 /** GPU-side vertex/instance data buffer (`GL_ARRAY_BUFFER` on WebGL2). */
 export interface VBuffer {
   readonly __gfxBuffer: unique symbol
@@ -166,8 +177,17 @@ export interface ShaderReflection {
 export interface ShaderModuleDesc {
   /** WebGL2 source. Present while WebGL2 is a target. */
   glsl?: { vertex: string; fragment: string }
-  /** WebGPU source with entry-point names. Present once WGSL is generated. */
-  wgsl?: { code: string; vertexEntry: string; fragmentEntry: string }
+  /**
+   * WebGPU source with entry-point names. A render module names `vertexEntry` +
+   * `fragmentEntry`; a compute module names `computeEntry` instead (WebGPU only
+   * — WebGL2 has no compute). Present once WGSL is generated.
+   */
+  wgsl?: {
+    code: string
+    vertexEntry?: string
+    fragmentEntry?: string
+    computeEntry?: string
+  }
   reflection: ShaderReflection
   /** Debug label surfaced in backend error messages. */
   label?: string
@@ -210,6 +230,17 @@ export type BindingType =
   | 'texture-2d'
   | 'texture-2d-array-shadow'
   | 'texture-cube-shadow'
+  /**
+   * A sampled depth texture with a non-comparison sampler (returns the raw
+   * depth as a float, not a shadow test). Backs the AO G-buffer's depth read.
+   * The texture comes from {@link GfxDevice.depthTexture}.
+   */
+  | 'texture-2d-depth'
+  /**
+   * A storage texture a compute shader writes (and optionally reads). No
+   * companion sampler. WebGPU only — never appears on a WebGL2 bind group.
+   */
+  | 'storage-texture-2d'
 
 export interface BindGroupLayoutEntry {
   /** Binding number, matching the shader's `@binding` / reflection entry. */
@@ -222,6 +253,13 @@ export interface BindGroupLayoutEntry {
    * {@link BindingResource} **must** specify `size` (the fixed slice length).
    */
   dynamicOffset?: boolean
+  /**
+   * For `'storage-texture-2d'` only. Access defaults to `'write-only'`; the
+   * storage format defaults to `'linear'` (`rgba8unorm`). Read-write needs the
+   * backend feature and is left off by default.
+   */
+  storageAccess?: 'write-only' | 'read-write'
+  storageFormat?: ColorFormat
 }
 
 /**
@@ -261,19 +299,19 @@ export type CullMode = 'none' | 'back' | 'front'
 export type FrontFace = 'ccw' | 'cw'
 
 /**
- * The backend's coordinate conventions, which 3D rendering must match. WebGL and
- * WebGPU disagree on three things, and the shared 3D code reads them here rather
- * than hardcoding one backend:
+ * The backend's coordinate conventions, which 3D rendering must match. WebGL
+ * and WebGPU disagree on three things, and the shared 3D code reads them here
+ * rather than hardcoding one backend:
  *
  * - `clipDepth`: NDC depth range. A camera builds its projection with this so
  *   depth lands in the range the backend keeps (WebGPU clips outside `[0,1]`).
  * - `frontFace`: winding of a front face for standard geometry. WebGPU's
  *   framebuffer is top-left origin, so the same NDC triangle has opposite
- *   apparent winding from WebGL's bottom-left origin; the 3D pipelines take this
- *   so face culling keeps the same faces.
- * - `textureTopDown`: row order of a sampled render-target texture. WebGPU
- *   stores row 0 at the top, WebGL at the bottom, so a pass that samples an
- *   offscreen target (RTT / post-process / present) flips V when this is true.
+ *   apparent winding from WebGL's bottom-left origin; the 3D pipelines take
+ *   this so face culling keeps the same faces.
+ * - `textureTopDown`: row order of a sampled render-target texture. WebGPU stores
+ *   row 0 at the top, WebGL at the bottom, so a pass that samples an offscreen
+ *   target (RTT / post-process / present) flips V when this is true.
  */
 export interface NdcConventions {
   clipDepth: ClipDepth
@@ -325,6 +363,29 @@ export interface PipelineDesc {
   label?: string
 }
 
+/**
+ * A compute pipeline: a `@compute` shader module plus the bind-group layouts
+ * its dispatches bind against. WebGPU only.
+ */
+export interface ComputePipelineDesc {
+  shader: ShaderModule
+  /** Bind group layouts by group index (index 0 = `@group(0)`, …). Dense. */
+  bindGroupLayouts: BindGroupLayout[]
+  label?: string
+}
+
+/**
+ * One compute dispatch: the pipeline, its bind groups, and the workgroup grid
+ * size. `y`/`z` default to `1`. Recorded inside a compute pass.
+ */
+export interface ComputeDispatch {
+  pipeline: ComputePipeline
+  bindGroups: DrawBindGroup[]
+  x: number
+  y?: number
+  z?: number
+}
+
 // --- resource creation opts -------------------------------------------------
 
 export interface Texture2DOpts {
@@ -345,6 +406,12 @@ export interface Texture2DOpts {
    * driver max; ignored when unsupported or the texture is not mipmapped.
    */
   anisotropy?: number
+  /**
+   * Allocate with storage-texture usage so a compute shader can write it (and
+   * still sample it later). WebGPU only; throws on WebGL2, which has no
+   * compute.
+   */
+  storage?: boolean
 }
 
 export interface TextureUploadOpts {
@@ -353,9 +420,9 @@ export interface TextureUploadOpts {
   /**
    * The texture is sampled with object-space UVs (e.g. a glTF mesh's own UVs),
    * not the screen-space UVs the 2D pass uses. WebGL2 ignores this. WebGPU uses
-   * it to skip the render-origin V-flip it otherwise applies (so 2D screen-space
-   * textures match WebGL's bottom-up sampling); a mesh's object-space UVs must
-   * not be flipped, or its texture samples upside-down.
+   * it to skip the render-origin V-flip it otherwise applies (so 2D
+   * screen-space textures match WebGL's bottom-up sampling); a mesh's
+   * object-space UVs must not be flipped, or its texture samples upside-down.
    */
   objectSpaceUV?: boolean
 }
@@ -374,6 +441,13 @@ export interface RenderTargetOpts {
    * and needs none; a 3D pass opts in.
    */
   depth?: boolean
+  /**
+   * Allocate the depth attachment as a sampleable texture instead of the
+   * default renderbuffer, so a later pass can read it through
+   * {@link GfxDevice.depthTexture} + a `'texture-2d-depth'` binding (the AO
+   * G-buffer). Single-sample only — implies `samples: 1`. Requires `depth`.
+   */
+  depthSampled?: boolean
   /**
    * Color-attachment format. `'linear'` (default) → `RGBA8`; `'srgb'` →
    * sRGB-encoded. Only the single-sample path honors `'srgb'`.
@@ -516,6 +590,14 @@ export interface GfxDevice {
   readonly backend: GfxBackend
   /** The backend's coordinate conventions (clip-depth, winding, texture rows). */
   readonly ndc: NdcConventions
+  /**
+   * Whether this backend exposes the compute surface
+   * ({@link createComputePipeline} / {@link beginComputePass} /
+   * {@link dispatchCompute}). `true` on WebGPU, `false` on WebGL2. A feature
+   * that wants compute (e.g. ambient occlusion) branches on this and takes a
+   * fragment off-ramp when it is `false`.
+   */
+  readonly supportsCompute: boolean
 
   // Shaders / pipelines / bind groups ---------------------------------------
   createShaderModule(desc: ShaderModuleDesc): ShaderModule
@@ -527,6 +609,11 @@ export interface GfxDevice {
    * is synchronous). Identical descriptors return the same handle.
    */
   createPipeline(desc: PipelineDesc): Promise<Pipeline>
+  /**
+   * Create a compute pipeline. Async to match {@link createPipeline} (WebGPU
+   * compiles asynchronously). Throws when {@link supportsCompute} is `false`.
+   */
+  createComputePipeline(desc: ComputePipelineDesc): Promise<ComputePipeline>
   createBindGroupLayout(entries: BindGroupLayoutEntry[]): BindGroupLayout
   createBindGroup(layout: BindGroupLayout, entries: BindGroupEntry[]): BindGroup
   deleteBindGroup(g: BindGroup): void
@@ -599,6 +686,12 @@ export interface GfxDevice {
    * target — resolve it via a pass `resolveTarget` first.
    */
   colorTexture(rt: RenderTarget): Texture
+  /**
+   * The sampleable depth texture backing a render target allocated with
+   * `depthSampled: true`. Bound through a `'texture-2d-depth'` entry. Throws
+   * for a multisample target or one without a sampleable depth attachment.
+   */
+  depthTexture(rt: RenderTarget): Texture
 
   // Shadow maps -------------------------------------------------------------
   createShadowArray(
@@ -617,6 +710,18 @@ export interface GfxDevice {
   beginRenderPass(desc: RenderPassDesc): void
   /** Close the current render pass. */
   endRenderPass(): void
+  /**
+   * Open a compute pass. Like a render pass it records into the frame's shared
+   * encoder (opened lazily), so a compute dispatch may be the first work in a
+   * frame — before any render pass or `beginFrame`. WebGPU only. No-op
+   * semantics are not offered: calling this when {@link supportsCompute} is
+   * `false` throws.
+   */
+  beginComputePass(): void
+  /** Record a compute dispatch into the current compute pass. */
+  dispatchCompute(dispatch: ComputeDispatch): void
+  /** Close the current compute pass. */
+  endComputePass(): void
   /** Submit the frame's recorded work. */
   endFrame(): void
 

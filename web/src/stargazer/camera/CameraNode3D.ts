@@ -162,6 +162,12 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     return this.#proj.projection
   }
 
+  /** Inverse of {@link CameraNode3D.projection} (clip → view). */
+  get invProjection(): Mat4 {
+    // Projection is view-independent, so it delegates straight to the helper.
+    return this.#proj.invProjection
+  }
+
   /** View matrix (inverse of the node's world pose). */
   get view(): Mat4 {
     this.#ensureMatrices()

@@ -54,9 +54,9 @@ export function postShader(
 
 /**
  * One fullscreen post-processing pass: a shader plus its per-pass uniform
- * params. The pipeline provides the fullscreen triangle, binds the input texture
- * to `u_tex` (sampler unit 0), and binds the params block the pass writes each
- * frame.
+ * params. The pipeline provides the fullscreen triangle, binds the input
+ * texture to `u_tex` (sampler unit 0), and binds the params block the pass
+ * writes each frame.
  *
  * @category Render
  */

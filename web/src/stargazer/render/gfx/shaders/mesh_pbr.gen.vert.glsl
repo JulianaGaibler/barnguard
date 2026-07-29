@@ -10,6 +10,8 @@ struct PbrFrame {
     vec4 fogColor;
     vec4 fogParams;
     vec4 debug;
+    vec4 aoParams;
+    vec4 aoParams2_;
 };
 struct PbrObject {
     mat4x4 model;

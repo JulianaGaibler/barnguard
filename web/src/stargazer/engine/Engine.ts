@@ -25,6 +25,7 @@ import {
 } from '../render/RenderQuality'
 import { Fog, type FogOptions } from '../render/Fog'
 import type { PostProcessPipeline } from '../render/postfx/PostProcessPipeline'
+import type { AmbientOcclusion } from '../render/gfx/ao/AmbientOcclusion'
 import type { GfxDevice } from '../render/gfx/GfxDevice'
 import { EngineStageManager } from './EngineStageManager'
 import type { PhysicsWorld, PhysicsWorldConfig } from '../physics/PhysicsWorld'
@@ -305,6 +306,13 @@ export class Engine {
    */
   get postProcess(): PostProcessPipeline {
     return this.primaryStage.postProcess
+  }
+  /**
+   * The primary stage's screen-space ambient occlusion for the 3D pass. Created
+   * on first access; enable with `engine.ambientOcclusion.enabled = true`.
+   */
+  get ambientOcclusion(): AmbientOcclusion {
+    return this.primaryStage.ambientOcclusion
   }
   /** The primary stage's current 2D camera, or `null` when none is current yet. */
   get currentCamera2D(): CameraNode2D | null {

@@ -10,6 +10,7 @@ import type { CameraView3D } from '../camera/CameraView3D'
 import type { CameraHost } from '../camera/CameraHost'
 import { MeshRenderer } from './gfx/MeshRenderer'
 import { PostProcessPipeline } from './postfx/PostProcessPipeline'
+import { AmbientOcclusion } from './gfx/ao/AmbientOcclusion'
 import { DebugLine3DRenderer } from './gfx/DebugLine3DRenderer'
 import { Viewport2DNode } from '../nodes/Viewport2DNode'
 import { walkTree } from '../scene/traverse'
@@ -140,6 +141,8 @@ export class Stage implements CameraHost {
   #debugLines: DebugLine3DRenderer | null = null
   /** Created lazily on first `postProcess` access. */
   #postProcess: PostProcessPipeline | null = null
+  /** Created lazily on first `ambientOcclusion` access. */
+  #ambientOcclusion: AmbientOcclusion | null = null
 
   // Camera registry (Godot Viewport model): registration-order arrays + the
   // current camera per dimension. Camera nodes register/unregister through the
@@ -446,6 +449,37 @@ export class Stage implements CameraHost {
       this.#meshRenderer.renderShadows(this.tree.root)
     }
 
+    // Ambient-occlusion pre-pass: fill the G-buffer and estimate occlusion into
+    // a texture the main pass samples. Same pre-`beginFrame` window as shadows.
+    // Read the controller through the private field so a pure-2D stage never
+    // constructs it. The mesh renderer gets the AO texture (or null when off).
+    const ao = this.#ambientOcclusion
+    const aoActive =
+      has3D &&
+      cam3d !== null &&
+      this.#meshRenderer !== null &&
+      (ao?.enabled ?? false)
+    if (aoActive && ao && cam3d && this.#meshRenderer) {
+      this.#phaseBegin(marks, 'ao')
+      ao.run(
+        cam3d,
+        this.tree.root,
+        this.#meshRenderer,
+        renderer.pixelSize.w,
+        renderer.pixelSize.h,
+      )
+      this.#phaseEnd(marks, 'ao')
+    }
+    if (this.#meshRenderer) {
+      this.#meshRenderer.setAmbientOcclusion(
+        aoActive && ao ? ao.aoTexture : null,
+        aoActive,
+        renderer.pixelSize.w,
+        renderer.pixelSize.h,
+        ao?.directStrength ?? 0,
+      )
+    }
+
     this.#phaseBegin(marks, 'clear')
     screen.beginFrame({
       clearColor: renderer.clearColor,
@@ -573,6 +607,27 @@ export class Stage implements CameraHost {
   }
 
   /**
+   * Screen-space ambient occlusion for the 3D pass. Created on first access;
+   * enable it with `stage.ambientOcclusion.enabled = true`. A stage that never
+   * touches it allocates nothing and runs no AO passes.
+   */
+  get ambientOcclusion(): AmbientOcclusion {
+    if (!this.#ambientOcclusion) {
+      this.#ambientOcclusion = new AmbientOcclusion(this.#device)
+    }
+    return this.#ambientOcclusion
+  }
+
+  /**
+   * The AO controller only if already created, without constructing it — so a
+   * debug panel can read its state each frame without warming AO pipelines on a
+   * stage that never enabled it.
+   */
+  peekAmbientOcclusion(): AmbientOcclusion | null {
+    return this.#ambientOcclusion
+  }
+
+  /**
    * Last-frame 3D mesh draw counts (draws/visible/vertices/triangles), or
    * `null` when no 3D pass has run on this stage. Read by the debug HUD.
    */
@@ -650,6 +705,11 @@ export class Stage implements CameraHost {
    */
   setMsaaSamples(samples: number): void {
     this.#screenGfx.setSamples(samples)
+    // The 3D pipelines bake the target's sample count, so re-point them at the
+    // resized target. Each drops `ready` and re-warms. The 3D pass is gated on
+    // `ready`, so it is skipped until the new-sample pipelines are live.
+    this.#meshRenderer?.retarget(this.#screenGfx.targetColor)
+    this.#debugLines?.retarget(this.#screenGfx.targetColor)
   }
 
   /** Effective (post-clamp) MSAA sample count. */
@@ -762,6 +822,8 @@ export class Stage implements CameraHost {
     this.#debugLines = null
     this.#postProcess?.destroy()
     this.#postProcess = null
+    this.#ambientOcclusion?.dispose()
+    this.#ambientOcclusion = null
     // Tear down the WebGL2 device last, canvas listeners live on it.
     this.#device.destroy()
   }

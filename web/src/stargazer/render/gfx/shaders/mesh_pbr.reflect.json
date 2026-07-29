@@ -28,6 +28,10 @@
   ],
   "samplers": [
     {
+      "binding": 2,
+      "glslName": "_group_0_binding_2_fs"
+    },
+    {
       "binding": 8,
       "glslName": "_group_0_binding_8_fs"
     },

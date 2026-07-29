@@ -1,14 +1,16 @@
 /**
  * WebGPU implementation of `GfxDevice`. Owns a `GPUDevice` and its canvas
- * context and implements the pipeline/bind-group/render-pass model directly:
- * a frame is a `GPUCommandEncoder`, a pass is a `GPURenderPassEncoder` with its
- * attachments and load/store ops, a pipeline is an immutable `GPURenderPipeline`
- * memoized by descriptor, and a bind group resolves to a `GPUBindGroup`.
+ * context and implements the pipeline/bind-group/render-pass model directly: a
+ * frame is a `GPUCommandEncoder`, a pass is a `GPURenderPassEncoder` with its
+ * attachments and load/store ops, a pipeline is an immutable
+ * `GPURenderPipeline` memoized by descriptor, and a bind group resolves to a
+ * `GPUBindGroup`.
  *
  * Acquisition is async (`navigator.gpu.requestAdapter` / `requestDevice`) while
  * the interface is mostly synchronous, so construction goes through the static
  * `WebGPUDevice.create` factory and the constructor is private: by the time the
- * device exists the `GPUDevice`, context, and preferred format are all in hand.
+ * device exists the `GPUDevice`, context, and preferred format are all in
+ * hand.
  *
  * Sampler binding convention: the WGSL declares each texture's companion
  * sampler at `textureBinding + 16` (regular textures) and each shadow map's
@@ -26,6 +28,9 @@ import type {
   BlitOpts,
   ColorFormat,
   CompareFn,
+  ComputeDispatch,
+  ComputePipeline,
+  ComputePipelineDesc,
   DepthTarget,
   DeviceLimits,
   DeviceStats,
@@ -61,18 +66,26 @@ import {
   topologyToGPU,
   vertexFormatToGPU,
 } from './conv'
+import { BlitPass, mipLevels } from './blitPass'
+import { pipelineKey } from '../pipelineKey'
+import { getSourceWidth, getSourceHeight } from '../imageSource'
 
 // --- concrete backing structs (kept private, exposed as branded handles) ----
 
 interface WebGPUShader extends ShaderModule {
   module: GPUShaderModule
-  vertexEntry: string
-  fragmentEntry: string
+  vertexEntry?: string
+  fragmentEntry?: string
+  computeEntry?: string
 }
 
 interface WebGPUPipeline extends Pipeline {
   gpu: GPURenderPipeline
   vertexLayout: VertexBufferLayout[]
+}
+
+interface WebGPUComputePipeline extends ComputePipeline {
+  gpu: GPUComputePipeline
 }
 
 interface WebGPUBindGroupLayout extends BindGroupLayout {
@@ -133,6 +146,8 @@ type WebGPURenderTarget = RenderTarget & {
   /** Multisample color texture, allocated only when `samples > 1`. */
   colorMs?: GPUTexture
   depthTex?: GPUTexture
+  /** Depth allocated as a sampleable single-sample texture (G-buffer). */
+  depthSampled?: boolean
   width: number
   height: number
   samples: number
@@ -143,7 +158,6 @@ type WebGPURenderTarget = RenderTarget & {
 export class WebGPUDevice implements GfxDevice {
   readonly #device: GPUDevice
   readonly #context: GPUCanvasContext
-  readonly #preferredFormat: GPUTextureFormat
 
   #lost = false
   #destroying = false
@@ -156,24 +170,21 @@ export class WebGPUDevice implements GfxDevice {
   #encoder: GPUCommandEncoder | null = null
   /** The current render pass, open between `beginRenderPass`/`endRenderPass`. */
   #pass: GPURenderPassEncoder | null = null
+  /** The current compute pass, open between `beginComputePass`/`endComputePass`. */
+  #computePass: GPUComputePassEncoder | null = null
   /** Last pipeline set on the open pass, for the `pipelineSwitches` stat. */
   #lastPipeline: GPURenderPipeline | null = null
 
   // Cached samplers reused across bind groups. Regular textures share one
   // filtering sampler per (filter, wrap). Shadows share a comparison sampler
-  // per CompareFn.
+  // per CompareFn. Sampled depth (G-buffer) uses a non-filtering sampler.
   readonly #filterSamplers = new Map<string, GPUSampler>()
   readonly #comparisonSamplers = new Map<CompareFn, GPUSampler>()
+  #nonFilteringSampler: GPUSampler | null = null
 
-  // Lazily-built present blit resources (one fullscreen-triangle pipeline plus a
-  // pair of samplers keyed by filter).
-  #blitModule: GPUShaderModule | null = null
-  #blitLayout: GPUBindGroupLayout | null = null
-  #blitPipeline: GPURenderPipeline | null = null
-  readonly #blitSamplers = new Map<'nearest' | 'linear', GPUSampler>()
-
-  // Mipmap-generation pipelines, one per color format (reuses the blit module).
-  readonly #mipPipelines = new Map<GPUTextureFormat, GPURenderPipeline>()
+  // Fullscreen-triangle blit (present) + mipmap generation. Built lazily; only
+  // needs the device + swapchain format, so it lives in its own helper.
+  readonly #blit: BlitPass
 
   readonly deviceStats: DeviceStats = {
     pipelineSwitches: 0,
@@ -184,6 +195,8 @@ export class WebGPUDevice implements GfxDevice {
   readonly limits: DeviceLimits
 
   readonly backend = 'webgpu' as const
+
+  readonly supportsCompute = true
 
   /**
    * WebGPU conventions: `[0,1]` clip depth and top-down sampled render-target
@@ -203,8 +216,8 @@ export class WebGPUDevice implements GfxDevice {
 
   /**
    * Acquire an adapter + device, configure the canvas for WebGPU, and build a
-   * device. Async because adapter/device acquisition is. Throws a clear error if
-   * WebGPU is unavailable or the adapter/device request fails.
+   * device. Async because adapter/device acquisition is. Throws a clear error
+   * if WebGPU is unavailable or the adapter/device request fails.
    */
   static async create(canvas: HTMLCanvasElement): Promise<WebGPUDevice> {
     if (!navigator.gpu) {
@@ -234,7 +247,7 @@ export class WebGPUDevice implements GfxDevice {
   ) {
     this.#device = device
     this.#context = context
-    this.#preferredFormat = preferredFormat
+    this.#blit = new BlitPass(device, preferredFormat)
     this.limits = {
       minUniformBufferOffsetAlignment:
         device.limits.minUniformBufferOffsetAlignment,
@@ -273,6 +286,7 @@ export class WebGPUDevice implements GfxDevice {
       module,
       vertexEntry: desc.wgsl.vertexEntry,
       fragmentEntry: desc.wgsl.fragmentEntry,
+      computeEntry: desc.wgsl.computeEntry,
     } as WebGPUShader
   }
 
@@ -343,7 +357,9 @@ export class WebGPUDevice implements GfxDevice {
       descriptor.depthStencil = {
         format: 'depth24plus',
         depthWriteEnabled: d.write,
-        depthCompare: d.test ? compareFnToGPU(d.compare ?? 'less-equal') : 'always',
+        depthCompare: d.test
+          ? compareFnToGPU(d.compare ?? 'less-equal')
+          : 'always',
         depthBias: d.biasConstant ?? 0,
         depthBiasSlopeScale: d.biasSlopeScale ?? 0,
       }
@@ -359,19 +375,75 @@ export class WebGPUDevice implements GfxDevice {
     return pipeline
   }
 
+  async createComputePipeline(
+    desc: ComputePipelineDesc,
+  ): Promise<ComputePipeline> {
+    const device = this.#device
+    const shader = desc.shader as WebGPUShader
+    if (!shader.computeEntry) {
+      throw new Error(
+        'WebGPUDevice.createComputePipeline: shader has no compute entry point',
+      )
+    }
+    const layout = device.createPipelineLayout({
+      bindGroupLayouts: desc.bindGroupLayouts.map(
+        (bgl) => (bgl as WebGPUBindGroupLayout).gpu,
+      ),
+      label: desc.label,
+    })
+    const gpu = await device.createComputePipelineAsync({
+      label: desc.label,
+      layout,
+      compute: { module: shader.module, entryPoint: shader.computeEntry },
+    })
+    return {
+      __gfxComputePipeline: undefined as never,
+      gpu,
+    } as WebGPUComputePipeline
+  }
+
   // --- bind groups ----------------------------------------------------------
 
   createBindGroupLayout(entries: BindGroupLayoutEntry[]): BindGroupLayout {
     const gpuEntries: GPUBindGroupLayoutEntry[] = []
-    // Both stages see every binding: the layouts are small and this avoids
-    // tracking which stage each resource is read in.
-    const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT
+    // Every binding is visible to all stages a resource of its kind may be read
+    // in: the layouts are small and this avoids tracking which stage each
+    // resource is used in. Storage textures are the exception — WebGPU forbids
+    // them in the vertex stage — so they take FRAGMENT | COMPUTE only.
+    const vis =
+      GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE
     for (const e of entries) {
       if (e.type === 'uniform-buffer') {
         gpuEntries.push({
           binding: e.binding,
           visibility: vis,
           buffer: { type: 'uniform', hasDynamicOffset: !!e.dynamicOffset },
+        })
+        continue
+      }
+      if (e.type === 'storage-texture-2d') {
+        gpuEntries.push({
+          binding: e.binding,
+          visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
+          storageTexture: {
+            access: e.storageAccess ?? 'write-only',
+            format: colorFormatToGPU(e.storageFormat ?? 'linear'),
+            viewDimension: '2d',
+          },
+        })
+        continue
+      }
+      if (e.type === 'texture-2d-depth') {
+        // Sampled depth read with a non-comparison, non-filtering sampler.
+        gpuEntries.push({
+          binding: e.binding,
+          visibility: vis,
+          texture: { sampleType: 'depth' },
+        })
+        gpuEntries.push({
+          binding: e.binding + 16,
+          visibility: vis,
+          sampler: { type: 'non-filtering' },
         })
         continue
       }
@@ -451,10 +523,28 @@ export class WebGPUDevice implements GfxDevice {
           binding: e.binding,
           resource: tex.gpu.createView(),
         })
-        gpuEntries.push({
-          binding: e.binding + 16,
-          resource: this.#filterSampler(tex.filter, tex.wrap),
-        })
+        // A storage texture binds without a sampler; a sampled depth texture
+        // takes a non-filtering sampler; a regular texture its filtering one.
+        if (le.type === 'storage-texture-2d') {
+          // no companion sampler
+        } else if (le.type === 'texture-2d-depth') {
+          gpuEntries.push({
+            binding: e.binding + 16,
+            resource:
+              this.#nonFilteringSampler ??
+              (this.#nonFilteringSampler = this.#device.createSampler({
+                magFilter: 'nearest',
+                minFilter: 'nearest',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+              })),
+          })
+        } else {
+          gpuEntries.push({
+            binding: e.binding + 16,
+            resource: this.#filterSampler(tex.filter, tex.wrap),
+          })
+        }
       } else if ('shadowArray' in res) {
         const sa = res.shadowArray as WebGPUShadowArray
         gpuEntries.push({
@@ -574,7 +664,13 @@ export class WebGPUDevice implements GfxDevice {
   ): void {
     const size =
       byteLength !== undefined ? byteLength : src.byteLength - srcOffsetBytes
-    this.#writeAligned(gpu, byteOffset, src.buffer, src.byteOffset + srcOffsetBytes, size)
+    this.#writeAligned(
+      gpu,
+      byteOffset,
+      src.buffer,
+      src.byteOffset + srcOffsetBytes,
+      size,
+    )
   }
 
   /**
@@ -592,7 +688,13 @@ export class WebGPUDevice implements GfxDevice {
     size: number,
   ): void {
     if (size % 4 === 0) {
-      this.#device.queue.writeBuffer(gpu, byteOffset, srcBuffer, srcByteOffset, size)
+      this.#device.queue.writeBuffer(
+        gpu,
+        byteOffset,
+        srcBuffer,
+        srcByteOffset,
+        size,
+      )
       return
     }
     const padded = roundUp4(size)
@@ -616,7 +718,11 @@ export class WebGPUDevice implements GfxDevice {
     } as WebGPUUniformBuffer
   }
 
-  updateUniformBuffer(buf: UBuffer, data: ArrayBufferView, byteOffset = 0): void {
+  updateUniformBuffer(
+    buf: UBuffer,
+    data: ArrayBufferView,
+    byteOffset = 0,
+  ): void {
     const b = buf as WebGPUUniformBuffer
     this.#writeAligned(
       b.gpu,
@@ -662,7 +768,13 @@ export class WebGPUDevice implements GfxDevice {
     src: Uint16Array | Uint32Array,
   ): void {
     const b = buf as WebGPUIndexBuffer
-    this.#writeAligned(b.gpu, byteOffset, src.buffer, src.byteOffset, src.byteLength)
+    this.#writeAligned(
+      b.gpu,
+      byteOffset,
+      src.buffer,
+      src.byteOffset,
+      src.byteLength,
+    )
   }
 
   deleteIndexBuffer(buf: IBuffer): void {
@@ -685,7 +797,8 @@ export class WebGPUDevice implements GfxDevice {
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.RENDER_ATTACHMENT,
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        (opts.storage ? GPUTextureUsage.STORAGE_BINDING : 0),
       mipLevelCount,
     })
     return {
@@ -712,7 +825,12 @@ export class WebGPUDevice implements GfxDevice {
     const t = tex as WebGPUTexture
     this.#uploadImage(t.gpu, xOffset, yOffset, source, opts)
     if (t.mipmap) {
-      this.#generateMips(t.gpu, t.srgb ? 'rgba8unorm-srgb' : 'rgba8unorm', t.width, t.height)
+      this.#blit.generateMips(
+        t.gpu,
+        t.srgb ? 'rgba8unorm-srgb' : 'rgba8unorm',
+        t.width,
+        t.height,
+      )
     }
   }
 
@@ -755,24 +873,29 @@ export class WebGPUDevice implements GfxDevice {
     }
     this.#uploadImage(t.gpu, 0, 0, source, opts)
     if (t.mipmap) {
-      this.#generateMips(t.gpu, t.srgb ? 'rgba8unorm-srgb' : 'rgba8unorm', t.width, t.height)
+      this.#blit.generateMips(
+        t.gpu,
+        t.srgb ? 'rgba8unorm-srgb' : 'rgba8unorm',
+        t.width,
+        t.height,
+      )
     }
   }
 
   /**
-   * Upload an image source into a texture. WebGPU's `copyExternalImageToTexture`
-   * accepts only ImageBitmap / canvas / image / video, not `ImageData` (which
-   * WebGL2's `texImage2D` does), so an `ImageData` goes through `writeTexture`
-   * as raw RGBA8 bytes, applying `flipY` / `premultiply` on the CPU since
-   * `writeTexture` does neither.
+   * Upload an image source into a texture. WebGPU's
+   * `copyExternalImageToTexture` accepts only ImageBitmap / canvas / image /
+   * video, not `ImageData` (which WebGL2's `texImage2D` does), so an
+   * `ImageData` goes through `writeTexture` as raw RGBA8 bytes, applying
+   * `flipY` / `premultiply` on the CPU since `writeTexture` does neither.
    */
   /**
    * The `flipY` an upload must use. The 2D pass samples textures with UVs that
    * share the render target's V orientation, and that orientation differs
    * between backends, so a screen-space texture flips relative to its WebGL
-   * `flipY` to sample the same way. A mesh's object-space UVs are independent of
-   * the render target, so those upload with their `flipY` unchanged (else the
-   * texture samples upside-down).
+   * `flipY` to sample the same way. A mesh's object-space UVs are independent
+   * of the render target, so those upload with their `flipY` unchanged (else
+   * the texture samples upside-down).
    */
   #uploadFlipY(opts: TextureUploadOpts): boolean {
     if (opts.objectSpaceUV) return opts.flipY ?? false
@@ -921,11 +1044,18 @@ export class WebGPUDevice implements GfxDevice {
     }
 
     if (opts.depth) {
+      // A sampleable depth attachment (the AO G-buffer) is single-sample and
+      // adds TEXTURE_BINDING so a later pass can read it as `texture_depth_2d`.
+      // depth24plus already supports sampling, so the render pipeline's baked
+      // depth format needs no change.
+      rt.depthSampled = !!opts.depthSampled
       rt.depthTex = device.createTexture({
         size: [width, height, 1],
         format: 'depth24plus',
-        sampleCount: samples,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount: rt.depthSampled ? 1 : samples,
+        usage:
+          GPUTextureUsage.RENDER_ATTACHMENT |
+          (rt.depthSampled ? GPUTextureUsage.TEXTURE_BINDING : 0),
       })
     }
     return rt
@@ -961,8 +1091,10 @@ export class WebGPUDevice implements GfxDevice {
       r.depthTex = device.createTexture({
         size: [w, h, 1],
         format: 'depth24plus',
-        sampleCount: r.samples,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount: r.depthSampled ? 1 : r.samples,
+        usage:
+          GPUTextureUsage.RENDER_ATTACHMENT |
+          (r.depthSampled ? GPUTextureUsage.TEXTURE_BINDING : 0),
       })
     }
     ;(r as { width: number }).width = w
@@ -999,6 +1131,28 @@ export class WebGPUDevice implements GfxDevice {
     } as WebGPUTexture
   }
 
+  depthTexture(rt: RenderTarget): Texture {
+    const r = rt as WebGPURenderTarget
+    if (!r.depthTex || !r.depthSampled) {
+      throw new Error(
+        'WebGPUDevice.depthTexture: target has no sampleable depth attachment (allocate with depthSampled: true)',
+      )
+    }
+    // Borrow the render target's depth texture; the target owns its lifetime.
+    return {
+      __gfxTexture: undefined as never,
+      gpu: r.depthTex,
+      width: r.width,
+      height: r.height,
+      filter: 'nearest',
+      wrap: 'clamp',
+      srgb: false,
+      mipmap: false,
+      anisotropy: 1,
+      owned: false,
+    } as WebGPUTexture
+  }
+
   // --- shadow maps ----------------------------------------------------------
 
   createShadowArray(
@@ -1022,7 +1176,10 @@ export class WebGPUDevice implements GfxDevice {
     } as WebGPUShadowArray
   }
 
-  createShadowCube(size: number, compare: CompareFn = 'less-equal'): ShadowCube {
+  createShadowCube(
+    size: number,
+    compare: CompareFn = 'less-equal',
+  ): ShadowCube {
     const gpu = this.#device.createTexture({
       size: [size, size, 6],
       format: 'depth24plus',
@@ -1146,6 +1303,35 @@ export class WebGPUDevice implements GfxDevice {
     this.#lastPipeline = null
   }
 
+  beginComputePass(): void {
+    this.#ensureEncoder()
+    this.#computePass = this.#encoder!.beginComputePass()
+  }
+
+  dispatchCompute(dispatch: ComputeDispatch): void {
+    const pass = this.#computePass
+    if (!pass) {
+      throw new Error('WebGPUDevice.dispatchCompute: no open compute pass')
+    }
+    const p = dispatch.pipeline as WebGPUComputePipeline
+    pass.setPipeline(p.gpu)
+    for (const dg of dispatch.bindGroups) {
+      const bg = dg.bindGroup as WebGPUBindGroup
+      if (dg.dynamicOffsets && dg.dynamicOffsets.length > 0) {
+        pass.setBindGroup(dg.group, bg.gpu, dg.dynamicOffsets)
+      } else {
+        pass.setBindGroup(dg.group, bg.gpu)
+      }
+    }
+    pass.dispatchWorkgroups(dispatch.x, dispatch.y ?? 1, dispatch.z ?? 1)
+  }
+
+  endComputePass(): void {
+    if (!this.#computePass) return
+    this.#computePass.end()
+    this.#computePass = null
+  }
+
   endFrame(): void {
     if (!this.#encoder) return
     this.#device.queue.submit([this.#encoder.finish()])
@@ -1206,183 +1392,13 @@ export class WebGPUDevice implements GfxDevice {
         'WebGPUDevice.present: source is multisample (not sampleable); resolve it first',
       )
     }
-    this.#ensureBlit()
-    const device = this.#device
-    const filter = opts.filter === 'nearest' ? 'nearest' : 'linear'
-    const bindGroup = device.createBindGroup({
-      layout: this.#blitLayout!,
-      entries: [
-        { binding: 0, resource: r.color.createView() },
-        { binding: 1, resource: this.#blitSampler(filter) },
-      ],
-    })
-    // A fresh encoder + pass targets the swapchain texture. Present runs outside
-    // the frame's render pass.
-    const encoder = device.createCommandEncoder()
-    const pass = encoder.beginRenderPass({
-      colorAttachments: [
-        {
-          view: this.#context.getCurrentTexture().createView(),
-          loadOp: 'clear',
-          storeOp: 'store',
-          clearValue: { r: 0, g: 0, b: 0, a: 0 },
-        },
-      ],
-    })
-    pass.setPipeline(this.#blitPipeline!)
-    pass.setBindGroup(0, bindGroup)
-    pass.draw(3, 1, 0, 0)
-    pass.end()
-    device.queue.submit([encoder.finish()])
-  }
-
-  #blitSampler(filter: 'nearest' | 'linear'): GPUSampler {
-    let s = this.#blitSamplers.get(filter)
-    if (s) return s
-    const f: GPUFilterMode = filter === 'nearest' ? 'nearest' : 'linear'
-    s = this.#device.createSampler({
-      magFilter: f,
-      minFilter: f,
-      addressModeU: 'clamp-to-edge',
-      addressModeV: 'clamp-to-edge',
-    })
-    this.#blitSamplers.set(filter, s)
-    return s
-  }
-
-  /**
-   * Lazily build the fullscreen-triangle blit pipeline. The source render
-   * target is stored top-down (`ndc.textureTopDown` is true), matching the
-   * swapchain's top-left origin, so the blit samples the source UV directly
-   * with NO V-flip: a WebGL blit ends up upright because WebGL stores bottom-up
-   * and blits into a bottom-up default framebuffer, and the WebGPU path reaches
-   * the same upright image by keeping both sides top-down. (Prime in-browser
-   * verification point.)
-   */
-  #ensureBlit(): void {
-    if (this.#blitPipeline) return
-    const device = this.#device
-    const code = `
-struct VOut {
-  @builtin(position) pos: vec4<f32>,
-  @location(0) uv: vec2<f32>,
-};
-
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VOut {
-  // Oversized triangle covering the viewport. Clip xy in [-1,3], uv in [0,2].
-  var out: VOut;
-  let x = f32((vi << 1u) & 2u);
-  let y = f32(vi & 2u);
-  out.uv = vec2<f32>(x, y);
-  out.pos = vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
-  return out;
-}
-
-@group(0) @binding(0) var u_src: texture_2d<f32>;
-@group(0) @binding(1) var u_srcSamp: sampler;
-
-@fragment
-fn fs_main(in: VOut) -> @location(0) vec4<f32> {
-  return textureSample(u_src, u_srcSamp, in.uv);
-}
-`
-    this.#blitModule = device.createShaderModule({ code, label: 'blit' })
-    this.#blitLayout = device.createBindGroupLayout({
-      entries: [
-        {
-          binding: 0,
-          visibility: GPUShaderStage.FRAGMENT,
-          texture: { sampleType: 'float' },
-        },
-        {
-          binding: 1,
-          visibility: GPUShaderStage.FRAGMENT,
-          sampler: { type: 'filtering' },
-        },
-      ],
-    })
-    const pipelineLayout = device.createPipelineLayout({
-      bindGroupLayouts: [this.#blitLayout],
-    })
-    this.#blitPipeline = device.createRenderPipeline({
-      label: 'blit',
-      layout: pipelineLayout,
-      vertex: { module: this.#blitModule, entryPoint: 'vs_main' },
-      fragment: {
-        module: this.#blitModule,
-        entryPoint: 'fs_main',
-        targets: [{ format: this.#preferredFormat }],
-      },
-      primitive: { topology: 'triangle-list' },
-    })
-  }
-
-  /**
-   * Generate the mip chain for a just-uploaded texture. WebGPU has no automatic
-   * mipmap generation (unlike WebGL's `generateMipmap`), so each level is
-   * produced by rendering a fullscreen triangle that samples the level above
-   * with a linear filter (a 2×2 box downsample). Runs on its own command
-   * encoder, queued after the mip-0 upload so it reads a complete level.
-   */
-  #generateMips(gpu: GPUTexture, format: GPUTextureFormat, width: number, height: number): void {
-    const levels = mipLevels(width, height)
-    if (levels <= 1) return
-    this.#ensureBlit() // builds the shared fullscreen-sample module + layout
-    const device = this.#device
-    const pipeline = this.#mipPipelineFor(format)
-    const sampler = this.#blitSampler('linear')
-    const encoder = device.createCommandEncoder()
-    for (let level = 1; level < levels; level++) {
-      const bindGroup = device.createBindGroup({
-        layout: this.#blitLayout!,
-        entries: [
-          {
-            binding: 0,
-            resource: gpu.createView({
-              baseMipLevel: level - 1,
-              mipLevelCount: 1,
-            }),
-          },
-          { binding: 1, resource: sampler },
-        ],
-      })
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [
-          {
-            view: gpu.createView({ baseMipLevel: level, mipLevelCount: 1 }),
-            loadOp: 'clear',
-            storeOp: 'store',
-            clearValue: { r: 0, g: 0, b: 0, a: 0 },
-          },
-        ],
-      })
-      pass.setPipeline(pipeline)
-      pass.setBindGroup(0, bindGroup)
-      pass.draw(3, 1, 0, 0)
-      pass.end()
-    }
-    device.queue.submit([encoder.finish()])
-  }
-
-  #mipPipelineFor(format: GPUTextureFormat): GPURenderPipeline {
-    let p = this.#mipPipelines.get(format)
-    if (p) return p
-    p = this.#device.createRenderPipeline({
-      label: 'mipgen',
-      layout: this.#device.createPipelineLayout({
-        bindGroupLayouts: [this.#blitLayout!],
-      }),
-      vertex: { module: this.#blitModule!, entryPoint: 'vs_main' },
-      fragment: {
-        module: this.#blitModule!,
-        entryPoint: 'fs_main',
-        targets: [{ format }],
-      },
-      primitive: { topology: 'triangle-list' },
-    })
-    this.#mipPipelines.set(format, p)
-    return p
+    // Present runs outside the frame's render pass. The source is top-down,
+    // matching the swapchain, so the blit does not V-flip.
+    this.#blit.blit(
+      r.color.createView(),
+      this.#context.getCurrentTexture().createView(),
+      opts.filter === 'nearest' ? 'nearest' : 'linear',
+    )
   }
 
   // --- context loss ---------------------------------------------------------
@@ -1416,56 +1432,4 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     this.#device.destroy()
     this.#lost = true
   }
-}
-
-// --- helpers ----------------------------------------------------------------
-
-/** Full mip-chain length for a 2D texture of the given dimensions. */
-function mipLevels(width: number, height: number): number {
-  return 1 + Math.floor(Math.log2(Math.max(width, height)))
-}
-
-function getSourceWidth(source: TexImageSource): number {
-  if ('width' in source && typeof source.width === 'number') return source.width
-  return 0
-}
-
-function getSourceHeight(source: TexImageSource): number {
-  if ('height' in source && typeof source.height === 'number') {
-    return source.height
-  }
-  return 0
-}
-
-/**
- * Stable string key for pipeline memoization: handle identity for
- * shader/layouts (via ids assigned lazily), structural for the scalar fields.
- * Mirrors the WebGL2 backend's keying so the same descriptor reuses one
- * pipeline.
- */
-const pipelineIdTag = Symbol('gfxPipelineIdWgpu')
-let nextPipelineTagId = 1
-function tagId(o: object): number {
-  const rec = o as unknown as Record<symbol, number>
-  if (!rec[pipelineIdTag]) rec[pipelineIdTag] = nextPipelineTagId++
-  return rec[pipelineIdTag]
-}
-
-function pipelineKey(desc: PipelineDesc): string {
-  const shaderId = tagId(desc.shader)
-  const layoutIds = desc.bindGroupLayouts.map(tagId).join('.')
-  const vtx = desc.vertexLayout
-    .map(
-      (l) =>
-        `${l.arrayStride}:${l.stepMode[0]}:` +
-        l.attributes
-          .map((a) => `${a.location}/${a.format}/${a.offset}`)
-          .join('-'),
-    )
-    .join(';')
-  const color = desc.color ? `${desc.color.format}/${desc.color.blend}` : 'none'
-  const depth = desc.depth
-    ? `${desc.depth.test ? 1 : 0}${desc.depth.write ? 1 : 0}/${desc.depth.compare ?? 'le'}/${desc.depth.biasSlopeScale ?? 0}/${desc.depth.biasConstant ?? 0}`
-    : 'none'
-  return `s${shaderId}|bgl${layoutIds}|v${vtx}|c${color}|d${depth}|${desc.cull}|${desc.frontFace}|${desc.primitive}|x${desc.samples}`
 }

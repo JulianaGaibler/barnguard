@@ -96,6 +96,8 @@ export class Camera3D implements CameraView3D {
   #_projDirty = true
   #_viewDirty = true
   readonly #_proj: Mat4 = mat4()
+  readonly #_invProj: Mat4 = mat4()
+  #_invProjDirty = true
   readonly #_view: Mat4 = mat4()
   readonly #_viewProj: Mat4 = mat4()
   readonly #_invViewProj: Mat4 = mat4()
@@ -183,10 +185,10 @@ export class Camera3D implements CameraView3D {
 
   /**
    * NDC depth convention the projection is built for. Set from the active
-   * backend (`device.ndc.clipDepth`) so the uploaded view-projection lands depth
-   * in the range the backend keeps, and `screenToRay` unprojects the near plane
-   * at the matching z. Rebuilding on a change keeps picking consistent with the
-   * render projection.
+   * backend (`device.ndc.clipDepth`) so the uploaded view-projection lands
+   * depth in the range the backend keeps, and `screenToRay` unprojects the near
+   * plane at the matching z. Rebuilding on a change keeps picking consistent
+   * with the render projection.
    */
   get clipDepth(): ClipDepth {
     return this.#_clipDepth
@@ -199,6 +201,7 @@ export class Camera3D implements CameraView3D {
 
   #markProjDirty(): void {
     this.#_projDirty = true
+    this.#_invProjDirty = true
     this.#_viewProjDirty = true
   }
 
@@ -244,6 +247,20 @@ export class Camera3D implements CameraView3D {
       this.#_projDirty = false
     }
     return this.#_proj
+  }
+
+  /**
+   * Inverse of {@link Camera3D.projection} (clip → view). Reconstructs a
+   * view-space position from a sampled depth (the AO pass), and stays correct
+   * across the ortho↔perspective blend because it inverts the actual blended
+   * projection, not a hardcoded perspective form.
+   */
+  get invProjection(): Mat4 {
+    if (this.#_invProjDirty) {
+      mat4Invert(this.#_invProj, this.projection)
+      this.#_invProjDirty = false
+    }
+    return this.#_invProj
   }
 
   /** View matrix (inverse of the camera pose). */
@@ -319,7 +336,13 @@ export class Camera3D implements CameraView3D {
     // Near-plane NDC z matches the clip-depth convention (0 for [0,1], -1 for
     // [-1,1]); the far plane is z = 1 in both.
     const nearZ = this.#_clipDepth === 'zero-to-one' ? 0 : -1
-    const near = mat4TransformPoint(vec3(), this.#_invViewProj, ndcX, ndcY, nearZ)
+    const near = mat4TransformPoint(
+      vec3(),
+      this.#_invViewProj,
+      ndcX,
+      ndcY,
+      nearZ,
+    )
     const far = mat4TransformPoint(vec3(), this.#_invViewProj, ndcX, ndcY, 1)
     const r: Ray = out ?? { origin: vec3(), direction: vec3() }
     r.origin.x = near.x

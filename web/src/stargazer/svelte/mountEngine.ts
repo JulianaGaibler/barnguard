@@ -22,28 +22,28 @@ export interface MountEngineActionParams {
   onDestroy?: (host: EngineHost) => void
   /**
    * Rendering backend. `'auto'` (default) prefers WebGPU where it works and
-   * falls back to WebGL2. `'webgpu'`/`'webgl2'` force one. A device supplied via
-   * `options.gpuDevice` wins over this and takes the synchronous path.
+   * falls back to WebGL2. `'webgpu'`/`'webgl2'` force one. A device supplied
+   * via `options.gpuDevice` wins over this and takes the synchronous path.
    */
   backend?: BackendPreference
   /**
    * Fires when a WebGPU device is lost unrecoverably. Recover by re-keying this
-   * canvas (so `mountEngine` re-runs on a fresh node) and passing
-   * `backend: 'webgl2'` on the remount, a lost WebGPU canvas can't be reused.
-   * Without it the host reloads the page.
+   * canvas (so `mountEngine` re-runs on a fresh node) and passing `backend:
+   * 'webgl2'` on the remount, a lost WebGPU canvas can't be reused. Without it
+   * the host reloads the page.
    */
   onBackendLost?: () => void
 }
 
 /**
- * Svelte action for a `<canvas>` element. Selects a rendering backend, builds an
- * {@link EngineHost} from the element, fires `onReady`, and calls
+ * Svelte action for a `<canvas>` element. Selects a rendering backend, builds
+ * an {@link EngineHost} from the element, fires `onReady`, and calls
  * `host.destroy()` on unmount. This is the only part of stargazer that touches
  * the DOM, use it instead of calling {@link createEngineHost} by hand so scene
  * teardown is tied to the component lifecycle.
  *
- * Attach it as `use:mountEngine={{ options, onReady }}`, then load the scene and
- * call `host.start()` inside `onReady`.
+ * Attach it as `use:mountEngine={{ options, onReady }}`, then load the scene
+ * and call `host.start()` inside `onReady`.
  *
  * @category Svelte
  */
@@ -107,7 +107,10 @@ export function mountEngine(
       destroyed = true
       readyPromise
         .catch((err) => {
-          console.error('[stargazer] mountEngine backend selection failed:', err)
+          console.error(
+            '[stargazer] mountEngine backend selection failed:',
+            err,
+          )
         })
         .finally(() => {
           if (!host) return

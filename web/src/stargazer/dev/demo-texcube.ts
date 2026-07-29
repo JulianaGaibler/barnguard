@@ -50,7 +50,10 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     // and shading doesn't obscure the texture orientation.
     const key = new DirectionalLight3D({ color: [1, 1, 1], intensity: 1.6 })
     root.add(key)
-    const fill = new DirectionalLight3D({ color: [0.7, 0.7, 0.8], intensity: 0.8 })
+    const fill = new DirectionalLight3D({
+      color: [0.7, 0.7, 0.8],
+      intensity: 0.8,
+    })
     const fillAim = quatFromAxisAngle(quat(), 0, 1, 0, Math.PI)
     fill.transform.setRotation(fillAim.x, fillAim.y, fillAim.z, fillAim.w)
     root.add(fill)

@@ -41,8 +41,8 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
   /**
    * Called when a WebGPU device is lost with no in-place recovery. A canvas is
    * committed to its context type once acquired, so the fix is to remount on a
-   * fresh canvas forced to WebGL2, which only the Svelte component that owns the
-   * `<canvas>` can do (re-key it and let `mountEngine` rebuild). Without an
+   * fresh canvas forced to WebGL2, which only the Svelte component that owns
+   * the `<canvas>` can do (re-key it and let `mountEngine` rebuild). Without an
    * override the default reloads the page. WebGL2 loss does not reach here, it
    * stays on the in-place retry ladder above.
    */
@@ -233,7 +233,10 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
       engine.events.emit('contextlost', { restorable })
       // Record + evict.
       const now = performance.now()
-      while (lossTimestamps.length && lossTimestamps[0] < now - LOSS_WINDOW_MS) {
+      while (
+        lossTimestamps.length &&
+        lossTimestamps[0] < now - LOSS_WINDOW_MS
+      ) {
         lossTimestamps.shift()
       }
       lossTimestamps.push(now)

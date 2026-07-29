@@ -21,6 +21,8 @@ struct FlatFrame {
   lightDir: vec4<f32>,   // xyz: direction the light travels
   lightColor: vec4<f32>, // xyz: rgb
   debug: vec4<f32>,      // x = debug mode
+  aoParams: vec4<f32>,   // x = ssao enabled, y = flip uv.y, zw = resolution px
+  aoParams2: vec4<f32>,  // x = direct-light AO strength (0 = physical, ambient only)
 };
 @group(0) @binding(1) var<uniform> frame: FlatFrame;
 
@@ -33,6 +35,24 @@ struct FlatObject {
 
 @group(1) @binding(0) var u_texture: texture_2d<f32>;
 @group(1) @binding(16) var u_textureSamp: sampler;
+
+// Screen-space ambient occlusion, sampled at the fragment's screen position.
+@group(0) @binding(2) var u_ao: texture_2d<f32>;
+@group(0) @binding(18) var u_aoSamp: sampler;
+
+// AO factor at this fragment (1 = unoccluded). Off → 1. `fragPos` is the
+// fragment builtin position (screen pixels); the flip matches the AO texture's
+// per-backend row order.
+fn sampleSSAO(fragPos: vec4<f32>) -> f32 {
+  if (frame.aoParams.x < 0.5) {
+    return 1.0;
+  }
+  var uv = fragPos.xy / frame.aoParams.zw;
+  if (frame.aoParams.y > 0.5) {
+    uv.y = 1.0 - uv.y;
+  }
+  return textureSampleLevel(u_ao, u_aoSamp, uv, 0.0).r;
+}
 
 struct VOut {
   @builtin(position) pos: vec4<f32>,
@@ -89,7 +109,12 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let lit = obj.flags.x;
   let useTexture = obj.flags.y;
 
-  // Normals view applies to all geometry regardless of texture/lighting.
+  // AO debug view (mode 3): show the raw AO buffer as greyscale.
+  if (debugMode > 2.5) {
+    let s = sampleSSAO(in.pos);
+    return vec4<f32>(s * a, s * a, s * a, a);
+  }
+  // Normals view (mode 2) applies to all geometry regardless of texture/lighting.
   if (debugMode > 1.5) {
     let n = normalize(in.normal);
     return vec4<f32>((n * 0.5 + 0.5) * a, a);
@@ -106,7 +131,11 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   if (lit > 0.5 && debugMode < 0.5) {
     let n = normalize(in.normal);
     let ndl = max(dot(n, -normalize(frame.lightDir.xyz)), 0.0);
-    shaded = base * (frame.ambient.xyz + frame.lightColor.xyz * ndl);
+    // AO scales the ambient (indirect) term; `aoDirect` optionally folds it into
+    // the direct light too (stylized — off at strength 0).
+    let ssao = sampleSSAO(in.pos);
+    let aoDirect = mix(1.0, ssao, frame.aoParams2.x);
+    shaded = base * (frame.ambient.xyz * ssao + frame.lightColor.xyz * ndl * aoDirect);
   } else {
     shaded = base;
   }

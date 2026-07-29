@@ -23,7 +23,11 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import {
+  drawInstancedRun,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
 import texturedQuadWgsl from '../shaders/texturedQuad.wgsl?raw'
 import texturedQuadVertSrc from '../shaders/texturedQuad.gen.vert.glsl?raw'

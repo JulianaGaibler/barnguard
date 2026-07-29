@@ -21,7 +21,11 @@ import {
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
-import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import {
+  drawInstancedRun,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
 import strokeWgsl from '../shaders/stroke.wgsl?raw'
 import strokeVertSrc from '../shaders/stroke.gen.vert.glsl?raw'

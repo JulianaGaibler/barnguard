@@ -12,6 +12,8 @@ struct FlatFrame {
     vec4 lightDir;
     vec4 lightColor;
     vec4 debug;
+    vec4 aoParams;
+    vec4 aoParams2_;
 };
 struct FlatObject {
     mat4x4 model;

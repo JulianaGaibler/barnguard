@@ -40,7 +40,11 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import { drawInstancedRun, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import {
+  drawInstancedRun,
+  unitQuadLayout,
+  warmupBlendPipelines,
+} from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
 import shapeWgsl from '../shaders/shape.wgsl?raw'
 import shapeVertSrc from '../shaders/shape.gen.vert.glsl?raw'

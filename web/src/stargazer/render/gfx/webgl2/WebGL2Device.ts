@@ -29,6 +29,9 @@ import type {
   BlitOpts,
   ColorFormat,
   CompareFn,
+  ComputeDispatch,
+  ComputePipeline,
+  ComputePipelineDesc,
   CullMode,
   DeviceLimits,
   NdcConventions,
@@ -56,6 +59,8 @@ import type {
   VertexBufferLayout,
   VertexFormat,
 } from '../GfxDevice'
+import { pipelineKey } from '../pipelineKey'
+import { getSourceWidth, getSourceHeight } from '../imageSource'
 
 // --- concrete backing structs (kept private, exposed as branded handles) ----
 
@@ -167,6 +172,8 @@ export type WebGL2RenderTarget = RenderTarget & {
   height: number
   samples: number
   depthRb?: WebGLRenderbuffer
+  /** Sampleable depth texture, when allocated with `depthSampled` (G-buffer). */
+  depthTex?: WebGL2Texture
 } & (
     | { color: WebGL2Texture; colorRb?: undefined }
     | { color?: undefined; colorRb: WebGLRenderbuffer }
@@ -233,6 +240,9 @@ export class WebGL2Device implements GfxDevice {
   readonly limits: DeviceLimits
 
   readonly backend = 'webgl2' as const
+
+  /** WebGL2 has no compute stage; features branch to a fragment off-ramp. */
+  readonly supportsCompute = false
 
   /** WebGL conventions: `[-1,1]` depth, CCW front faces, bottom-up textures. */
   readonly ndc: NdcConventions = {
@@ -463,6 +473,29 @@ export class WebGL2Device implements GfxDevice {
 
   // --- bind groups ----------------------------------------------------------
 
+  // --- compute (unsupported) ------------------------------------------------
+
+  createComputePipeline(_desc: ComputePipelineDesc): Promise<ComputePipeline> {
+    throw new Error(
+      'WebGL2Device: compute is unsupported (check device.supportsCompute)',
+    )
+  }
+  beginComputePass(): void {
+    throw new Error(
+      'WebGL2Device: compute is unsupported (check device.supportsCompute)',
+    )
+  }
+  dispatchCompute(_dispatch: ComputeDispatch): void {
+    throw new Error(
+      'WebGL2Device: compute is unsupported (check device.supportsCompute)',
+    )
+  }
+  endComputePass(): void {
+    throw new Error(
+      'WebGL2Device: compute is unsupported (check device.supportsCompute)',
+    )
+  }
+
   createBindGroupLayout(entries: BindGroupLayoutEntry[]): BindGroupLayout {
     return {
       __gfxBindGroupLayout: undefined as never,
@@ -673,6 +706,11 @@ export class WebGL2Device implements GfxDevice {
   // --- textures -------------------------------------------------------------
 
   createTexture2D(opts: Texture2DOpts): Texture {
+    if (opts.storage) {
+      throw new Error(
+        'WebGL2Device.createTexture2D: storage textures are unsupported (no compute)',
+      )
+    }
     const gl = this.#gl
     const tex = gl.createTexture()
     if (!tex)
@@ -901,7 +939,22 @@ export class WebGL2Device implements GfxDevice {
         hasDepth: !!opts.depth,
       } as WebGL2RenderTarget
     }
-    if (opts.depth) {
+    if (opts.depth && opts.depthSampled) {
+      // Sampleable depth: a single-sample DEPTH_COMPONENT24 texture (no stencil)
+      // attached as DEPTH_ATTACHMENT, with compare mode off and NEAREST filter
+      // so a shader reads the raw depth (not a shadow test). This is a distinct
+      // target kind from the renderbuffer depth below; MSAA depth is never
+      // sampleable, so this path is single-sample only.
+      const dtex = this.#createDepthTexture(clampedW, clampedH)
+      gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        gl.DEPTH_ATTACHMENT,
+        gl.TEXTURE_2D,
+        dtex.gl,
+        0,
+      )
+      rt.depthTex = dtex
+    } else if (opts.depth) {
       const drb = gl.createRenderbuffer()
       if (!drb) {
         this.deleteRenderTarget(rt)
@@ -1000,6 +1053,24 @@ export class WebGL2Device implements GfxDevice {
       }
       gl.bindRenderbuffer(gl.RENDERBUFFER, null)
     }
+    if (r.depthTex !== undefined) {
+      gl.bindTexture(gl.TEXTURE_2D, r.depthTex.gl)
+      gl.texImage2D(
+        gl.TEXTURE_2D,
+        0,
+        gl.DEPTH_COMPONENT24,
+        clampedW,
+        clampedH,
+        0,
+        gl.DEPTH_COMPONENT,
+        gl.UNSIGNED_INT,
+        null,
+      )
+      gl.bindTexture(gl.TEXTURE_2D, null)
+      this.#invalidateActiveUnit()
+      ;(r.depthTex as { width: number }).width = clampedW
+      ;(r.depthTex as { height: number }).height = clampedH
+    }
     ;(r as { width: number }).width = clampedW
     ;(r as { height: number }).height = clampedH
   }
@@ -1013,6 +1084,7 @@ export class WebGL2Device implements GfxDevice {
       this.deleteTexture(r.color)
     }
     if (r.depthRb !== undefined) this.#gl.deleteRenderbuffer(r.depthRb)
+    if (r.depthTex !== undefined) this.deleteTexture(r.depthTex)
   }
 
   colorTexture(rt: RenderTarget): Texture {
@@ -1023,6 +1095,59 @@ export class WebGL2Device implements GfxDevice {
       )
     }
     return r.color
+  }
+
+  depthTexture(rt: RenderTarget): Texture {
+    const r = rt as WebGL2RenderTarget
+    if (r.depthTex === undefined) {
+      throw new Error(
+        'WebGL2Device.depthTexture: target has no sampleable depth attachment (allocate with depthSampled: true)',
+      )
+    }
+    return r.depthTex
+  }
+
+  /**
+   * A single-sample `DEPTH_COMPONENT24` texture for a sampleable G-buffer depth
+   * attachment: compare mode off (raw depth read, not a shadow test) and
+   * NEAREST filtering (depth textures are not linear-filterable in WebGL2).
+   */
+  #createDepthTexture(width: number, height: number): WebGL2Texture {
+    const gl = this.#gl
+    const tex = gl.createTexture()
+    if (!tex)
+      throw new Error(
+        'WebGL2Device.#createDepthTexture: createTexture returned null',
+      )
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.DEPTH_COMPONENT24,
+      width,
+      height,
+      0,
+      gl.DEPTH_COMPONENT,
+      gl.UNSIGNED_INT,
+      null,
+    )
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_COMPARE_MODE, gl.NONE)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    this.#invalidateActiveUnit()
+    return {
+      __gfxTexture: undefined as never,
+      gl: tex,
+      width,
+      height,
+      filter: 'nearest',
+      wrap: 'clamp',
+      srgb: false,
+      mipmap: false,
+    } as WebGL2Texture
   }
 
   // --- shadow maps ----------------------------------------------------------
@@ -1410,7 +1535,7 @@ export class WebGL2Device implements GfxDevice {
           }
         } else {
           const target =
-            b.type === 'texture-2d'
+            b.type === 'texture-2d' || b.type === 'texture-2d-depth'
               ? gl.TEXTURE_2D
               : b.type === 'texture-cube-shadow'
                 ? gl.TEXTURE_CUBE_MAP
@@ -1665,37 +1790,6 @@ function compareFnGl(gl: WebGL2RenderingContext, c: CompareFn): number {
   }
 }
 
-/**
- * Stable string key for pipeline memoization: handle identity for
- * shader/layouts (via ids assigned lazily), structural for scalars.
- */
-const pipelineIdTag = Symbol('gfxPipelineId')
-let nextPipelineTagId = 1
-function tagId(o: object): number {
-  const rec = o as unknown as Record<symbol, number>
-  if (!rec[pipelineIdTag]) rec[pipelineIdTag] = nextPipelineTagId++
-  return rec[pipelineIdTag]
-}
-
-function pipelineKey(desc: PipelineDesc): string {
-  const shaderId = tagId(desc.shader)
-  const layoutIds = desc.bindGroupLayouts.map(tagId).join('.')
-  const vtx = desc.vertexLayout
-    .map(
-      (l) =>
-        `${l.arrayStride}:${l.stepMode[0]}:` +
-        l.attributes
-          .map((a) => `${a.location}/${a.format}/${a.offset}`)
-          .join('-'),
-    )
-    .join(';')
-  const color = desc.color ? `${desc.color.format}/${desc.color.blend}` : 'none'
-  const depth = desc.depth
-    ? `${desc.depth.test ? 1 : 0}${desc.depth.write ? 1 : 0}/${desc.depth.compare ?? 'le'}/${desc.depth.biasSlopeScale ?? 0}/${desc.depth.biasConstant ?? 0}`
-    : 'none'
-  return `s${shaderId}|bgl${layoutIds}|v${vtx}|c${color}|d${depth}|${desc.cull}|${desc.frontFace}|${desc.primitive}|x${desc.samples}`
-}
-
 function compileShader(
   gl: WebGL2RenderingContext,
   kind: number,
@@ -1712,15 +1806,4 @@ function compileShader(
     throw new Error(`WebGL2Device: ${stage} shader compile failed:\n${info}`)
   }
   return s
-}
-
-function getSourceWidth(source: TexImageSource): number {
-  if ('width' in source && typeof source.width === 'number') return source.width
-  return 0
-}
-
-function getSourceHeight(source: TexImageSource): number {
-  if ('height' in source && typeof source.height === 'number')
-    return source.height
-  return 0
 }
