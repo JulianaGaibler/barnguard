@@ -29,6 +29,7 @@
   import ReturnToLauncherOverlay from './ReturnToLauncherOverlay.svelte'
   import { themeScope } from '@src/core/ui/themeScope'
   import type { GameModule } from './games/GameModule'
+  import { ArcadeCamera } from './games/arcadeCamera'
   import { DemoStage } from './tutorial/DemoStage'
   import { tutorialOpen } from './uiState'
 
@@ -65,6 +66,10 @@
   let loadError = $state<string | null>(null)
   let screen = $state<Screen>('launcher')
   let activeGame = $state<GameModule | null>(null)
+  // A camera lease handed to the active game so it can frame sub-rects of the
+  // game region (e.g. a zoom) without owning the shared camera. Created on
+  // Play, released on exit so a mid-zoom game can't fight the pan back.
+  let gameCamera = $state<ArcadeCamera | null>(null)
   // Node the launcher UI is pinned to, at the launcher region's origin. The
   // launcher rides the camera, so a pan slides it on/off screen instead of the
   // old fade-out-then-move; `cull` hides it once it's fully off the canvas.
@@ -131,11 +136,13 @@
         anchor.transform.x = lr.x
         anchor.transform.y = lr.y
         launcherRect = lr
-        // Re-anchor whichever region is framed (the game framing is fixed).
+        // Re-anchor whichever region is framed. In-game, a game that holds the
+        // camera lease may have zoomed into a sub-rect; re-apply its current
+        // framing rather than snapping back to the region's home framing.
         if (screen === 'launcher') {
           cam.setViewport(launcherView())
         } else if (screen === 'ingame') {
-          cam.setViewport(gameView())
+          cam.setViewport(gameCamera ? gameCamera.framing : gameView())
         }
       })
       h.start()
@@ -158,8 +165,11 @@
   }
 
   async function play(game: GameModule): Promise<void> {
-    if (!host || screen !== 'launcher') return
+    if (!host || !camera || screen !== 'launcher') return
     screen = 'transitioning'
+    // Lease the shared camera to the game, scoped to the game region's home
+    // framing. Games that don't zoom simply never touch it.
+    gameCamera = new ArcadeCamera(camera, gameView())
     // Mount the game first: its overlays attach to the game region, off-screen
     // (culled) while the camera is still on the launcher.
     activeGame = game
@@ -192,11 +202,16 @@
     // pan — a paused engine skips the animation tick, so the camera tween would
     // never advance and the return would hang.
     host.engine.setPaused(false)
+    // Reclaim the camera before panning: releasing settles any in-flight game
+    // zoom and stops the game issuing new framing calls, so the pan to the
+    // launcher can't be fought by a late zoom (e.g. a mid-zoom swipe-out).
+    gameCamera?.release()
     // Pan back to the launcher: the game's overlays slide out and cull, the
     // launcher slides back in. Unmount the game (→ session.destroy()) only once
     // the camera has left the game region.
     await panCamera(launcherView())
     activeGame = null
+    gameCamera = null
     screen = 'launcher'
   }
 </script>
@@ -244,11 +259,11 @@
     </div>
   {/if}
 
-  {#if host && activeGame}
+  {#if host && activeGame && gameCamera}
     {@const Game = activeGame.component}
     <!-- Layout-neutral wrapper carrying the game's scoped theme overrides. -->
     <div style="display: contents" use:themeScope={activeGame.meta.themeTokens}>
-      <Game {host} onExit={exit} {demoStage} />
+      <Game {host} onExit={exit} {demoStage} camera={gameCamera} />
     </div>
   {/if}
 

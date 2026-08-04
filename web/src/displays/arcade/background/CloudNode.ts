@@ -45,7 +45,10 @@ export class CloudNode extends Node2D {
     super('cloud')
     this.#source = source
     this.#opts = opts
-    this.renderLayer = 'dynamic'
+    // Part of the world's base layer; see `SkyGradientNode` for why `'static'`.
+    // `'static'` is draw-order only (redrawn every frame), so the drift in
+    // `onUpdate` still animates.
+    this.renderLayer = 'static'
   }
 
   override onUpdate(dt: number): void {

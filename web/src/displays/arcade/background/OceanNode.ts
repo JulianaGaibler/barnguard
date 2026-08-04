@@ -26,7 +26,8 @@ export class OceanNode extends Node2D {
   constructor(source: PaletteSource) {
     super('ocean')
     this.#source = source
-    this.renderLayer = 'dynamic'
+    // Part of the world's base layer; see `SkyGradientNode` for why `'static'`.
+    this.renderLayer = 'static'
   }
 
   override draw(gfx: Gfx2D, camera: CameraView2D): void {

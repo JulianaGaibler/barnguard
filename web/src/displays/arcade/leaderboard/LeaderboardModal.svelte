@@ -48,7 +48,7 @@
     <div class="lb__badge">
       <LeaderboardIcon size={48} filled gold />
     </div>
-    <Surface tone="light" radius="panel">
+    <Surface tone="light" radius="panel" class="lb__surface">
       <div class="lb__body">
         <h2 class="lb__title">{$t.arcade.leaderboard.title}</h2>
         {#if !loading}
@@ -119,13 +119,15 @@
     align-items: center
     justify-content: center
 
+  .lb-frame :global(.lb__surface)
+    box-shadow: none
+
   .lb__body
     display: flex
     flex-direction: column
     align-items: center
     gap: var(--space-16)
     padding: var(--space-24)
-    // Clears the badge's overlap into the body.
     padding-block-start: calc(var(--lb-badge-size) / 2 + var(--space-16))
 
   .lb__title

@@ -23,7 +23,10 @@ export class SkyGradientNode extends Node2D {
   constructor(source: PaletteSource) {
     super('sky')
     this.#source = source
-    this.renderLayer = 'dynamic'
+    // The sky is the world's base layer: `'static'` draws before everything
+    // else each frame, so a game's own `'static'` content (e.g. Data Control's
+    // map) still layers cleanly above it.
+    this.renderLayer = 'static'
   }
 
   override draw(gfx: Gfx2D, camera: CameraView2D): void {

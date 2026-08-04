@@ -4,6 +4,7 @@ import type { ThemePalette } from '@src/core/theme'
 import type { LabelRenderContext, PreviewLabelContext } from '@src/core/display'
 import type { GameRecord } from '@src/core/game-log/gameLogClient'
 import type { DemoStageController } from '../tutorial/types'
+import type { ArcadeCamera } from './arcadeCamera'
 
 /** Card metadata shown in the launcher. */
 export interface GameMeta {
@@ -51,6 +52,13 @@ export interface GameProps {
    * affordance in that case.
    */
   demoStage: DemoStageController | null
+  /**
+   * A lease over the arcade's shared camera, scoped to the game region. Most
+   * games ignore it (they render at `camera.home()`); a game that zooms into
+   * its region — framing sub-rects — drives it and the arcade reclaims it on
+   * exit. See {@link ArcadeCamera}.
+   */
+  camera: ArcadeCamera
 }
 
 /**
