@@ -113,9 +113,6 @@
   .game-card__title
     margin: 0
     min-width: 0
-    overflow: hidden
-    text-overflow: ellipsis
-    white-space: nowrap
     @include tint.type-class(card-title)
     color: var(--color-text)
 

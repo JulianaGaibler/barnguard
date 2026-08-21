@@ -30,7 +30,7 @@
   })
 </script>
 
-<Overlay scrim center onscrimclick={onClose}>
+<Overlay scrim center class="lb-overlay" onscrimclick={onClose}>
   <div class="lb-frame">
     <!-- Plain spacer: no background of its own, so the frame's own gradient
          (its `background`, painted once) shows through as the "header" —
@@ -62,6 +62,9 @@
 </Overlay>
 
 <style lang="sass">
+  :global(.overlay.lb-overlay.scrim)
+    background: rgba(0, 0, 0, 0.45)
+
   .lb-frame
     // Above the Overlay's full-screen scrim-dismiss button, which would
     // otherwise sit on top of this and swallow every click (see HowToPlay's

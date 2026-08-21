@@ -18,6 +18,8 @@ export const JEZZBALL_STRINGS = {
   waiting: 'waiting for other player',
   /** Big status word shown over a board that has cleared and is waiting. */
   waitHeadline: 'partitioned',
+  /** Big status word shown over a board whose player has run out of lives. */
+  out: 'out',
   ready: 'Ready',
   go: 'GO',
   tie: "It's a tie!",
