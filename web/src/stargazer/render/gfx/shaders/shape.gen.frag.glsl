@@ -17,7 +17,7 @@ struct VOut {
     float radius;
     vec2 dash;
     vec2 local;
-    vec2 half_;
+    vec2 halfExt;
     vec4 radii;
     float strokeWidth;
     vec4 colorFill;
@@ -64,7 +64,7 @@ void main() {
     vec4 stroke_1 = vec4(0.0);
     vec4 atlasTexel = texture(_group_1_binding_0_fs, vec2(in_.uv));
     vec4 labelTexel = texture(_group_1_binding_1_fs, vec2(in_.uv));
-    float _e12 = sdRoundBox(in_.local, in_.half_, in_.radii);
+    float _e12 = sdRoundBox(in_.local, in_.halfExt, in_.radii);
     float _e13 = coverage(_e12);
     float _e19 = coverage((abs(_e12) - (in_.strokeWidth * 0.5)));
     if ((in_.shapeType == 1)) {

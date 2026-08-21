@@ -31,8 +31,15 @@
   let tracking = false
   let startX = 0
   let startY = 0
-  /** Down-swipe must begin within this fraction of the viewport height. */
-  const TOP_ZONE_FRAC = 0.12
+  /**
+   * Down-swipe must begin within this fraction of the viewport height.
+   *
+   * Kept narrow because these are non-capturing window listeners that games
+   * cannot suppress: a game with draggable pieces near the top of the screen
+   * would otherwise arm the hatch mid-drag, and the revealed pill puts a
+   * full-screen scrim over the board.
+   */
+  const TOP_ZONE_FRAC = 0.05
   /** Vertical travel (px) that commits the reveal. */
   const REVEAL_DIST = 72
   /** Hide the revealed pill again after this long without interaction. */

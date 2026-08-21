@@ -103,3 +103,24 @@ describe('TextureManager label cache', () => {
     expect(device.textures.length).toBe(before)
   })
 })
+
+describe('label atlas upload orientation', () => {
+  // The glyph bitmap comes off a 2D canvas, which is top-left origin, and the
+  // shaders sample it with `uv = mix(srcRect.xy, srcRect.zw, unit)`, which walks
+  // V downward. So the upload must not flip: a flip puts every glyph upside
+  // down inside its atlas slot, and because text is often the only asymmetric
+  // texture on screen, nothing else looks wrong.
+  //
+  // This pins the caller. The other half of the invariant, that both backends
+  // apply the requested flip rather than adjusting it, cannot be covered
+  // headlessly: it lives in the real device implementations and needs a GPU.
+  it('asks for no flip when packing a glyph into the shared page', () => {
+    tm.ensureLabelTexture('base', 'hi', style, 1)
+    expect(device.subImageUploads.length).toBeGreaterThan(0)
+    for (const upload of device.subImageUploads) {
+      expect(upload.opts.flipY ?? false).toBe(false)
+      // Glyph coverage is premultiplied so it composites correctly.
+      expect(upload.opts.premultiply).toBe(true)
+    }
+  })
+})

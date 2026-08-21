@@ -33,7 +33,9 @@ struct VOut {
   @location(6) @interpolate(flat) radius: f32,        // circle
   @location(7) @interpolate(flat) dash: vec2<f32>,    // circle (dashStart, dashPeriod)
   @location(8) local: vec2<f32>,               // round-rect (centered local)
-  @location(9) @interpolate(flat) half: vec2<f32>,    // round-rect half extents
+  // Not `half`: that is a reserved type name in Metal, and a varying called
+  // `half` translates to MSL that will not compile.
+  @location(9) @interpolate(flat) halfExt: vec2<f32>, // round-rect half extents
   @location(10) @interpolate(flat) radii: vec4<f32>,  // round-rect radii
   @location(11) @interpolate(flat) strokeWidth: f32,  // circle + round-rect
   @location(12) @interpolate(flat) colorFill: vec4<f32>,
@@ -80,7 +82,7 @@ fn vs_main(
     let local = (a_unit - vec2<f32>(0.5)) * 2.0 * (halfExt + feather);
     p = a_mTranslate + a_mCol0 * local.x + a_mCol1 * local.y;
     out.local = local;
-    out.half = halfExt;
+    out.halfExt = halfExt;
     out.radii = a_radii;
     out.strokeWidth = a_params.z;
   } else {
@@ -115,7 +117,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   // uniform. Evaluate all of them up front and let the branches select.
   let atlasTexel = textureSample(u_texAtlas, u_texAtlasSamp, in.uv);
   let labelTexel = textureSample(u_texLabel, u_texLabelSamp, in.uv);
-  let rrDist = sdRoundBox(in.local, in.half, in.radii);
+  let rrDist = sdRoundBox(in.local, in.halfExt, in.radii);
   let rrFillCoverage = coverage(rrDist);
   let rrStrokeCoverage = coverage(abs(rrDist) - in.strokeWidth * 0.5);
 

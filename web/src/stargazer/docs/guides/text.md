@@ -78,8 +78,40 @@ Shaping the string in Canvas 2D and uploading the texture are the costs to keep 
 - World-space labels re-rasterize in steps. The scale rounds up to the next bucket, so panning through a zoom costs a few uploads rather than one per frame, and the label only ever samples down, which stays crisp, instead of upscaling, which blurs.
 - Alpha is free; color is not. Alpha rides the quad tint. Color is baked into the bitmap, so animating it re-rasterizes on every frame the value changes. Prefer an alpha fade or a fixed color.
 
+## Fitting text to a box
+
+Drawing is still one line per call, but `wrapText` and its companions do the
+measuring so a string can be fitted to a known width before it is drawn. They
+build on `measureText`, and memoize on text, font and width, so a static label
+costs nothing after the first frame.
+
+```ts
+import { wrapText, ellipsize, fitFontSize, textWidth } from '@src/stargazer'
+
+const font = '400 18px Inter, sans-serif'
+const lines = wrapText(card.rules, font, box.width - 16, 3)
+lines.forEach((line, i) =>
+  gfx.fillText(line, box.x + 8, box.y + 24 + i * 22, { font, color: '#222' }),
+)
+```
+
+| Function                                       | Use                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------------- |
+| `wrapText(text, font, maxWidth, maxLines?)`    | Break into lines, ellipsizing the last if the text overruns `maxLines` |
+| `ellipsize(text, font, maxWidth)`              | Trim one line to fit, leaving a trailing ellipsis                      |
+| `fitFontSize(text, sizes, makeFont, maxWidth)` | Largest size (pass them largest first) whose text fits                 |
+| `textWidth(text, font)`                        | Width of one line, in the units `fillText` draws in                    |
+
+`wrapText` breaks on whitespace only. A single word wider than `maxWidth` is
+left overlong rather than split mid-word, so wrap the result in `ellipsize` when
+the box is a hard boundary. Line height is the caller's: `measureText` reports
+`localH` for one line.
+
+There is no rect clip to fall back on if text overflows, only `setClipMask` with
+a bitmap mask, so measuring up front is the cheap path.
+
 ## Limits
 
-- One line. No wrapping, no outline or stroke, no `maxWidth`.
+- One line per `fillText` call. No outline or stroke, no `maxWidth` argument.
 - No mipmaps, so a world-space label zoomed far out softens under bilinear sampling.
 - A very long string or an extreme zoom clamps the raster scale to stay within the GPU's max texture size, trading a little sharpness for not throwing.

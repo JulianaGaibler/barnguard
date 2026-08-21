@@ -890,16 +890,11 @@ export class WebGPUDevice implements GfxDevice {
    * `flipY` / `premultiply` on the CPU since `writeTexture` does neither.
    */
   /**
-   * The `flipY` an upload must use. The 2D pass samples textures with UVs that
-   * share the render target's V orientation, and that orientation differs
-   * between backends, so a screen-space texture flips relative to its WebGL
-   * `flipY` to sample the same way. A mesh's object-space UVs are independent
-   * of the render target, so those upload with their `flipY` unchanged (else
-   * the texture samples upside-down).
+   * A texture needs no backend-specific correction, and applying one puts every
+   * asymmetric texture in upside down.
    */
   #uploadFlipY(opts: TextureUploadOpts): boolean {
-    if (opts.objectSpaceUV) return opts.flipY ?? false
-    return !(opts.flipY ?? false)
+    return opts.flipY ?? false
   }
 
   #uploadImage(

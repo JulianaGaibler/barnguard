@@ -361,15 +361,20 @@ export class MockGfxDevice implements GfxDevice {
   ): void {
     /* noop */
   }
-  subImageUploads: Array<{ tex: Texture; x: number; y: number }> = []
+  subImageUploads: Array<{
+    tex: Texture
+    x: number
+    y: number
+    opts: TextureUploadOpts
+  }> = []
   updateTextureSubImage2D(
     tex: Texture,
     xOffset: number,
     yOffset: number,
     _source: TexImageSource,
-    _opts?: TextureUploadOpts,
+    opts: TextureUploadOpts = {},
   ): void {
-    this.subImageUploads.push({ tex, x: xOffset, y: yOffset })
+    this.subImageUploads.push({ tex, x: xOffset, y: yOffset, opts })
   }
   deleteTexture(_t: Texture): void {
     /* noop */

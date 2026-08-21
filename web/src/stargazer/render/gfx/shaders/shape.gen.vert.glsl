@@ -17,7 +17,7 @@ struct VOut {
     float radius;
     vec2 dash;
     vec2 local;
-    vec2 half_;
+    vec2 halfExt;
     vec4 radii;
     float strokeWidth;
     vec4 colorFill;
@@ -93,7 +93,7 @@ void main() {
             vec2 local_1 = (((a_unit - vec2(0.5)) * 2.0) * (halfExt + vec2(feather)));
             p = ((a_mTranslate + (a_mCol0_ * local_1.x)) + (a_mCol1_ * local_1.y));
             out_.local = local_1;
-            out_.half_ = halfExt;
+            out_.halfExt = halfExt;
             out_.radii = a_radii;
             out_.strokeWidth = a_params.z;
         } else {
@@ -117,7 +117,7 @@ void main() {
     _vs2fs_location6 = _e90.radius;
     _vs2fs_location7 = _e90.dash;
     _vs2fs_location8 = _e90.local;
-    _vs2fs_location9 = _e90.half_;
+    _vs2fs_location9 = _e90.halfExt;
     _vs2fs_location10 = _e90.radii;
     _vs2fs_location11 = _e90.strokeWidth;
     _vs2fs_location12 = _e90.colorFill;

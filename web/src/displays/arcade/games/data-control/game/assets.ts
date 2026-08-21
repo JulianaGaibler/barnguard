@@ -17,7 +17,6 @@ import outlineSvgRaw from '../assets/de-outline.svg?raw'
 import citiesSvgRaw from '../assets/de-cities.svg?raw'
 import eyeSvgRaw from '../assets/eye.svg?raw'
 import impactFlashSvgRaw from '../assets/impact-flash.svg?raw'
-import firefoxLogoUrl from '../assets/firefox-enterprise-symbol.png'
 import { CITY_ID_TO_STATE_ID, STATES } from './data/states'
 import { TUNING } from './data/tuning'
 
@@ -40,12 +39,6 @@ export interface GameAssets {
    * node's `transform.x/y` become the visual centre of the flash.
    */
   impactFlashPath: Path2D
-  /**
-   * Firefox Enterprise mark, decoded via `createImageBitmap` with
-   * `imageOrientation: 'from-image'` so any orientation metadata is baked in.
-   * Ready for `Gfx2D.drawImage`; painted inside the epicenter's apex disc.
-   */
-  firefoxLogo: HTMLImageElement | ImageBitmap
 }
 
 const assetLoader = new AssetLoader()
@@ -94,8 +87,6 @@ export async function loadGameAssets(): Promise<GameAssets> {
 
     const impactFlashPath = buildImpactFlashPath(impactFlashEntry)
 
-    const firefoxLogo = await loadImage(firefoxLogoUrl)
-
     // Fill in per-state derived geometry (state-shape center + upper/lower
     // half) from the parsed state paths. Idempotent, the STATES array is
     // a module singleton and reload paths simply rewrite the same fields
@@ -110,34 +101,7 @@ export async function loadGameAssets(): Promise<GameAssets> {
       eye,
       mask,
       impactFlashPath,
-      firefoxLogo,
     }
-  })
-}
-
-/**
- * Fetch a bitmap. `imageOrientation: 'from-image'` bakes EXIF orientation into
- * the decoded pixels so downstream drawing sees a plain grid.
- */
-async function loadImage(url: string): Promise<HTMLImageElement | ImageBitmap> {
-  if (
-    typeof createImageBitmap !== 'undefined' &&
-    typeof fetch !== 'undefined'
-  ) {
-    const res = await fetch(url)
-    if (!res.ok) {
-      throw new Error(`loadGameAssets: failed to fetch ${url}: ${res.status}`)
-    }
-    const blob = await res.blob()
-    return createImageBitmap(blob, { imageOrientation: 'from-image' })
-  }
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.decoding = 'async'
-    img.onload = () => resolve(img)
-    img.onerror = () =>
-      reject(new Error(`loadGameAssets: failed to load image ${url}`))
-    img.src = url
   })
 }
 

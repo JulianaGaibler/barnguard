@@ -260,6 +260,15 @@ export { Viewport2DNode } from './nodes/Viewport2DNode'
 export type { Viewport2DOptions } from './nodes/Viewport2DNode'
 export { measureText } from './render/gfx/rasterizeLabel'
 export type { LabelStyle, LabelMetrics } from './render/gfx/rasterizeLabel'
+export {
+  ellipsize,
+  fitFontSize,
+  fitTextBlock,
+  textWidth,
+  wrapText,
+  wrapTextInfo,
+} from './render/gfx/textLayout'
+export type { TextBlock } from './render/gfx/textLayout'
 
 // layout (opt-in constraints-based box layout)
 export { BoxConstraints, edgeInsets } from './layout/constraints'
