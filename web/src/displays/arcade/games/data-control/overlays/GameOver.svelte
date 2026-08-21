@@ -138,17 +138,20 @@
             }}
             contextRows={CONTEXT_ROWS}
           />
-          <OnScreenKeyboardField
-            bind:value={name}
-            bind:open={kbOpen}
-            showTrigger={false}
-            maxLength={NAME_MAX_LEN}
-            closeLabel={$t.arcade.leaderboard.closeKeyboard}
-          />
         </div>
       {/if}
     </section>
   </div>
+
+  {#if stage === 'entering'}
+    <OnScreenKeyboardField
+      bind:value={name}
+      bind:open={kbOpen}
+      showTrigger={false}
+      maxLength={NAME_MAX_LEN}
+      closeLabel={$t.arcade.leaderboard.closeKeyboard}
+    />
+  {/if}
 
   <div class="over__actions">
     <Button

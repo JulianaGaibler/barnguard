@@ -2,7 +2,6 @@
   import { onMount } from 'svelte'
   import {
     Node2D,
-    ShapeNode,
     domAnchor,
     ignoreAbort,
     mixColor,
@@ -23,6 +22,7 @@
     type StateId,
   } from './game'
   import { buildDataControlMenuPreview } from './game/menuPreview'
+  import { BackdropNode } from './game/nodes/BackdropNode'
   import { BackgroundGridNode } from './game/nodes/BackgroundGridNode'
   import { DATA_CONTROL_STRINGS as t } from './strings'
   import { DATA_CONTROL_TUTORIAL } from './tutorial'
@@ -169,41 +169,29 @@
     const px = host.engine.renderer.pixelSize
     const view = gameVisibleRect(px.w, px.h)
 
-    // Solid black backdrop covering just the GAME region's visible rect, so it
-    // rides the camera and scrolls away when the arcade pans to the launcher
-    // (like the other games' backdrops). `'static'` draws it above the shared
-    // sky but below the map/preview. `sizeBackdrop` keeps it fit to the region
-    // as the window resizes; a small margin avoids edge seams.
-    const backdrop = new ShapeNode({
-      id: 'data-control-backdrop',
-      geometry: {
-        kind: 'rect',
-        width: view.width,
-        height: view.height,
-        centered: true,
-      },
+    // Solid black backdrop that fills the viewport each frame so the shared
+    // arcade sky can never leak in when the camera zooms into a state (the
+    // framing overshoots above the map for headroom, which a fixed
+    // region-sized rect fails to cover). Its bottom is pinned to the game
+    // region so it still scrolls away — never blacking out the launcher —
+    // during the arcade's launcher<->game pan. `'static'` draws it above the
+    // shared sky but below the map/preview.
+    const backdrop = new BackdropNode({
+      regionBottom: REGION_HEIGHT,
       fill: '#050505',
     })
-    backdrop.renderLayer = 'static'
-    const sizeBackdrop = (r: Rect): void => {
-      const w = r.width * 1.04
-      const h = r.height * 1.04
-      backdrop.geometry = { kind: 'rect', width: w, height: h, centered: true }
-      backdrop.debugBounds = { x: -w / 2, y: -h / 2, width: w, height: h }
-      backdrop.transform.x = r.x + r.width / 2
-      backdrop.transform.y = r.y + r.height / 2
-    }
-    sizeBackdrop(view)
     host.engine.tree.root.add(backdrop)
 
-    // Blue reference grid on the black backdrop, behind the map. Added after
+    // Green reference grid on the black backdrop, behind the map. Added after
     // the backdrop (so it paints on top of the black) and before the map
-    // subtree (added on Play), which paints over it.
+    // subtree (added on Play), which paints over it. Like the backdrop it fills
+    // the viewport up to the region bottom, so it follows the camera into any
+    // zoom instead of leaving a bare strip.
     const grid = new BackgroundGridNode({
-      rect: view,
       cell: 96,
       // The green accent mixed well toward black — a subtle green field grid.
       color: mixColor('#01CA05', '#050505', 0.68),
+      regionBottom: REGION_HEIGHT,
     })
     host.engine.tree.root.add(grid)
 
@@ -225,8 +213,6 @@
       uiAnchor.transform.x = v.x
       uiAnchor.transform.y = v.y
       gameRect = v
-      sizeBackdrop(v)
-      grid.setRect(v)
     })
 
     return () => {

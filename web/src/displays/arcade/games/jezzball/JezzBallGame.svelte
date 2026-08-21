@@ -36,6 +36,7 @@
   import SplashScreen from './overlays/SplashScreen.svelte'
   import PauseMenu from './overlays/PauseMenu.svelte'
   import GameOver from './overlays/GameOver.svelte'
+  import GameOverVersus from './overlays/GameOverVersus.svelte'
   import { recordArcadeGame } from '../../game-log'
 
   const { host, onExit, demoStage }: GameProps = $props()
@@ -48,6 +49,12 @@
   let overTitle = $state<TextSegment[]>([])
   let overScore = $state<TextSegment[]>([])
   let overLeaderboardScore = $state<number | undefined>(undefined)
+  // Set when a 2p match ends; drives the two-player leaderboard-entry overlay.
+  let versusResult = $state<{
+    winner: 0 | 1 | 2
+    pointsA: number
+    pointsB: number
+  } | null>(null)
 
   interface Hud {
     lives: number
@@ -97,6 +104,37 @@
     )
   }
 
+  /**
+   * Versus finalizer: one record per player (each with that player's own score
+   * and entered name, sharing the match's winner/duration), mirroring how solo
+   * logs one record per played game. Fired once on exit by the overlay.
+   */
+  function finalizeVersusLog(names: { a: string; b: string }): void {
+    const r = versusResult
+    if (!r) return
+    const durationMs = Math.round(performance.now() - gameStartMs)
+    const winner =
+      r.winner === 0 ? 'tie' : r.winner === 1 ? 'player1' : 'player2'
+    const base = {
+      gameId: 'jezzball',
+      mode: 'versus',
+      winner,
+      durationMs,
+    } as const
+    const warn = (e: unknown): void =>
+      console.warn('[jezzball] failed to record game to server', e)
+    recordArcadeGame({
+      ...base,
+      score: r.pointsA,
+      playerName: names.a || undefined,
+    }).catch(warn)
+    recordArcadeGame({
+      ...base,
+      score: r.pointsB,
+      playerName: names.b || undefined,
+    }).catch(warn)
+  }
+
   // Node the overlays are pinned to, so the whole surface rides the camera.
   let anchor = $state<Node2D | null>(null)
   let gameRect = $state<Rect>({
@@ -129,6 +167,9 @@
   let mode: GameMode['kind'] | null = null
   let hudA: Hud = newHud()
   let hudB: Hud = newHud()
+  // Versus: which side has run out of lives (frozen, waiting for the other).
+  let outA = false
+  let outB = false
   let solo: BoardSession | null = null
   let match: Match | null = null
   let input: InputController | null = null
@@ -161,6 +202,9 @@
   let countdownA: CountdownNode | null = null
   let countdownB: CountdownNode | null = null
   let waitingNode: WaitingNode | null = null
+  // Versus: an "out" chip shown over whichever board's player has been
+  // eliminated, until the survivor is out too and the match-over overlay opens.
+  let eliminatedNode: WaitingNode | null = null
 
   /** Reposition/resize the solo HUD from the current `gameRect`/`soloBoard`. */
   function layoutSolo(): void {
@@ -242,6 +286,12 @@
     countdownB.transform.y = b.y + b.height / 2
     waitingNode.transform.x = vsCenter.x
     waitingNode.transform.y = vsCenter.y
+
+    const outBoard = outA ? a : outB ? b : null
+    if (eliminatedNode && outBoard) {
+      eliminatedNode.transform.x = outBoard.x + outBoard.width / 2
+      eliminatedNode.transform.y = outBoard.y + outBoard.height / 2
+    }
   }
 
   function syncSolo(): void {
@@ -273,7 +323,10 @@
     heartsB.setLives(hudB.lives)
     scoreA.setValue(hudA.points)
     scoreB.setValue(hudB.points)
-    badgeLvl.setValue(pad(hudA.level), hudA.level)
+    // Levels move in lockstep until one player is out; then the lone survivor
+    // advances past the frozen (dead) board, so show the active, higher level.
+    const lvl = Math.max(hudA.level, hudB.level)
+    badgeLvl.setValue(pad(lvl), lvl)
     progressNode.setVersus(hudA.pct, hudB.pct)
     countdownA.setLabel(
       hudA.state === 'countdown' ? countLabel(hudA.countdown) : null,
@@ -282,10 +335,12 @@
       hudB.state === 'countdown' ? countLabel(hudB.countdown) : null,
     )
 
+    // "Waiting for other player" only makes sense while BOTH are still in it —
+    // a sole survivor advancing past an eliminated opponent isn't waiting.
     const waitingSide =
-      hudA.state === 'cleared' && hudB.state !== 'cleared'
+      hudA.state === 'cleared' && hudB.state !== 'cleared' && !outB
         ? 1
-        : hudB.state === 'cleared' && hudA.state !== 'cleared'
+        : hudB.state === 'cleared' && hudA.state !== 'cleared' && !outA
           ? 2
           : 0
     waitingNode.setShown(waitingSide !== 0)
@@ -334,6 +389,8 @@
     match = null
     soloBoard = null
     dualBoard = null
+    outA = false
+    outB = false
     if (hudLayer && !hudLayer.isDestroyed) hudLayer.destroy()
     hudLayer = null
     heartsA = null
@@ -346,6 +403,7 @@
     countdownA = null
     countdownB = null
     waitingNode = null
+    eliminatedNode = null
   }
 
   function showGameOver(
@@ -362,6 +420,7 @@
 
   function hideGameOver(): void {
     showOver = false
+    versusResult = null
   }
 
   function startSolo(): void {
@@ -480,6 +539,7 @@
     countdownA = new CountdownNode()
     countdownB = new CountdownNode()
     waitingNode = new WaitingNode(S.waitHeadline, S.waiting)
+    eliminatedNode = new WaitingNode(S.out)
     for (const n of [
       heartsA,
       heartsB,
@@ -490,6 +550,7 @@
       countdownA,
       countdownB,
       waitingNode,
+      eliminatedNode,
     ])
       layer.add(n)
     layoutVersus()
@@ -498,30 +559,24 @@
     wire(m.b, hudB, syncVersus)
     match = m
     input = new InputController(host, [m.a.board, m.b.board])
-    m.events.on('matchOver', (r) => {
-      const title: TextSegment[] =
-        r.winner === 0
-          ? [{ text: S.tie, color: COLORS.ink }]
-          : [
-              {
-                text: r.winner === 1 ? S.player1 : S.player2,
-                color:
-                  r.winner === 1 ? ACCENT_VS[1].primary : ACCENT_VS[2].primary,
-              },
-              { text: ` ${S.winsSuffix}`, color: COLORS.ink },
-            ]
-      showGameOver(title, [
-        { text: String(r.pointsA), color: ACCENT_VS[1].primary },
-        { text: ' · ', color: COLORS.ink },
-        { text: String(r.pointsB), color: ACCENT_VS[2].primary },
-      ])
-      pendingLog = {
-        score: Math.max(r.pointsA, r.pointsB),
-        gameId: 'jezzball',
-        mode: 'versus',
-        winner: r.winner === 0 ? 'tie' : r.winner === 1 ? 'player1' : 'player2',
-        durationMs: Math.round(performance.now() - gameStartMs),
+    // A player ran out of lives: freeze their board's readout, mark the side as
+    // out (so the survivor's clears stop showing "waiting"), and raise the
+    // "out" chip over their board while the other keeps playing.
+    m.events.on('playerOut', ({ which }) => {
+      if (which === 'a') outA = true
+      else outB = true
+      if (eliminatedNode && dualBoard) {
+        const bd = which === 'a' ? dualBoard.a : dualBoard.b
+        eliminatedNode.transform.x = bd.x + bd.width / 2
+        eliminatedNode.transform.y = bd.y + bd.height / 2
+        eliminatedNode.setShown(true)
       }
+      syncVersus()
+    })
+    // Both players are out: open the two-player leaderboard-entry overlay.
+    m.events.on('matchOver', (r) => {
+      versusResult = { winner: r.winner, pointsA: r.pointsA, pointsB: r.pointsB }
+      if (pauseButtonNode) pauseButtonNode.visible = false
     })
     syncVersus()
     gameStartMs = performance.now()
@@ -659,6 +714,17 @@
           onPlayAgain={playAgain}
           onMenu={toSplash}
           onFinalize={finalizeGameLog}
+        />
+      {/if}
+
+      {#if versusResult}
+        <GameOverVersus
+          winner={versusResult.winner}
+          pointsA={versusResult.pointsA}
+          pointsB={versusResult.pointsB}
+          onPlayAgain={playAgain}
+          onMenu={toSplash}
+          onFinalize={finalizeVersusLog}
         />
       {/if}
 

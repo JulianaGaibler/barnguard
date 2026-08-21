@@ -14,9 +14,11 @@ const SUB_FONT_PX = 18.4
 export class WaitingNode extends Node2D {
   readonly #headline: string
   readonly #sub: string
+
   #visible = false
 
-  constructor(headline: string, sub: string) {
+  /** `sub` omitted (or empty) renders just the headline chip. */
+  constructor(headline: string, sub = '') {
     super('jb-waiting')
     this.renderLayer = 'dynamic'
     this.transform.alpha = 0
@@ -53,6 +55,8 @@ export class WaitingNode extends Node2D {
       baseline: 'middle',
       color: COLORS.background,
     })
+
+    if (!this.#sub) return
 
     const subFont = `800 ${SUB_FONT_PX}px ${FONT_FAMILY}`
     const subPadX = 17.6
