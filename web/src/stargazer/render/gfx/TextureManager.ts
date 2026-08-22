@@ -84,8 +84,13 @@ interface LabelCacheEntry extends LabelTexture {
   atlasBox: LabelBox | null
 }
 
-/** Max distinct labels held before LRU eviction. */
-const LABEL_CACHE_MAX = 256
+/**
+ * Max distinct labels held before LRU eviction. Sized to hold two full
+ * scale-bucket sets of a text-heavy scene (e.g. Office Overtime's 24 fully
+ * lettered cards) at once, so a zoom or resize tween that drifts every label
+ * across a bucket boundary does not evict labels still on screen this frame.
+ */
+const LABEL_CACHE_MAX = 768
 /** Shared label atlas page dimensions (matches `MAX_LABEL_TEXTURE_PX`). */
 const LABEL_PAGE_SIZE = 2048
 /**
@@ -112,7 +117,7 @@ const LABEL_SCALE_BUCKET_RATIO = 2 ** (1 / 3)
  * Cap on new label rasterizations+uploads per frame, prevents zoom-tween
  * spikes.
  */
-const LABEL_MAX_REGENS_PER_FRAME = 8
+const LABEL_MAX_REGENS_PER_FRAME = 24
 
 /**
  * Read-only snapshot of the texture caches for the debug inspector. Built on

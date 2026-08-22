@@ -1,6 +1,7 @@
 /** Public surface of the Office Overtime engine layer. */
 export { startGame, type GameSession } from './session'
 export type {
+  ChoicePrompt,
   GameEvents,
   GameMode,
   GameOverView,

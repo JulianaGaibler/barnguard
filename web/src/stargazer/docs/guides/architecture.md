@@ -30,7 +30,7 @@ const off = engine.onBeforeFrame((dt) => {
 
 ## Rendering
 
-Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. The backend is WebGL2 (`GpuGfx`): batched draw programs, MSAA, and bitmap-mask clipping. `?msaa=N` picks the sample count, clamped to the driver's `MAX_SAMPLES`. `GfxDevice` is the seam `GpuGfx` draws through, thin enough that a future WebGPU backend could implement it without touching facade-level code.
+Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. `GpuGfx` batches the draw programs, does MSAA, and clips two ways: an analytic circle/rounded-rect (`setClip`, evaluated as an SDF in every 2D program's fragment) and an arbitrary bitmap mask (`setClipMask`, only the fills). `?msaa=N` picks the sample count, clamped to the driver's `MAX_SAMPLES`. `GfxDevice` is the seam `GpuGfx` draws through, with WebGL2 and WebGPU implementations behind it, thin enough that facade-level code never changes between them.
 
 A stage with 3D content runs a depth-tested 3D pass first (`MeshRenderer`, drawing `Node3D` meshes and `Viewport2DNode` quads through the same `GfxDevice` seam), then resets device state to the 2D baseline and composites the painter-order 2D layers on top. The offscreen target grows a depth attachment the first time a stage hosts 3D and keeps it; a pure-2D stage never allocates one. See [3D](/guides/3d).
 

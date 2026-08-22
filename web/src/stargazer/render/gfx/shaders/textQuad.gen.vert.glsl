@@ -5,6 +5,18 @@ precision highp int;
 
 struct Frame {
     mat3x3 proj;
+    float targetH;
+    float fragYFlip;
+};
+struct Clip {
+    float kind;
+    float cx;
+    float cy;
+    float r;
+    float halfW;
+    float halfH;
+    float rrRadius;
+    float clipPad;
 };
 struct VOut {
     vec4 pos;
@@ -21,6 +33,11 @@ layout(location = 4) in vec4 _p2vs_location4;
 layout(location = 5) in vec4 _p2vs_location5;
 smooth out vec2 _vs2fs_location0;
 smooth out vec4 _vs2fs_location1;
+
+float clipRoundBox(vec2 p, vec2 b, float rad) {
+    vec2 q = ((abs(p) - b) + vec2(rad));
+    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
+}
 
 void main() {
     vec2 a_unit = _p2vs_location0;

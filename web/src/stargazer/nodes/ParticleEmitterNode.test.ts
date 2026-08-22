@@ -21,6 +21,7 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
     setAlpha: (a) => calls.push(['setAlpha', a]),
     setBlend: (mode) => calls.push(['setBlend', mode]),
     setClipMask: () => {},
+    setClip: () => {},
     fillRect: () => {},
     fillRoundRect: () => {},
     strokeRoundRect: () => {},

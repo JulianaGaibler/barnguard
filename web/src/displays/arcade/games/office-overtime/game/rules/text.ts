@@ -1,10 +1,16 @@
 // Rules text.
 //
 // Turns the shared `Metric` vocabulary into English, once, for everything that
-// has to show a rule: the card faces, the inspector and the end-of-game score
-// breakdown. Driven off the same unions the engine evaluates, so a card can
-// never describe itself as doing something other than what it does.
+// has to show a rule: the card faces, the end-of-game breakdown, the choice
+// prompt. Driven off the same unions the engine evaluates, so a card can never
+// describe itself as doing something other than what it does.
+//
+// The primary form is spans: `{ text, bold? }` with the numeric values marked
+// bold, which the card face renders as mixed-weight rich text. The plain-string
+// functions are derived by joining the spans, so older callers and tests keep
+// working. All money reads in thousands ("15" is "15k") everywhere.
 
+import type { TextSpan } from '@src/stargazer'
 import {
   type Area,
   type Card,
@@ -51,53 +57,76 @@ const REGION_NAMES: Record<Region, string> = {
   org: '',
 }
 
-const plural = (n: number, one: string, many = one + 's'): string =>
-  `${n} ${n === 1 ? one : many}`
+/** Money always reads in thousands: 15 becomes "15k". */
+export const money = (n: number): string => `${n}k`
 
-const resource = (r: Resource, n: number): string =>
-  r === 'budget' ? `$${n}` : plural(n, 'approval')
+const t = (text: string): TextSpan => ({ text })
+const b = (text: string): TextSpan => ({ text, bold: true })
+const spanText = (spans: readonly TextSpan[]): string =>
+  spans.map((s) => s.text).join('')
+
+function joinSpans(groups: TextSpan[][], sep: string): TextSpan[] {
+  const out: TextSpan[] = []
+  groups.forEach((g, i) => {
+    if (i > 0) out.push(t(sep))
+    out.push(...g)
+  })
+  return out
+}
+
+/** A resource amount, value bold: "15k" for budget, "3 approvals" for approval. */
+function resourceSpans(r: Resource, n: number): TextSpan[] {
+  return r === 'budget'
+    ? [b(money(n))]
+    : [b(String(n)), t(n === 1 ? ' approval' : ' approvals')]
+}
 
 /** What a metric counts, phrased to follow "per". */
-export function describeMetric(m: Metric): string {
+export function describeMetricSpans(m: Metric): TextSpan[] {
   switch (m.count) {
     case 'group':
-      return `${GROUP_NAMES[m.group]} shield`
+      return [t(`${GROUP_NAMES[m.group]} shield`)]
     case 'groupAny':
-      return m.groups.map((g) => GROUP_NAMES[g]).join(' or ') + ' shield'
+      return [t(m.groups.map((g) => GROUP_NAMES[g]).join(' or ') + ' shield')]
     case 'distinctGroups':
-      return 'different department'
+      return [t('different department')]
     case 'missingGroups':
-      return 'department you have none of'
+      return [t('department you have none of')]
     case 'cardsAt':
-      return `${FLOOR_NAMES[m.floor]} hire`
+      return [t(`${FLOOR_NAMES[m.floor]} hire`)]
     case 'ribbon':
-      return `${FLOOR_NAMES[m.floor]} ribbon`
+      return [t(`${FLOOR_NAMES[m.floor]} ribbon`)]
     case 'cardsWithCost':
-      return `hire costing $${m.cost}`
+      return [t('hire costing '), b(money(m.cost))]
     case 'cardsWithCostAtLeast':
-      return `hire costing $${m.cost} or more`
+      return [t('hire costing '), b(money(m.cost)), t(' or more')]
     case 'cardsWithGroups':
-      return m.groups === 2 ? 'two-department hire' : 'single-department hire'
+      return [
+        t(m.groups === 2 ? 'two-department hire' : 'single-department hire'),
+      ]
     case 'discountCards':
-      return 'standing budget approval'
+      return [t('standing budget approval')]
     case 'openSeats':
-      return 'open seat'
+      return [t('open seat')]
     case 'emptySeats':
-      return 'empty seat'
+      return [t('empty seat')]
     case 'filledSeats':
-      return 'filled seat'
+      return [t('filled seat')]
     case 'budgetLines':
-      return 'budget line'
+      return [t('budget line')]
     case 'budgetLineTotal':
-      return 'dollar on a budget line'
+      return [t('dollar on a budget line')]
     case 'approvals':
-      return 'approval held'
+      return [t('approval held')]
     default: {
       const _exhaustive: never = m
       return _exhaustive
     }
   }
 }
+
+export const describeMetric = (m: Metric): string =>
+  spanText(describeMetricSpans(m))
 
 function describeCondition(c: Condition): string {
   switch (c.when) {
@@ -114,22 +143,35 @@ function describeCondition(c: Condition): string {
   }
 }
 
-/** The card's performance review, as a sentence. */
-export function describeScoring(card: Card): string {
+/** The card's performance review, as spans. */
+export function describeScoringSpans(card: Card): TextSpan[] {
   const s: ScoringRule = card.scoring
   switch (s.score) {
     case 'perMetric':
-      return `per ${describeMetric(s.per)}${REGION_NAMES[s.region ?? 'org']}`
+      return [
+        t('per '),
+        ...describeMetricSpans(s.per),
+        t(REGION_NAMES[s.region ?? 'org']),
+      ]
     case 'perSet':
-      return `per set of ${s.of.map(describeMetric).join(' + ')}`
+      return [
+        t('per set of '),
+        ...joinSpans(s.of.map(describeMetricSpans), ' + '),
+      ]
     case 'perMatchingGroupSet':
-      return `per ${s.size} shields of one department`
+      return [t('per '), b(String(s.size)), t(' shields of one department')]
     case 'perRun':
-      return `per ${s.size} ${describeMetric(s.per)}s`
+      return [
+        t('per '),
+        b(String(s.size)),
+        t(' '),
+        ...describeMetricSpans(s.per),
+        t('s'),
+      ]
     case 'bonus':
-      return describeCondition(s.when)
+      return [t(describeCondition(s.when))]
     case 'budgetLine':
-      return `per dollar stored here, up to $${s.cap}`
+      return [t('per dollar stored here, up to '), b(money(s.cap))]
     default: {
       const _exhaustive: never = s
       return _exhaustive
@@ -137,30 +179,47 @@ export function describeScoring(card: Card): string {
   }
 }
 
-function describeEffect(e: Effect): string {
+export const describeScoring = (card: Card): string =>
+  spanText(describeScoringSpans(card))
+
+function describeEffectSpans(e: Effect): TextSpan[] {
   switch (e.effect) {
     case 'gain':
-      return `Gain ${resource(e.resource, e.amount)}`
+      return [t('Gain '), ...resourceSpans(e.resource, e.amount)]
     case 'gainPer': {
       const whose = e.from === 'opponent' ? " of your opponent's" : ''
-      return `Gain ${resource(e.resource, e.amount)} per ${describeMetric(e.per)}${whose}`
+      return [
+        t('Gain '),
+        ...resourceSpans(e.resource, e.amount),
+        t(' per '),
+        ...describeMetricSpans(e.per),
+        t(whose),
+      ]
     }
     case 'opponentGains':
-      return `Your opponent gains ${resource(e.resource, e.amount)}`
+      return [t('Your opponent gains '), ...resourceSpans(e.resource, e.amount)]
     case 'everyoneGains':
-      return `Everyone gains ${resource(e.resource, e.amount)}`
+      return [t('Everyone gains '), ...resourceSpans(e.resource, e.amount)]
     case 'fundBudgetLines': {
-      const how = e.amount === 'toFull' ? 'Fill' : `Add $${e.amount} to`
-      const which =
-        e.target === 'each' ? 'every budget line' : `${e.target} budget lines`
-      return `${how} ${which}`
+      const how: TextSpan[] =
+        e.amount === 'toFull'
+          ? [t('Fill ')]
+          : [t('Add '), b(money(e.amount)), t(' to ')]
+      const which: TextSpan[] =
+        e.target === 'each'
+          ? [t('every budget line')]
+          : [b(String(e.target)), t(' budget lines')]
+      return [...how, ...which]
     }
     case 'dropCandidate':
-      return `Drop a ${FLOOR_NAMES[e.floor]} candidate and take its budget`
+      return [t(`Drop a ${FLOOR_NAMES[e.floor]} candidate and take its budget`)]
     case 'choose':
-      return e.options
-        .map((option) => option.map(describeEffect).join(', '))
-        .join(' OR ')
+      return joinSpans(
+        e.options.map((option) =>
+          joinSpans(option.map(describeEffectSpans), ', '),
+        ),
+        ' OR ',
+      )
     default: {
       const _exhaustive: never = e
       return _exhaustive
@@ -168,17 +227,25 @@ function describeEffect(e: Effect): string {
   }
 }
 
-/** What the card does the moment it is hired. */
-export function describeAbility(card: Card): string {
+/** What the card does the moment it is hired, as spans. */
+export function describeAbilitySpans(card: Card): TextSpan[] {
   if (card.discount) {
     const on =
       card.discount.on === 'all'
         ? 'every hire'
         : `${FLOOR_NAMES[card.discount.on]} hires`
-    return `Later ${on} cost $${card.discount.amount} less`
+    return [t(`Later ${on} cost `), b(money(card.discount.amount)), t(' less')]
   }
-  if (card.ability.length === 0) return ''
-  return card.ability.map(describeEffect).join('. ')
+  if (card.ability.length === 0) return []
+  return joinSpans(card.ability.map(describeEffectSpans), '. ')
+}
+
+export const describeAbility = (card: Card): string =>
+  spanText(describeAbilitySpans(card))
+
+/** One `choose` option as spans, for the prompt (a single effect list). */
+export function describeOptionSpans(option: Effect[]): TextSpan[] {
+  return joinSpans(option.map(describeEffectSpans), ', ')
 }
 
 /** One line of the end-of-game breakdown, e.g. "Leadership shield: 3 x 4 = 12". */
@@ -195,7 +262,7 @@ export function describeDetail(detail: ScoreDetail): string {
     case 'bonus':
       return `${describeCondition(detail.when)}: ${detail.met ? `+${detail.points}` : '0'}`
     case 'budgetLine':
-      return `stored $${detail.stored} of $${detail.cap}: ${detail.stored} x ${detail.points} = ${detail.result}`
+      return `stored ${money(detail.stored)} of ${money(detail.cap)}: ${detail.stored} x ${detail.points} = ${detail.result}`
     default: {
       const _exhaustive: never = detail
       return _exhaustive

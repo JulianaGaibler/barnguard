@@ -44,6 +44,8 @@
     flex-direction: column
     align-items: center
     gap: var(--space-24)
+    padding-block: var(--space-48)
+    padding-inline: var(--space-32)
 
   .oo-pause__title
     @include tint.type-class(headline)

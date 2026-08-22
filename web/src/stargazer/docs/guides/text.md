@@ -110,6 +110,38 @@ the box is a hard boundary. Line height is the caller's: `measureText` reports
 There is no rect clip to fall back on if text overflows, only `setClipMask` with
 a bitmap mask, so measuring up front is the cheap path.
 
+## Mixed weight in one paragraph
+
+`fillText` takes one font per call, so a line like "add **2k** to budget" is
+drawn as several runs. `wrapRichText` / `fitRichTextBlock` take `TextSpan[]`
+(each `{ text, bold? }`), break on whitespace as above, and return lines of
+positioned `RichRun`s. Neighbouring pieces of the same weight are coalesced into
+one run (one `fillText`, one cached label) so a mixed line costs one label per
+weight span, not one per word. A `makeFont(bold)` callback supplies the font for
+each weight.
+
+```ts
+import { wrapRichText, type TextSpan } from '@src/stargazer'
+
+const spans: TextSpan[] = [
+  { text: 'add ' },
+  { text: '2k', bold: true },
+  { text: ' to everyone’s budget' },
+]
+const font = (bold: boolean) => `${bold ? 700 : 400} 18px Inter, sans-serif`
+let y = box.y
+for (const line of wrapRichText(spans, font, box.width)) {
+  for (const run of line.runs) {
+    gfx.fillText(run.text, box.x + run.x, y, { font: font(run.bold) })
+  }
+  y += 22
+}
+```
+
+`fitRichTextBlock(spans, sizes, makeFont, box)` is the rich counterpart of
+`fitTextBlock`: `makeFont` takes `(size, bold)`, and the block reports the chosen
+`size`, `lineHeight`, and whether it `truncated`.
+
 ## Limits
 
 - One line per `fillText` call. No outline or stroke, no `maxWidth` argument.

@@ -1,5 +1,5 @@
-// The shape every GPU draw program (coloredTri, texturedQuad, stroke, shape,
-// gradientRadial, maskedGradient, textQuad) implements. `GpuGfx` owns typed
+// The shape every GPU draw program (coloredTri, stroke, shape, gradientRadial,
+// maskedGradient, textQuad) implements. `GpuGfx` owns typed
 // references to each concrete program (for its emit API) and also registers
 // them on `GpuBatchContext` (for the generic flush dispatch).
 

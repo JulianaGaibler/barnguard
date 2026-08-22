@@ -290,10 +290,10 @@ const GARMENTS = {
     15: '..ddcwwwwwwcdd..',
   },
   hoodie: {
-     9: '....dd....dd....',
+    9: '....dd....dd....',
     10: '...cdd....ddc...',
     11: '..cccd....dccc..',
-    12: '..ccccd..dccc..',
+    12: '..ccccd..dcccc..',
     13: '..cccccccccccc..',
     14: '..dccccccccccd..',
     15: '..ddccccccccdd..',
@@ -481,7 +481,13 @@ export const PORTRAITS: Record<string, PortraitSpec> = {
     ['headset', 'beard'],
   ],
   'ic-growth-pm': [6, 'flattop', 'black', 'polo', ['earrings']],
-  'ic-design-systems-designer': [0, 'long', 'brown', 'turtleneck', ['earrings']],
+  'ic-design-systems-designer': [
+    0,
+    'long',
+    'brown',
+    'turtleneck',
+    ['earrings'],
+  ],
   'ic-web-platform-engineer': [1, 'curly', 'ginger', 'tee'],
   'ic-site-reliability-engineer': [
     5,
@@ -501,12 +507,7 @@ export const PORTRAITS: Record<string, PortraitSpec> = {
   ],
   'ic-ux-operations-lead': [6, 'braids', 'black', 'blazer', ['earrings']],
   'ic-design-manager': [7, 'sidepart', 'black', 'shirt', ['mustache']],
-  'ic-design-systems-engineer': [
-    4,
-    'wavy',
-    'black',
-    'tee',
-  ],
+  'ic-design-systems-engineer': [4, 'wavy', 'black', 'tee'],
   'ic-data-scientist': [1, 'short', 'darkBrown', 'hoodie', ['goatee']],
   'ic-ux-engineer': [5, 'afro', 'black', 'hoodie', ['headset']],
   'ic-technical-program-manager': [3, 'locs', 'black', 'shirt'],
@@ -568,10 +569,12 @@ const paletteFor = (
 ): { palette: Record<string, string>; accentOf: (a: Accent) => string } => {
   const [skinIndex, , hairColor] = spec
   const [skin, skinShadow] = SKINS[skinIndex % SKINS.length]!
-  const primary = GROUP_COLORS[groups[0]!]
+  const primary = GROUP_COLORS[groups[0]!].fill
   const second = groups[1]
   const trim =
-    second && second !== groups[0] ? GROUP_COLORS[second] : shade(primary, -0.3)
+    second && second !== groups[0]
+      ? GROUP_COLORS[second].fill
+      : shade(primary, -0.3)
   const accentOf = (accent: Accent): string =>
     accent === 'group' ? primary : accent === 'group2' ? trim : ACCENTS[accent]
   return {
@@ -638,6 +641,48 @@ export function portraitPixels(card: Card): (string | null)[][] {
   const spec = PORTRAITS[card.id]
   if (!spec) throw new Error(`no portrait for ${card.id}`)
   return renderPortrait(spec, card.groups)
+}
+
+/** One horizontal run of same-coloured pixels in a portrait row. */
+export interface PortraitRun {
+  /** Row index, 0..15. */
+  row: number
+  /** First column of the run, 0..15. */
+  x: number
+  /** Run length in cells. */
+  len: number
+  color: string
+}
+
+const runCache = new Map<string, PortraitRun[]>()
+
+/**
+ * A card's portrait as horizontal run-length spans, memoised. `CardNode` draws
+ * these as a `fillRect` each (~60 per card) over the portrait disc rather than
+ * 256 single-pixel rects or a per-card texture.
+ */
+export function portraitRuns(card: Card): PortraitRun[] {
+  const hit = runCache.get(card.id)
+  if (hit) return hit
+  const grid = portraitPixels(card)
+  const runs: PortraitRun[] = []
+  for (let r = 0; r < grid.length; r++) {
+    const row = grid[r]!
+    let c = 0
+    while (c < row.length) {
+      const color = row[c]
+      if (color == null) {
+        c++
+        continue
+      }
+      let len = 1
+      while (c + len < row.length && row[c + len] === color) len++
+      runs.push({ row: r, x: c, len, color })
+      c += len
+    }
+  }
+  runCache.set(card.id, runs)
+  return runs
 }
 
 /** Every card, in deck order, paired with its pixels. Drives the preview. */

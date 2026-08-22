@@ -118,6 +118,40 @@ const off = bindRegionGesture(host.engine, {
 
 Set `singlePointer: false` for a multi-touch region. The gesture rides the primary stage's pointer stream (`engine.events`), including its synthetic-move reprojection during camera moves.
 
+### Buttons
+
+A tap button — pressed on `down`, firing `onClick` on `up` only when the release still hits the node (a press dragged off is cancelled) — is a `ButtonBehavior`. The node draws itself and reflects the pressed state via `onPressedChange`:
+
+```ts
+node.addBehavior(
+  new ButtonBehavior({
+    onClick: () => pause(),
+    enabled: () => canInteract(),
+    onPressedChange: (pressed) => (this.pressed = pressed),
+  }),
+)
+```
+
+### Drag and drop
+
+To carry a node onto a drop target — a card into a slot, a token onto a board cell — attach a `DraggableBehavior` instead of hand-rolling the lift, follow, and snap-back. A press below `threshold` is a tap (`onTap`); past it the node lifts into `dragLayer` and tracks the pointer with the grabbed point held under the finger, `findDropTarget` resolves what is under it (reported by `onDragMove`), and release either drops onto a target (`onDrop`) or snaps back (`onDragCancel` at release, then `onSettled` once it lands):
+
+```ts
+node.addBehavior(
+  new DraggableBehavior<Cell>({
+    dragLayer,
+    enabled: () => canPlay(),
+    findDropTarget: (w) => cellAt(w.x, w.y),
+    equals: (a, b) => a.row === b.row && a.col === b.col,
+    onDragMove: (cell) => highlight(cell),
+    onDrop: (cell) => place(node, cell),
+    onDragCancel: () => clearHighlight(),
+  }),
+)
+```
+
+A drop target is whatever `findDropTarget` returns — a node, a grid cell, a rect id — so computed targets work as well as real nodes. `onDragMove` deduplicates by `equals` (default `===`), so a resolver that returns a fresh object each call must supply one (or return stable references). The node stays in `dragLayer` through the snap-back and reparents home only once it settles, so a layout pass that skips drag-layer nodes never fights the tween.
+
 ## Two pointers, two shapes
 
 Node capture is per pointer. Two fingers on two shapes give each shape its own capture; each shape sees only its own pointer's events, and each pointer's `capturedBy` points at its own shape.

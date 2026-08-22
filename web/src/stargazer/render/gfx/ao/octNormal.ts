@@ -38,7 +38,7 @@ export function octDecode(x: number, y: number): [number, number, number] {
   const fy = y * 2 - 1
   let nx = fx
   let ny = fy
-  let nz = 1 - Math.abs(fx) - Math.abs(fy)
+  const nz = 1 - Math.abs(fx) - Math.abs(fy)
   const t = Math.max(-nz, 0)
   nx += nx >= 0 ? -t : t
   ny += ny >= 0 ? -t : t

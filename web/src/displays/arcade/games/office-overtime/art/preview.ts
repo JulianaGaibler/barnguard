@@ -16,7 +16,7 @@ import {
 } from './portraits'
 
 const BACKGROUNDS = {
-  paper: COLORS.paper,
+  paper: COLORS.board,
   dark: '#22201c',
   checker: 'transparent',
 } as const
@@ -107,11 +107,11 @@ function render(): void {
       const cell = tile(
         renderPortrait(spec, card.groups),
         card.name,
-        `$${card.cost} · ${card.groups.join(' + ')}`,
+        `${card.cost}k · ${card.groups.join(' + ')}`,
       )
       for (const group of new Set(card.groups)) {
         const dot = document.createElement('i')
-        dot.style.background = GROUP_COLORS[group]
+        dot.style.background = GROUP_COLORS[group].fill
         cell.append(dot)
       }
       grid.append(cell)

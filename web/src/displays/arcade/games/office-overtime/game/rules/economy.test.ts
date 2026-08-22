@@ -24,23 +24,23 @@ const player = (grid: Cell[][], approvals = 0): Player => ({ grid, approvals })
 const empty = (): Player => player(grid3())
 
 describe('effectiveCost', () => {
-  const clerk = card('mgmt-mailroom-clerk') // $7 Management
+  const clerk = card('mgmt-mailroom-clerk') // $3 Management
 
   it('is the printed cost with an empty org', () => {
-    expect(effectiveCost(clerk, grid3())).toBe(7)
+    expect(effectiveCost(clerk, grid3())).toBe(3)
   })
 
   it('stacks discounts of the matching floor', () => {
     const g = grid3()
     g[0]![0] = seat('mgmt-vp-public-relations') // -1 management
     g[0]![1] = seat('mgmt-chief-marketing-officer') // -1 all
-    expect(effectiveCost(clerk, g)).toBe(5)
+    expect(effectiveCost(clerk, g)).toBe(1)
   })
 
   it('ignores discounts scoped to the other floor', () => {
     const g = grid3()
     g[0]![0] = seat('mgmt-research-operations-manager') // -1 ic
-    expect(effectiveCost(clerk, g)).toBe(7)
+    expect(effectiveCost(clerk, g)).toBe(3)
   })
 
   it('never goes below zero and never refunds', () => {
@@ -63,20 +63,16 @@ describe('effectiveCost', () => {
   it('ignores a discount card left as an open seat', () => {
     const g = grid3()
     g[0]![0] = { openSeat: true }
-    expect(effectiveCost(clerk, g)).toBe(7)
+    expect(effectiveCost(clerk, g)).toBe(3)
   })
 })
 
 describe('resolveAbility', () => {
   it('pays a flat gain', () => {
-    // Head of Product Strategy: gain 2 approvals.
+    // Board Member: gain 2 approvals.
     const g = grid3()
-    g[0]![0] = seat('mgmt-head-of-product-strategy')
-    const out = resolveAbility(
-      card('mgmt-head-of-product-strategy'),
-      player(g),
-      empty(),
-    )
+    g[0]![0] = seat('mgmt-board-member')
+    const out = resolveAbility(card('mgmt-board-member'), player(g), empty())
     expect(out.selfApprovals).toBe(2)
     expect(out.selfBudget).toBe(0)
   })
@@ -109,19 +105,23 @@ describe('resolveAbility', () => {
   })
 
   it('pays the opponent without paying the actor', () => {
-    // Board Member: the opponent gains 1 budget.
+    // Chief of Staff: the opponent gains 1 budget.
     const g = grid3()
-    g[0]![0] = seat('mgmt-board-member')
-    const out = resolveAbility(card('mgmt-board-member'), player(g), empty())
+    g[0]![0] = seat('mgmt-chief-of-staff')
+    const out = resolveAbility(card('mgmt-chief-of-staff'), player(g), empty())
     expect(out.opponentBudget).toBe(1)
     expect(out.selfBudget).toBe(0)
   })
 
   it('pays the actor too when everyone gains', () => {
-    // Chief of Staff: all players, the actor included, gain 1 approval.
+    // Head of Product Strategy: all players, the actor included, gain 1 approval.
     const g = grid3()
-    g[0]![0] = seat('mgmt-chief-of-staff')
-    const out = resolveAbility(card('mgmt-chief-of-staff'), player(g), empty())
+    g[0]![0] = seat('mgmt-head-of-product-strategy')
+    const out = resolveAbility(
+      card('mgmt-head-of-product-strategy'),
+      player(g),
+      empty(),
+    )
     expect(out.selfApprovals).toBe(1)
     expect(out.opponentApprovals).toBe(1)
   })

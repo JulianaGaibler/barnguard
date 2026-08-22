@@ -14,3 +14,4 @@ src/stargazer/site
 *.mp4
 *.ico
 *.glsl
+*.wgsl

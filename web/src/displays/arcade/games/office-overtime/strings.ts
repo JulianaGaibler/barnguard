@@ -26,6 +26,7 @@ export const OO_STRINGS = {
   thinking: 'Thinking...',
   yourTurn: 'Your turn',
   theirTurn: 'Their turn',
+  chooseOne: 'Pick one',
   management: 'Management',
   ic: 'Individual Contributors',
   approvals: 'Approvals',

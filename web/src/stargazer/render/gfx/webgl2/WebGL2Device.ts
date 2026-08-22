@@ -60,7 +60,11 @@ import type {
   VertexFormat,
 } from '../GfxDevice'
 import { pipelineKey } from '../pipelineKey'
-import { getSourceWidth, getSourceHeight } from '../imageSource'
+import {
+  getSourceWidth,
+  getSourceHeight,
+  resolveUploadFlipY,
+} from '../imageSource'
 
 // --- concrete backing structs (kept private, exposed as branded handles) ----
 
@@ -789,7 +793,7 @@ export class WebGL2Device implements GfxDevice {
     const t = tex as WebGL2Texture
     gl.bindTexture(gl.TEXTURE_2D, t.gl)
     this.#boundTexInvalidate(t.gl)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, opts.flipY ? 1 : 0)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, resolveUploadFlipY(opts) ? 1 : 0)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, opts.premultiply ? 1 : 0)
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
     gl.texSubImage2D(
@@ -817,7 +821,7 @@ export class WebGL2Device implements GfxDevice {
     if (source === null) return
     gl.bindTexture(gl.TEXTURE_2D, t.gl)
     this.#boundTexInvalidate(t.gl)
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, opts.flipY ? 1 : 0)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, resolveUploadFlipY(opts) ? 1 : 0)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, opts.premultiply ? 1 : 0)
     gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE)
     const w = getSourceWidth(source)

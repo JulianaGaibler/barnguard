@@ -675,7 +675,7 @@ export class ColoredTriProgram implements GpuProgram {
       pipeline,
       vertexBuffers: [{ buffer: this.#stream.buffers[ctx.curSlot], offset: 0 }],
       bindGroups: [
-        ctx.frameBindGroupEntry(),
+        ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
         {
           group: 1,
           bindGroup: this.#clipBindGroupFor(ctx, clipTex),
@@ -718,7 +718,7 @@ export class ColoredTriProgram implements GpuProgram {
       vertexBuffers: [{ buffer: gpu.vbo, offset: 0 }],
       indexBuffer: gpu.ibo,
       bindGroups: [
-        ctx.frameBindGroupEntry(),
+        ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
         {
           group: 1,
           bindGroup: this.#retainedBindGroup,

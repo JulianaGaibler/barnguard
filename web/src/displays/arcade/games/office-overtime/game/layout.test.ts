@@ -1,7 +1,6 @@
-// The collapse-to-zero failure mode is silent: `Flex` offers a zero cross-axis
-// minimum unless told to stretch, a `LayoutBuilder` measures to that minimum,
-// and nothing warns because the maximum is finite. So these assert on actual
-// sizes rather than just that the tree runs.
+// The row is nine equal cards in three groups of three, with a wide gap between
+// groups. These pin that: an org cell and a shortlist card come out the same
+// width, and the gap between regions is wider than the gap between cards.
 
 import { describe, expect, it } from 'vitest'
 import { cellRect, computeTable, orgGeom, shortlistSlots } from './layout'
@@ -14,20 +13,27 @@ const ASPECTS: [string, number, number][] = [
   ['tall', 1080, 1600],
 ]
 
+const allRects = (t: ReturnType<typeof computeTable>) => [
+  ...t.org,
+  ...t.resources,
+  ...t.shortlist,
+  ...t.captions,
+  t.controls,
+]
+
 describe('table layout', () => {
   it.each(ASPECTS)('gives every region real size at %s', (_name, w, h) => {
-    const view = { x: 0, y: 0, width: w, height: h }
-    const t = computeTable(view)
-    for (const rect of [...t.org, ...t.resources, ...t.shortlist, t.marker]) {
-      expect(rect.width).toBeGreaterThan(0)
-      expect(rect.height).toBeGreaterThan(0)
+    const t = computeTable({ x: 0, y: 0, width: w, height: h })
+    for (const r of allRects(t)) {
+      expect(r.width).toBeGreaterThan(0)
+      expect(r.height).toBeGreaterThan(0)
     }
   })
 
   it.each(ASPECTS)('keeps every region inside the view at %s', (_n, w, h) => {
     const view = { x: 100, y: 50, width: w, height: h }
     const t = computeTable(view)
-    for (const r of [...t.org, ...t.resources, ...t.shortlist, t.marker]) {
+    for (const r of allRects(t)) {
       expect(r.x).toBeGreaterThanOrEqual(view.x - 0.5)
       expect(r.y).toBeGreaterThanOrEqual(view.y - 0.5)
       expect(r.x + r.width).toBeLessThanOrEqual(view.x + view.width + 0.5)
@@ -45,26 +51,44 @@ describe('table layout', () => {
     )
   })
 
-  it('stacks Management above the marker above IC', () => {
+  it('stacks Management above IC above the controls', () => {
     const t = computeTable({ x: 0, y: 0, width: 1920, height: 1080 })
-    expect(t.shortlist[0].y).toBeLessThan(t.marker.y)
-    expect(t.marker.y).toBeLessThan(t.shortlist[1].y)
+    expect(t.shortlist[0].y).toBeLessThan(t.shortlist[1].y)
+    expect(t.shortlist[1].y).toBeLessThan(t.controls.y)
   })
 
-  // Nothing draggable may begin inside the launcher pull-down zone.
-  it('leaves the top of the centre column clear', () => {
+  // Nothing draggable may begin inside the launcher pull-down zone at the top.
+  it('reserves a clear band at the top', () => {
     const view = { x: 0, y: 0, width: 1920, height: 1080 }
     const t = computeTable(view)
-    expect(t.shortlist[0].y - view.y).toBeGreaterThanOrEqual(
-      LAYOUT.headerHeight,
-    )
+    const reserve = view.height * LAYOUT.topReserveFrac
+    for (const r of allRects(t)) {
+      expect(r.y - view.y).toBeGreaterThanOrEqual(reserve - 0.5)
+    }
   })
 
   it('puts the resource bar under its own org', () => {
     const t = computeTable({ x: 0, y: 0, width: 1920, height: 1080 })
     for (const i of [0, 1]) {
       expect(t.resources[i]!.y).toBeGreaterThan(t.org[i]!.y)
+      expect(t.resources[i]!.x).toBe(t.org[i]!.x)
     }
+  })
+
+  it('makes nine equal cards across the row', () => {
+    const t = computeTable({ x: 0, y: 0, width: 1920, height: 1080 })
+    const cellLeft = orgGeom(t.org[0]).cell
+    const cellRight = orgGeom(t.org[1]).cell
+    const cardMid = shortlistSlots(t.shortlist[0])[0]!.width
+    expect(cellRight).toBeCloseTo(cellLeft, 3)
+    expect(cardMid).toBeCloseTo(cellLeft, 3)
+  })
+
+  it.each(ASPECTS)('gaps the groups wider than the cards at %s', (_n, w, h) => {
+    const t = computeTable({ x: 0, y: 0, width: w, height: h })
+    const cardGap = orgGeom(t.org[0]).gap
+    const regionGap = t.shortlist[0].x - (t.org[0].x + t.org[0].width)
+    expect(regionGap).toBeGreaterThan(cardGap)
   })
 })
 
@@ -75,7 +99,6 @@ describe('org geometry', () => {
     expect(g.cell).toBeGreaterThan(0)
     const first = cellRect(g, 0, 0)
     const last = cellRect(g, 2, 2)
-    // Portrait cards, and the 3x3 stays inside its region.
     expect(first.height / first.width).toBeCloseTo(LAYOUT.cardAspect, 5)
     expect(last.x + last.width).toBeLessThanOrEqual(
       t.org[0].x + t.org[0].width + 0.5,

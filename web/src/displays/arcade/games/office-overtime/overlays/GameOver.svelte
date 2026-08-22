@@ -77,11 +77,18 @@
     background: var(--color-scrim)
     pointer-events: auto
 
+  .oo-over__card
+    max-width: 92vw
+    max-height: 88vh
+    overflow: auto
+
   .oo-over__body
     display: flex
     flex-direction: column
     align-items: center
     gap: var(--space-16)
+    padding-block: var(--space-48)
+    padding-inline: var(--space-32)
 
   .oo-over__title
     @include tint.type-class(headline)

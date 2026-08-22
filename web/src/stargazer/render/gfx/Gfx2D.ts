@@ -1,7 +1,7 @@
 /**
- * `Gfx2D`, the drawing facade nodes draw through. The backend is `GpuGfx`
- * (WebGL2); `GfxDevice` is the thin seam a future backend (e.g. WebGPU) would
- * implement to plug in underneath it.
+ * `Gfx2D`, the drawing facade nodes draw through. The backend is `GpuGfx`,
+ * which batches draws through the `GfxDevice` seam; WebGL2 and WebGPU both
+ * implement that seam, so facade-level code is backend-agnostic.
  *
  * Conventions:
  *
@@ -24,6 +24,24 @@ import type { RoundRectRadii } from './roundRectRadii'
  * @category Advanced
  */
 export type GfxBlend = GlobalCompositeOperation
+
+/**
+ * An analytic clip region for {@link Gfx2D.setClip}, in the current transform's
+ * local coords. A circle is rotation-safe; a rounded-rect assumes an
+ * axis-aligned transform (rotation/skew is unsupported and warns in dev).
+ *
+ * @category Advanced
+ */
+export type GfxClipShape =
+  | { kind: 'circle'; cx: number; cy: number; r: number }
+  | {
+      kind: 'roundRect'
+      x: number
+      y: number
+      w: number
+      h: number
+      radius: number
+    }
 
 /**
  * A single radial/linear gradient stop. `offset` in `[0, 1]`.
@@ -125,15 +143,35 @@ export interface Gfx2D {
   /** Set the compositing mode for subsequent draws. */
   setBlend(mode: GfxBlend): void
   /**
-   * Set or clear a bitmap clip mask. `fill*` draws are masked to pixels where
-   * the mask's alpha is non-zero. `worldRect` maps mask UV to world.
-   * Snapshotted by `save`/`restore`.
+   * Set or clear a bitmap clip mask for an arbitrary shape. `fill*` draws are
+   * masked to pixels where the mask's alpha is non-zero; `worldRect` maps mask
+   * UV to world. Snapshotted by `save`/`restore`.
    *
-   * Uploads the mask as a texture (cached per instance), modulates fragment
-   * alpha. Currently only wired through the `coloredTri` program.
-   * GridOverlayNode is the only user.
+   * For a circle or rounded-rect prefer {@link Gfx2D.setClip} (analytic, no
+   * texture). Uploads the mask as a texture (cached per instance) and modulates
+   * fragment alpha; only the `coloredTri` program (fills) reads it.
    */
   setClipMask(mask: BitmapMask | null): void
+
+  /**
+   * Set or clear an analytic clip. Subsequent 2D draws (fills, strokes, text,
+   * images) are cropped to the shape with a crisp anti-aliased edge — no
+   * texture or CPU raster. Coords are in the current transform's local space,
+   * snapshotted to device px when set, so the clip composes with
+   * `save`/`translate`/`scale`. Snapshotted by `save`/`restore`; clear with
+   * `null`.
+   *
+   * ```ts
+   * gfx.save()
+   * gfx.setClip({ kind: 'circle', cx, cy, r })
+   * for (const px of pixels) gfx.fillRect(px.x, px.y, px.w, px.h, px.color)
+   * gfx.restore() // the clip reverts
+   * ```
+   *
+   * A circle is rotation-safe; a rounded-rect assumes an axis-aligned
+   * transform. For an arbitrary shape use {@link Gfx2D.setClipMask}.
+   */
+  setClip(shape: GfxClipShape | null): void
 
   // --- fills ---------------------------------------------------------------
 

@@ -32,7 +32,11 @@ export class Transform2D {
   #_originY = 0
   #_dirty = true
 
-  /** Opacity in `[0, 1]`. Multiplied down into descendants by the render walk. */
+  /**
+   * Opacity in `[0, 1]`. Applied per node by the 2D canvas render walk — it
+   * does NOT cascade there, so fold a parent's alpha in yourself. The DOM
+   * overlay sync and the 3D mesh renderer do compound it down the tree.
+   */
   alpha = 1
 
   /** X position in the parent's local space. */

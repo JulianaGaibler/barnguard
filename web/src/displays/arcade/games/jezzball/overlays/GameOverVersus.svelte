@@ -41,14 +41,8 @@
     /** Fired exactly once on exit with both entered names (or ''). */
     onFinalize?: (names: { a: string; b: string }) => void
   }
-  const {
-    winner,
-    pointsA,
-    pointsB,
-    onPlayAgain,
-    onMenu,
-    onFinalize,
-  }: Props = $props()
+  const { winner, pointsA, pointsB, onPlayAgain, onMenu, onFinalize }: Props =
+    $props()
 
   type Stage = 'loading' | 'unavailable' | 'ready'
   let stage = $state<Stage>('loading')
@@ -106,8 +100,10 @@
     onFinalize?.({ a: nameA, b: nameB })
     if (stage !== 'ready') return
     const jobs: Array<Promise<unknown>> = []
-    if (qualA && nameA) jobs.push(submitScore(DISPLAY, nameA, pointsA).catch(() => {}))
-    if (qualB && nameB) jobs.push(submitScore(DISPLAY, nameB, pointsB).catch(() => {}))
+    if (qualA && nameA)
+      jobs.push(submitScore(DISPLAY, nameA, pointsA).catch(() => {}))
+    if (qualB && nameB)
+      jobs.push(submitScore(DISPLAY, nameB, pointsB).catch(() => {}))
     await Promise.all(jobs)
   }
 
@@ -133,7 +129,8 @@
             <span
               style="color: {winner === 1
                 ? ACCENT_VS[1].primary
-                : ACCENT_VS[2].primary}">
+                : ACCENT_VS[2].primary}"
+            >
               {winner === 1 ? S.player1 : S.player2}
             </span>
             <span style="color: {COLORS.ink}"> {S.winsSuffix}</span>
@@ -159,14 +156,18 @@
                     display: col.display,
                   }}
                   pendingAction={{
-                    label: col.name ? '' : $t.arcade.leaderboard.enterNameToSave,
+                    label: col.name
+                      ? ''
+                      : $t.arcade.leaderboard.enterNameToSave,
                     onClick: col.open,
                   }}
                   contextRows={CONTEXT_ROWS}
                 />
                 <p class="over__hint">
                   {col.name
-                    ? $t.arcade.leaderboard.willBeSavedAs(col.name.toUpperCase())
+                    ? $t.arcade.leaderboard.willBeSavedAs(
+                        col.name.toUpperCase(),
+                      )
                     : $t.arcade.leaderboard.wontBeSaved}
                 </p>
               {:else}

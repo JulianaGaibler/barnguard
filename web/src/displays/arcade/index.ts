@@ -15,15 +15,15 @@ const LEADERBOARD_IDS = GAMES.filter((g) => g.meta.supportsLeaderboard).map(
 )
 
 /**
- * The arcade display: a launcher "main screen" that hosts three games
- * (Jezzball, Connect Four, Orbo) on the stargazer engine. Every finished game
- * is recorded to the game log (see each game's `recordArcadeGame` call) for
- * attendant visibility in the "Games" panel.
+ * The arcade display: a launcher "main screen" that hosts five games (Orbo,
+ * Connect Four, Jezzball, Data Control, Office Overtime) on the stargazer
+ * engine. Every finished game is recorded to the game log (see each game's
+ * `recordArcadeGame` call) for attendant visibility in the "Games" panel.
  *
  * Printing is opt-in per game, not per display: each label design is
  * game-specific, so `renderLabelForRecord`/`renderPreviewLabel` live on the
  * `GameModule` itself (see `GameModule.ts`) and this display just dispatches to
- * the right game by `record.gameId`. None of the three games has a label
+ * the right game by `record.gameId`. None of the five games has a label
  * renderer wired up yet, so every record currently comes back `printable:
  * false` and the dispatch below never actually fires — but a game only needs to
  * implement those two methods on its own module to start printing; no change

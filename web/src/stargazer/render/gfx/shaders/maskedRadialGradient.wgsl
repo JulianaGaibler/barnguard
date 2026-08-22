@@ -13,8 +13,41 @@
 
 struct Frame {
   proj: mat3x3<f32>,
+  targetH: f32,
+  fragYFlip: f32,
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
+
+struct Clip {
+  kind: f32,
+  cx: f32,
+  cy: f32,
+  r: f32,
+  halfW: f32,
+  halfH: f32,
+  rrRadius: f32,
+  clipPad: f32,
+};
+@group(0) @binding(8) var<uniform> clipShape: Clip;
+
+// Analytic clip coverage in device px; frame.fragYFlip corrects WebGL2's
+// bottom-up gl_FragCoord. Multiply the premultiplied fragment output by this.
+fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
+  let q = abs(p) - b + vec2<f32>(rad);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
+}
+fn clipCoverage(fragPos: vec2<f32>) -> f32 {
+  if (clipShape.kind < 0.5) { return 1.0; }
+  let fy = select(fragPos.y, frame.targetH - fragPos.y, frame.fragYFlip > 0.5);
+  let p = vec2<f32>(fragPos.x, fy) - vec2<f32>(clipShape.cx, clipShape.cy);
+  var d: f32;
+  if (clipShape.kind < 1.5) {
+    d = length(p) - clipShape.r;
+  } else {
+    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
+  }
+  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
+}
 
 @group(1) @binding(0) var u_mask: texture_2d<f32>;
 @group(1) @binding(16) var u_maskSamp: sampler;
@@ -51,5 +84,5 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let radius = max(in.grad.z, 1e-4);
   let t = clamp(distance(in.worldPos, in.grad.xy) / radius, 0.0, 1.0);
   let stopColor = textureSample(u_stops, u_stopsSamp, vec2<f32>(t, 0.5));
-  return stopColor * (maskA * in.grad.w);
+  return stopColor * (maskA * in.grad.w * clipCoverage(in.pos.xy));
 }

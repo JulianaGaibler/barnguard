@@ -5,6 +5,18 @@ precision highp int;
 
 struct Frame {
     mat3x3 proj;
+    float targetH;
+    float fragYFlip;
+};
+struct Clip {
+    float kind;
+    float cx;
+    float cy;
+    float r;
+    float halfW;
+    float halfH;
+    float rrRadius;
+    float clipPad;
 };
 struct VOut {
     vec4 pos;
@@ -23,6 +35,10 @@ struct VOut {
     vec4 colorFill;
     vec4 colorStroke;
 };
+layout(std140) uniform Frame_block_0Fragment { Frame _group_0_binding_0_fs; };
+
+layout(std140) uniform Clip_block_1Fragment { Clip _group_0_binding_8_fs; };
+
 uniform highp sampler2D _group_1_binding_0_fs;
 
 uniform highp sampler2D _group_1_binding_1_fs;
@@ -43,16 +59,50 @@ flat in vec4 _vs2fs_location12;
 flat in vec4 _vs2fs_location13;
 layout(location = 0) out vec4 _fs2p_location0;
 
-float sdRoundBox(vec2 p_1, vec2 b, vec4 r) {
-    vec2 rr = ((p_1.x > 0.0) ? r.yz : r.xw);
-    float radius = ((p_1.y > 0.0) ? rr.y : rr.x);
-    vec2 q = ((abs(p_1) - b) + vec2(radius));
-    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - radius);
+float clipRoundBox(vec2 p_1, vec2 b, float rad) {
+    vec2 q = ((abs(p_1) - b) + vec2(rad));
+    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
 }
 
-float coverage(float d) {
-    float _e1 = fwidth(d);
-    return clamp((0.5 - (d / max(_e1, 0.0001))), 0.0, 1.0);
+float clipCoverage(vec2 fragPos) {
+    float d = 0.0;
+    float _e3 = _group_0_binding_8_fs.kind;
+    if ((_e3 < 0.5)) {
+        return 1.0;
+    }
+    float _e10 = _group_0_binding_0_fs.targetH;
+    float _e15 = _group_0_binding_0_fs.fragYFlip;
+    float fy = ((_e15 > 0.5) ? (_e10 - fragPos.y) : fragPos.y);
+    float _e23 = _group_0_binding_8_fs.cx;
+    float _e26 = _group_0_binding_8_fs.cy;
+    vec2 p_3 = (vec2(fragPos.x, fy) - vec2(_e23, _e26));
+    float _e32 = _group_0_binding_8_fs.kind;
+    if ((_e32 < 1.5)) {
+        float _e38 = _group_0_binding_8_fs.r;
+        d = (length(p_3) - _e38);
+    } else {
+        float _e42 = _group_0_binding_8_fs.halfW;
+        float _e45 = _group_0_binding_8_fs.halfH;
+        float _e49 = _group_0_binding_8_fs.rrRadius;
+        float _e50 = clipRoundBox(p_3, vec2(_e42, _e45), _e49);
+        d = _e50;
+    }
+    float _e51 = d;
+    float _e52 = d;
+    float _e53 = fwidth(_e52);
+    return clamp((0.5 - (_e51 / max(_e53, 0.0001))), 0.0, 1.0);
+}
+
+float sdRoundBox(vec2 p_2, vec2 b_1, vec4 r) {
+    vec2 rr = ((p_2.x > 0.0) ? r.yz : r.xw);
+    float radius = ((p_2.y > 0.0) ? rr.y : rr.x);
+    vec2 q_1 = ((abs(p_2) - b_1) + vec2(radius));
+    return ((min(max(q_1.x, q_1.y), 0.0) + length(max(q_1, vec2(0.0)))) - radius);
+}
+
+float coverage(float d_1) {
+    float _e1 = fwidth(d_1);
+    return clamp((0.5 - (d_1 / max(_e1, 0.0001))), 0.0, 1.0);
 }
 
 void main() {
@@ -128,7 +178,10 @@ void main() {
         }
     }
     vec4 _e149 = outColor;
-    _fs2p_location0 = _e149;
+    float _e152 = clipCoverage(in_.pos.xy);
+    outColor = (_e149 * _e152);
+    vec4 _e154 = outColor;
+    _fs2p_location0 = _e154;
     return;
 }
 

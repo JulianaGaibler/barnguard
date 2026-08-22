@@ -16,13 +16,16 @@ import type { GfxBlend } from './Gfx2D'
 import type { BitmapMask } from '../../assets/BitmapMask'
 import type { TextureManager } from './TextureManager'
 import {
+  CLIP_UBO_BINDING,
+  CLIP_UBO_BYTES,
   FRAME_UBO_BINDING,
   FRAME_UBO_FLOATS,
   GROUP_FRAME,
   type BatchKind,
 } from './batchLayout'
 import { TransformStack, type TransformOut } from './TransformStack'
-import { StateStack } from './StateStack'
+import { StateStack, type ResolvedClip } from './StateStack'
+import { UboRing } from './programs/programCommon'
 import type { GpuProgram } from './GpuProgram'
 import type { RingStream } from './RingStream'
 
@@ -57,6 +60,7 @@ export interface DrawRun {
   endWord: number
   blend: GfxBlend
   clipMask: BitmapMask | null
+  clip: ResolvedClip | null
   texture: import('./GfxDevice').Texture | null
   lut: import('./GfxDevice').Texture | null
   debugMode: DebugRenderMode
@@ -119,6 +123,9 @@ export class GpuBatchContext {
    * each.
    */
   readonly #frameStaging = new Float32Array(FRAME_UBO_FLOATS)
+  /** Per-run analytic clip params, bound through the frame group at binding 8. */
+  #clipRing: UboRing | null = null
+  readonly #clipStaging = new Float32Array(8)
 
   readonly txStack = new TransformStack(32)
   readonly stateStack = new StateStack(32)
@@ -148,6 +155,7 @@ export class GpuBatchContext {
   curLut: import('./GfxDevice').Texture | null = null
   curBlend: GfxBlend = 'source-over'
   curClipMask: BitmapMask | null = null
+  curClip: ResolvedClip | null = null
 
   readonly #programs = new Map<BatchKind, GpuProgram>()
 
@@ -168,13 +176,29 @@ export class GpuBatchContext {
    */
   initFrameUbo(): void {
     this.#frameUbo = this.device.createUniformBuffer(FRAME_UBO_FLOATS * 4)
+    this.#clipRing = new UboRing(this.device, CLIP_UBO_BYTES, 2048, 'clip')
+    // Group 0 carries the per-frame Frame block plus a per-run dynamic clip UBO,
+    // so every 2D pipeline reaches the analytic clip through the shared group it
+    // already binds — no per-program material-layout change.
     this.#frameLayout = this.device.createBindGroupLayout([
       { binding: FRAME_UBO_BINDING, type: 'uniform-buffer' },
+      {
+        binding: CLIP_UBO_BINDING,
+        type: 'uniform-buffer',
+        dynamicOffset: true,
+      },
     ])
     this.#frameBindGroup = this.device.createBindGroup(this.#frameLayout, [
       {
         binding: FRAME_UBO_BINDING,
         resource: { uniformBuffer: this.#frameUbo },
+      },
+      {
+        binding: CLIP_UBO_BINDING,
+        resource: {
+          uniformBuffer: this.#clipRing.buffer,
+          size: CLIP_UBO_BYTES,
+        },
       },
     ])
   }
@@ -190,10 +214,48 @@ export class GpuBatchContext {
   }
 
   /** The group-0 bind-group entry every 2D draw attaches. */
-  frameBindGroupEntry(): DrawBindGroup {
+  frameBindGroupEntry(clipOffset = 0): DrawBindGroup {
     if (!this.#frameBindGroup)
       throw new Error('GpuBatchContext: frame UBO not initialized')
-    return { group: GROUP_FRAME, bindGroup: this.#frameBindGroup }
+    return {
+      group: GROUP_FRAME,
+      bindGroup: this.#frameBindGroup,
+      dynamicOffsets: [clipOffset],
+    }
+  }
+
+  /**
+   * Reset the clip ring and reserve slot 0 as the "no clip" slice. Once per
+   * submit.
+   */
+  resetClipRing(): void {
+    const ring = this.#clipRing
+    if (!ring) return
+    ring.reset()
+    this.#clipStaging.fill(0) // kind 0 → clipCoverage returns 1
+    ring.push(this.device, this.#clipStaging) // offset 0 = no clip
+  }
+
+  /**
+   * Dynamic offset of a run's clip slice: 0 (the no-clip slot) or a freshly
+   * pushed slice. On ring overflow it returns 0, so the run draws unclipped
+   * rather than being dropped.
+   */
+  clipOffsetForRun(run: DrawRun): number {
+    const ring = this.#clipRing
+    const clip = run.clip
+    if (!ring || !clip) return 0
+    const s = this.#clipStaging
+    s[0] = clip.kind
+    s[1] = clip.cx
+    s[2] = clip.cy
+    s[3] = clip.r
+    s[4] = clip.halfW
+    s[5] = clip.halfH
+    s[6] = clip.rrRadius
+    s[7] = 0
+    const off = ring.push(this.device, s)
+    return off < 0 ? 0 : off
   }
 
   #uploadFrameUbo(): void {
@@ -210,6 +272,12 @@ export class GpuBatchContext {
     s[8] = p[6]
     s[9] = p[7]
     s[10] = p[8]
+    // targetH + fragYFlip follow the mat3 (offsets 48/52 B). Height comes from
+    // the projection itself (p[4] = -2/h), so it always matches the pass the
+    // fragment renders into (main or offscreen). WebGL2's gl_FragCoord.y is
+    // bottom-up, so the clip's device-px Y must flip there; WebGPU's is top-down.
+    s[12] = p[4] !== 0 ? -2 / p[4] : 0
+    s[13] = this.device.backend === 'webgl2' ? 1 : 0
     this.device.updateUniformBuffer(this.#frameUbo, s)
   }
 
@@ -224,10 +292,23 @@ export class GpuBatchContext {
     const sameTexture = !('texture' in key) || this.curTexture === key.texture
     const sameLut = !('lut' in key) || this.curLut === key.lut
     const sameMask = !('clipMask' in key) || this.curClipMask === key.clipMask
-    if (sameBatch && sameBlend && sameTexture && sameLut && sameMask) return
+    // Clip is global like blend, pulled from the state stack, so every program
+    // breaks its batch when the analytic clip changes.
+    const wantClip = this.stateStack.getClip()
+    const sameClip = this.curClip === wantClip
+    if (
+      sameBatch &&
+      sameBlend &&
+      sameTexture &&
+      sameLut &&
+      sameMask &&
+      sameClip
+    )
+      return
     this.#recordActiveRun()
     this.curBatch = kind
     this.curBlend = wantBlend
+    this.curClip = wantClip
     if ('texture' in key) this.curTexture = key.texture ?? null
     if ('lut' in key) this.curLut = key.lut ?? null
     if ('clipMask' in key) this.curClipMask = key.clipMask ?? null
@@ -254,6 +335,7 @@ export class GpuBatchContext {
       endWord: 0,
       blend: this.stateStack.getBlend(),
       clipMask: null,
+      clip: null,
       texture: null,
       lut: null,
       debugMode: this.curDebugMode,
@@ -275,6 +357,7 @@ export class GpuBatchContext {
         endWord: range.endWord,
         blend: this.curBlend,
         clipMask: this.curClipMask,
+        clip: this.curClip,
         texture: this.curTexture,
         lut: this.curLut,
         debugMode: this.curDebugMode,
@@ -292,6 +375,7 @@ export class GpuBatchContext {
   submitFrame(): void {
     this.#recordActiveRun()
     this.#uploadFrameUbo()
+    this.resetClipRing()
     for (const program of this.#programs.values()) {
       program.stream.upload(this.device, this.curSlot)
     }
@@ -346,6 +430,7 @@ export class GpuBatchContext {
     const texture = this.curTexture
     const lut = this.curLut
     const clipMask = this.curClipMask
+    const clip = this.curClip
     this.submitFrame()
     for (const program of this.#programs.values()) {
       this.device.orphanBuffer(program.stream.buffers[this.curSlot])
@@ -356,6 +441,7 @@ export class GpuBatchContext {
     this.curTexture = texture
     this.curLut = lut
     this.curClipMask = clipMask
+    this.curClip = clip
   }
 
   /** Called once per frame, after the ring slot has advanced. */
@@ -372,6 +458,7 @@ export class GpuBatchContext {
     this.curTexture = null
     this.curLut = null
     this.curClipMask = null
+    this.curClip = null
     this.debugBatchCounter = 0
     this.#drawRuns.length = 0
   }

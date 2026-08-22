@@ -415,6 +415,15 @@ export interface Texture2DOpts {
 }
 
 export interface TextureUploadOpts {
+  /**
+   * Flip the source's rows during the copy. Default `false`. This is a
+   * source-row flip, not a screen-orientation switch: both backends store
+   * source row 0 at texel row 0 and the shared projection owns the on-screen
+   * Y-flip, so a source uploaded with the same `flipY` looks identical on
+   * WebGL2 and WebGPU. Backends must resolve it through `resolveUploadFlipY`
+   * (imageSource.ts) and must NOT invert it per backend — see that function for
+   * the upside-down-labels regression this prevents.
+   */
   flipY?: boolean
   premultiply?: boolean
   /**

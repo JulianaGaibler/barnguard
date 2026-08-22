@@ -348,7 +348,6 @@ export class AmbientOcclusion {
   }
 
   #runFragment(): void {
-    const device = this.#device
     const [rt0, rt1] = this.#aoRt!
     // generate → rt0
     this.#fragPass(this.#genFragPipeline!, this.#genBind!, rt0)

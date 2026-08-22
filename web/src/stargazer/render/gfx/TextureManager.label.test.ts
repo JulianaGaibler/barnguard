@@ -70,9 +70,9 @@ describe('TextureManager label cache', () => {
 
   it('evicts the least-recently-used page label by freeing its span, not deleting the shared page', () => {
     const del = vi.spyOn(device, 'deleteTexture')
-    // 257 distinct labels (cap is 256) → exactly one eviction. All are
+    // 769 distinct labels (cap is 768) → exactly one eviction. All are
     // page-backed, so eviction frees a span and the shared page survives.
-    for (let i = 0; i < 257; i++) {
+    for (let i = 0; i < 769; i++) {
       tm.ensureLabelTexture(`label-${i}`, `t${i}`, style, 2)
     }
     expect(device.textures.length).toBe(1) // one shared page, no per-label textures
@@ -84,7 +84,7 @@ describe('TextureManager label cache', () => {
     // scale 60 → texW ≈ 600 > 512 threshold → dedicated texture (not the page).
     tm.ensureLabelTexture('big', 'T', style, 60)
     // Fill past the cap so the oversized label (the LRU) is evicted.
-    for (let i = 0; i < 256; i++) {
+    for (let i = 0; i < 768; i++) {
       tm.ensureLabelTexture(`label-${i}`, `t${i}`, style, 2)
     }
     expect(del).toHaveBeenCalledTimes(1) // the dedicated oversized texture
@@ -93,8 +93,8 @@ describe('TextureManager label cache', () => {
   it('rides a neighbouring bucket when the per-frame regen budget is exhausted', () => {
     tm.resetLabelBudget()
     const e0 = tm.ensureLabelTexture('key0', 't', style, 2) // bucket k, regen #1
-    for (let i = 1; i <= 7; i++) {
-      tm.ensureLabelTexture(`key${i}`, 't', style, 2) // regens #2..#8 (budget = 8)
+    for (let i = 1; i <= 23; i++) {
+      tm.ensureLabelTexture(`key${i}`, 't', style, 2) // regens #2..#24 (budget = 24)
     }
     const before = device.textures.length
     // Same label at a neighbouring bucket while over budget → ride, no upload.

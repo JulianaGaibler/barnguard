@@ -102,7 +102,12 @@ export abstract class Node {
    */
   parent: Node | null = null
 
-  /** When false, the node and its subtree are skipped by the render walk. */
+  /**
+   * When false, this node is skipped by the render walk. It does NOT cascade in
+   * the 2D canvas walk — a hidden parent still lets its children draw, so hide
+   * each node you mean to hide. Only the DOM overlay sync compounds visibility
+   * down the tree.
+   */
   visible = true
   /**
    * When true, the node takes part in pointer hit-testing (2D bounds test for

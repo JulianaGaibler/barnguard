@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { DECK, DECK_BY_ID } from './deck'
-import { describeAbility, describeDetail, describeScoring } from './text'
+import {
+  describeAbility,
+  describeAbilitySpans,
+  describeDetail,
+  describeScoring,
+  describeScoringSpans,
+} from './text'
 import { scoreOrg, type Cell } from './scoring'
 
 describe('rules text', () => {
@@ -24,7 +30,28 @@ describe('rules text', () => {
   it('describes a discount rather than an empty ability', () => {
     expect(
       describeAbility(DECK_BY_ID.get('mgmt-chief-marketing-officer')!),
-    ).toBe('Later every hire cost $1 less')
+    ).toBe('Later every hire cost 1k less')
+  })
+
+  it('reads all money in thousands', () => {
+    for (const card of DECK) {
+      const both = describeAbility(card) + ' ' + describeScoring(card)
+      expect(both, card.id).not.toMatch(/\$\d/)
+    }
+  })
+
+  it('marks the numeric values bold in spans', () => {
+    // Head of IT Infrastructure: "Add 2k to every budget line OR Gain 3 approvals".
+    const spans = describeAbilitySpans(
+      DECK_BY_ID.get('mgmt-head-of-it-infrastructure')!,
+    )
+    expect(spans.map((s) => s.text).join('')).toContain(' OR ')
+    expect(spans.some((s) => s.bold && s.text === '3')).toBe(true)
+    // A budget review reads its cap as bold "Nk".
+    const review = describeScoringSpans(
+      DECK_BY_ID.get('mgmt-chief-financial-officer')!,
+    )
+    expect(review.some((s) => s.bold && /^\d+k$/.test(s.text))).toBe(true)
   })
 
   it('names the opponent for an ability that reads across the table', () => {

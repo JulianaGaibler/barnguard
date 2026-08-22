@@ -3,7 +3,13 @@
 
 import { describe, expect, it } from 'vitest'
 import { DECK } from '../game/rules/deck'
-import { LIBRARY, PORTRAITS, PORTRAIT_SIZE, portraitPixels } from './portraits'
+import {
+  LIBRARY,
+  PORTRAITS,
+  PORTRAIT_SIZE,
+  portraitPixels,
+  portraitRuns,
+} from './portraits'
 
 const layers = (): [string, Record<number, string>][] => [
   ['head', LIBRARY.HEAD],
@@ -67,5 +73,34 @@ describe('portraits', () => {
   it('spreads skin tones across the whole range', () => {
     const used = new Set(Object.values(PORTRAITS).map((s) => s[0]))
     expect(used.size).toBe(LIBRARY.SKINS.length)
+  })
+})
+
+describe('portraitRuns', () => {
+  it('round-trips the pixel grid for every card', () => {
+    for (const card of DECK) {
+      const pixels = portraitPixels(card)
+      const rebuilt: (string | null)[][] = Array.from(
+        { length: PORTRAIT_SIZE },
+        () => Array.from({ length: PORTRAIT_SIZE }, () => null),
+      )
+      for (const run of portraitRuns(card)) {
+        for (let i = 0; i < run.len; i++) {
+          rebuilt[run.row]![run.x + i] = run.color
+        }
+      }
+      expect(rebuilt, card.id).toEqual(pixels)
+    }
+  })
+
+  it('never emits a run of a transparent cell', () => {
+    for (const run of portraitRuns(DECK[0]!)) {
+      expect(run.color).toBeTruthy()
+      expect(run.len).toBeGreaterThan(0)
+    }
+  })
+
+  it('memoises per card', () => {
+    expect(portraitRuns(DECK[0]!)).toBe(portraitRuns(DECK[0]!))
   })
 })

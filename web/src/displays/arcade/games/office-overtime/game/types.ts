@@ -1,6 +1,8 @@
-/** Value types for the Office Overtime session, free of engine imports. */
+/** Value types for the Office Overtime session. */
 
+import type { TextSpan } from '@src/stargazer'
 import type { Difficulty } from './tuning'
+import type { Card } from './rules/deck'
 
 export type GameMode =
   { kind: 'versus' } | { kind: 'ai'; difficulty: Difficulty }
@@ -37,11 +39,22 @@ export interface GameOverView {
   winner: 0 | 1 | null
 }
 
+/** A pending human decision on a `choose` card, resolved by the overlay. */
+export interface ChoicePrompt {
+  card: Card
+  /** The two (or more) options, each already turned into display spans. */
+  options: TextSpan[][]
+  /** Called with the chosen option index; the turn pipeline is awaiting it. */
+  pick: (index: number) => void
+}
+
 export interface GameEvents {
   matchStarted: { mode: GameMode }
   turnChanged: { turn: 0 | 1; thinking: boolean }
   sidesChanged: { sides: [SideSummary, SideSummary] }
   gameOver: GameOverView
+  /** A human hired a card that offers a choice; the overlay must resolve it. */
+  choice: ChoicePrompt | null
   reset: void
   paused: void
   resumed: void

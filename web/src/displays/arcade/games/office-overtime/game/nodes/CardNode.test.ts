@@ -1,55 +1,63 @@
-// The name is the one thing on a card drawn under a rotation, so its direction
-// is the one thing that can silently come out backwards. A quarter turn the
-// wrong way runs the word up the ribbon instead of down, which reads as though
-// the card had been flipped.
-
 import { describe, expect, it } from 'vitest'
-import { ribbonTextAnchor } from './CardNode'
-import { CARD } from '../tuning'
+import { CardNode } from './CardNode'
+import { cardFace } from '../cardFace'
+import { DECK } from '../rules/deck'
 
-/** Where the rotation carries a local vector, in screen space (Y down). */
-function rotated(v: { x: number; y: number }, rad: number) {
-  const cos = Math.cos(rad)
-  const sin = Math.sin(rad)
-  return { x: v.x * cos - v.y * sin, y: v.x * sin + v.y * cos }
-}
+describe('cardFace geometry', () => {
+  const g = cardFace(256, 388)
 
-describe('card name ribbon', () => {
-  const anchor = ribbonTextAnchor(200, 280)
-
-  it('runs the name down the card, not up it', () => {
-    const advance = rotated({ x: 1, y: 0 }, anchor.rotation)
-    expect(advance.y).toBeCloseTo(1, 6)
-    expect(advance.x).toBeCloseTo(0, 6)
+  it('matches the reference fractions of a 256x388 card', () => {
+    expect(g.radius).toBeCloseTo(0.0898 * 256, 3)
+    expect(g.portrait.cx).toBeCloseTo(128, 3)
+    expect(g.portrait.cy).toBeCloseTo(0.327 * 388, 3)
+    expect(g.portrait.r).toBeCloseTo(0.257 * 256, 3)
+    expect(g.coin.cx).toBeCloseTo(0.164 * 256, 3)
+    expect(g.coin.r).toBeCloseTo(0.0664 * 256, 3)
   })
 
-  it('is a rotation, never a reflection', () => {
-    // A negative determinant would mirror the glyphs.
-    const cos = Math.cos(anchor.rotation)
-    const sin = Math.sin(anchor.rotation)
-    expect(cos * cos - -sin * sin).toBeCloseTo(1, 6)
+  it('keeps the portrait pixel box square', () => {
+    expect(g.portraitBox.width).toBeCloseTo(g.portraitBox.height, 6)
   })
 
-  it('starts below the cost coin and stays on the ribbon', () => {
-    const w = 200
-    const h = 280
-    // Clear of the coin, which overlaps the top of the ribbon.
-    expect(anchor.y).toBeGreaterThan(h * CARD.coinRadiusFrac)
-    // Centred across the ribbon's width.
-    expect(anchor.x).toBeCloseTo(w * CARD.ribbonWidthFrac * 0.5, 6)
-    expect(anchor.x).toBeLessThan(w * CARD.ribbonWidthFrac)
+  it('puts the review text right of the points chip, inside the band', () => {
+    expect(g.pointsChip.x).toBe(g.reviewBand.x)
+    expect(g.reviewText.x).toBeGreaterThan(g.pointsChip.x + g.pointsChip.width)
+    expect(g.reviewText.x + g.reviewText.width).toBeLessThanOrEqual(
+      g.reviewBand.x + g.reviewBand.width + 1e-6,
+    )
   })
 
-  it('leaves a run of ribbon for the name to occupy', () => {
-    const h = 280
-    const run = h * CARD.ribbonTextBottomFrac - anchor.y
-    expect(run).toBeGreaterThan(h * 0.5)
+  it('scales linearly with the card', () => {
+    const a = cardFace(200, 300)
+    const b = cardFace(400, 600)
+    expect(b.coin.cx).toBeCloseTo(a.coin.cx * 2, 6)
+    expect(b.reviewBand.width).toBeCloseTo(a.reviewBand.width * 2, 6)
+  })
+})
+
+describe('CardNode', () => {
+  it('holds the face it is given', () => {
+    const node = new CardNode('t')
+    const card = DECK[0]!
+    node.setFace({ kind: 'card', card, budget: 0 })
+    expect(node.face).toEqual({ kind: 'card', card, budget: 0 })
   })
 
-  it('scales with the card', () => {
-    const small = ribbonTextAnchor(100, 140)
-    expect(small.x).toBeCloseTo(anchor.x / 2, 6)
-    expect(small.y).toBeCloseTo(anchor.y / 2, 6)
-    expect(small.rotation).toBe(anchor.rotation)
+  it('sizes itself and bounds a shadow bleed', () => {
+    const node = new CardNode('t')
+    node.setSize(200, 303)
+    expect(node.width).toBe(200)
+    expect(node.height).toBe(303)
+    expect(node.debugBounds!.x).toBeLessThan(0)
+    expect(node.debugBounds!.width).toBeGreaterThan(200)
+  })
+
+  it('hit-tests the card rect', () => {
+    const node = new CardNode('t')
+    node.setFace({ kind: 'openSeat' })
+    node.setSize(200, 303)
+    expect(node.hitTest(100, 150, 0)).toBe(true)
+    expect(node.hitTest(-5, 10, 0)).toBe(false)
+    expect(node.hitTest(210, 10, 0)).toBe(false)
   })
 })

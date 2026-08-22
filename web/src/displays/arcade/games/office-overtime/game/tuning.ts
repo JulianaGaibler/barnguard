@@ -86,93 +86,110 @@ export const AI_SLICE_MS = 5
 
 /**
  * Canvas colours. Literal hex only: the canvas parser accepts hex and
- * rgb()/rgba() and silently paints anything else black.
+ * rgb()/rgba() and silently paints anything else black. These mirror the
+ * designed art (`~/Desktop/office`); the DOM chrome duplicates the matching
+ * roles in `meta.ts`, which is the established split.
  */
 export const COLORS = {
-  backdropTop: '#f2ece1',
-  backdropBottom: '#d9cdb8',
-  /** Card stock, by floor. Carried over from the printed cards. */
-  stockManagement: '#c6d6d4',
-  stockIc: '#dcc2a2',
-  /** The floor stripe down a card's edge. */
-  ribbonManagement: '#8d9c9a',
-  ribbonIc: '#a8825a',
-  cardEdge: '#3a3129',
-  cardShadow: '#00000022',
+  /**
+   * The board behind everything. The design is flat; a faint gradient reads as
+   * paper.
+   */
+  backdropTop: '#f8f7f2',
+  backdropBottom: '#f2f0e8',
+  board: '#f7f6f0',
+  /** Card stock, by floor. */
+  stockManagement: '#eceaf0',
+  stockIc: '#f7ede4',
+  /** The 2px-equivalent black edge every card carries. */
+  cardEdge: '#141210',
+  cardShadow: '#00000026',
   ink: '#2b2620',
   inkSoft: '#6b6157',
-  paper: '#fbf7ef',
-  coin: '#f0c552',
-  coinEdge: '#b08a2a',
-  seal: '#c2402f',
-  openSeat: '#b9ab95',
-  slotEmpty: '#00000014',
+  /** 25% ink, for the review divider. */
+  dividerInk: '#2b262040',
+  lanyard: '#d9d9d9',
+  portraitDisc: '#3c3c3c',
+  /** Cost coin: white disc, dark edge and number. */
+  coinFill: '#ffffff',
+  coinEdge: '#2f2f2f',
+  coinInk: '#2f2f2f',
+  /** Review band: a red points chip on a translucent white strip. */
+  reviewChip: '#da3236',
+  reviewChipInk: '#fcfcfa',
+  reviewBand: '#ffffffbf',
+  /** Open seat: light disc, generic person glyph. */
+  openSeatStock: '#ffffff',
+  openSeatDisc: '#eceaf0',
+  personGlyph: '#faf5f3',
+  personInk: '#3c3c3c',
+  /** Empty org slots draw as light rounded placeholders. */
+  slotEmpty: '#d9d9d9',
   slotLegal: '#4a8f6a55',
   slotHover: '#4a8f6a99',
+  /** The active side's resource pill and turn cue. */
   activeSide: '#c2402f',
-  approval: '#c2402f',
-  budget: '#2f7d4f',
+  /** Translucent fill of the active side's pill. */
+  activePill: '#c2402f1f',
+  approval: '#283f20',
+  budget: '#6e4725',
+  /** Controls and resource bars sit on a light panel. */
+  panel: '#ffffff',
+  panelBorder: '#2b262033',
+  pressed: '#00000014',
+  disabledText: '#b3ada2',
+  /** Veil over a card the flip toggle would replace, or an inactive one. */
+  dimVeil: '#00000033',
 } as const
 
-/** One colour per department, kept from the original faction shields. */
+/**
+ * Per-department colours, read straight out of the icon SVGs: `ink` is the
+ * badge ring, `fill` the badge disc, `panel` the art-panel tint. Leadership,
+ * engineering and design panels come from the reference cards; the other three
+ * are matched by hand (research and design deliberately differ despite a shared
+ * badge fill, told apart by ink and glyph).
+ */
 export const GROUP_COLORS = {
-  leadership: '#42bfe4',
-  people: '#7d2d7a',
-  research: '#4f782a',
-  product: '#cf4a2e',
-  engineering: '#e8913c',
-  design: '#bd8736',
+  leadership: { ink: '#014461', fill: '#42bfe4', panel: '#a4dff0' },
+  people: { ink: '#4c194e', fill: '#bc98b5', panel: '#dcc2d8' },
+  research: { ink: '#283f20', fill: '#e7dc76', panel: '#d8dccb' },
+  product: { ink: '#7a2e22', fill: '#e26037', panel: '#f9b79e' },
+  engineering: { ink: '#7a2e22', fill: '#f5b472', panel: '#ffc891' },
+  design: { ink: '#6e4725', fill: '#e7dc76', panel: '#e7dc76' },
 } as const
 
-/** Card face proportions, as fractions of the card's own width or height. */
-export const CARD = {
-  cornerFrac: 0.06,
-  ribbonWidthFrac: 0.16,
-  /**
-   * The name runs down the ribbon reading top to bottom, as on the printed
-   * cards, so it is turned a quarter turn clockwise. Screen Y points down, so
-   * that is a positive angle: it carries the text advance direction (1, 0) onto
-   * (0, 1). Negating it runs the name bottom to top, which reads as though the
-   * ribbon were flipped end for end.
-   */
-  nameRotation: Math.PI / 2,
-  /** The name starts below the cost coin and runs to near the ribbon's tail. */
-  ribbonTextTopFrac: 0.26,
-  ribbonTextBottomFrac: 0.95,
-  coinRadiusFrac: 0.17,
-  shieldWidthFrac: 0.17,
-  artTopFrac: 0.1,
-  // The art is a placeholder, so the rules text gets the room. Both text bands
-  // size themselves to fit rather than clipping: a card whose ability or review
-  // is cut off cannot be reasoned about, which makes the game unreadable and
-  // the opponent impossible to check.
-  artBottomFrac: 0.46,
-  abilityTopFrac: 0.48,
-  abilityBottomFrac: 0.68,
-  reviewTopFrac: 0.7,
-  reviewBottomFrac: 0.96,
-  /** Font sizes tried for the rules text, largest first, as fractions of width. */
-  bodySizeFracs: [0.082, 0.074, 0.066, 0.058, 0.05, 0.044],
-  /** Below this drawn width, only the coin, groups and name are drawn. */
-  detailMinWidth: 150,
-} as const
-
-/** Table geometry, as fractions of the visible game rect where it varies. */
+/**
+ * Table geometry. The row holds nine equal cards in three groups of three (org,
+ * shortlists, org) with a wide gap between groups; height binds at 16:9, so the
+ * spare horizontal space becomes that gap. Fractions are of the visible game
+ * rect unless noted.
+ */
 export const LAYOUT = {
-  /** Portrait card, height over width. Matches the printed cards. */
-  cardAspect: 1.4,
-  /** Roughly the shape of a 3x3 of those cards. */
-  orgAspect: 3 / (3 * 1.4),
-  /** The centre column is wider: the candidates are what players read. */
-  centerFlex: 1.25,
+  /** Portrait card, height over width. The reference card is 256x388. */
+  cardAspect: 388 / 256,
   padFrac: 0.03,
-  gapFrac: 0.02,
-  cellGapFrac: 0.03,
-  slotGapFrac: 0.04,
-  /** Left clear at the top so no drag starts in the launcher pull-down zone. */
-  headerHeight: 96,
-  markerHeight: 72,
-  resourceBarHeight: 76,
+  /**
+   * Gap between the three cards inside one region, as a fraction of a card's
+   * width. Keeping it relative to the card (not the view) is what lets an org
+   * cell and a shortlist card come out the same width from an equal-width
+   * region, which is the "nine equal cards across" constraint.
+   */
+  cardGapRatio: 0.07,
+  /** Smallest gap between the three regions; spare width is added to it. */
+  regionGapMinFrac: 0.03,
+  /**
+   * Height kept clear at the top and bottom, so no drag starts in the launcher
+   * hatch.
+   */
+  topReserveFrac: 0.075,
+  /** Gap below an org before its resource bar. */
+  resourceGapFrac: 0.018,
+  /** Resource bar height. */
+  resourceBarFrac: 0.058,
+  /** Caption strip above each shortlist. */
+  captionFrac: 0.034,
+  /** Control stack below the shortlists. */
+  controlFrac: 0.14,
 } as const
 
 export const ANIM = {

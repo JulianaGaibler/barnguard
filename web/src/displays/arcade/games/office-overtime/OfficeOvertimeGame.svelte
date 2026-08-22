@@ -5,15 +5,16 @@
   import type { GameProps } from '../GameModule'
   import {
     startGame,
+    type ChoicePrompt as ChoicePromptData,
     type GameMode,
     type GameOverView,
     type GameSession,
-    type SideSummary,
   } from './game'
   import { OO_STRINGS as t } from './strings'
   import SplashScreen from './overlays/SplashScreen.svelte'
   import PauseMenu from './overlays/PauseMenu.svelte'
   import GameOver from './overlays/GameOver.svelte'
+  import ChoicePrompt from './overlays/ChoicePrompt.svelte'
 
   // Overlays ride the camera via `domAnchor`, so there is no fade gate.
   const { host, onExit }: GameProps = $props()
@@ -24,12 +25,9 @@
   let paused = $state(false)
   let mode = $state<GameMode>({ kind: 'versus' })
   let result = $state<GameOverView | null>(null)
+  let choice = $state<ChoicePromptData | null>(null)
   let turn = $state<0 | 1>(0)
   let thinking = $state(false)
-  let sides = $state<[SideSummary, SideSummary]>([
-    { budget: 15, approvals: 2, seats: 0 },
-    { budget: 15, approvals: 2, seats: 0 },
-  ])
   let anchor = $state<Node2D | null>(null)
   let gameRect = $state<Rect>({
     x: 0,
@@ -85,11 +83,11 @@
           turn = p.turn
           thinking = p.thinking
         })
-        sess.events.on('sidesChanged', (p) => {
-          sides = p.sides
-        })
         sess.events.on('gameOver', (p) => {
           result = p
+        })
+        sess.events.on('choice', (p) => {
+          choice = p
         })
         sess.events.on('reset', () => {
           paused = false
@@ -141,10 +139,6 @@
       {#if session && !showSplash && !result}
         <div class="oo__hud">
           <span class="oo__turn">{turnLabel}</span>
-          <span class="oo__res"
-            >{t.budget} ${sides[0].budget} / {t.approvals}
-            {sides[0].approvals}</span
-          >
         </div>
       {/if}
 
@@ -159,6 +153,10 @@
           onPlayAgain={() => startMatch(mode)}
           onMenu={quit}
         />
+      {/if}
+
+      {#if session && choice}
+        <ChoicePrompt {choice} onPick={(i) => choice?.pick(i)} />
       {/if}
     </div>
   {/if}
@@ -199,8 +197,4 @@
   .oo__turn
     @include tint.type-class(card-title)
     color: var(--color-title)
-
-  .oo__res
-    @include tint.type-class(body-small)
-    color: var(--color-text-secondary)
 </style>

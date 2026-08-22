@@ -17,8 +17,41 @@
 
 struct Frame {
   proj: mat3x3<f32>,
+  targetH: f32,
+  fragYFlip: f32,
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
+
+struct Clip {
+  kind: f32,
+  cx: f32,
+  cy: f32,
+  r: f32,
+  halfW: f32,
+  halfH: f32,
+  rrRadius: f32,
+  clipPad: f32,
+};
+@group(0) @binding(8) var<uniform> clipShape: Clip;
+
+// Analytic clip coverage in device px; frame.fragYFlip corrects WebGL2's
+// bottom-up gl_FragCoord. Multiply the premultiplied fragment output by this.
+fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
+  let q = abs(p) - b + vec2<f32>(rad);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
+}
+fn clipCoverage(fragPos: vec2<f32>) -> f32 {
+  if (clipShape.kind < 0.5) { return 1.0; }
+  let fy = select(fragPos.y, frame.targetH - fragPos.y, frame.fragYFlip > 0.5);
+  let p = vec2<f32>(fragPos.x, fy) - vec2<f32>(clipShape.cx, clipShape.cy);
+  var d: f32;
+  if (clipShape.kind < 1.5) {
+    d = length(p) - clipShape.r;
+  } else {
+    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
+  }
+  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
+}
 
 // Per-run debug/clip params. Ints are carried as floats so the block stays a
 // plain vec4 + 4 floats (std140: 32 B, matches DRAWPARAMS_BYTES).
@@ -59,6 +92,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   if (params.clipEnabled > 0.5) {
     c = c * textureSample(u_clipTex, u_clipSamp, in.uv).a;
   }
+  c *= clipCoverage(in.pos.xy);
   let mode = i32(params.debugMode + 0.5);
   if (mode == 1) {
     // Dim premultiplied red. `lighter` blend accumulates it into a heatmap.

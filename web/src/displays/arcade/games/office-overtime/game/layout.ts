@@ -1,30 +1,16 @@
 // Where everything sits.
 //
-// A headless layout tree, run the way jezzball does it: measure and arrange
-// against the game region's visible rect, then read the resulting world rects
-// back out of the `LayoutBuilder` callbacks. No `LayoutRoot` is added to the
-// scene, because one would default its bounds to the camera's visible world
-// rect and install a second resize listener that fights `session.resize`.
+// The row holds nine equal cards in three groups of three — org, shortlists,
+// org — with a wide gap between the groups. A card width `W` binds on height at
+// 16:9, so the spare horizontal width is handed to the two region gaps, which is
+// exactly the separation the design asks for. The centre pair of shortlists is
+// vertically centred against the org grids, with the controls below.
 //
-// `crossAxisAlign: 'stretch'` is load-bearing at every level. `Flex` defaults
-// to `'start'`, which offers children a zero minimum on the cross axis; a
-// `LayoutBuilder` then measures to that minimum and the whole tree arranges at
-// zero size. It only warns when the maximum is infinite, so with a finite one
-// it collapses silently. `Expanded` fixes the main axis only.
+// The intra-region card gap is a fraction of `W`, not of the view, so an org
+// cell and a shortlist card recover the same width from an equal-width region:
+// `regionWidth = W * (3 + 2 * gapRatio)`, and every reader inverts that.
 
-import {
-  AspectRatio,
-  BoxConstraints,
-  Column,
-  Expanded,
-  LayoutBuilder,
-  Padding,
-  Row,
-  SizedBox,
-  edgeInsets,
-  type MeasurableNode,
-  type Rect,
-} from '@src/stargazer'
+import type { Rect } from '@src/stargazer'
 import { LAYOUT } from './tuning'
 
 export interface TableRects {
@@ -34,104 +20,90 @@ export interface TableRects {
   resources: [Rect, Rect]
   /** The two shortlists, Management above IC. */
   shortlist: [Rect, Rect]
-  /** Between the shortlists, for the floor marker. */
-  marker: Rect
+  /** The caption strip above each shortlist. */
+  captions: [Rect, Rect]
+  /**
+   * The control stack (switch floor / redeal / replace with AI), below the
+   * shortlists.
+   */
+  controls: Rect
 }
 
-const emptyRect = (): Rect => ({ x: 0, y: 0, width: 0, height: 0 })
+/** How much wider a region is than its three cards, from the intra-card gap. */
+const REGION_SPAN = 3 + 2 * LAYOUT.cardGapRatio
 
-const copy = (into: Rect, from: Readonly<Rect>): void => {
-  into.x = from.x
-  into.y = from.y
-  into.width = from.width
-  into.height = from.height
-}
+const rect = (x: number, y: number, width: number, height: number): Rect => ({
+  x,
+  y,
+  width,
+  height,
+})
 
-/**
- * Measure the table into `view` and return the world rect of every region.
- *
- * The centre column is wider than the two orgs because the candidates are what
- * the players are reading. A header band is reserved above it: the launcher's
- * pull-down gesture arms in the top slice of the viewport, and nothing
- * draggable may start there.
- */
+/** Measure the table into `view` and return the world rect of every region. */
 export function computeTable(view: Rect): TableRects {
-  const rects: TableRects = {
-    org: [emptyRect(), emptyRect()],
-    resources: [emptyRect(), emptyRect()],
-    shortlist: [emptyRect(), emptyRect()],
-    marker: emptyRect(),
-  }
+  const small = Math.min(view.width, view.height)
+  const pad = small * LAYOUT.padFrac
+  const regionGapMin = small * LAYOUT.regionGapMinFrac
+  const resourceGap = small * LAYOUT.resourceGapFrac
+  const resourceBar = view.height * LAYOUT.resourceBarFrac
+  const caption = view.height * LAYOUT.captionFrac
+  const controls = view.height * LAYOUT.controlFrac
 
-  const gap = Math.min(view.width, view.height) * LAYOUT.gapFrac
-  const pad = Math.min(view.width, view.height) * LAYOUT.padFrac
+  const availW = view.width - 2 * pad
+  const usableTop = view.y + view.height * LAYOUT.topReserveFrac
+  const usableH = view.height * (1 - 2 * LAYOUT.topReserveFrac)
 
-  const side = (index: 0 | 1): MeasurableNode =>
-    new Expanded({
-      child: new Column({
-        crossAxisAlign: 'stretch',
-        children: [
-          new Expanded({
-            child: new AspectRatio({
-              ratio: LAYOUT.orgAspect,
-              child: new LayoutBuilder({
-                onLayout: (r) => copy(rects.org[index], r),
-              }),
-            }),
-          }),
-          new SizedBox({ width: gap, height: gap * 0.5 }),
-          new SizedBox({
-            width: 0,
-            height: LAYOUT.resourceBarHeight,
-            child: new LayoutBuilder({
-              onLayout: (r) => copy(rects.resources[index], r),
-            }),
-          }),
-        ],
-      }),
-    })
+  // Card width, whichever of the two bounds is tighter.
+  const wFromWidth = (availW - 2 * regionGapMin) / (3 * REGION_SPAN)
+  const wFromHeight =
+    (usableH - resourceGap - resourceBar) /
+    (3 * LAYOUT.cardAspect + 2 * LAYOUT.cardGapRatio)
+  const w = Math.max(0, Math.min(wFromWidth, wFromHeight))
 
-  const middle = new Expanded({
-    flex: LAYOUT.centerFlex,
-    child: new Column({
-      crossAxisAlign: 'stretch',
-      children: [
-        // Reserved, deliberately empty: no draggable card may begin inside the
-        // launcher pull-down zone at the top of the screen.
-        new SizedBox({ width: 0, height: LAYOUT.headerHeight }),
-        new Expanded({
-          child: new LayoutBuilder({
-            onLayout: (r) => copy(rects.shortlist[0], r),
-          }),
-        }),
-        new SizedBox({
-          width: 0,
-          height: LAYOUT.markerHeight,
-          child: new LayoutBuilder({
-            onLayout: (r) => copy(rects.marker, r),
-          }),
-        }),
-        new Expanded({
-          child: new LayoutBuilder({
-            onLayout: (r) => copy(rects.shortlist[1], r),
-          }),
-        }),
-      ],
-    }),
-  })
+  const cardH = w * LAYOUT.cardAspect
+  const cardGap = w * LAYOUT.cardGapRatio
+  const regionW = w * REGION_SPAN
+  const orgH = 3 * cardH + 2 * cardGap
+  // Spare horizontal space becomes the two region gaps.
+  const regionGap = Math.max(regionGapMin, (availW - 3 * regionW) / 2)
 
-  const content = new Padding({
-    insets: edgeInsets(pad),
-    child: new Row({
-      gap,
-      crossAxisAlign: 'stretch',
-      children: [side(0), middle, side(1)],
-    }),
-  })
+  const colX = (i: 0 | 1 | 2): number =>
+    view.x + pad + i * (regionW + regionGap)
+  const orgY = usableTop
 
-  content.measure(BoxConstraints.tight(view.width, view.height))
-  content.arrange(view.x, view.y, view.width, view.height)
-  return rects
+  const org: [Rect, Rect] = [
+    rect(colX(0), orgY, regionW, orgH),
+    rect(colX(2), orgY, regionW, orgH),
+  ]
+  const resourceY = orgY + orgH + resourceGap
+  const resources: [Rect, Rect] = [
+    rect(colX(0), resourceY, regionW, resourceBar),
+    rect(colX(2), resourceY, regionW, resourceBar),
+  ]
+
+  // Centre column: caption + Management row, caption + IC row, then controls,
+  // centred vertically against the org grids.
+  const rowGap = cardGap * 2
+  const stackH = 2 * (caption + cardH) + rowGap + controls + rowGap
+  const cx = colX(1)
+  let y = orgY + Math.max(0, (orgH - stackH) / 2)
+  const captions: [Rect, Rect] = [
+    rect(cx, y, regionW, caption),
+    rect(0, 0, 0, 0),
+  ]
+  y += caption
+  const shortlist: [Rect, Rect] = [
+    rect(cx, y, regionW, cardH),
+    rect(0, 0, 0, 0),
+  ]
+  y += cardH + rowGap
+  captions[1] = rect(cx, y, regionW, caption)
+  y += caption
+  shortlist[1] = rect(cx, y, regionW, cardH)
+  y += cardH + rowGap
+  const controlsRect = rect(cx, y, regionW, controls)
+
+  return { org, resources, shortlist, captions, controls: controlsRect }
 }
 
 /** Geometry of one 3x3 org: cell size and the origin of cell (0, 0). */
@@ -142,20 +114,19 @@ export interface OrgGeom {
   originY: number
 }
 
-/** Fit a 3x3 grid of portrait cards centred inside `rect`. */
-export function orgGeom(rect: Rect): OrgGeom {
-  const gap = Math.min(rect.width, rect.height) * LAYOUT.cellGapFrac
-  const cellW = (rect.width - gap * 2) / 3
-  const cellH = (rect.height - gap * 2) / 3
-  // Cards are portrait, so the height budget is what binds.
-  const cell = Math.max(0, Math.min(cellW, cellH / LAYOUT.cardAspect))
-  const usedW = cell * 3 + gap * 2
+/**
+ * Fit a 3x3 grid of portrait cards inside `rect`, matching the shortlist card
+ * width.
+ */
+export function orgGeom(r: Rect): OrgGeom {
+  const cell = r.width / REGION_SPAN
+  const gap = cell * LAYOUT.cardGapRatio
   const usedH = cell * LAYOUT.cardAspect * 3 + gap * 2
   return {
     cell,
     gap,
-    originX: rect.x + (rect.width - usedW) / 2,
-    originY: rect.y + (rect.height - usedH) / 2,
+    originX: r.x,
+    originY: r.y + Math.max(0, (r.height - usedH) / 2),
   }
 }
 
@@ -169,19 +140,52 @@ export function cellRect(geom: OrgGeom, row: number, col: number): Rect {
   }
 }
 
-/** Fit three candidate cards in a row inside `rect`. */
-export function shortlistSlots(rect: Rect): Rect[] {
-  const gap = rect.width * LAYOUT.slotGapFrac
-  const w = Math.max(0, (rect.width - gap * 2) / 3)
-  const h = Math.min(rect.height, w * LAYOUT.cardAspect)
-  const cardW = h / LAYOUT.cardAspect
-  const usedW = cardW * 3 + gap * 2
-  const x0 = rect.x + (rect.width - usedW) / 2
-  const y0 = rect.y + (rect.height - h) / 2
+/**
+ * Rect of one cell in a `cols` x `rows` grid fitted (centred) inside `region`.
+ *
+ * The org shows a 3x3 window at rest but opens to as much as 4x4 during a drag,
+ * and the cards scale down to keep the same region. This fits whatever window
+ * is asked for, so an org cell is the same width as a shortlist card only while
+ * the window is 3 wide, which is the intended "nine equal at rest" behaviour.
+ */
+export function windowCellRect(
+  region: Rect,
+  cols: number,
+  rows: number,
+  row: number,
+  col: number,
+): Rect {
+  const g = LAYOUT.cardGapRatio
+  const a = LAYOUT.cardAspect
+  const cellByW = region.width / (cols + (cols - 1) * g)
+  const cellByH = region.height / (rows * a + (rows - 1) * g)
+  const cell = Math.max(0, Math.min(cellByW, cellByH))
+  const gap = cell * g
+  const gridW = cols * cell + (cols - 1) * gap
+  const gridH = rows * cell * a + (rows - 1) * gap
+  const ox = region.x + (region.width - gridW) / 2
+  const oy = region.y + (region.height - gridH) / 2
+  return {
+    x: ox + col * (cell + gap),
+    y: oy + row * (cell * a + gap),
+    width: cell,
+    height: cell * a,
+  }
+}
+
+/** Fit three candidate cards in a row inside `rect`, each the org cell width. */
+export function shortlistSlots(r: Rect): Rect[] {
+  const cardW = r.width / REGION_SPAN
+  const gap = cardW * LAYOUT.cardGapRatio
+  const h = Math.min(r.height, cardW * LAYOUT.cardAspect)
+  const cardWFit = h / LAYOUT.cardAspect
+  const usedW = cardWFit * 3 + gap * 2
+  const x0 = r.x + (r.width - usedW) / 2
+  const y0 = r.y + (r.height - h) / 2
   return [0, 1, 2].map((i) => ({
-    x: x0 + i * (cardW + gap),
+    x: x0 + i * (cardWFit + gap),
     y: y0,
-    width: cardW,
+    width: cardWFit,
     height: h,
   }))
 }

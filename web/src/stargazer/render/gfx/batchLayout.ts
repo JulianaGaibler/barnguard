@@ -9,11 +9,6 @@
 export const COLORED_TRI_STRIDE = 20
 export const COLORED_TRI_WORDS = COLORED_TRI_STRIDE / 4
 /**
- * Textured-quad instance layout: dst.xyzw (f32) + srcRect.xyzw (f32) +
- * tint.rgba (u8×4) = 9 words = 36 B.
- */
-export const TEXTURED_QUAD_INSTANCE_STRIDE = 36
-/**
  * Stroke instance layout: p0.xy + p1.xy + color(u8×4) + width + dashStart +
  * dashPeriod + dashOnLen = 9 words = 36 B.
  */
@@ -87,7 +82,6 @@ export const SHAPE_TEX_LABEL = 1
  * particles / debris / grid overlay on top.
  */
 export const COLORED_TRI_BUFFER_BYTES = 2 * 1024 * 1024 // 2 MB → ~104k verts
-export const TEXTURED_QUAD_BUFFER_BYTES = 128 * 1024 // 128 KB → ~3.6k instances
 export const STROKE_BUFFER_BYTES = 1 * 1024 * 1024 // 1 MB → ~29k instances
 export const SDF_BUFFER_BYTES = 128 * 1024 // 128 KB → ~4k instances
 export const ROUNDRECT_BUFFER_BYTES = 128 * 1024 // 128 KB → ~2k instances
@@ -130,9 +124,24 @@ export const MESH_SHADOW_UBO_BINDING = 7
 /**
  * `Frame` UBO size in floats. std140 lays a `mat3` out as 3 vec4-aligned
  * columns = 12 floats = 48 B, so the 9-float `projMat` is staged with a padding
- * float after each column.
+ * float after each column. Two more floats follow — `targetH` (current
+ * render-target height, for the analytic clip's device-px Y) and `fragYFlip` (1
+ * on WebGL2, whose `gl_FragCoord.y` is bottom-up) — padded out to 16 floats.
  */
-export const FRAME_UBO_FLOATS = 12
+export const FRAME_UBO_FLOATS = 16
+
+/**
+ * Group-0 binding of the shared per-run analytic clip UBO (2D pipelines only).
+ * 8 keeps it clear of the other group-0 bindings the 3D pass uses (Camera3D at
+ * 1).
+ */
+export const CLIP_UBO_BINDING = 8
+
+/**
+ * `Clip` UBO size (std140): kind, cx, cy, r, halfW, halfH, rrRadius + pad = 8
+ * floats = 32 B.
+ */
+export const CLIP_UBO_BYTES = 32
 
 /**
  * Bind-group group indices. Group 0 is the shared per-frame block (`Frame` /
@@ -147,10 +156,6 @@ export const GROUP_MATERIAL = 1
 export const LOC_COLORED_POS = 0
 export const LOC_COLORED_COLOR = 1
 export const LOC_COLORED_UV = 2
-export const LOC_TEXTURED_UNIT = 0
-export const LOC_TEXTURED_DST = 1
-export const LOC_TEXTURED_SRC = 2
-export const LOC_TEXTURED_TINT = 3
 export const LOC_STROKE_UNIT = 0
 export const LOC_STROKE_P0 = 1
 export const LOC_STROKE_P1 = 2
@@ -203,7 +208,6 @@ export const CURVE_FLATTEN_MAX_POINTS = 256
 export type BatchKind =
   | 'none'
   | 'coloredTri'
-  | 'texturedQuad'
   | 'stroke'
   | 'gradientRadial'
   | 'maskedGradient'

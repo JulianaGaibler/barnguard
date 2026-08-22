@@ -20,8 +20,10 @@ const {
   _resetTextLayoutCacheForTests,
   ellipsize,
   fitFontSize,
+  fitRichTextBlock,
   fitTextBlock,
   textWidth,
+  wrapRichText,
   wrapText,
   wrapTextInfo,
 } = await import('./textLayout')
@@ -167,5 +169,116 @@ describe('fitTextBlock', () => {
   it('spaces lines by the ratio', () => {
     const block = fitTextBlock('alpha', [10], make, { width: 200, height: 40 })
     expect(block.lineHeight).toBeCloseTo(12, 6)
+  })
+})
+
+// Weight is ignored by the width stub (it only reads px), so bold and plain
+// runs measure the same. That is deliberate: these tests pin structure and x
+// offsets, not the visual weight.
+const RICH_FONT = (bold: boolean) => `${bold ? 700 : 400} 10px sans-serif`
+
+describe('wrapRichText', () => {
+  beforeEach(() => _resetTextLayoutCacheForTests())
+
+  it('coalesces one weight into a single run', () => {
+    const lines = wrapRichText(
+      [{ text: 'gain 2 approvals' }],
+      RICH_FONT,
+      chars(30),
+    )
+    expect(lines).toHaveLength(1)
+    expect(lines[0]!.runs).toHaveLength(1)
+    expect(lines[0]!.runs[0]).toMatchObject({
+      text: 'gain 2 approvals',
+      bold: false,
+      x: 0,
+    })
+    expect(lines[0]!.width).toBe(chars(16))
+  })
+
+  it('splits into runs at each weight change and offsets them', () => {
+    const lines = wrapRichText(
+      [{ text: 'gain ' }, { text: '3', bold: true }, { text: ' approvals' }],
+      RICH_FONT,
+      chars(30),
+    )
+    expect(lines).toHaveLength(1)
+    const runs = lines[0]!.runs
+    expect(runs).toHaveLength(3)
+    expect(runs[0]).toMatchObject({ text: 'gain ', bold: false, x: 0 })
+    expect(runs[1]).toMatchObject({ text: '3 ', bold: true, x: chars(5) })
+    expect(runs[2]).toMatchObject({
+      text: 'approvals',
+      bold: false,
+      x: chars(7),
+    })
+  })
+
+  it('keeps a bold value glued to plain text as one word', () => {
+    // No spaces around the bold run: it must not wrap between "$" and "6".
+    const lines = wrapRichText(
+      [{ text: '+$' }, { text: '6', bold: true }, { text: 'k' }],
+      RICH_FONT,
+      chars(2),
+    )
+    expect(lines).toHaveLength(1)
+    expect(lines[0]!.runs.map((r) => r.text).join('')).toBe('+$6k')
+  })
+
+  it('wraps on whitespace across lines', () => {
+    const lines = wrapRichText(
+      [{ text: 'alpha beta gamma delta' }],
+      RICH_FONT,
+      chars(11),
+      4,
+    )
+    expect(lines.map((l) => l.runs.map((r) => r.text).join(''))).toEqual([
+      'alpha beta',
+      'gamma delta',
+    ])
+  })
+
+  it('returns no lines for empty spans', () => {
+    expect(wrapRichText([{ text: '   ' }], RICH_FONT, chars(10))).toEqual([])
+  })
+
+  it('caches a repeated call', () => {
+    const a = wrapRichText([{ text: 'alpha beta' }], RICH_FONT, chars(20))
+    expect(wrapRichText([{ text: 'alpha beta' }], RICH_FONT, chars(20))).toBe(a)
+  })
+})
+
+describe('fitRichTextBlock', () => {
+  beforeEach(() => _resetTextLayoutCacheForTests())
+
+  const richMake = (size: number, bold: boolean) =>
+    `${bold ? 700 : 400} ${size}px sans-serif`
+
+  it('keeps the largest size that fits the box whole', () => {
+    const block = fitRichTextBlock(
+      [{ text: 'alpha beta' }],
+      [10, 5],
+      richMake,
+      {
+        width: 120,
+        height: 40,
+      },
+    )
+    expect(block.size).toBe(10)
+    expect(block.truncated).toBe(false)
+    expect(block.lines).toHaveLength(1)
+  })
+
+  it('reports truncation and ellipsizes when nothing fits', () => {
+    const block = fitRichTextBlock(
+      [{ text: 'alpha beta gamma delta' }],
+      [10, 8],
+      richMake,
+      { width: 30, height: 12 },
+    )
+    expect(block.truncated).toBe(true)
+    expect(
+      block.lines[block.lines.length - 1]!.runs.some((r) => /…$/.test(r.text)),
+    ).toBe(true)
   })
 })

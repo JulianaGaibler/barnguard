@@ -68,7 +68,12 @@ import {
 } from './conv'
 import { BlitPass, mipLevels } from './blitPass'
 import { pipelineKey } from '../pipelineKey'
-import { getSourceWidth, getSourceHeight } from '../imageSource'
+import {
+  getSourceWidth,
+  getSourceHeight,
+  resolveUploadFlipY,
+  packUploadRGBA,
+} from '../imageSource'
 
 // --- concrete backing structs (kept private, exposed as branded handles) ----
 
@@ -888,20 +893,11 @@ export class WebGPUDevice implements GfxDevice {
    * video, not `ImageData` (which WebGL2's `texImage2D` does), so an
    * `ImageData` goes through `writeTexture` as raw RGBA8 bytes, applying
    * `flipY` / `premultiply` on the CPU since `writeTexture` does neither.
+   *
+   * `flipY` comes from `resolveUploadFlipY` (unchanged, never inverted per
+   * backend); see that function for the shared contract and the regression it
+   * guards.
    */
-  /**
-   * The `flipY` an upload must use. The 2D pass samples textures with UVs that
-   * follow the render target's orientation, and WebGPU's texture V-origin is
-   * the opposite of WebGL2's, so a normal texture inverts the caller's `flipY`
-   * to sample the same way as WebGL2 (which applies `opts.flipY` directly via
-   * `UNPACK_FLIP_Y`). A mesh's object-space UVs are independent of the render
-   * target, so those upload with their `flipY` unchanged.
-   */
-  #uploadFlipY(opts: TextureUploadOpts): boolean {
-    if (opts.objectSpaceUV) return opts.flipY ?? false
-    return !(opts.flipY ?? false)
-  }
-
   #uploadImage(
     gpu: GPUTexture,
     x: number,
@@ -923,7 +919,7 @@ export class WebGPUDevice implements GfxDevice {
     }
     try {
       this.#device.queue.copyExternalImageToTexture(
-        { source, flipY: this.#uploadFlipY(opts) },
+        { source, flipY: resolveUploadFlipY(opts) },
         {
           texture: gpu,
           origin: [x, y, 0],
@@ -972,24 +968,9 @@ export class WebGPUDevice implements GfxDevice {
   ): void {
     const w = img.width
     const h = img.height
-    const flip = this.#uploadFlipY(opts)
-    const premul = opts.premultiply ?? false
-    // Copy into a fresh, plainly-backed byte array (also applies flipY /
-    // premultiply, which writeTexture does not do itself).
-    const out = new Uint8Array(w * h * 4)
-    for (let row = 0; row < h; row++) {
-      const srcRow = flip ? h - 1 - row : row
-      for (let col = 0; col < w; col++) {
-        const si = (srcRow * w + col) * 4
-        const di = (row * w + col) * 4
-        const a = img.data[si + 3]
-        const s = premul ? a / 255 : 1
-        out[di] = Math.round(img.data[si] * s)
-        out[di + 1] = Math.round(img.data[si + 1] * s)
-        out[di + 2] = Math.round(img.data[si + 2] * s)
-        out[di + 3] = a
-      }
-    }
+    // writeTexture applies neither flipY nor premultiply, so bake both into a
+    // fresh, plainly-backed byte array CPU-side.
+    const out = packUploadRGBA(img, opts)
     this.#device.queue.writeTexture(
       { texture: gpu, origin: [x, y, 0] },
       out,

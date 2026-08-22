@@ -575,7 +575,11 @@
     })
     // Both players are out: open the two-player leaderboard-entry overlay.
     m.events.on('matchOver', (r) => {
-      versusResult = { winner: r.winner, pointsA: r.pointsA, pointsB: r.pointsB }
+      versusResult = {
+        winner: r.winner,
+        pointsA: r.pointsA,
+        pointsB: r.pointsB,
+      }
       if (pauseButtonNode) pauseButtonNode.visible = false
     })
     syncVersus()

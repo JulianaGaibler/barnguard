@@ -24,6 +24,7 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
     setAlpha: () => {},
     setBlend: () => {},
     setClipMask: () => {},
+    setClip: () => {},
     fillRect: () => {},
     fillRoundRect: () => {},
     strokeRoundRect: () => {},

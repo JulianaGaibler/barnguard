@@ -177,7 +177,9 @@ export function drawInstancedRun(
   if (instCount === 0) return
   const pipeline = pipelines.get(run.blend)
   if (!pipeline) return
-  const bindGroups: DrawBindGroup[] = [ctx.frameBindGroupEntry()]
+  const bindGroups: DrawBindGroup[] = [
+    ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
+  ]
   if (materialBindGroup)
     bindGroups.push({ group: 1, bindGroup: materialBindGroup })
   ctx.device.draw({

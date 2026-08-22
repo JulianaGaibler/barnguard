@@ -1,9 +1,9 @@
-// Text-quad program: `Gfx2D.fillText`. Draws a cached label texture as an
-// affine quad, so rotation is free (no re-rasterization, just a different
-// per-instance matrix). Reuses `texturedQuad`'s fragment shader; only the
-// vertex stage (affine placement) differs. Label lookup lives on `GpuGfx`
-// (needs `TextureManager`); this program owns the shader/VAO/stream plumbing
-// and the buffer write.
+// Text-quad program: the sole single-texture affine-quad draw. Backs both
+// `Gfx2D.fillText` (cached label textures) and `Gfx2D.drawImage` (particle
+// sprites, baked bitmaps). Draws a source rect from one texture as an affine
+// quad, so rotation is free (no re-rasterization, just a different per-instance
+// matrix). Label lookup lives on `GpuGfx` (needs `TextureManager`); this
+// program owns the shader/VAO/stream plumbing and the buffer write.
 
 import { RingStream } from '../RingStream'
 import {

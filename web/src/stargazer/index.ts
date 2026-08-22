@@ -39,6 +39,10 @@ export type { RenderLayer, PointerHandlers } from './scene/Node2D'
 export { Behavior } from './scene/Behavior'
 export type { BehaviorCtor } from './scene/Behavior'
 export { PointerBehavior } from './scene/PointerBehavior'
+export { ButtonBehavior } from './scene/ButtonBehavior'
+export type { ButtonOptions } from './scene/ButtonBehavior'
+export { DraggableBehavior } from './scene/DraggableBehavior'
+export type { DraggableOptions } from './scene/DraggableBehavior'
 export { walkTree } from './scene/traverse'
 export { hitTestCircle } from './scene/hitTest'
 export { raycastWorld3D, raycastMesh, makeRay } from './scene/raycast3d'
@@ -193,6 +197,7 @@ export type { AoPreset } from './render/gfx/ao/AmbientOcclusion'
 export type {
   Gfx2D,
   GfxBlend,
+  GfxClipShape,
   GfxStrokeStyle,
   GfxTextStyle,
   GfxGradientStop,
@@ -263,12 +268,20 @@ export type { LabelStyle, LabelMetrics } from './render/gfx/rasterizeLabel'
 export {
   ellipsize,
   fitFontSize,
+  fitRichTextBlock,
   fitTextBlock,
   textWidth,
+  wrapRichText,
   wrapText,
   wrapTextInfo,
 } from './render/gfx/textLayout'
-export type { TextBlock } from './render/gfx/textLayout'
+export type {
+  RichBlock,
+  RichLine,
+  RichRun,
+  TextBlock,
+  TextSpan,
+} from './render/gfx/textLayout'
 
 // layout (opt-in constraints-based box layout)
 export { BoxConstraints, edgeInsets } from './layout/constraints'

@@ -6,15 +6,16 @@
  * and transform changes fold into per-vertex data and never flush.
  *
  * Coordinator: this class holds the `Gfx2D` public surface and the frame
- * lifecycle. Each draw program (coloredTri, texturedQuad, stroke, shape,
- * gradientRadial, maskedGradient, textQuad) lives in `./programs/*.ts` and owns
- * its shader, VAO, ring-buffered stream, and flush. Shared batch state
- * (transform/state stacks, the active-batch key, the texture manager) lives on
+ * lifecycle. Each draw program (coloredTri, stroke, shape, gradientRadial,
+ * maskedGradient, textQuad) lives in `./programs/*.ts` and owns its shader,
+ * VAO, ring-buffered stream, and flush. Shared batch state (transform/state
+ * stacks, the active-batch key, the texture manager) lives on
  * `GpuBatchContext`, so a program module never needs a `GpuGfx` reference.
  */
 
 import type {
   Gfx2D,
+  GfxClipShape,
   GfxGradientStop,
   GfxStrokeStyle,
   GfxTextStyle,
@@ -41,7 +42,6 @@ import {
 } from './GpuBatchContext'
 import type { GpuProgram } from './GpuProgram'
 import { ColoredTriProgram } from './programs/coloredTri'
-import { TexturedQuadProgram } from './programs/texturedQuad'
 import { StrokeProgram } from './programs/stroke'
 import { resolveRadii, type RoundRectRadii } from './roundRectRadii'
 import { GradientRadialProgram } from './programs/gradientRadial'
@@ -51,6 +51,9 @@ import { ShapeProgram } from './programs/shape'
 import { SHAPE_TEX_ATLAS, SHAPE_TEX_LABEL } from './batchLayout'
 
 export type { DebugRenderMode, GpuGfxStats }
+
+/** Warn once when a clip is set under a transform its shape can't represent. */
+let warnedClipTransform = false
 
 /**
  * Counters for `Gfx2D` calls that hit a no-op path (e.g. `strokePath2D` on a
@@ -85,7 +88,6 @@ export class GpuGfx implements Gfx2D {
   readonly #ctx: GpuBatchContext
 
   readonly #coloredTri = new ColoredTriProgram()
-  readonly #texturedQuad = new TexturedQuadProgram()
   readonly #stroke = new StrokeProgram()
   readonly #gradientRadial = new GradientRadialProgram()
   readonly #maskedGradient = new MaskedGradientProgram()
@@ -173,7 +175,6 @@ export class GpuGfx implements Gfx2D {
     this.#textureManager = null as unknown as TextureManager
     this.#ctx = new GpuBatchContext(device, this.stats)
     this.#ctx.registerProgram(this.#coloredTri)
-    this.#ctx.registerProgram(this.#texturedQuad)
     this.#ctx.registerProgram(this.#stroke)
     this.#ctx.registerProgram(this.#shape)
     this.#ctx.registerProgram(this.#gradientRadial)
@@ -186,7 +187,6 @@ export class GpuGfx implements Gfx2D {
   get #programs(): GpuProgram[] {
     return [
       this.#coloredTri,
-      this.#texturedQuad,
       this.#stroke,
       this.#shape,
       this.#gradientRadial,
@@ -573,6 +573,55 @@ export class GpuGfx implements Gfx2D {
     // `flush` when the effective mask differs from the batch's baked-in
     // mask, matches how blend + texture flips force a flush.
     this.#ctx.stateStack.setClipMask(mask)
+  }
+
+  setClip(shape: GfxClipShape | null): void {
+    if (!shape) {
+      this.#ctx.stateStack.setClip(null)
+      return
+    }
+    // Resolve local → device px through the current transform, like fillCircle.
+    // The snapshot is taken now, so later transform changes don't move the clip.
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
+    const rotatedOrSkewed = Math.abs(t.b) > 1e-4 || Math.abs(t.c) > 1e-4
+    const nonUniform = Math.abs(Math.abs(t.a) - Math.abs(t.d)) > 1e-3
+    if (shape.kind === 'circle') {
+      if (nonUniform && !warnedClipTransform) {
+        warnedClipTransform = true
+        console.warn(
+          'GpuGfx.setClip: non-uniform scale approximates a circle clip as one averaged radius.',
+        )
+      }
+      this.#ctx.stateStack.setClip({
+        kind: 1,
+        cx: t.a * shape.cx + t.c * shape.cy + t.e,
+        cy: t.b * shape.cx + t.d * shape.cy + t.f,
+        r: shape.r * scale,
+        halfW: 0,
+        halfH: 0,
+        rrRadius: 0,
+      })
+    } else {
+      if ((rotatedOrSkewed || nonUniform) && !warnedClipTransform) {
+        warnedClipTransform = true
+        console.warn(
+          'GpuGfx.setClip: a rounded-rect clip assumes an axis-aligned transform; rotation/skew/non-uniform scale is unsupported.',
+        )
+      }
+      const midX = shape.x + shape.w / 2
+      const midY = shape.y + shape.h / 2
+      this.#ctx.stateStack.setClip({
+        kind: 2,
+        cx: t.a * midX + t.c * midY + t.e,
+        cy: t.b * midX + t.d * midY + t.f,
+        r: 0,
+        halfW: (shape.w / 2) * Math.abs(t.a),
+        halfH: (shape.h / 2) * Math.abs(t.d),
+        rrRadius: shape.radius * scale,
+      })
+    }
   }
 
   /**

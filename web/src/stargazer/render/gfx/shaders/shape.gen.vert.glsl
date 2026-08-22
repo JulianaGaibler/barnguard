@@ -5,6 +5,18 @@ precision highp int;
 
 struct Frame {
     mat3x3 proj;
+    float targetH;
+    float fragYFlip;
+};
+struct Clip {
+    float kind;
+    float cx;
+    float cy;
+    float r;
+    float halfW;
+    float halfH;
+    float rrRadius;
+    float clipPad;
 };
 struct VOut {
     vec4 pos;
@@ -50,11 +62,16 @@ flat out float _vs2fs_location11;
 flat out vec4 _vs2fs_location12;
 flat out vec4 _vs2fs_location13;
 
-float sdRoundBox(vec2 p_1, vec2 b, vec4 r) {
-    vec2 rr = ((p_1.x > 0.0) ? r.yz : r.xw);
-    float radius = ((p_1.y > 0.0) ? rr.y : rr.x);
-    vec2 q = ((abs(p_1) - b) + vec2(radius));
-    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - radius);
+float clipRoundBox(vec2 p_1, vec2 b, float rad) {
+    vec2 q = ((abs(p_1) - b) + vec2(rad));
+    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
+}
+
+float sdRoundBox(vec2 p_2, vec2 b_1, vec4 r) {
+    vec2 rr = ((p_2.x > 0.0) ? r.yz : r.xw);
+    float radius = ((p_2.y > 0.0) ? rr.y : rr.x);
+    vec2 q_1 = ((abs(p_2) - b_1) + vec2(radius));
+    return ((min(max(q_1.x, q_1.y), 0.0) + length(max(q_1, vec2(0.0)))) - radius);
 }
 
 void main() {
