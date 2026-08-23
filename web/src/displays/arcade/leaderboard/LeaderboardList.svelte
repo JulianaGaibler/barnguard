@@ -28,6 +28,13 @@
     pendingAction?: PendingAction | null
     maxRows?: number
     /**
+     * Ring the pending row, marking it as the one currently receiving keys.
+     * Only meaningful where more than one list is on screen at a time (a
+     * two-player game over), and off by default so every other caller is
+     * unchanged.
+     */
+    focused?: boolean
+    /**
      * Show only this many rows above/below the pending row. Omit for the full
      * list from rank 1 (the standalone leaderboard modal).
      */
@@ -38,6 +45,7 @@
     pending = null,
     pendingAction = null,
     maxRows = 50,
+    focused = false,
     contextRows,
   }: Props = $props()
 
@@ -114,6 +122,7 @@
         <button
           type="button"
           class="row pending"
+          class:focused
           onclick={pendingAction.onClick}
         >
           {@render rowContent(row)}
@@ -142,14 +151,14 @@
 
   .row
     display: grid
-    // `minmax(0, 1fr)`, not bare `1fr` — an `fr` track's automatic minimum is
+    // `minmax(0, 1fr)`, not bare `1fr`. An `fr` track's automatic minimum is
     // still its content's min-content size unless floored to 0, so without
     // this the name column was refusing to shrink and blowing out the row.
     grid-template-columns: 2.5rem minmax(0, 1fr) auto
     align-items: center
     gap: var(--space-12)
     padding: var(--space-8) var(--space-12)
-    // No global border-box reset in this codebase — without this, the
+    // No global border-box reset in this codebase. Without this, the
     // padding above adds onto the 100% width instead of being cut from it,
     // overflowing the row past its container by exactly that padding.
     box-sizing: border-box
@@ -165,7 +174,7 @@
     text-align: inherit
 
   // The whole tinted area is the tap target for opening the keyboard, not
-  // just the pill inside it — a `<button>` in place of the plain `<div>`.
+  // just the pill inside it, hence a `<button>` in place of the plain `<div>`.
   button.row
     cursor: pointer
 
@@ -176,6 +185,12 @@
     background: color-mix(in srgb, var(--color-accent) 12%, transparent)
     border: 1px solid var(--color-accent)
     border-radius: var(--radius-pill)
+
+  // The same ring the on-screen keyboard field wears when it is open, so a
+  // focused row and a focused field read as one state.
+  .row.pending.focused
+    @include tint.effect-focus-base
+    background: color-mix(in srgb, var(--color-accent) 24%, transparent)
 
   .place
     color: var(--color-text-secondary)

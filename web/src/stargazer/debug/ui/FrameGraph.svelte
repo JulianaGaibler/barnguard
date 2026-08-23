@@ -104,7 +104,7 @@
     ctx.fillRect(0, 0, devW, devH)
 
     // 2) Switch to CSS-px coordinates for all vector work. lineWidth=1 stays
-    //    1 CSS px regardless of DPR; the DPR baseline handles the crispness.
+    //    1 CSS px regardless of DPR, since the DPR baseline handles the crispness.
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
     // 3) Threshold guide lines + y-axis labels. Labels sit at the left edge,

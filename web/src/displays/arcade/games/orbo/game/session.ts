@@ -1,15 +1,15 @@
 /**
  * Orbo turn state machine. Mirrors the stallwaechter convention:
  * `startGame(host)` builds the scene and returns a `GameSession` control
- * surface with a typed event emitter. Ports the reference `_gameLogic.ts` rules
- * — queues, turn rotation with empty-skip, zone processing, and the
- * end-of-round tally — onto stargazer's fixed-step physics loop and scene nodes
+ * surface with a typed event emitter. Ports the reference `_gameLogic.ts`
+ * rules, queues, turn rotation with empty-skip, zone processing, and the
+ * end-of-round tally, onto stargazer's fixed-step physics loop and scene nodes
  * (no reference RAF loop, no reference Canvas renderer).
  *
- * Async turn flow (spawn → flick → settle → process → next) shares one
+ * Async turn flow (spawn, flick, settle, process, next) shares one
  * {@link AbortScope}: `reset()` / `startMatch()` / `destroy()` call
  * `scope.reset()` (or `dispose()`), which aborts whatever is in flight so the
- * awaiting step unwinds on its own — no generation-counter guards.
+ * awaiting step unwinds on its own, with no generation-counter guards.
  */
 import {
   Node2D,
@@ -21,7 +21,9 @@ import {
   ignoreAbort,
   type Emitter,
   type EngineHost,
+  type Rect,
 } from '@src/stargazer'
+import { GradientBackgroundNode } from '../../common/GradientBackgroundNode'
 import { Orb } from './Orb'
 import {
   calculateLayout,
@@ -40,6 +42,7 @@ import { PanelNode } from './nodes/PanelNode'
 import { FlickController } from './FlickController'
 import {
   ANIM,
+  BACKGROUND,
   INDICATOR,
   LOW_LIFE_GLOW,
   ORB_SIZES,
@@ -92,7 +95,7 @@ export interface GameEvents {
     mode: GameMode
   }
   /**
-   * All queues emptied; the round has been tallied and the cumulative score
+   * All queues emptied, the round has been tallied and the cumulative score
    * updated. Fires before the losing-side explosion + fold-back animation, so
    * the UI knows the winner for the return-to-menu score bump.
    */
@@ -107,7 +110,7 @@ export interface GameEvents {
   resumed: void
   /**
    * Live progress (0..1) of an in-flight pause swipe, for drag feedback. Fires
-   * on move while dragging out from the center; resets to 0 if the swipe is
+   * on move while dragging out from the center, and resets to 0 if the swipe is
    * abandoned before it commits (a `paused` event fires when it commits).
    */
   pauseProgress: number
@@ -132,6 +135,8 @@ export interface GameSession {
   reset(): void
   /** Clear the cumulative match score. */
   resetScores(): void
+  /** Refit the gradient backdrop to a new visible rect (call on resize). */
+  resize(view: Rect): void
   /** Tear down scene-facing state + the fixed-step hook. */
   destroy(): void
 }
@@ -142,17 +147,20 @@ export interface GameSession {
 
 /**
  * @param bounds World-space rect the field fills (the arcade's game area, inset
- *   by its padding). The field adopts this rect's size/aspect — it is NOT
- *   locked to 16:9.
+ *   by its padding). The field adopts this rect's size/aspect. It is NOT locked
+ *   to 16:9.
+ * @param view The game region's full visible rect, which the backdrop fills.
+ *   Wider than `bounds`, which the padding insets.
  */
 export async function startGame(
   host: EngineHost,
   bounds: { x: number; y: number; width: number; height: number },
+  view: Rect,
 ): Promise<GameSession> {
   const events = createEmitter<GameEvents>()
   const layout: FieldLayout = calculateLayout(bounds.width, bounds.height)
 
-  // Physics feel + restitution/damping are per-body (see `makeBody`); the world
+  // Physics feel + restitution/damping are per-body (see `makeBody`). The world
   // config is shared with the tutorial demo via `createOrboPhysicsConfig`.
   const physicsConfig = createOrboPhysicsConfig()
   const fieldBounds = { x: 0, y: 0, width: layout.width, height: layout.height }
@@ -173,7 +181,7 @@ export async function startGame(
     new PhysicsWorldBehavior({ config: physicsConfig, label: 'orbo' }),
   ).world
   // White scoring rings live in their own layer BELOW the orbs so a ring never
-  // obstructs a neighbouring orb it touches — the orb bodies paint over it.
+  // obstructs a neighbouring orb it touches. The orb bodies paint over it.
   const ringLayer = new Node2D('ring-layer')
   const indicatorLayer = new Node2D('indicator-layer')
   const scoreLayer = new Node2D('score-layer')
@@ -182,10 +190,15 @@ export async function startGame(
   let indicators: IndicatorNode[] = [] // indexed by player id
 
   // The field fills `bounds` (the arcade game area minus its padding). The field
-  // uses local coordinates 0..bounds.width × 0..bounds.height; `gameGroup` just
+  // uses local coordinates 0..bounds.width x 0..bounds.height. `gameGroup` just
   // translates them to the bounds origin (no scaling, so the field takes the
-  // bounds' aspect — not a fixed 16:9). A light rounded panel sits behind it.
+  // bounds' aspect, not a fixed 16:9). A light rounded panel sits behind it.
   const orboRoot = new Node2D('orbo-root')
+  const backdrop = new GradientBackgroundNode({
+    rect: view,
+    topLeft: BACKGROUND.topLeft,
+    bottomRight: BACKGROUND.bottomRight,
+  })
   // `fieldGroup` wraps the panel + game. Both the open and the close are
   // horizontal clip reveals driven by `reveal.frac` (no scaling), so the group
   // keeps an identity transform.
@@ -210,7 +223,7 @@ export async function startGame(
   let currentPlayerIndex = 0
   let queuedIdSeq = 0
   // One cancellation scope for the turn-flow async chain. `reset()` opens a new
-  // epoch and aborts the previous; steps thread its signal into their
+  // epoch and aborts the previous. Steps thread its signal into their
   // tweens/waits so a supersede unwinds them.
   const scope = orboRoot.scope()
   const matchScore: MatchScore = { teamL: 0, teamR: 0 }
@@ -219,11 +232,11 @@ export async function startGame(
 
   // --- Scene build ---------------------------------------------------------
   // The arcade owns the engine (start + camera + persistent background), so the
-  // game does NOT call loadScene/start — it just attaches its own subtree.
+  // game does NOT call loadScene/start. It just attaches its own subtree.
   // Draw order (dynamic layer = child order): field, then the strip HUD (score
   // count + queue indicators), then the scoring rings, then orbs on top. The HUD
   // sits BEHIND the orbs so orbs resting in a strip visually overlap the number
-  // and dots; the rings sit BELOW the orbs so a ring is painted over by any orb
+  // and dots. The rings sit BELOW the orbs so a ring is painted over by any orb
   // it touches (it never obstructs a neighbouring orb).
   gameGroup.add(fieldNode)
   gameGroup.add(scoreLayer)
@@ -232,12 +245,16 @@ export async function startGame(
   gameGroup.add(orbLayer)
   fieldGroup.add(panel) // behind the field
   fieldGroup.add(gameGroup)
+  // First child, so it paints behind the panel and the field. It covers the
+  // arcade sky within the game region, which leaves the launcher free to run
+  // its own time-of-day cycle without dragging orbo's palette along.
+  orboRoot.add(backdrop)
   orboRoot.add(fieldGroup)
   host.engine.tree.root.add(orboRoot)
 
   // Physics runs on the deterministic fixed-step ticker (120 Hz) via the
-  // registered world; the engine steps it automatically. Cheap when idle (no
-  // bodies); a guarded pause is handled by the ticker stopping.
+  // registered world. The engine steps it automatically. Cheap when idle (no
+  // bodies). A guarded pause is handled by the ticker stopping.
 
   // --- Field reveal (clip open) / fold close -------------------------------
 
@@ -252,8 +269,9 @@ export async function startGame(
   }
   /**
    * Horizontal clip close to the center (returning to the menu), mirroring the
-   * open. The field itself never scales; any remaining orbs (e.g. the winner's)
-   * shrink away in parallel since a clip mask can't hide the gradient orbs.
+   * open. The field itself never scales, so any remaining orbs (e.g. the
+   * winner's) shrink away in parallel since a clip mask can't hide the gradient
+   * orbs.
    */
   function foldClose(signal: AbortSignal): Promise<void> {
     const shrinks: Promise<void>[] = []
@@ -290,14 +308,14 @@ export async function startGame(
   }
 
   // Open the pause menu on a horizontal swipe that STARTS near the field's
-  // vertical center line (empty space — never on an orb, which would capture the
+  // vertical center line (empty space, never on an orb, which would capture the
   // pointer for a flick) and drags outward past a threshold. `singlePointer` is
   // off so the swipe still works alongside an orb-captured flick pointer.
   let swipeStartX: number | null = null
   const clearSwipe = (): void => {
     if (swipeStartX === null) return
     swipeStartX = null
-    events.emit('pauseProgress', 0) // abandoned before commit → snap back
+    events.emit('pauseProgress', 0) // abandoned before commit, snap back
   }
   const offGesture = bindRegionGesture(host.engine, {
     singlePointer: false,
@@ -347,7 +365,7 @@ export async function startGame(
     state = 'idle'
     mode = null
     currentPlayerIndex = 0
-    reveal.frac = 0 // hidden; next match clip-reveals from 0
+    reveal.frac = 0 // hidden, next match clip-reveals from 0
     events.emit('reset', undefined)
   }
 
@@ -375,7 +393,7 @@ export async function startGame(
   function indicatorAnchor(player: PlayerState): { cx: number; cy: number } {
     // Horizontally centered in the team's launch (flick) strip.
     const cx = launchStripCenterX(layout, player.team)
-    // 2v2 top-seat players (ids 0/1) get top-aligned strips; everyone else is
+    // 2v2 top-seat players (ids 0/1) get top-aligned strips, everyone else is
     // bottom-aligned (both players in 1v1, and the bottom seats in 2v2).
     const topSeat = mode === '2v2' && player.id < 2
     const cy = topSeat
@@ -400,7 +418,7 @@ export async function startGame(
 
   /**
    * Fisher-Yates shuffled queue: 3 SMALL, 2 MEDIUM, 1 LARGE, lifetime 3. The
-   * shuffled order is stable for the match — returned orbs are appended to the
+   * shuffled order is stable for the match. Returned orbs are appended to the
    * end, so everything already queued is spawned first.
    */
   function buildQueue(): QueuedOrb[] {
@@ -421,8 +439,8 @@ export async function startGame(
 
   /**
    * Spawn position for a player: strip center-x, vertically centered. Turns are
-   * sequential (one active orb at a time), so every seat — in both 1v1 and 2v2
-   * — launches from the vertical center of its team's strip.
+   * sequential (one active orb at a time), so every seat, in both 1v1 and 2v2,
+   * launches from the vertical center of its team's strip.
    */
   function homeFor(player: PlayerState): { x: number; y: number } {
     return { x: launchStripCenterX(layout, player.team), y: layout.height / 2 }
@@ -483,12 +501,12 @@ export async function startGame(
     activeFlick?.destroy()
     activeFlick = null
     // Destroys orb nodes AND any in-flight death-burst nodes in one pass. Each
-    // orb node destroys its companion ring node; clear the layer too for safety.
+    // orb node destroys its companion ring node, clear the layer too for safety.
     orbLayer.destroyChildren()
     ringLayer.destroyChildren()
     nodesByBody.clear()
     world.clear()
-    // `world.clear()` drops the walls too; rebuild them for the next round.
+    // `world.clear()` drops the walls too, rebuild them for the next round.
     buildOrboWalls(world, layout)
     indicatorLayer.destroyChildren()
     indicators = []
@@ -501,14 +519,14 @@ export async function startGame(
     const player = players[currentPlayerIndex]
     const queue = queues[player.id]
     if (queue.length === 0) {
-      // Shouldn't happen — nextTurn skips empty queues — but stay safe.
+      // Shouldn't happen: nextTurn skips empty queues, but stay safe.
       await endRound(signal)
       return
     }
     const queued = queue.shift()!
-    refreshIndicators() // front orb left the queue — animate it out of the strip
+    refreshIndicators() // front orb left the queue, animate it out of the strip
     const body = makeBody(player, queued)
-    // Start off the player's side edge and slide in; ghosted so it passes over
+    // Start off the player's side edge and slide in, ghosted so it passes over
     // any resting orbs during entry without exploding them.
     body.isBeingDragged = true
     body.x = player.team === 0 ? -body.radius : layout.width + body.radius
@@ -559,7 +577,7 @@ export async function startGame(
 
     // Nudge out of any overlap first (resolveOverlaps ignores the mask, so the
     // orb stays ghosted through the cancel path) so the separation step doesn't
-    // explode. If it's hopelessly buried, cancel → re-arm the turn.
+    // explode. If it's hopelessly buried, cancel and re-arm the turn.
     if (!world.resolveOverlaps(body, 6, fieldBounds)) {
       void reArmAfterCancel(body, signal).catch(ignoreAbort)
       return
@@ -600,7 +618,7 @@ export async function startGame(
 
   async function resolveTurn(signal: AbortSignal): Promise<void> {
     await settleWithTimeout(signal)
-    if (signal.aborted) return // settle swallows aborts; guard once here
+    if (signal.aborted) return // settle swallows aborts, guard once here
     await processZones(signal)
     await nextTurn(signal)
   }
@@ -665,7 +683,7 @@ export async function startGame(
         const node = nodesByBody.get(pend.body.id)
         if (!node) return Promise.resolve()
         // A reclaimed orb (headed back to a queue) slides off the near screen
-        // edge; a spent orb shrinks in place before it explodes into shrapnel.
+        // edge, a spent orb shrinks in place before it explodes into shrapnel.
         if (pend.action === 'return')
           return node.slideOff(ANIM.reclaimSlideOff, signal)
         return node.tween(
@@ -685,7 +703,7 @@ export async function startGame(
         })
         queuesTouched = true
       } else if (pend.action === 'delete') {
-        // Final death (lifetime spent): explode into black shrapnel — echoes
+        // Final death (lifetime spent): explode into black shrapnel, echoing
         // the low-life glow rather than the orb's own color.
         orbLayer.add(
           new OrbExplodeNode(
@@ -771,16 +789,16 @@ export async function startGame(
       }),
     )
 
-    // 2. Count the scoring orbs left→right: each bounces big → back, started in
-    // a staggered cascade — the next bounce kicks off `countStagger` after the
-    // previous one STARTS (not after it finishes), so they overlap. Only the
-    // last orb's bounce is fully awaited before moving on.
+    // 2. Count the scoring orbs left to right: each bounces big to back,
+    // started in a staggered cascade. The next bounce kicks off `countStagger`
+    // after the previous one STARTS (not after it finishes), so they overlap.
+    // Only the last orb's bounce is fully awaited before moving on.
     scoring.sort((a, b) => a.x - b.x)
 
-    // Cosmetic count bounce (big → back). Collected + awaited below so the last
-    // bounce finishes before the pause; it swallows its own abort so a supersede
-    // (which fires the staggered `wait(signal)` and unwinds the sequence) can't
-    // leave a rejected bounce unhandled.
+    // Cosmetic count bounce (big to back). Collected + awaited below so the
+    // last bounce finishes before the pause. It swallows its own abort so a
+    // supersede (which fires the staggered `wait(signal)` and unwinds the
+    // sequence) can't leave a rejected bounce unhandled.
     const bounce = (node: OrbNode): Promise<void> =>
       node
         .tween(
@@ -809,7 +827,7 @@ export async function startGame(
     await host.engine.wait(ANIM.postCountPause, signal)
 
     // 3. Tally, bump the cumulative score, and announce the result (drives the
-    //    return-to-menu score bump) — no card, the rest is pure animation.
+    //    return-to-menu score bump), no card, the rest is pure animation.
     const counts: TeamCounts = { teamL: 0, teamR: 0 }
     for (const body of scoring) {
       if (body.team === 0) counts.teamL++
@@ -828,7 +846,7 @@ export async function startGame(
     })
 
     // 4. On a decisive round, the losing side's scoring orbs explode into
-    //    shrapnel (skipped on a tie); hold briefly so it reads.
+    //    shrapnel (skipped on a tie), hold briefly so it reads.
     if (winner !== null) {
       const loser: TeamId = winner === 0 ? 1 : 0
       for (const body of scoring) {
@@ -938,7 +956,7 @@ export async function startGame(
       host.engine.setPaused(false)
     }
     clearField()
-    // Remove the whole game subtree (panel + field) from the shared scene; the
+    // Remove the whole game subtree (panel + field) from the shared scene. The
     // arcade background stays.
     orboRoot.destroy()
     state = 'idle'
@@ -965,6 +983,9 @@ export async function startGame(
     resume,
     reset,
     resetScores,
+    resize(next: Rect): void {
+      backdrop.setRect(next)
+    },
     destroy,
   }
 }

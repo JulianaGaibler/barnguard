@@ -1,10 +1,8 @@
 /**
  * Corner radii for a rounded rectangle, in the CSS `border-radius` shorthand: a
- * single number for all four corners, or 1–4 numbers. With an array the CSS
- * expansion applies — `[all]`, `[tl&br, tr&bl]`, `[tl, tr&bl, br]`, `[tl, tr,
+ * single number for all four corners, or 1 to 4 numbers. With an array the CSS
+ * expansion applies: `[all]`, `[tl&br, tr&bl]`, `[tl, tr&bl, br]`, `[tl, tr,
  * br, bl]`.
- *
- * @category Advanced
  */
 export type RoundRectRadii = number | readonly number[]
 
@@ -23,7 +21,7 @@ function scaleFor(sum: number, len: number): number {
 /**
  * Expand the {@link RoundRectRadii} shorthand into `[tl, tr, br, bl]`, clamp
  * negatives to zero, and proportionally shrink so no two adjacent corners
- * overrun their shared side — matching how `CanvasRenderingContext2D.roundRect`
+ * overrun their shared side, matching how `CanvasRenderingContext2D.roundRect`
  * normalizes radii. Doing this on the CPU keeps the two rendering backends
  * pixel-identical and keeps the fill shader's signed-distance field valid (a
  * radius above the half-extent would otherwise invert the corner).

@@ -1,11 +1,11 @@
 import {
   Node2D,
+  registerPathTessellation,
+  tessellateContours,
   type CameraView2D,
   type Gfx2D,
   type Vec2,
 } from '@src/stargazer'
-import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
-import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessellationRegistry'
 
 export interface PacketSpawnConvergeOptions {
   center: Vec2
@@ -47,7 +47,7 @@ export interface PacketSpawnConvergeOptions {
  * 5. Dies before reaching the centre, the packet's own grow tween owns the middle
  *    of the animation.
  *
- * Emission stops after `spawnDurationSec`; remaining live particles finish
+ * Emission stops after `spawnDurationSec`. Remaining live particles finish
  * their lives, then the node self-destroys. Storage is a fixed pool of
  * `Float32Array` + `Uint8Array`, no per-frame allocations.
  */
@@ -113,7 +113,7 @@ export class PacketSpawnConvergeNode extends Node2D {
       }
     }
 
-    // Advance ages; deactivate on expiry.
+    // Advance ages, deactivate on expiry.
     const cap = this.#capacity
     for (let i = 0; i < cap; i++) {
       if (!this.#active[i]) continue
@@ -193,8 +193,8 @@ export class PacketSpawnConvergeNode extends Node2D {
 }
 
 /**
- * Regular flat-topped hexagon at unit radius. Drawn once at construction. *
- * consumers `ctx.scale(size, size)` to render at any world size without
+ * Regular flat-topped hexagon at unit radius. Drawn once at construction.
+ * Consumers call `ctx.scale(size, size)` to render at any world size without
  * rebuilding the Path2D. Mirrors `PacketNode`'s geometry so ring particles read
  * as the same shape family as the packet itself.
  */

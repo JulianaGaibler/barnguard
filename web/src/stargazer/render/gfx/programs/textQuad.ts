@@ -2,7 +2,7 @@
 // `Gfx2D.fillText` (cached label textures) and `Gfx2D.drawImage` (particle
 // sprites, baked bitmaps). Draws a source rect from one texture as an affine
 // quad, so rotation is free (no re-rasterization, just a different per-instance
-// matrix). Label lookup lives on `GpuGfx` (needs `TextureManager`); this
+// matrix). Label lookup lives on `GpuGfx` (needs `TextureManager`). This
 // program owns the shader/VAO/stream plumbing and the buffer write.
 
 import { RingStream } from '../RingStream'
@@ -110,7 +110,7 @@ export class TextQuadProgram implements GpuProgram {
 
   /**
    * Begin (or continue) the `textQuad` batch for `tex` and reserve one instance
-   * record; returns the word offset, or `-1` on overflow.
+   * record. Returns the word offset, or `-1` on overflow.
    */
   beginInstance(ctx: GpuBatchContext, tex: Texture): number {
     ctx.beginBatch('textQuad', { texture: tex })

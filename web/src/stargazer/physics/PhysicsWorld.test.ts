@@ -108,7 +108,7 @@ describe('resting on a static floor', () => {
       colliders: [{ shape: circleShape(10) }],
     })
     for (let i = 0; i < 600; i++) world.step(DT)
-    // Floor top is at y=90; ball radius 10 → center rests near y=80.
+    // Floor top is at y=90, ball radius 10, so the center rests near y=80.
     expect(ball.position.y).toBeGreaterThan(75)
     expect(ball.position.y).toBeLessThan(85)
   })

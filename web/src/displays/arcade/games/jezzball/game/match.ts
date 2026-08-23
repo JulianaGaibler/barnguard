@@ -1,15 +1,15 @@
 /**
  * Versus coordinator: two independent {@link BoardSession}s. While both are
- * alive they advance in lockstep — a board that reaches its target freezes and
- * waits (it emits `cleared`); only when BOTH are cleared do they advance
+ * alive they advance in lockstep. A board that reaches its target freezes and
+ * waits (it emits `cleared`). Only when BOTH are cleared do they advance
  * together after a hold.
  *
  * When one board runs out of lives it is frozen and marked out (`playerOut`),
  * but the match keeps going: the survivor plays on alone, advancing by itself
  * each time it clears, until it too runs out. The match ends only once BOTH
- * boards are out (`matchOver`); the winner is the higher final score (which
- * folds in the survivor's remaining-lives bonus). Each player's final score is
- * captured at their own game-over, so both can be offered to the leaderboard.
+ * boards are out (`matchOver`), so the winner is whoever banked more points
+ * across the levels they cleared. Each player's final score is captured at
+ * their own game-over, so both can be offered to the leaderboard.
  */
 import {
   createEmitter,
@@ -23,7 +23,7 @@ import type { Bounds } from './types'
 
 export interface MatchEvents {
   /**
-   * A board ran out of lives and is frozen; the other keeps playing until it
+   * A board ran out of lives and is frozen. The other keeps playing until it
    * does too. `points` is that player's final score.
    */
   playerOut: { which: 'a' | 'b'; points: number }
@@ -101,7 +101,7 @@ export class Match {
   #onCleared(which: 'a' | 'b'): void {
     if (this.#over) return
     // If the other board is already out, this board is the sole survivor and
-    // has no partner to wait for — advance it alone after the celebration hold.
+    // has no partner to wait for. Advance it alone after the celebration hold.
     const otherOut = which === 'a' ? this.#outB : this.#outA
     if (otherOut) {
       const survivor = which === 'a' ? this.a : this.b
@@ -118,16 +118,16 @@ export class Match {
     if (which === 'a') this.#outA = true
     else this.#outB = true
     const session = which === 'a' ? this.a : this.b
-    this.events.emit('playerOut', { which, points: session.finalPoints })
+    this.events.emit('playerOut', { which, points: session.points })
 
     if (this.#outA && this.#outB) {
       this.#endMatch()
       return
     }
 
-    // One player is out; the match plays on solo, so lockstep no longer
+    // One player is out, so the match plays on solo and lockstep no longer
     // applies. If the survivor had already cleared and was waiting for this
-    // now-dead board, release it to the next level immediately — otherwise it
+    // now-dead board, release it to the next level immediately. Otherwise it
     // would wait forever for a partner that can never clear again.
     this.#clearedA = false
     this.#clearedB = false
@@ -158,8 +158,8 @@ export class Match {
     this.#over = true
     this.a.board.freeze()
     this.b.board.freeze()
-    const pa = this.a.finalPoints
-    const pb = this.b.finalPoints
+    const pa = this.a.points
+    const pb = this.b.points
     const winner: 0 | 1 | 2 = pa > pb ? 1 : pb > pa ? 2 : 0
     this.events.emit('matchOver', { winner, pointsA: pa, pointsB: pb })
   }

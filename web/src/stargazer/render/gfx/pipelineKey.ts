@@ -3,7 +3,7 @@
 // shader/bind-group layouts (via lazily-assigned ids), structural for the
 // scalar fields.
 
-import type { PipelineDesc } from './GfxDevice'
+import type { PipelineDesc, StencilFaceState } from './GfxDevice'
 
 const pipelineIdTag = Symbol('gfxPipelineId')
 let nextPipelineTagId = 1
@@ -27,9 +27,19 @@ export function pipelineKey(desc: PipelineDesc): string {
           .join('-'),
     )
     .join(';')
-  const color = desc.color ? `${desc.color.format}/${desc.color.blend}` : 'none'
+  const color = desc.color
+    ? `${desc.color.format}/${desc.color.blend}/${desc.color.write === false ? 0 : 1}`
+    : 'none'
   const depth = desc.depth
     ? `${desc.depth.test ? 1 : 0}${desc.depth.write ? 1 : 0}/${desc.depth.compare ?? 'le'}/${desc.depth.biasSlopeScale ?? 0}/${desc.depth.biasConstant ?? 0}`
     : 'none'
-  return `s${shaderId}|bgl${layoutIds}|v${vtx}|c${color}|d${depth}|${desc.cull}|${desc.frontFace}|${desc.primitive}|x${desc.samples}`
+  const st = desc.stencil
+  const stencil = st
+    ? `${face(st.front)}~${face(st.back ?? st.front)}/${st.readMask ?? 0xff}/${st.writeMask ?? 0xff}/${st.reference ?? 0}`
+    : 'none'
+  return `s${shaderId}|bgl${layoutIds}|v${vtx}|c${color}|d${depth}|t${stencil}|${desc.cull}|${desc.frontFace}|${desc.primitive}|x${desc.samples}`
+}
+
+function face(f: StencilFaceState): string {
+  return `${f.compare ?? 'always'},${f.failOp ?? 'keep'},${f.depthFailOp ?? 'keep'},${f.passOp ?? 'keep'}`
 }

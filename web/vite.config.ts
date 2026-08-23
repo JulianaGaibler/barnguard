@@ -26,7 +26,7 @@ export default defineConfig({
     // Proxy the printer-daemon so the web app uses same-origin relative URLs
     // in dev (no CORS). SSE (`/api/printer/events`) streams fine over this.
     // `/api/games` and `/api/leaderboard` share the same daemon, so each
-    // needs its own entry — otherwise Vite serves the SPA fallback and every
+    // needs its own entry. Otherwise Vite serves the SPA fallback and every
     // POST/DELETE hits a 404.
     proxy: {
       '/api/printer': {

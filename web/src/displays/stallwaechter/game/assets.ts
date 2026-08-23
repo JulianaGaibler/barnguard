@@ -1,17 +1,15 @@
 import {
   AssetLoader,
   buildBitmapMask,
+  getPathContours,
   parseSvgPaths,
+  registerPathTessellation,
+  tessellateContours,
   type BitmapMask,
   type SvgPathEntry,
   type SvgPathMap,
   type Vec2,
 } from '@src/stargazer'
-import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
-import {
-  getPathContours,
-  registerPathTessellation,
-} from '@src/stargazer/render/gfx/PathTessellationRegistry'
 import statesSvgRaw from '@src/displays/stallwaechter/assets/de-states.svg?raw'
 import outlineSvgRaw from '@src/displays/stallwaechter/assets/de-outline.svg?raw'
 import citiesSvgRaw from '@src/displays/stallwaechter/assets/de-cities.svg?raw'
@@ -43,7 +41,7 @@ export interface GameAssets {
   /**
    * Firefox Enterprise mark, decoded via `createImageBitmap` with
    * `imageOrientation: 'from-image'` so any orientation metadata is baked in.
-   * Ready for `Gfx2D.drawImage`; painted inside the epicenter's apex disc.
+   * Ready for `Gfx2D.drawImage`, painted inside the epicenter's apex disc.
    */
   firefoxLogo: HTMLImageElement | ImageBitmap
 }
@@ -53,7 +51,7 @@ const assetLoader = new AssetLoader()
 /** Load all game assets. Idempotent, repeat calls resolve to the same instance. */
 export async function loadGameAssets(): Promise<GameAssets> {
   return assetLoader.load('booth-game-assets', async () => {
-    // ~94 paths total, tessellating at load is cheap (~20-50 ms). GPU
+    // ~94 paths total, tessellating at load is cheap (~20 to 50 ms). GPU
     // renders the map live each frame so no bake-and-reproject.
     const states = parseSvgPaths(statesSvgRaw, { tessellate: true })
     const outline = parseSvgPaths(outlineSvgRaw, { tessellate: true })
@@ -234,8 +232,8 @@ function mergeAllPaths(map: SvgPathMap): SvgPathEntry | null {
   for (const entry of map.paths.values()) {
     merged.addPath(entry.path)
     // Also merge tessellation data so the merged Path2D is renderable
-    // under GPU. Each source `entry.path` was tessellated by parseSvgPaths;
-    // we pool their contours + retriangulate the union.
+    // under GPU. Each source `entry.path` was tessellated by parseSvgPaths,
+    // so their contours are pooled and the union is retriangulated.
     const partContours = getPathContours(entry.path)
     if (partContours) {
       for (const c of partContours) mergedContours.push(c)

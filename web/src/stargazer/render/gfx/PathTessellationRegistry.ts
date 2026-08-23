@@ -16,7 +16,7 @@ import type { GeometryHandle } from './GeometryHandle'
 /**
  * Index-count at or above which a tessellation auto-opts into the retained GPU
  * path (upload once, GPU-transform) unless `opts.retained` says otherwise. Big,
- * long-lived geometry (the SVG map, ~15K indices) crosses it; small one-off
+ * long-lived geometry (the SVG map, ~15K indices) crosses it. Small one-off
  * shapes (packet glyphs, single contours) stay streamed so churning them can't
  * strand GPU buffers.
  */
@@ -42,7 +42,7 @@ export function registerPathTessellation(
   closed?: boolean[],
   opts?: { retained?: boolean },
 ): void {
-  // Explicit flag wins; otherwise auto-retain only clearly-large geometry.
+  // Explicit flag wins. Otherwise auto-retain only clearly-large geometry.
   geometry.retained =
     opts?.retained ?? geometry.indices.length >= RETAIN_INDEX_THRESHOLD
   pathToGeometry.set(path, geometry)
@@ -79,8 +79,8 @@ export function getPathContours(path: Path2D): Float32Array[] | undefined {
 
 /**
  * Return whether contour `i` of `path` is closed. Defaults to `true` when no
- * per-contour flag was registered (matches historical behavior for SVG shape
- * paths).
+ * per-contour flag was registered, matching SVG shape paths, whose contours end
+ * with a `Z`.
  */
 export function getContourClosed(path: Path2D, i: number): boolean {
   const flags = pathToContourClosed.get(path)

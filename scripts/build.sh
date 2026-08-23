@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Build a NATIVE (host-arch) release of the barnguard server with the web UI
-# embedded — for testing the shipped single-binary experience locally.
+# embedded, for testing the shipped single-binary experience locally.
 #
 #   1. vite build          → web/dist/ (embedded into the binary)
 #   2. cargo build --release --features embed-web (native target)

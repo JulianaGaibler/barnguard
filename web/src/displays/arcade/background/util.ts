@@ -4,7 +4,7 @@ import { rgbaStr, type GradientStopN } from './palette'
 /**
  * The world rect currently mapped onto the FULL canvas. The camera fits its
  * `viewport` aspect-preserving, so on off-aspect screens this is larger than
- * the viewport — background layers fill it to reach the canvas edges (no
+ * the viewport. Background layers fill it to reach the canvas edges (no
  * letterbox bars). Thin wrapper over {@link CameraView2D.visibleWorldRect} (kept
  * for the background nodes that already call it).
  */
@@ -14,7 +14,7 @@ export function visibleWorldRect(camera: CameraView2D, out?: Rect): Rect {
 
 /**
  * Converts palette stop tuples to `GfxGradientStop[]`, caching by palette
- * version so the array IDENTITY is stable while the palette is unchanged — the
+ * version so the array IDENTITY is stable while the palette is unchanged. The
  * GPU LUT is keyed on that identity, so this keeps it upload-once at steady
  * state (it only rebuilds during a transition).
  */

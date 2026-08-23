@@ -1,16 +1,16 @@
-// Ambient-occlusion bilateral blur — fragment path (WebGL2). Separable: run once
+// Ambient-occlusion bilateral blur, fragment path (WebGL2). Separable: run once
 // horizontally then once vertically. Each tap is weighted by a spatial Gaussian
 // and a depth term (from the G-buffer's packed depth) so the blur smooths the
 // noisy AO without bleeding across silhouettes. `ao_blur.compute.wgsl` mirrors
-// this; keep the two in sync.
+// this, so keep the two in sync.
 //
 // Bindings: u_ao at unit 0 (sampler +16), u_gbuf at unit 1 (sampler +17),
 // Params at 6, a_pos at location 0.
 
 struct BlurParams {
-  // xy = blur direction in texels ((1,0) horizontal, (0,1) vertical); zw = resolution.
+  // xy = blur direction in texels ((1,0) horizontal, (0,1) vertical). zw = resolution.
   dirRes: vec4<f32>,
-  // x = depth sigma (edge-stop tightness); rest unused.
+  // x = depth sigma (edge-stop tightness). The rest is unused.
   control: vec4<f32>,
 };
 @group(0) @binding(6) var<uniform> params: BlurParams;

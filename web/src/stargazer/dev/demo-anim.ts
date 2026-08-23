@@ -17,7 +17,7 @@ import type { DemoFn } from './types'
  * - Press `O` to start an overlapping tween on the hero's `x`, the dev-only
  *   overlap warning fires in the console (last-writer-wins).
  * - Press `L` to run 2,000 tight `node.wait` cycles as a listener-leak stress
- *   test; check the browser's memory tools after, heap stays flat because the
+ *   test. Check the browser's memory tools after, heap stays flat because the
  *   abort-listener contract removes on natural completion.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {

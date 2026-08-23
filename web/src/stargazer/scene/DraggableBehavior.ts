@@ -10,7 +10,7 @@ const DEFAULT_SNAP_DURATION = 0.18
 /**
  * How a node behaves as a draggable, and what happens when it is dropped.
  *
- * `T` is the caller's drop-target type — a node, a grid cell, a rect id,
+ * `T` is the caller's drop-target type: a node, a grid cell, a rect id,
  * anything `findDropTarget` chooses to return.
  */
 export interface DraggableOptions<T = unknown> {
@@ -22,7 +22,7 @@ export interface DraggableOptions<T = unknown> {
    */
   threshold?: number
   /**
-   * Reparented here for the drag so it paints above its neighbours; the node is
+   * Reparented here for the drag so it paints above its neighbours. The node is
    * kept here through the snap-back too, and returns to its home parent only
    * once it has settled. Omit to drag in place.
    */
@@ -47,7 +47,7 @@ export interface DraggableOptions<T = unknown> {
    * release, before the snap.
    */
   onDragCancel?: (e?: PointerEvent2D) => void
-  /** Press and release below `threshold` — no drag happened. */
+  /** Press and release below `threshold`, no drag happened. */
   onTap?: (e: PointerEvent2D) => void
   /**
    * The node is back in its home parent and idle: after a drop, or after the
@@ -68,7 +68,7 @@ interface Home {
 /**
  * Drag a node onto a drop target. Attach with `node.addBehavior(...)`.
  *
- * A press below `threshold` is a tap (`onTap`); past it the node lifts into
+ * A press below `threshold` is a tap (`onTap`). Past it the node lifts into
  * `dragLayer` and follows the pointer, `findDropTarget` resolves what is under
  * it (reported via `onDragMove`), and release either drops onto a target
  * (`onDrop`) or snaps back (`onDragCancel` at release, then `onSettled` once
@@ -100,8 +100,8 @@ export class DraggableBehavior<T = unknown> extends PointerBehavior {
   }
 
   /**
-   * True while a drag or its snap-back is in flight — the node is not settled
-   * at home.
+   * True while a drag or its snap-back is in flight, the node is not settled at
+   * home.
    */
   get isDragging(): boolean {
     return this.#dragging || this.#snap !== null

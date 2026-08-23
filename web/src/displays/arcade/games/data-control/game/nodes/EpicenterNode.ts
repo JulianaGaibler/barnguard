@@ -55,11 +55,11 @@ export class EpicenterNode extends Node2D {
   outerAlpha = 1
   /**
    * Set by `EpicenterBehavior`, grow-in scale applied on show. Kept for
-   * compatibility with the behavior; multiplied into the wedge radius.
+   * compatibility with the behavior, multiplied into the wedge radius.
    */
   outerScale = 1
   /**
-   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 → 1 over 2 s,
+   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 → 1 over 4 s,
    * resets, waits 3 s, repeats. Multiplied into the wedge radius.
    */
   pulseScale = 0
@@ -144,7 +144,7 @@ export class EpicenterNode extends Node2D {
 
     // Base cone wedge, always visible at full radius (with `outerScale`
     // driving the intro grow-in). Fill sits behind the outline. The
-    // polygon is already rotated at construction; only the uniform
+    // polygon is already rotated at construction. Only the uniform
     // grow-in scale is applied here.
     if (this.outerScale > 0.001) {
       gfx.save()
@@ -182,7 +182,7 @@ export class EpicenterNode extends Node2D {
     }
 
     // Apex disc, the exact capture centre. Sized to host the icon (if
-    // supplied) so the mark reads clearly against the cone; falls back
+    // supplied) so the mark reads clearly against the cone. Falls back
     // to a small marker dot when no icon is provided (e.g. tutorial).
     gfx.setAlpha(alpha)
     if (this.#apexIcon) {

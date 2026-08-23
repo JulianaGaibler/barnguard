@@ -4,7 +4,6 @@
  * {@link Center} (fill the available space and place a child within it).
  *
  * @module
- * @category Layout
  */
 import {
   BoxConstraints,
@@ -31,11 +30,10 @@ export interface BoxOptions {
 
 /**
  * A single-child container with optional fixed size and padding. The child is
- * stretched to fill the interior (the box minus padding); with no `width` or
+ * stretched to fill the interior (the box minus padding). With no `width` or
  * `height` the box shrink-wraps to the child plus padding. To place a smaller
  * child within a larger area, use {@link Align} or {@link Center}.
  *
- * @category Layout
  * @example
  *   new Box({
  *     width: 480,
@@ -83,7 +81,7 @@ export class Box extends LayoutNode {
     const contentW = hasW ? Math.max(0, this.width! - ph) : undefined
     const contentH = hasH ? Math.max(0, this.height! - pv) : undefined
 
-    // A definite axis constrains the child tightly (it fills the interior); an
+    // A definite axis constrains the child tightly (it fills the interior). An
     // indefinite axis is loose so the box can shrink-wrap.
     this.#cc.set(
       contentW ?? 0,
@@ -114,9 +112,7 @@ export class Box extends LayoutNode {
 
 /**
  * A fixed-size box: `new SizedBox({ width, height })`. With a child, the child
- * fills it; without one, it reserves blank space of that size.
- *
- * @category Layout
+ * fills it. Without one, it reserves blank space of that size.
  */
 export class SizedBox extends Box {
   constructor(opts: { width: number; height: number; child?: MeasurableNode }) {
@@ -127,8 +123,6 @@ export class SizedBox extends Box {
 /**
  * Pad a child on every edge: `new Padding({ insets: edgeInsets(16), child })`.
  * Shrink-wraps to the child plus the insets.
- *
- * @category Layout
  */
 export class Padding extends Box {
   constructor(opts: { insets: EdgeInsets; child: MeasurableNode }) {
@@ -147,10 +141,9 @@ export interface AlignOptions {
 
 /**
  * Fills the space its parent offers and places a single child within it by
- * `alignX` / `alignY`. Use it to center or corner-pin content in a larger area;
+ * `alignX` / `alignY`. Use it to center or corner-pin content in a larger area.
  * {@link Center} is the centered shorthand.
  *
- * @category Layout
  * @example
  *   new Align({ alignX: 'end', alignY: 'start', child: closeButton })
  */
@@ -183,7 +176,7 @@ export class Align extends LayoutNode {
     const s = this.#child.measure(this.#cc)
     this.#childW = s.w
     this.#childH = s.h
-    // Fill each bounded axis; fall back to the child's size when unbounded.
+    // Fill each bounded axis. Fall back to the child's size when unbounded.
     this.measuredSize.w = constraints.hasBoundedW
       ? constraints.maxW
       : constraints.constrainW(s.w)
@@ -208,7 +201,6 @@ export class Align extends LayoutNode {
 /**
  * Centers a single child in the space its parent offers.
  *
- * @category Layout
  * @example
  *   root.setContent(new Center({ child: board }))
  */

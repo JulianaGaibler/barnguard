@@ -4,9 +4,8 @@
  * with no allocation, which is what lets the AI search run make/unmake straight
  * on a scratch board (see `game/ai.ts`).
  *
- * Coordinates: column 0..6 left→right, row 0 at the bottom. Cell index is `row
- *
- * - COLS + col`.
+ * Coordinates: column 0..6 left to right, row 0 at the bottom. Cell index is
+ * `row * COLS + col`.
  */
 import type { CellRef, Player } from './types'
 
@@ -21,7 +20,7 @@ const CENTER_FIRST: readonly number[] = [3, 2, 4, 1, 5, 0, 6]
 export interface Board {
   /** `row * COLS + col` → 0 empty / 1 / 2. */
   readonly cells: Int8Array
-  /** Filled count per column (0..ROWS); the next drop lands at this row. */
+  /** Filled count per column (0..ROWS). The next drop lands at this row. */
   readonly heights: Int8Array
   /** Side to move. */
   turn: Player
@@ -147,7 +146,7 @@ function countRun(
 
 /**
  * The cells forming the win through (col, row), or null if there isn't one.
- * Used to highlight the winning line; returns the connected run (>= CONNECT
+ * Used to highlight the winning line. Returns the connected run (>= CONNECT
  * cells).
  */
 export function winningCells(

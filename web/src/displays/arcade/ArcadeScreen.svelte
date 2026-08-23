@@ -27,11 +27,26 @@
   } from './world'
   import Launcher from './launcher/Launcher.svelte'
   import ReturnToLauncherOverlay from './ReturnToLauncherOverlay.svelte'
-  import { themeScope } from '@src/core/ui/themeScope'
+  import { fontScope, themeScope } from '@src/core/ui/themeScope'
+  import { invalidateTextOnFontLoad } from '@src/core/fonts'
+  import { applyTheme } from '@src/core/theme'
+  import { daemonConfig } from '@src/stores/daemonConfig'
+  import { arcadeNightPalette, arcadeTheme } from './theme'
+  import { rgbaStr } from './background/palette'
+  import {
+    DAY_CYCLE,
+    effectiveElevationDeg,
+    locationFromConfig,
+    paletteAt,
+    zonedMinutesToEpochMs,
+    zonedWallClockToEpochMs,
+  } from './background/dayCycle'
+  import { skyIsDark, skyTimeOverride, skyTopColor } from './uiState'
   import type { GameModule } from './games/GameModule'
   import { ArcadeCamera } from './games/arcadeCamera'
   import { DemoStage } from './tutorial/DemoStage'
   import { tutorialOpen } from './uiState'
+  import { get } from 'svelte/store'
 
   type Screen = 'launcher' | 'transitioning' | 'ingame'
   type Gfx = 'webgpu' | 'webgl2' | 'auto'
@@ -54,6 +69,50 @@
     canvasKey++
   }
 
+  // Pin the sky at a point in the cycle for a look you would otherwise have to
+  // wait for. `?sun=<deg>` sets the driver straight, `?time=HH:MM` and
+  // `?date=MM-DD` name a wall clock in the booth's own zone, which is what makes
+  // a preview mean the same thing from any timezone. Null leaves it on the sun.
+  function urlSunOverride(): number | null {
+    if (typeof window === 'undefined') return null
+    const params = new URLSearchParams(location.search)
+    const sun = params.get('sun')
+    if (sun !== null) {
+      const deg = Number(sun)
+      return Number.isFinite(deg) ? deg : null
+    }
+    const time = params.get('time')
+    const date = params.get('date')
+    if (time === null && date === null) return null
+    const where = locationFromConfig(get(daemonConfig))
+    const now = new Date()
+    const [month, day] = date
+      ? date.split('-').map(Number)
+      : [now.getMonth() + 1, now.getDate()]
+    const [hour, minute] = time ? time.split(':').map(Number) : [12, 0]
+    if (![month, day, hour, minute].every(Number.isFinite)) return null
+    const at = zonedWallClockToEpochMs(
+      now.getFullYear(),
+      month,
+      day,
+      hour,
+      minute,
+      where.timeZone,
+    )
+    return effectiveElevationDeg(at, where)
+  }
+
+  const urlOverrideDeg = urlSunOverride()
+
+  // The clear color shows for the one frame before the gradient paints, so it
+  // reads the palette the cycle is about to draw rather than a fixed sunset.
+  const initialSky = rgbaStr(
+    paletteAt(
+      urlOverrideDeg ??
+        effectiveElevationDeg(Date.now(), DAY_CYCLE.fallbackLocation),
+    ).skyTop,
+  )
+
   let host = $state<EngineHost | null>(null)
   // The one 2D camera for the arcade, created explicitly on engine-ready.
   let camera: CameraNode2D | null = null
@@ -63,6 +122,7 @@
   // stalls a tap. `null` if the backend can't provide one.
   let demoStage = $state<DemoStage | null>(null)
   let offResize: (() => void) | null = null
+  let offFontChange: (() => void) | null = null
   let loadError = $state<string | null>(null)
   let screen = $state<Screen>('launcher')
   let activeGame = $state<GameModule | null>(null)
@@ -72,7 +132,7 @@
   let gameCamera = $state<ArcadeCamera | null>(null)
   // Node the launcher UI is pinned to, at the launcher region's origin. The
   // launcher rides the camera, so a pan slides it on/off screen instead of the
-  // old fade-out-then-move; `cull` hides it once it's fully off the canvas.
+  // old fade-out-then-move, `cull` hides it once it's fully off the canvas.
   let launcherAnchor = $state<Node2D | null>(null)
   // The launcher overlay is sized to the launcher region's VISIBLE rect (the
   // full canvas area, adopting its aspect) rather than a fixed 1920×1080 box, so
@@ -96,10 +156,11 @@
 
   async function onEngineReady(h: EngineHost): Promise<void> {
     try {
-      const bg = new BackgroundController(h)
+      const bg = new BackgroundController(h, urlOverrideDeg)
       await bg.build()
       background = bg
       host = h
+      offFontChange = invalidateTextOnFontLoad(h.engine)
       // Pre-warm the tutorial demo stage while the loading screen is still up.
       try {
         demoStage = new DemoStage(h)
@@ -118,7 +179,7 @@
       h.engine.tree.root.add(cam)
       cam.makeCurrent()
       camera = cam
-      // A node at the launcher visible rect's top-left; the launcher UI attaches
+      // A node at the launcher visible rect's top-left. The launcher UI attaches
       // to it and covers the whole visible area. Its position + the overlay size
       // are re-fit on resize so the menu tracks the window aspect.
       const anchor = new Node2D('launcher-ui-anchor')
@@ -137,7 +198,7 @@
         anchor.transform.y = lr.y
         launcherRect = lr
         // Re-anchor whichever region is framed. In-game, a game that holds the
-        // camera lease may have zoomed into a sub-rect; re-apply its current
+        // camera lease may have zoomed into a sub-rect, re-apply its current
         // framing rather than snapping back to the region's home framing.
         if (screen === 'launcher') {
           cam.setViewport(launcherView())
@@ -154,6 +215,8 @@
   function onEngineDestroy(): void {
     offResize?.()
     offResize = null
+    offFontChange?.()
+    offFontChange = null
     if (launcherAnchor && !launcherAnchor.isDestroyed) launcherAnchor.destroy()
     launcherAnchor = null
     demoStage?.destroy()
@@ -181,7 +244,7 @@
   }
 
   // Mirror the booth-menu debug toggle into the engine's debug controller, and
-  // reflect keyboard (Y) toggles back so the menu label stays in sync — the
+  // reflect keyboard (Y) toggles back so the menu label stays in sync, the
   // same two-way wiring stallwaechter uses.
   $effect(() => {
     if (!host) return
@@ -195,11 +258,38 @@
     return off
   })
 
+  // The attendant slider wins over the URL, and releasing it falls back to
+  // whatever the URL asked for, which is null on a booth. The slider names a
+  // time on the booth clock, so it resolves against the booth's own location.
+  $effect(() => {
+    if (!host || !background) return
+    const minutes = $skyTimeOverride
+    if (minutes === null) {
+      background.sunOverrideDeg = urlOverrideDeg
+      return
+    }
+    const where = locationFromConfig($daemonConfig)
+    background.sunOverrideDeg = effectiveElevationDeg(
+      zonedMinutesToEpochMs(minutes, where.timeZone),
+      where,
+    )
+  })
+
+  // Mirror the sky into the DOM surfaces that are sky. Spreading `arcadeTheme`
+  // keeps every other role present, since `applyPalette` only ever sets custom
+  // properties and never removes one a previous theme left behind.
+  $effect(() => {
+    applyTheme({
+      ...arcadeTheme,
+      cover: { ...arcadeTheme.cover, backgroundColor: $skyTopColor },
+    })
+  })
+
   async function exit(): Promise<void> {
     if (!host || screen !== 'ingame') return
     screen = 'transitioning'
     // A game may have paused the engine for its pause menu. Resume before the
-    // pan — a paused engine skips the animation tick, so the camera tween would
+    // pan. A paused engine skips the animation tick, so the camera tween would
     // never advance and the return would hang.
     host.engine.setPaused(false)
     // Reclaim the camera before panning: releasing settles any in-flight game
@@ -227,7 +317,7 @@
           transparent: false,
           // Matches the sky base so the first frame (before the gradient paints)
           // doesn't flash the engine's default dark clear.
-          clearColor: '#eac6f2',
+          clearColor: initialSky,
         },
         onReady: onEngineReady,
         onDestroy: onEngineDestroy,
@@ -254,6 +344,7 @@
         size: { width: launcherRect.width, height: launcherRect.height },
         cull: true,
       }}
+      use:themeScope={$skyIsDark ? arcadeNightPalette : arcadeTheme.palette}
     >
       <Launcher onPlay={play} />
     </div>
@@ -262,7 +353,11 @@
   {#if host && activeGame && gameCamera}
     {@const Game = activeGame.component}
     <!-- Layout-neutral wrapper carrying the game's scoped theme overrides. -->
-    <div style="display: contents" use:themeScope={activeGame.meta.themeTokens}>
+    <div
+      style="display: contents"
+      use:themeScope={activeGame.meta.themeTokens}
+      use:fontScope={activeGame.meta.fontTokens}
+    >
       <Game {host} onExit={exit} {demoStage} camera={gameCamera} />
     </div>
   {/if}
@@ -303,7 +398,7 @@
     image-rendering: auto
 
   // Region-pinned UI wrapper (positioned by `domAnchor`). Click-through so the
-  // canvas still receives input; the launcher's cards opt back in.
+  // canvas still receives input, the launcher's cards opt back in.
   .arcade__ui
     pointer-events: none
 

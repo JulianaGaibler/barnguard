@@ -10,7 +10,7 @@
   const { onResume }: Props = $props()
 
   /**
-   * Dismiss only on backdrop taps; clicks on the card itself bubble up but
+   * Dismiss only on backdrop taps. Clicks on the card itself bubble up but
    * `e.target !== e.currentTarget` for those, so we ignore them. Same pattern
    * as `GameOverOverlay.handleDismiss`.
    */
@@ -48,12 +48,12 @@
     align-items: center
     justify-content: center
     background: var(--color-scrim)
-    // Full-surface tap target; anywhere outside the card dismisses.
+    // Full-surface tap target, anywhere outside the card dismisses.
     pointer-events: auto
     z-index: var(--z-overlay)
 
   .pause-overlay__card
-    // Shared dark-card visual; see `src/styles/tokens.sass`. Matches
+    // Shared dark-card visual, see `src/styles/tokens.sass`. Matches
     // the game-over "data lost" card so the two overlays feel like the
     // same family of dialogs.
     @include tint.dark-card
@@ -72,6 +72,10 @@
 
   .pause-overlay__title
     @include tint.type-class(headline-sm)
+    // The wide brand face, named explicitly: the type scale binds every heading
+    // role to `--font-heading` so a game can restyle it, and this display wants
+    // the extended cut here regardless.
+    font-family: tint.$font-mozilla-headline-extended
     line-height: 1.05
     margin: 0
 

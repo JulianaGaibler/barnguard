@@ -66,7 +66,7 @@ export class EngineStageManager {
   /**
    * Detach and dispose a secondary stage. Cascades AbortErrors through its
    * scene. `onDetached` lets the caller notify the debug controller before
-   * teardown; no-op if `stage` isn't currently attached.
+   * teardown. No-op if `stage` isn't currently attached.
    */
   detachStage(stage: Stage, onDetached?: (stage: Stage) => void): void {
     if (!this.#_stages.delete(stage)) return
@@ -74,7 +74,7 @@ export class EngineStageManager {
     this.#physicsUnregister.delete(stage)
     // `WeakSet.delete` isn't on all TS lib targets, cast to any. The GC will
     // reclaim the entry when the canvas element itself is collected either
-    // way; explicit delete is only for the reattach-same-canvas case.
+    // way. Explicit delete is only for the reattach-same-canvas case.
     ;(
       this.#_attachedCanvases as unknown as {
         delete(v: HTMLCanvasElement): boolean

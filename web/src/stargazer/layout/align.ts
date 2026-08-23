@@ -5,7 +5,6 @@
  * or a `domAnchor`ed HTML overlay against a board or the visible game rect.
  *
  * @module
- * @category Layout
  */
 import type { Rect } from '../math/Rect'
 
@@ -20,7 +19,6 @@ export type Align1D = 'start' | 'center' | 'end' | 'stretch'
  * over after the child (`container - child`). `'center'` takes half, `'end'`
  * takes all of it, `'start'` and `'stretch'` sit at the origin.
  *
- * @category Layout
  * @example
  *   // A 40-wide child in a 100-wide box:
  *   alignOffset('start', 60) // 0
@@ -39,7 +37,6 @@ export function alignOffset(align: Align1D, free: number): number {
  * does its own drawing or DOM positioning. This returns a point, not a size, so
  * `'stretch'` behaves like `'start'`.
  *
- * @category Layout
  * @example
  *   // Center a 120×48 badge in the gap to the right of a board:
  *   const { x, y } = alignWithin(rightMargin, 120, 48, 'center', 'center')

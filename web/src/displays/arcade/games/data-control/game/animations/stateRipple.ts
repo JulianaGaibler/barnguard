@@ -15,7 +15,7 @@ import { TUNING } from '../data/tuning'
  * (`riseSec` in, `fallSec` out, ~600 ms per state total).
  *
  * Called from `session` on state selection, collision, and border breach. Fires
- * in the background, the returned promise never rejects; individual per-state
+ * in the background. The returned promise never rejects. Individual per-state
  * pulses swallow `AbortError` via `ignoreAbort` so a mid-round teardown doesn't
  * produce console noise.
  */

@@ -3,7 +3,7 @@
   running score under it, and a navigable stack of buttons. Submenus (e.g. an AI
   difficulty picker) swap the button panel in place with a slide/fade, keeping
   the title. Rendered inside a game's camera-anchored overlay wrapper, so it
-  scales with the game region; the right side of the region is left for the
+  scales with the game region. The right side of the region is left for the
   game's in-engine menu preview.
 
   Structure is menu-specific but everything visual comes from the shared system:
@@ -28,7 +28,7 @@
   interface Props {
     title: string
     items: MenuItem[]
-    /** Optional running score; shown under the title only when past 0:0. */
+    /** Optional running score, shown under the title only when past 0:0. */
     score?: MenuScore
     /** Side that just scored (pulses its score tile). */
     bump?: 'left' | 'right' | null
@@ -175,14 +175,14 @@
   .menu__title
     margin: 0
     @include tint.type-class(display)
-    // Games can tint their title via the `title` theme token; falls back to the
+    // Games can tint their title via the `title` theme token. Falls back to the
     // body text color when unset, so other menus are unaffected.
     color: var(--color-title, var(--color-text))
 
   // Panels swap in the same grid cell so the outgoing + incoming overlap
   // cleanly during the slide/fade. `align-items: end` bottom-aligns every panel
   // so the button stack stays put when switching to a taller/shorter panel
-  // (e.g. a submenu adds a heading above) — the extra content grows upward.
+  // (e.g. a submenu adds a heading above), so the extra content grows upward.
   .menu__panels
     margin-block-start: auto
     display: grid
@@ -194,7 +194,7 @@
     flex-direction: column
     align-items: flex-start
     gap: var(--space-16)
-    // Buttons capture input; the rail/menu is otherwise click-through.
+    // Buttons capture input. The rail/menu is otherwise click-through.
     pointer-events: auto
 
   .menu__row

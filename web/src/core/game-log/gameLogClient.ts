@@ -1,15 +1,16 @@
 /**
  * Typed client for the server-side game log (`/api/games`), plus a Svelte store
  * (`gamesLive`) that mirrors the log via SSE. The server is the source of
- * truth; high scores are re-derived on demand from the log rather than stored.
+ * truth, and high scores are re-derived on demand from the log rather than
+ * stored.
  *
- * Wire format: newest-first when returned by `GET /api/games`; SSE emits
+ * Wire format: newest-first when returned by `GET /api/games`. SSE emits
  * `game.created` and `game.deleted` incrementally. Every record carries a
  * `display` discriminator that lines up with the URL `?display=<id>` param.
  *
  * Type stance: this module owns only the shared envelope. Display-specific
  * fields (whatever a display puts alongside its records) come through as an
- * open record; a display's own `game-log.ts` module re-exports strongly-typed
+ * open record. A display's own `game-log.ts` module re-exports strongly-typed
  * wrappers scoped to its `display` id.
  */
 
@@ -19,9 +20,7 @@ import { printerLive, robustFetch } from '@src/core/print/printerClient'
 const BASE: string = import.meta.env.VITE_PRINTER_DAEMON_URL ?? ''
 const API = `${BASE}/api/games`
 
-// ---------------------------------------------------------------------------
-// Envelope — everything the core knows about a record.
-// ---------------------------------------------------------------------------
+// Envelope: everything the core knows about a record.
 
 /** Shared fields every persisted game carries, regardless of display. */
 export interface GameRecordEnvelope {
@@ -59,9 +58,7 @@ export interface HighScoresEnvelope {
 }
 export type HighScores = HighScoresEnvelope & Record<string, unknown>
 
-// ---------------------------------------------------------------------------
 // Fetch helpers
-// ---------------------------------------------------------------------------
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -113,16 +110,14 @@ export async function fetchHighScores(display: string): Promise<HighScores> {
   )
 }
 
-/** Wipe the entire game log. Attendant-only; returns the number cleared. */
+/** Wipe the entire game log. Attendant-only, returns the number cleared. */
 export async function clearGames(): Promise<{ cleared: number }> {
   const res = await robustFetch(API, { method: 'DELETE' })
   if (!res.ok) throw new Error(`clearGames failed: ${res.status}`)
   return (await res.json()) as { cleared: number }
 }
 
-// ---------------------------------------------------------------------------
-// Live store — projection of `printerLive` for game-log consumers.
-// ---------------------------------------------------------------------------
+// Live store: a projection of `printerLive` for game-log consumers.
 
 export interface GamesLiveState {
   games: GameRecord[]
@@ -131,7 +126,7 @@ export interface GamesLiveState {
 
 /**
  * Live game log, newest-first. Derives from `printerLive` so all SSE traffic
- * flows through a single `EventSource`. Same public API as before.
+ * flows through a single `EventSource`.
  */
 export const gamesLive: Readable<GamesLiveState> = derived(
   printerLive,

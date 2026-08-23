@@ -18,6 +18,12 @@ struct Clip {
     float rrRadius;
     float clipPad;
 };
+struct Stroke {
+    float coreOnly;
+    float pad0_;
+    float pad1_;
+    float pad2_;
+};
 struct VOut {
     vec4 pos;
     vec2 alongPerp;
@@ -28,9 +34,13 @@ struct VOut {
     float dashOnLen;
     vec4 color;
 };
+const float CORE_MIN_COVERAGE = 0.98;
+
 layout(std140) uniform Frame_block_0Fragment { Frame _group_0_binding_0_fs; };
 
 layout(std140) uniform Clip_block_1Fragment { Clip _group_0_binding_8_fs; };
+
+layout(std140) uniform Stroke_block_2Fragment { Stroke _group_1_binding_2_fs; };
 
 smooth in vec2 _vs2fs_location0;
 flat in float _vs2fs_location1;
@@ -79,6 +89,7 @@ void main() {
     VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2, _vs2fs_location3, _vs2fs_location4, _vs2fs_location5, _vs2fs_location6);
     float dist = 0.0;
     float alpha = 0.0;
+    bool local = false;
     float along = in_.alongPerp.x;
     float perp = in_.alongPerp.y;
     if ((along < 0.0)) {
@@ -104,9 +115,20 @@ void main() {
     if ((_e53 <= 0.0)) {
         discard;
     }
-    float _e57 = alpha;
-    float _e60 = clipCoverage(in_.pos.xy);
-    _fs2p_location0 = (in_.color * (_e57 * _e60));
+    float _e58 = _group_1_binding_2_fs.coreOnly;
+    if ((_e58 > 0.5)) {
+        float _e63 = alpha;
+        local = (_e63 < CORE_MIN_COVERAGE);
+    } else {
+        local = false;
+    }
+    bool _e67 = local;
+    if (_e67) {
+        discard;
+    }
+    float _e69 = alpha;
+    float _e72 = clipCoverage(in_.pos.xy);
+    _fs2p_location0 = (in_.color * (_e69 * _e72));
     return;
 }
 

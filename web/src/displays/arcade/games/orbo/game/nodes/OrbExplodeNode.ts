@@ -2,8 +2,8 @@
  * Orb explosion: an orb bursts into a spray of shrapnel (triangles + line
  * shards) that fly outward under exponential drag while spinning. Each piece
  * SHRINKS as its own velocity decays, so the burst dissolves to nothing instead
- * of settling into a permanent ring; the node self-destructs once every piece
- * has effectively stopped. Built on `VectorParticleNode` — the shared engine
+ * of settling into a permanent ring. The node self-destructs once every piece
+ * has effectively stopped. Built on `VectorParticleNode`, the shared engine
  * base for physics-driven bursts that need per-piece vector shapes (mixed
  * triangle/line pieces here) rather than a single baked sprite.
  *
@@ -50,8 +50,8 @@ export class OrbExplodeNode extends VectorParticleNode {
   readonly #color: string
 
   /**
-   * Staged for the particle `burst(1)` is about to spawn; read back inside
-   * `spawnParticle`.
+   * Angle staged for the particle `burst(1)` is about to spawn, read back
+   * inside `spawnParticle`.
    */
   #pendingTheta = 0
   #age = 0

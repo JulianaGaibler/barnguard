@@ -7,17 +7,29 @@
   import RobotIcon from '@src/displays/arcade/RobotIcon.svelte'
   import LeaderboardIcon from '@src/displays/arcade/leaderboard/LeaderboardIcon.svelte'
   import MenuScreen from '@src/displays/arcade/menu/MenuScreen.svelte'
-  import type { MenuItem } from '@src/displays/arcade/menu/types'
+  import type { MenuItem, MenuScore } from '@src/displays/arcade/menu/types'
   import { JEZZBALL_STRINGS as t } from '../strings'
-  import type { GameMode } from '../game/types'
+  import { ACCENT_VS } from '../game/tuning'
+  import type { GameMode, PlayerId } from '../game/types'
 
   interface Props {
     onStart: (mode: GameMode) => void
     onExit: () => void
     onHowToPlay?: () => void
     onOpenLeaderboard?: () => void
+    /** Versus matches each player has taken this visit. */
+    matchWins?: { a: number; b: number }
+    /** Player whose tally just ticked up, which pulses their tile. */
+    bumpPlayer?: PlayerId | null
   }
-  const { onStart, onExit, onHowToPlay, onOpenLeaderboard }: Props = $props()
+  const {
+    onStart,
+    onExit,
+    onHowToPlay,
+    onOpenLeaderboard,
+    matchWins,
+    bumpPlayer = null,
+  }: Props = $props()
 
   const items = $derived.by<MenuItem[]>(() => {
     const list: MenuItem[] = [
@@ -54,6 +66,19 @@
     })
     return list
   })
+  const score = $derived<MenuScore | undefined>(
+    matchWins
+      ? {
+          left: matchWins.a,
+          right: matchWins.b,
+          leftColor: ACCENT_VS[1].primary,
+          rightColor: ACCENT_VS[2].primary,
+        }
+      : undefined,
+  )
+  const bump = $derived<'left' | 'right' | null>(
+    bumpPlayer === 1 ? 'left' : bumpPlayer === 2 ? 'right' : null,
+  )
 </script>
 
-<MenuScreen title={t.title} {items} />
+<MenuScreen title={t.title} {items} {score} {bump} />

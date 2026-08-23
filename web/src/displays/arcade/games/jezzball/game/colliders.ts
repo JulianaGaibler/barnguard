@@ -3,11 +3,11 @@
  * set of world-space rectangles for static physics colliders, plus the four
  * playfield-border rects balls bounce off. Pure and tested.
  *
- * Solid cells are merged with greedy meshing — maximal horizontal runs per row,
- * then vertically merging runs with an identical column span — so a straight
+ * Solid cells are merged with greedy meshing: maximal horizontal runs per row,
+ * then vertically merging runs with an identical column span, so a straight
  * wall or a rectangular captured region becomes a single rect instead of many
  * unit boxes. Balls only ever occupy open space, so internal faces of a merged
- * rect never matter; only its outer faces (bordering open cells) are hit.
+ * rect never matter. Only its outer faces (bordering open cells) are hit.
  */
 import { clamp } from '@src/stargazer'
 import { CELL_FILLED, CELL_WALL, type Bounds } from './types'

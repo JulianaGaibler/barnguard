@@ -72,7 +72,7 @@ export interface GameEvents {
     escapeHeadingRad?: number
     /**
      * The server-side game record for this round. `null` if the server was
-     * unreachable when the round ended — in that case the card still shows, but
+     * unreachable when the round ended, in which case the card still shows, but
      * reprint / delete affordances tied to a record id are disabled.
      */
     record: GameRecord | null
@@ -122,12 +122,12 @@ const COLOR_STATE_FILL = '#354a6e'
 // stays at the muted alpha (uniform apparent opacity across the map), the
 // selected one distinguishes itself by color, not opacity.
 const COLOR_STATE_FILL_SELECTED = '#8692a8'
-// Strokes are OPAQUE, pre-blended equivalents of the old semi-transparent
-// cream (`rgb(253, 246, 227)`) over their backdrop. Drawn translucent, the
-// cream stacked wherever geometry overlapped; shared state borders, tripoints,
-// outline-over-state-stroke; reading as brighter dots on the transparent
+// Strokes are OPAQUE, pre-blended equivalents of a semi-transparent cream
+// (`rgb(253, 246, 227)`) over their backdrop. A translucent cream stacks
+// wherever geometry overlaps, at shared state borders, tripoints, and
+// outline-over-state-stroke, reading as brighter dots on the transparent
 // canvas. An opaque line drawn over an opaque line is idempotent, so the dots
-// disappear while non-overlapping segments look identical to before.
+// disappear while non-overlapping segments look identical.
 //   pre-blend = cream * a + backdrop * (1 - a)
 // State stroke: a = 0.85 over the state fill `#354a6e`.
 const COLOR_STATE_STROKE = '#dfdcd1'
@@ -151,7 +151,7 @@ const CAMERA_TWEEN_SEC = 0.6
 /**
  * Post the finished game to the server and refetch the current high-scores. A
  * single fetch failure returns `{record: null, highScores: empty}` so the
- * game-over overlay can still render — the kiosk shouldn't hard-fail on a
+ * game-over overlay can still render. The kiosk shouldn't hard-fail on a
  * momentary daemon hiccup.
  */
 async function persistFinishedGame(input: {
@@ -169,7 +169,7 @@ async function persistFinishedGame(input: {
       reason: input.reason,
       escapeHeadingRad: input.escapeHeadingRad,
     })
-    // High-scores AFTER this record landed — the overlay uses this to render
+    // High-scores AFTER this record landed. The overlay uses this to render
     // "current best" copy next to the freshly-posted score.
     const highScores = await fetchStallwaechterHighScores()
     return { record, highScores }
@@ -203,7 +203,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   })
   // Register the mask with the debug controller so the `'clip-mask'` HUD
   // render mode can visualise it. Safe to call unconditionally, the
-  // controller stores the reference; nothing draws unless the mode is
+  // controller stores the reference, and nothing draws unless the mode is
   // active.
   host.debug.setInspectedMask(assets.mask)
 
@@ -217,7 +217,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   const cameraScope = new AbortScope()
   let packetIdSeq = 0
   // Re-abortable scope for the deferred game-over timers (ripple settle + the
-  // gameOver-event grace); `reset()`/`destroy()` cancel them.
+  // gameOver-event grace). `reset()`/`destroy()` cancel them.
   const graceScope = new AbortScope()
   // Round-start wall clock (`performance.now()`), used to compute the game's
   // `durationMs` when the round ends. 0 means "no active round".
@@ -230,10 +230,10 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
       epicenter: () => epicenter,
       activePackets: () => activePackets,
       // Spawn only inside the current game-camera viewport so packets never
-      // grow off-screen (previous rounds sampled the whole 661×888 country
-      // even when the camera was framed on the upper or lower half).
-      // Rejection sampling still trims out the letterbox-inside-country
-      // via `mask.contains(pt, inset=minDistFromBorder)`.
+      // grow off-screen: sampling the whole 661×888 country regardless of
+      // which half the camera frames would let packets grow outside the
+      // visible area. Rejection sampling still trims out the
+      // letterbox-inside-country via `mask.contains(pt, inset=minDistFromBorder)`.
       spawnBounds: () => camera?.viewport ?? FULL_VIEW,
       spawnPacket,
     },
@@ -283,7 +283,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     scene.root.add(gridOverlay)
 
     // Dynamic-layer groups, paths draw under packets so trails don't
-    // occlude the finger's target; endpoint handles draw on top so the
+    // occlude the finger's target. Endpoint handles draw on top so the
     // player can grab them.
     scene.root.add(pathLayer)
     scene.root.add(packetLayer)
@@ -393,8 +393,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   // `'above-static'` (drawn per-frame) for the tween's duration and
   // demote back to `'static'` on completion. Setting `renderLayer` to /
   // from `'static'` invalidates `scene.staticInvalid`, so the demote
-  // triggers exactly one re-bake with the final alpha value, the same
-  // pattern `ShockwaveBehavior` uses for pulses.
+  // triggers exactly one re-bake with the final alpha value.
   //
   // The same treatment applies to the outline path. Nodes whose alpha is
   // already at target skip the promote-tween-demote dance entirely so
@@ -579,7 +578,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   }
 
   // The loss visuals are shared with the game-over vignette (see
-  // `lossVisuals.ts`); these thin wrappers pin them to the round's packet layer.
+  // `lossVisuals.ts`). These thin wrappers pin them to the round's packet layer.
   function spawnImpactFlash(center: Vec2): void {
     lossImpactFlash(packetLayer, center, assets.impactFlashPath)
   }
@@ -610,7 +609,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     pathLayer.destroyChildren()
     handleLayer.destroyChildren()
 
-    // Persist to the server as soon as the round ends — in parallel with the
+    // Persist to the server as soon as the round ends, in parallel with the
     // grace animation. The overlay awaits the same promise, so the record id
     // is guaranteed to be present when the card renders (or explicitly null
     // if the server was unreachable, which the card degrades gracefully on).
@@ -694,7 +693,8 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // Destroy every child of every gameplay layer, packets, motion trails,
     // hex-particle emitters, impact flashes, debris rings, drawn paths,
     // endpoint handles. Packet destroy handlers pair-destroy their trail +
-    // emitter, but those siblings ALSO appear in the layer walk here.    // `destroyChildren`'s snapshot + `isDestroyed` gate keeps it idempotent.
+    // emitter, but those siblings ALSO appear in the layer walk here.
+    // `destroyChildren`'s snapshot + `isDestroyed` gate keeps it idempotent.
     packetLayer.destroyChildren()
     activePackets.length = 0
     pathLayer.destroyChildren()

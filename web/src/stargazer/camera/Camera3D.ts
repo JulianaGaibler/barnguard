@@ -19,18 +19,14 @@ import type { CameraView3D } from './CameraView3D'
 
 /**
  * Projection blend between orthographic (`0`) and perspective (`1`). A
- * `Camera3D` animates this value to move between the two looks; see
+ * `Camera3D` animates this value to move between the two looks. See
  * {@link CameraNode3D.animateProjection}.
- *
- * @category Camera
  */
 export type Projectionness = number
 
 /**
  * Result of {@link CameraNode3D.worldToScreen}: CSS-pixel position plus a
  * `behind`-camera flag (position invalid when true).
- *
- * @category Camera
  */
 export interface ScreenProjection {
   x: number
@@ -38,11 +34,7 @@ export interface ScreenProjection {
   behind: boolean
 }
 
-/**
- * Options for {@link CameraNode3D.animateProjection}.
- *
- * @category Camera
- */
+/** Options for {@link CameraNode3D.animateProjection}. */
 export interface ProjectionAnimateOptions {
   /** Total duration in seconds. Default 0.5. */
   duration?: number
@@ -57,7 +49,7 @@ const DEG2RAD = Math.PI / 180
 /**
  * A camera in the 3D world: a {@link Transform3D} pose plus a projection that
  * blends continuously between orthographic and perspective. The 3D render pass
- * reads {@link Camera3D.viewProjection} each frame; picking reads
+ * reads {@link Camera3D.viewProjection} each frame. Picking reads
  * {@link Camera3D.screenToRay}.
  *
  * The projection is described by parameters (vertical field of view, near/far,
@@ -69,10 +61,9 @@ const DEG2RAD = Math.PI / 180
  * The world is right-handed, y-up, with the camera looking down its local `-z`.
  *
  * Internal projection-math helper. A `CameraNode3D` owns one of these and
- * drives its view from the node's world pose; the debug HUD swaps in its own to
+ * drives its view from the node's world pose. The debug HUD swaps in its own to
  * inspect the scene. Not part of the public API.
  *
- * @category Camera
  * @internal
  */
 export class Camera3D implements CameraView3D {
@@ -267,7 +258,7 @@ export class Camera3D implements CameraView3D {
   get view(): Mat4 {
     if (this.#_viewDirty) {
       this.transform.updateLocal()
-      // The pose is camera→world; the view is its inverse (world→camera).
+      // The pose is camera→world. The view is its inverse (world→camera).
       mat4Invert(this.#_view, this.transform.local)
       this.#_viewDirty = false
     }
@@ -305,7 +296,7 @@ export class Camera3D implements CameraView3D {
     out?: ScreenProjection,
   ): ScreenProjection {
     const m = this.viewProjection
-    // Clip-space components; keep `w` (mat4TransformPoint discards it, so the
+    // Clip-space components. Keep `w` (mat4TransformPoint discards it, so the
     // behind-camera test needs the raw value before the perspective divide).
     const clipX = m[0] * wx + m[4] * wy + m[8] * wz + m[12]
     const clipY = m[1] * wx + m[5] * wy + m[9] * wz + m[13]
@@ -334,7 +325,7 @@ export class Camera3D implements CameraView3D {
     // Touch the getter so `#_invViewProj` is current.
     void this.viewProjection
     // Near-plane NDC z matches the clip-depth convention (0 for [0,1], -1 for
-    // [-1,1]); the far plane is z = 1 in both.
+    // [-1,1]). The far plane is z = 1 in both.
     const nearZ = this.#_clipDepth === 'zero-to-one' ? 0 : -1
     const near = mat4TransformPoint(
       vec3(),

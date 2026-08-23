@@ -1,8 +1,8 @@
 /**
  * Stylized in-engine menu preview for Connect Four, built on the primary stage
- * while the menu is shown. A big 4×4 two-player arrangement — one side pure
- * white, the other 50% white — positioned so it spills off the right and bottom
- * edges (partially obscured). No visible grid; only placed discs read. After a
+ * while the menu is shown. A big 4×4 two-player arrangement, one side pure
+ * white, the other 50% white, positioned so it spills off the right and bottom
+ * edges (partially obscured). No visible grid, only placed discs read. After a
  * short delay the top disc of each column drops in using the real
  * `DiscNode.drop` animation, then it rests.
  */
@@ -17,7 +17,7 @@ const PLAYER_B = '#ffffff'
 
 // 4×4 layout, top row first. X = empty, A = 50%, B = 100%.
 const PATTERN = ['XXBX', 'XBAX', 'XABA', 'BBAB'] as const
-// Topmost filled disc of each column drops in; the rest are pre-placed.
+// Topmost filled disc of each column drops in. The rest are pre-placed.
 const DROP_IN: ReadonlyArray<readonly [number, number]> = [
   [3, 0],
   [1, 1],
@@ -75,7 +75,7 @@ export function buildConnectFourMenuPreview(
       disc.transform.x = cellX(col)
       disc.transform.y = startY
       discLayer.add(disc)
-      // Reuse the game's drop tween; `row + 1` scales its duration to the fall.
+      // Reuse the game's drop tween. `row + 1` scales its duration to the fall.
       await disc.drop(cellY(row), row + 1)
       if (abort.signal.aborted || root.isDestroyed) return
       await host.engine.wait(0.12, abort.signal).catch(ignoreAbort)

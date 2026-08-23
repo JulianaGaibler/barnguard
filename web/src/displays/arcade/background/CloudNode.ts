@@ -29,8 +29,8 @@ export interface CloudOptions {
 
 /**
  * A cloud layer: the silhouette texture tiled across the visible width and
- * drifting horizontally, revealing a WORLD-FIXED radial gradient — the glow
- * stays put in the scene and the clouds sweep through it, lighting up as they
+ * drifting horizontally, revealing a WORLD-FIXED radial gradient. The glow
+ * stays put in the scene, and the clouds sweep through it, lighting up as they
  * cross and fading as they leave. Zero per-frame texture uploads.
  */
 export class CloudNode extends Node2D {
@@ -45,7 +45,7 @@ export class CloudNode extends Node2D {
     super('cloud')
     this.#source = source
     this.#opts = opts
-    // Part of the world's base layer; see `SkyGradientNode` for why `'static'`.
+    // Part of the world's base layer. See `SkyGradientNode` for why `'static'`.
     // `'static'` is draw-order only (redrawn every frame), so the drift in
     // `onUpdate` still animates.
     this.renderLayer = 'static'
@@ -67,8 +67,8 @@ export class CloudNode extends Node2D {
     // resize (which moves the launcher region) re-flows.
     const centerY = layout.worldHeight - drawH / 2 - bottomOffset
 
-    // World-fixed gradient (launcher-region coords) — same for every copy, so
-    // the glow stays put while clouds drift through it.
+    // World-fixed gradient (launcher-region coords), the same for every copy,
+    // so the glow stays put while clouds drift through it.
     const gcx = REGION_WIDTH * def.cx
     const gcy = layout.launcherTop + REGION_HEIGHT * def.cy
     const gr = REGION_WIDTH * def.r

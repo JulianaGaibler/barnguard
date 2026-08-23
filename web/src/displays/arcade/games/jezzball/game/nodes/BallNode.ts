@@ -1,6 +1,6 @@
 /**
  * A single bouncing ball. The physics `body` is the source of truth for
- * position; `onUpdate` mirrors it into the transform each frame, interpolating
+ * position. `onUpdate` mirrors it into the transform each frame, interpolating
  * between the body's last two fixed-step positions by the ticker's `fixedAlpha`
  * so motion stays smooth regardless of display rate vs the 120 Hz simulation.
  */

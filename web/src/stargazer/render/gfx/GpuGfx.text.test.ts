@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
 // Mock the rasterizer so fillText runs without a real 2D canvas context. The
-// stub reports a fixed local size + anchor; texW/texH scale with the request.
+// stub reports a fixed local size + anchor, and texW/texH scale with the request.
 vi.mock('./rasterizeLabel', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./rasterizeLabel')>()
   return {
@@ -57,11 +57,11 @@ describe('GpuGfx.fillText', () => {
     expect(d.count).toBe(6)
     expect(d.instanceCount).toBe(1)
 
-    // Page-backed labels route through the shape program; fields sit at the shape
+    // Page-backed labels route through the shape program, and fields sit at the shape
     // record offsets (affine 0-5, srcRect 18-21, tint 22).
     const fv = new Float32Array(d.bufferSnapshot as ArrayBuffer)
     // localW=10, localH=4, anchor (1,3). dx=-1, dy=-3.
-    // col0 = (a*w, b*w) = (0, 10); col1 = (c*h, d*h) = (-4, 0)
+    // col0 = (a*w, b*w) = (0, 10), col1 = (c*h, d*h) = (-4, 0)
     // translate = (a*dx + c*dy + e, b*dx + d*dy + f) = (103, 49)
     expect(fv[0]).toBeCloseTo(0) // col0.x
     expect(fv[1]).toBeCloseTo(10) // col0.y
@@ -70,7 +70,7 @@ describe('GpuGfx.fillText', () => {
     expect(fv[4]).toBeCloseTo(103) // translate.x
     expect(fv[5]).toBeCloseTo(49) // translate.y
     // srcRect = the label's slot in the shared 2048² page. First label lands at
-    // the page origin; texW=10, texH=4 at scale 1.
+    // the page origin, with texW=10, texH=4 at scale 1.
     expect(fv[18]).toBeCloseTo(0) // u0
     expect(fv[19]).toBeCloseTo(0) // v0
     expect(fv[20]).toBeCloseTo(10 / 2048) // u1
@@ -121,7 +121,7 @@ describe('GpuGfx.fillText', () => {
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
     gfx.endFrame()
     const fv = new Float32Array(device.draws[0].bufferSnapshot as ArrayBuffer)
-    // translate.x = 1*(-1) + 100.4 = 99.4 → 99; translate.y = -3 + 50.6 = 47.6 → 48.
+    // translate.x = 1*(-1) + 100.4 = 99.4 → 99. translate.y = -3 + 50.6 = 47.6 → 48.
     expect(fv[4]).toBe(99)
     expect(fv[5]).toBe(48)
   })
@@ -164,5 +164,36 @@ describe('GpuGfx.fillText', () => {
     gfx.endFrame()
     expect(device.draws.length).toBe(0)
     expect(device.textures.length).toBe(1)
+  })
+})
+
+describe('GpuGfx.warmText', () => {
+  it('uploads a label without drawing it', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    const before = device.textures.length
+    gfx.warmText('later', { font: '16px sans-serif' })
+    gfx.endFrame()
+    expect(device.textures.length).toBeGreaterThan(before)
+    expect(device.draws.length).toBe(0)
+  })
+
+  it('leaves the first draw of that text with nothing left to do', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    gfx.warmText('later', { font: '16px sans-serif' })
+    const warmed = device.textures.length
+    gfx.fillText('later', 10, 10, { font: '16px sans-serif' })
+    gfx.endFrame()
+    expect(device.textures.length).toBe(warmed)
+  })
+
+  it('ignores an empty string', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    const before = device.textures.length
+    gfx.warmText('', { font: '16px sans-serif' })
+    gfx.endFrame()
+    expect(device.textures.length).toBe(before)
   })
 })

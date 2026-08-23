@@ -6,11 +6,9 @@ import type { Node } from './Node'
  * the sequence they should draw. `root` itself is visited first.
  *
  * The tree is heterogeneous ({@link Node2D} and {@link Node3D} can coexist), so
- * `visit` receives the base `Node`; branch on `node.kind` (or narrow) when a
+ * `visit` receives the base `Node`. Branch on `node.kind` (or narrow) when a
  * walk only cares about one dimension. Passing a subtree root of a single kind
  * infers `N` to that type, so a homogeneous walk keeps its concrete typing.
- *
- * @category Scene
  */
 export function walkTree<N extends Node>(
   root: N,
@@ -19,7 +17,7 @@ export function walkTree<N extends Node>(
   visit(root)
   const children = root.children
   for (let i = 0; i < children.length; i++) {
-    // Descendants are the base `Node`; a homogeneous caller narrows `N` for its
+    // Descendants are the base `Node`. A homogeneous caller narrows `N` for its
     // own subtree, so this cast matches that intent (mixed callers pass `Node`).
     walkTree(children[i] as N, visit)
   }

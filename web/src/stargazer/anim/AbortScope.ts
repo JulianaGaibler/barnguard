@@ -9,24 +9,23 @@
  * generation counter by hand and check `if (gen !== current) return` after
  * every `await`. With one, they capture `scope.reset()` at the top of the
  * sequence and let the awaits throw `AbortError` when the epoch ends, so the
- * async function unwinds on its own:
+ * async function unwinds on its own.
  *
- * ```ts
- * const scope = node.scope()
- * function startMatch(): void {
- *   const signal = scope.reset() // cancels the previous match's in-flight awaits
- *   void (async () => {
- *     await revealOpen(signal)
- *     await playMatch(signal)
- *     await returnToMenu(signal)
- *   })().catch(ignoreAbort) // catch once, at the boundary
- * }
- * ```
+ * @remarks
+ *   Optionally bound to a parent signal (see `Node2D.scope`): when the parent
+ *   aborts, the current epoch aborts and the scope disposes itself.
+ * @example
+ *   const scope = node.scope()
  *
- * Optionally bound to a parent signal (see `Node2D.scope`): when the parent
- * aborts, the current epoch aborts and the scope disposes itself.
- *
- * @category Animation
+ *   function startMatch(): void {
+ *     // Cancels the previous match's in-flight awaits.
+ *     const signal = scope.reset()
+ *     void (async () => {
+ *       await revealOpen(signal)
+ *       await playMatch(signal)
+ *       await returnToMenu(signal)
+ *     })().catch(ignoreAbort) // Catch once, at the boundary.
+ *   }
  */
 export class AbortScope {
   #controller: AbortController

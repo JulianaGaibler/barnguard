@@ -60,7 +60,7 @@ describe('fitDirectionalOrtho', () => {
     }
     const vpA = fitDirectionalOrtho(base, dir, texSize)
     const vpB = fitDirectionalOrtho(shifted, dir, texSize)
-    // Project the same world point through both; light-space x shifts by 1 texel
+    // Project the same world point through both. Light-space x shifts by 1 texel
     // of NDC (2 / texSize), not a fractional smear.
     const pa = mat4TransformPoint(vec3(), vpA, 0, 0, 0)
     const pb = mat4TransformPoint(vec3(), vpB, 0, 0, 0)

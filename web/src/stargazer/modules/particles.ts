@@ -1,12 +1,11 @@
 /**
  * A pooled particle system. {@link ParticleEmitter} allocates a
- * {@link ParticlePool} up front and emits/integrates particles allocation-free;
+ * {@link ParticlePool} up front and emits/integrates particles allocation-free.
  * {@link ParticleEmitterConfig} sets rate, kinematics, and the size/alpha
  * curves. In a scene, wrap it in a `ParticleEmitterNode`.
  * {@link getParticleSprite} caches the rasterized sprite per color and style.
  *
  * @module particles
- * @category Particles
  */
 export { ParticleEmitter } from '../particles/ParticleEmitter'
 export type { ParticleEmitterConfig } from '../particles/ParticleEmitter'

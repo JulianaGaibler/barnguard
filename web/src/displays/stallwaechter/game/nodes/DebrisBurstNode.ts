@@ -61,12 +61,12 @@ export interface DebrisBurstOptions {
 
 /**
  * One-shot debris burst (triangles + lines). Integrates outward under
- * exponential drag, settles into a permanent ring within ~1 s — deliberately
- * never shrinks or despawns (`shouldDespawn` is left at `VectorParticleNode`'s
- * default), cleaned up externally by the session's level-reset sweep, not by
- * self-destruction. Two flavours driven by `DebrisBurstOptions`, radial
- * collision explosion vs cone border breach. Parallel typed-array storage, zero
- * per-frame allocation.
+ * exponential drag and settles into a permanent ring within ~1 s, deliberately
+ * never shrinking or despawning (`shouldDespawn` is left at
+ * `VectorParticleNode`'s default), cleaned up externally by the session's
+ * level-reset sweep, not by self-destruction. Two flavours driven by
+ * `DebrisBurstOptions`, radial collision explosion vs cone border breach.
+ * Parallel typed-array storage, zero per-frame allocation.
  */
 export class DebrisBurstNode extends VectorParticleNode {
   /** Transient spin, decays via `angInitialDampingPerSec`. */
@@ -83,7 +83,7 @@ export class DebrisBurstNode extends VectorParticleNode {
   readonly #color: string
 
   // Options are read back from `spawnParticle`, called synchronously by
-  // `burst()`; `#pendingTheta` is staged per-iteration ahead of each `burst(1)`
+  // `burst()`. `#pendingTheta` is staged per-iteration ahead of each `burst(1)`
   // call, since emission angle depends on the loop index.
   readonly #opts: DebrisBurstOptions
   #pendingTheta = 0
@@ -170,7 +170,7 @@ export class DebrisBurstNode extends VectorParticleNode {
     this.#angInitial[i] *= angDampFactor
   }
 
-  // `shouldDespawn` intentionally NOT overridden — these pieces settle into a
+  // `shouldDespawn` intentionally NOT overridden, these pieces settle into a
   // permanent ring, cleaned up externally (see class doc comment).
 
   protected override drawParticle(

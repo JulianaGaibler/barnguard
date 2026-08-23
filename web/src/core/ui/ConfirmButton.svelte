@@ -1,18 +1,18 @@
 <script lang="ts" module>
   /**
    * Coordinator for mutual-exclusive confirmation. When a button arms, it
-   * claims the coordinator; any button previously armed in the same group
+   * claims the coordinator, and any button previously armed in the same group
    * auto-disarms. Create one per group (usually per panel) and pass it into
    * every `<ConfirmButton>` that should participate.
    */
   export interface ConfirmCoordinator {
-    /** Called by a button when it arms; `release` disarms this button. */
+    /** Called by a button when it arms. `release` disarms this button. */
     claim(release: () => void): void
   }
 
   /**
-   * Factory for a group coordinator. Safe to call in a component's script; the
-   * returned object is a plain closure over one slot — no reactivity of its
+   * Factory for a group coordinator. Safe to call in a component's script. The
+   * returned object is a plain closure over one slot, with no reactivity of its
    * own, since each button owns its own `armed` state and the coordinator only
    * needs to relay a disarm signal.
    */
@@ -32,11 +32,11 @@
 <script lang="ts">
   /**
    * Two-tap destructive-action button. First tap arms (label swaps, `.danger`
-   * highlight); second tap within `timeoutMs` fires `onConfirm`. Auto-disarms
+   * highlight). Second tap within `timeoutMs` fires `onConfirm`. Auto-disarms
    * after the timeout so a stray tap can't leave the button hot indefinitely.
    *
    * Pass an optional `coordinator` to enforce mutual exclusivity with other
-   * confirm buttons — arming any one in the group disarms the others.
+   * confirm buttons: arming any one in the group disarms the others.
    */
   interface Props {
     /** Idle-state label. */
@@ -50,7 +50,7 @@
     timeoutMs?: number
     /** Overrides `debug-btn`. Use e.g. an app-level primary/secondary class. */
     class?: string
-    /** Optional mutual-exclusion group; see `ConfirmCoordinator`. */
+    /** Optional mutual-exclusion group, see `ConfirmCoordinator`. */
     coordinator?: ConfirmCoordinator
     title?: string
   }

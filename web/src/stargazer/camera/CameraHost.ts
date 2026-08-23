@@ -5,18 +5,16 @@ import type { CameraNode3D } from './CameraNode3D'
  * The per-stage camera registry a camera node talks to. A `Stage` implements
  * this and exposes itself through {@link SceneTree.stage}, so camera nodes
  * attached under the tree can register themselves, become the current camera,
- * and query current-ness — Godot's `Viewport` current-camera model.
- *
- * @category Camera
+ * and query current-ness. One camera per dimension is current at a time.
  */
 export interface CameraHost {
   /**
-   * Called from a `CameraNode2D`'s attach; first registered (or one wanting
+   * Called from a `CameraNode2D`'s attach. The first registered (or one wanting
    * current) becomes current.
    */
   registerCamera2D(cam: CameraNode2D): void
   /**
-   * Called from detach; if `cam` was current, the next enabled camera is
+   * Called from detach. If `cam` was current, the next enabled camera is
    * promoted.
    */
   unregisterCamera2D(cam: CameraNode2D): void

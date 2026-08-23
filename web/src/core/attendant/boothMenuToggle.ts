@@ -13,9 +13,9 @@ export interface BoothMenuState {
 }
 
 /**
- * Global booth-menu visibility. Component code subscribes with `$store`; the
- * menu component itself, plus the game rules window (which knows to close if
- * the booth menu closes it via `hide()`).
+ * Global booth-menu visibility. Component code subscribes with `$store`,
+ * including the menu component itself and the game rules window (which closes
+ * if the booth menu closes it via `hide()`).
  */
 export const boothMenuState = writable<BoothMenuState>({
   open: false,
@@ -35,11 +35,9 @@ export const toggleBoothMenu = (side: BoothMenuSide): void =>
       : { open: true, side },
   )
 
-// -----------------------------------------------------------------------------
-// Overlay visibility; driven by the booth menu, consumed by whoever owns
+// Overlay visibility, driven by the booth menu and consumed by whoever owns
 // the actual surface (GameScreen for the game rules window, GameScreen
 // via `debug.setHudVisible` for the debug HUD).
-// -----------------------------------------------------------------------------
 
 /** Whether the stargazer debug HUD should be visible. */
 export const debugHudVisible = writable(false)
@@ -50,7 +48,7 @@ export const toggleDebugHud = (): void =>
 /**
  * Whether the attendant printer panel should be visible. First-open positioning
  * is handled by `DraggableWindow`'s `spawnedBy` prop, which seeds a spot next
- * to the booth menu — no per-toggle wiring needed here.
+ * to the booth menu, so no per-toggle wiring is needed here.
  */
 export const printerPanelVisible = writable(false)
 export const togglePrinterPanel = (): void =>
@@ -66,20 +64,18 @@ export const toggleGamesPanel = (): void =>
 
 /**
  * Whether the leaderboard admin panel should be visible. Same
- * seed-next-to-booth-menu pattern as the other panels; the BoothMenu only
+ * seed-next-to-booth-menu pattern as the other panels. The BoothMenu only
  * renders its toggle for displays that declare `supportsLeaderboard`.
  */
 export const leaderboardPanelVisible = writable(false)
 export const toggleLeaderboardPanel = (): void =>
   leaderboardPanelVisible.update((prev) => !prev)
 
-// -----------------------------------------------------------------------------
-// DOM fullscreen; driven by the booth menu. The store MIRRORS the
+// DOM fullscreen, driven by the booth menu. The store MIRRORS the
 // browser's `document.fullscreenElement` state via the `fullscreenchange`
-// event; component code reads the store, callers use the helpers below
-// (which MUST be triggered inside a user gesture; a click handler is
+// event. Component code reads the store, and callers use the helpers below
+// (which MUST be triggered inside a user gesture: a click handler is
 // fine, an effect isn't).
-// -----------------------------------------------------------------------------
 
 export const isFullscreen = writable(false)
 
@@ -103,15 +99,18 @@ export const toggleFullscreen = (): void => {
   else enterFullscreen()
 }
 
-// -----------------------------------------------------------------------------
 // Corner-tap gesture
-// -----------------------------------------------------------------------------
 
 /**
- * Size (CSS px) of each corner hitbox. Same 96px hint area the old admin panel
- * used, so long-time operators keep the same target zone.
+ * Size (CSS px) of each corner hitbox.
+ *
+ * Exported because the gesture below runs at capture phase and swallows every
+ * tap inside these boxes, so anything else that wants a top corner has to sit
+ * clear of them or it never sees a tap. Mirrored onto the document root as
+ * `--booth-corner-size` for DOM chrome, and converted to world units by the
+ * arcade's `boothCornerInset` for canvas chrome.
  */
-const CORNER_SIZE = 96
+export const BOOTH_CORNER_SIZE_PX = 96
 /** Max delay between the two taps of a double-tap (ms). */
 const DOUBLE_TAP_MAX_MS = 350
 /** Max drift between the two taps of a double-tap (CSS px). */
@@ -125,9 +124,9 @@ interface PendingTap {
 }
 
 function detectCorner(x: number, y: number): BoothMenuSide | null {
-  if (y > CORNER_SIZE) return null
-  if (x <= CORNER_SIZE) return 'left'
-  if (x >= window.innerWidth - CORNER_SIZE) return 'right'
+  if (y > BOOTH_CORNER_SIZE_PX) return null
+  if (x <= BOOTH_CORNER_SIZE_PX) return 'left'
+  if (x >= window.innerWidth - BOOTH_CORNER_SIZE_PX) return 'right'
   return null
 }
 
@@ -137,13 +136,13 @@ function detectCorner(x: number, y: number): BoothMenuSide | null {
  * - Double-tap in top-left corner → open menu on the LEFT
  * - Double-tap in top-right corner → open menu on the RIGHT
  * - `Ctrl + Shift + D` → toggle right-anchored (dev backdoor for
- *   connected-keyboard debugging; matches the old admin shortcut)
+ *   connected-keyboard debugging)
  */
 export const initBoothMenuToggle = (): (() => void) => {
   let pending: PendingTap | null = null
 
   const onPointerDown = (e: PointerEvent): void => {
-    // Ignore taps that land inside the currently-open menu; the menu
+    // Ignore taps that land inside the currently-open menu. The menu
     // overlaps its corner region, so an operator tapping the menu's own
     // buttons would otherwise count as a corner gesture.
     if (get(boothMenuState).open) {
@@ -158,18 +157,18 @@ export const initBoothMenuToggle = (): (() => void) => {
     }
     const side = detectCorner(e.clientX, e.clientY)
     if (side === null) {
-      // Tap outside any corner; clear a pending first-tap so a stray
+      // Tap outside any corner, clear a pending first-tap so a stray
       // in-canvas tap doesn't count toward the double-tap sequence.
       pending = null
       return
     }
-    // Corner taps are reserved for the menu gesture — swallow them at
+    // Corner taps are reserved for the menu gesture, so swallow them at
     // capture phase so the underlying UI (state-confirm card's outside-tap
     // dismissal, canvas pointer handlers, etc.) doesn't fire. Without this
     // the first tap of a double-tap would cancel a pending selection or
     // fall through to the game before the second tap could open the menu.
     // `stopImmediatePropagation` also blocks other capture-phase listeners
-    // on window/document; `preventDefault` suppresses the follow-up click.
+    // on window/document, and `preventDefault` suppresses the follow-up click.
     e.stopImmediatePropagation()
     e.preventDefault()
     const now = performance.now()
@@ -194,7 +193,7 @@ export const initBoothMenuToggle = (): (() => void) => {
     }
   }
 
-  // Mirror the browser's fullscreen state into the store; covers both
+  // Mirror the browser's fullscreen state into the store, covering both
   // menu-triggered toggles and outside changes (F11, Esc, browser UI).
   const onFullscreenChange = (): void => {
     isFullscreen.set(document.fullscreenElement !== null)

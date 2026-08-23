@@ -34,7 +34,7 @@ describe('Column', () => {
     const col = new Column({ gap: 10, children: [a, b] })
 
     const size = col.measure(loose(1000, 1000))
-    expect(size).toEqual({ w: 200, h: 110 }) // widest child; 40 + 10 + 60
+    expect(size).toEqual({ w: 200, h: 110 }) // widest child, 40 + 10 + 60
 
     col.arrange(0, 0, size.w, size.h)
     expect([a.transform.x, a.transform.y]).toEqual([0, 0])

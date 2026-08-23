@@ -1,11 +1,12 @@
 /**
  * Wall-placement input. The canonical control is a two-finger touch: the angle
- * between the fingers picks the wall axis (spread horizontally → horizontal
- * wall; stacked vertically → vertical wall; the ambiguous diagonal builds
- * nothing), and the wall spawns from the midpoint. A desktop mouse fallback
- * places a wall directly — left-click vertical, right-click horizontal.
+ * between the fingers picks the wall axis (spread horizontally gives a
+ * horizontal wall, stacked vertically gives a vertical wall, the ambiguous
+ * diagonal builds nothing), and the wall spawns from the midpoint. A desktop
+ * mouse fallback places a wall directly, left-click vertical, right-click
+ * horizontal.
  *
- * The gesture classifier is pure (and tested); the controller polls the engine
+ * The gesture classifier is pure (and tested). The controller polls the engine
  * pointer set each frame, routes each touch to the board under it (so two
  * side-by-side boards disambiguate by position), and debounces so one press
  * makes one wall.
@@ -136,8 +137,8 @@ export class InputController {
 
   /**
    * Desktop fallback. The engine calls `preventDefault()` on `pointerdown`,
-   * which suppresses the compatibility `mousedown`/`click` events — so read the
-   * mouse button off the native `pointerdown` (which still fires and carries
+   * which suppresses the compatibility `mousedown`/`click` events, so the mouse
+   * button is read off the native `pointerdown` (which still fires and carries
    * `button`) instead. Left button places a vertical wall, right a horizontal.
    */
   #attachMouse(): void {

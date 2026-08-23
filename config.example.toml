@@ -31,6 +31,15 @@ data_dir = "./data"
 # URL printed top-right on every result label.
 label_url = "mzl.la/enterprise"
 
+# Booth position, in degrees, north and east positive. The arcade launcher uses
+# it to place the sun, so its sky tracks real sunrise, noon and dusk.
+latitude = 52.52
+longitude = 13.405
+
+# IANA zone name. Only the launcher's wall-clock dev overrides (?time, ?date)
+# resolve against it. The sky itself runs on UTC, so DST needs no handling.
+timezone = "Europe/Berlin"
+
 [printer]
 # Reserved static IP / mDNS host of the VC-500W (tcp backend only).
 host = ""

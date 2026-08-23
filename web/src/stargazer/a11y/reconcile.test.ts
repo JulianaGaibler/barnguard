@@ -45,7 +45,7 @@ describe('reconcileChildren', () => {
     const orphan = document.createElement('span')
     const elsewhere = document.createElement('span')
     parent.append(keep, orphan, elsewhere)
-    // `elsewhere` is live (belongs to another parent); `orphan` is not.
+    // `elsewhere` is live (belongs to another parent), and `orphan` is not.
     reconcileChildren(parent, [keep], new Set([keep, elsewhere]))
     expect([...parent.children]).toEqual([keep, elsewhere])
   })

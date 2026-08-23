@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Barnguard kiosk game — interactive touchscreen booth.",
+  "description": "Barnguard kiosk game for an interactive touchscreen booth.",
   "scripts": {
     "dev": "vite",
     "build": "vite build && node -e \"require('fs').closeSync(require('fs').openSync('dist/.gitkeep','w'))\"",

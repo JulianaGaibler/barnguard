@@ -5,7 +5,6 @@
  * itself dirty, and is otherwise idle.
  *
  * @module
- * @category Layout
  */
 import { Node2D } from '../scene/Node2D'
 import type { SceneTree } from '../scene/SceneTree'
@@ -14,15 +13,11 @@ import type { Rect } from '../math/Rect'
 import { BoxConstraints } from './constraints'
 import { assertFiniteSize, type Measurable } from './LayoutNode'
 
-/**
- * Options for {@link LayoutRoot}.
- *
- * @category Layout
- */
+/** Options for {@link LayoutRoot}. */
 export interface LayoutRootOptions {
   /**
    * The world rect the content fills. Omit to fill the camera's visible world
-   * area (the whole canvas, in world units, adopting its aspect); provide it to
+   * area (the whole canvas, in world units, adopting its aspect). Provide it to
    * pin the content to a fixed region instead of the live camera view.
    */
   bounds?: () => Rect
@@ -37,31 +32,29 @@ export interface LayoutRootOptions {
 
 /**
  * Drives a layout subtree so it fills a rect and reflows on resize. Add it to a
- * scene, give it a content node (any {@link Measurable} — a container or a
- * leaf), and the engine measures and arranges that content into the bounds
- * once, then again whenever the window resizes or a descendant calls
+ * scene, give it a content node (any {@link Measurable}, a container or a leaf),
+ * and the engine measures and arranges that content into the bounds once, then
+ * again whenever the window resizes or a descendant calls
  * {@link LayoutNode.markLayoutDirty}.
  *
- * @category Layout
- * @example
- *   const root = new LayoutRoot()
- *   root.setContent(
- *   new Column({
- *   gap: 16,
- *   children: [header, new Expanded({ child: body }), footer],
- *   }),
- *   )
- *   host.engine.tree.root.add(root)
- *
+ * @remarks
  *   The root finds its engine from the scene when you add it, the way a behavior
  *   does, so there is nothing else to wire up. By default the content fills the
- *   camera's visible world rect and tracks the canvas on resize; pass `bounds` to
- *   pin it to a fixed region instead.
+ *   camera's visible world rect and tracks the canvas on resize. Pass `bounds`
+ *   to pin it to a fixed region instead.
  *
  *   The pass runs after the per-frame update walk and before world-transform
- *   propagation, so arranged positions land the same frame. It is gated on a dirty
- *   flag: quiet frames cost nothing, and an engine with no `LayoutRoot` pays a
- *   single empty-set check per frame.
+ *   propagation, so arranged positions land the same frame. It is gated on a
+ *   dirty flag: quiet frames cost nothing, and an engine with no `LayoutRoot`
+ *   pays a single empty-set check per frame.
+ * @example
+ *   const root = new LayoutRoot()
+ *   const column = new Column({
+ *     gap: 16,
+ *     children: [header, new Expanded({ child: body }), footer],
+ *   })
+ *   root.setContent(column)
+ *   host.engine.tree.root.add(root)
  */
 export class LayoutRoot extends Node2D {
   readonly #boundsFn?: () => Rect
@@ -143,7 +136,7 @@ export class LayoutRoot extends Node2D {
     assertFiniteSize(content, size)
     content.arrange(b.x, b.y, b.width, b.height)
     // Arrange moved nodes via their transforms, which doesn't invalidate the
-    // static layer on its own; force invalidation when the subtree has
+    // static layer on its own. Force invalidation when the subtree has
     // static content so it doesn't draw at the old position.
     if (content.subtreeHasStaticLayer) this.scene.invalidateStatic()
   }

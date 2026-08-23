@@ -311,13 +311,13 @@ export const TUNING = {
       fallSec: 0.5,
       /** Peak alpha per cell. */
       peakAlpha: 0.275,
-      /** Green accent — the collision wave that ripples across the grid. */
+      /** Green accent, the collision wave that ripples across the grid. */
       color: '#01CA05',
       /** Max concurrent pulses. Extras overwrite the oldest. */
       maxConcurrent: 4,
     },
     warn: {
-      /** Green tint — the collision grid lighting up near danger. */
+      /** Green tint, the collision grid lighting up near danger. */
       color: '#01CA05',
       /** Mask inset for danger 1.0 (very close to border). */
       insetNearWorld: 22,
@@ -342,10 +342,9 @@ export const TUNING = {
   lossAnim: {
     /**
      * Grace between collision and the game-over card sliding in. Session flips
-     * to `'gameOver'` immediately (spawning + physics halt) but the outward
-     * event fires only after this so the player sees the impact flash + debris
-     *
-     * - Shockwave settle first.
+     * to `'gameOver'` immediately (spawning + physics halt), but the outward
+     * event fires only after this delay so the player sees the impact flash,
+     * debris, and shockwave settle first.
      */
     endScreenGraceSec: 3,
     /** Delay between adjacency layers in the shockwave pulse. */

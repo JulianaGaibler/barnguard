@@ -1,13 +1,14 @@
 /**
- * The LVL / PTS readout — engine port of `Badge.svelte`: a circle outline
+ * The LVL / PTS readout, engine port of `Badge.svelte`: a circle outline
  * overlapping a same-size square outline, a small corner label, a big value,
  * and a solid ink tab in the opposite corner (showing the same label). The
  * square (a circle reads the same at any angle) snaps a quarter turn as a
  * change accent whenever a new `spinKey` arrives, easing to the next quarter
  * over half a second.
  */
-import { Node2D, easings, measureText, type Gfx2D } from '@src/stargazer'
+import { Node2D, easings, textMetrics, type Gfx2D } from '@src/stargazer'
 import { COLORS } from '../tuning'
+import { font } from '../../fonts'
 
 export interface BadgeOptions {
   label: string
@@ -18,7 +19,6 @@ export interface BadgeOptions {
 }
 
 const SPIN_DURATION_SEC = 0.5
-const FONT_FAMILY = 'system-ui, sans-serif'
 
 export class BadgeNode extends Node2D {
   readonly #label: string
@@ -46,7 +46,7 @@ export class BadgeNode extends Node2D {
     this.#size = size
   }
 
-  /** Set the displayed value; a new `spinKey` triggers the quarter-turn accent. */
+  /** Set the displayed value. A new `spinKey` triggers the quarter-turn accent. */
   setValue(value: string, spinKey: string | number): void {
     this.#value = value
     if (this.#spinKey !== undefined && spinKey !== this.#spinKey) {
@@ -71,7 +71,7 @@ export class BadgeNode extends Node2D {
     const motif = size * 0.92
     const border = { color: COLORS.ink, width: 2 }
 
-    // The square carries the visible spin; a circle reads the same at any
+    // The square carries the visible spin. A circle reads the same at any
     // angle, so it's drawn once, unrotated.
     gfx.save()
     gfx.translate(half, half)
@@ -83,7 +83,7 @@ export class BadgeNode extends Node2D {
     const labelX =
       half + (this.#labelCorner === 'tr' ? size * 0.28 : -size * 0.28)
     gfx.fillText(this.#label, labelX, size * 0.2, {
-      font: `800 ${size * 0.1}px ${FONT_FAMILY}`,
+      font: font(800, size * 0.1),
       align: this.#labelCorner === 'tr' ? 'right' : 'left',
       baseline: 'top',
       color: COLORS.ink,
@@ -93,7 +93,7 @@ export class BadgeNode extends Node2D {
     const len = this.#value.length
     const valueFrac = len > 3 ? 0.36 * (3 / len) : 0.36
     gfx.fillText(this.#value, half, half, {
-      font: `800 ${size * valueFrac}px ${FONT_FAMILY}`,
+      font: font(800, size * valueFrac),
       align: 'center',
       baseline: 'middle',
       color: this.#color,
@@ -101,17 +101,14 @@ export class BadgeNode extends Node2D {
 
     // Solid ink tab in the opposite corner, sized to fit the label exactly.
     const tabFont = size * 0.085
-    const tabFontString = `800 ${tabFont}px ${FONT_FAMILY}`
+    const tabFontString = font(800, tabFont)
     const padX = size * 0.1
     const padY = size * 0.03
-    const tabMetrics = measureText(this.#label, {
-      font: tabFontString,
-      align: 'center',
-      baseline: 'middle',
-      color: COLORS.background,
-    })
-    const tabW = tabMetrics.localW + padX * 2
-    const tabH = tabMetrics.localH + padY * 2
+    // Sized from the ink, not from `localW`/`localH`, which carry the label
+    // bitmap's own transparent border on top of the padding added here.
+    const tabMetrics = textMetrics(this.#label, tabFontString)
+    const tabW = tabMetrics.advance + padX * 2
+    const tabH = tabMetrics.ascent + tabMetrics.descent + padY * 2
     const tabY = size - size * 0.12 - tabH
     const tabX = this.#tabCorner === 'br' ? size - tabW : 0
     gfx.fillRect(tabX, tabY, tabW, tabH, COLORS.ink)

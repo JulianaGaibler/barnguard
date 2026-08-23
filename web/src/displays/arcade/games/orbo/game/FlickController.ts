@@ -4,14 +4,14 @@
  * capture for free, and `e.pointer.world` is the finger position in field
  * units. Ports faithfully:
  *
- * - Ghost mode while dragging (`body.isBeingDragged` → skipped in collisions).
+ * - Ghost mode while dragging (`body.isBeingDragged`, skipped in collisions).
  * - Glue the orb to the finger.
  * - Auto-launch the moment the drag crosses the strip boundary into the field.
- * - Snap back (keep the turn) on a too-slow release; otherwise launch.
+ * - Snap back (keep the turn) on a too-slow release, otherwise launch.
  *
- * Improved per the plan: release velocity is measured over a short trailing
- * window (touch digitizers are noisy), and auto-launch / launch only fire when
- * the windowed velocity is fast enough AND points into the playfield.
+ * Release velocity is measured over a short trailing window because touch
+ * digitizers are noisy, and auto-launch / launch only fire when the windowed
+ * velocity is fast enough and points into the playfield.
  */
 import {
   clamp,
@@ -33,8 +33,8 @@ interface Sample {
 
 export interface FlickCallbacks {
   /**
-   * A valid flick was released. The body is still ghosted (`isBeingDragged`);
-   * the session resolves overlaps, un-ghosts, and assigns the (already
+   * A valid flick was released. The body is still ghosted (`isBeingDragged`).
+   * The session resolves overlaps, un-ghosts, and assigns the (already
    * force-multiplied) launch velocity.
    */
   onLaunched(vx: number, vy: number): void
@@ -73,7 +73,7 @@ export class FlickController {
     this.#cb = cb
     this.#localNode = localNode
     this.#unbind = node.bindPointer({
-      singlePointer: true, // one finger owns the flick; ignore extra touches
+      singlePointer: true, // one finger owns the flick, ignore extra touches
       down: (e) => this.#onDown(e),
       move: (e) => this.#onMove(e),
       up: (e) => this.#onUp(e),
@@ -146,8 +146,8 @@ export class FlickController {
       return
     }
 
-    // Valid throw. Unbind first so no stray move/up lands mid-launch; hand the
-    // force-multiplied velocity to the session (body stays ghosted for it).
+    // Valid throw. Unbind first so no stray move/up lands mid-launch, then hand
+    // the force-multiplied velocity to the session (body stays ghosted for it).
     this.#unbind()
     this.#cb.onLaunched(vx * FLICK.velocityToForce, vy * FLICK.velocityToForce)
   }

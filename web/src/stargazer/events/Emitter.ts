@@ -1,16 +1,10 @@
-/**
- * Handler for an {@link Emitter} event, called with the event's payload.
- *
- * @category Events
- */
+/** Handler for an {@link Emitter} event, called with the event's payload. */
 export type EmitterHandler<T> = (payload: T) => void
 
 /**
  * Typed event bus keyed by an event map `M`. Payload types follow the map, so
  * `on` and `emit` are checked against the key. Build one with
  * {@link createEmitter}.
- *
- * @category Events
  */
 export interface Emitter<M> {
   /** Subscribe to `key`. Returns an unsubscribe function. */
@@ -87,8 +81,9 @@ class EmitterImpl<M> implements Emitter<M> {
     }
 
     // Steady state: snapshot into the persistent scratch, dispatch, clear.
-    // Snapshotting tolerates handlers that call on/off during dispatch.    // those mutations hit `handlers` but not `scratch`, so they take effect
-    // on the NEXT emit (the documented contract).
+    // Snapshotting tolerates handlers that call on/off during dispatch, since
+    // those mutations hit `handlers` but not `scratch`, so they take effect
+    // on the next emit (the documented contract).
     const scratch = state.scratch
     scratch.length = 0
     for (const h of set) scratch.push(h)
@@ -107,11 +102,7 @@ class EmitterImpl<M> implements Emitter<M> {
   }
 }
 
-/**
- * Create an {@link Emitter} for the event map `M`.
- *
- * @category Events
- */
+/** Create an {@link Emitter} for the event map `M`. */
 export function createEmitter<M>(): Emitter<M> {
   return new EmitterImpl<M>()
 }

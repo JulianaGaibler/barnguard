@@ -1,6 +1,6 @@
 //! Serves the built SPA, embedded into the binary at compile time via
 //! `rust-embed`. Only compiled under the `embed-web` feature (release/deploy
-//! builds); in dev, Vite serves the app and proxies the API instead.
+//! builds). In dev, Vite serves the app and proxies the API instead.
 
 use axum::body::Body;
 use axum::http::{header, StatusCode, Uri};

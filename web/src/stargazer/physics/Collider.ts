@@ -17,16 +17,13 @@ import {
 import type { Body } from './Body'
 import type { Material } from './types'
 
-/**
- * A circle of the given radius, centered on the collider offset. @category
- * Physics
- */
+/** A circle of the given radius, centered on the collider offset. */
 export interface CircleShape {
   kind: 'circle'
   radius: number
 }
 
-/** An axis-aligned box with the given half-extents. @category Physics */
+/** An axis-aligned box with the given half-extents. */
 export interface AABBShape {
   kind: 'aabb'
   halfW: number
@@ -36,8 +33,6 @@ export interface AABBShape {
 /**
  * A convex polygon wound counter-clockwise in local space. Build one with
  * {@link polygonShape}, which validates and precomputes edge normals.
- *
- * @category Physics
  */
 export interface PolygonShape {
   kind: 'polygon'
@@ -46,13 +41,12 @@ export interface PolygonShape {
   normals: readonly Vec2[]
 }
 
-/** Any collision shape. @category Physics */
+/** Any collision shape. */
 export type Shape = CircleShape | AABBShape | PolygonShape
 
 /**
  * Make a circle shape.
  *
- * @category Physics
  * @example
  *   body.addCollider({ shape: circleShape(0.5) })
  */
@@ -60,21 +54,16 @@ export function circleShape(radius: number): CircleShape {
   return { kind: 'circle', radius }
 }
 
-/**
- * Make an axis-aligned box shape from its half-width and half-height.
- *
- * @category Physics
- */
+/** Make an axis-aligned box shape from its half-width and half-height. */
 export function aabbShape(halfW: number, halfH: number): AABBShape {
   return { kind: 'aabb', halfW, halfH }
 }
 
 /**
  * Make a convex polygon shape. Vertices must be convex and wound
- * counter-clockwise; the winding is validated in dev builds. Edge normals are
+ * counter-clockwise. The winding is validated in dev builds. Edge normals are
  * precomputed once here.
  *
- * @category Physics
  * @example
  *   const tri = polygonShape([vec2(0, -1), vec2(1, 1), vec2(-1, 1)])
  */
@@ -139,36 +128,41 @@ export function shapeInertia(shape: Shape, mass: number): number {
 /**
  * A shape plus its placement and surface properties on a body. Create colliders
  * through {@link Body.addCollider} rather than constructing directly.
- *
- * @category Physics
  */
 export interface ColliderDef {
+  /** The geometry. Build one with `circleShape`, `aabbShape`, or `polygonShape`. */
   shape: Shape
   /** Local offset from the body origin. Default `(0, 0)`. */
   offset?: Readonly<Vec2>
   /** Sensor: detected and reported via trigger events, never resolved. */
   sensor?: boolean
-  /** Layer override; defaults to the owning body's layer. */
+  /** Layer override, defaults to the owning body's layer. */
   layer?: number
-  /** Mask override; defaults to the owning body's mask. */
+  /** Mask override, defaults to the owning body's mask. */
   mask?: number
+  /** Per-collider surface override. Unset fields fall back to the body's. */
   material?: Material
+  /** Free slot for the game's own reference. The engine never reads it. */
   userData?: unknown
 }
 
-/**
- * A collision shape attached to a {@link Body}.
- *
- * @category Physics
- */
+/** A collision shape attached to a {@link Body}. */
 export class Collider {
   readonly shape: Shape
+  /** Local offset from the body origin, rotated with the body. */
   readonly offset: Vec2
+  /**
+   * A sensor reports overlaps through trigger events but is never resolved, so
+   * bodies pass straight through it.
+   */
   sensor: boolean
-  /** Effective layer; `-1` means "inherit from body" at query time. */
+  /** Layer override. `-1` means inherit from the body at query time. */
   layer: number
+  /** Mask override. `-1` means inherit from the body at query time. */
   mask: number
+  /** Surface overrides. Unset fields fall back to the body's values. */
   material: Material
+  /** Free slot for the game's own reference. The engine never reads it. */
   userData: unknown
   /** Set when the collider is added to a body. */
   body!: Body
@@ -191,9 +185,11 @@ export class Collider {
   effectiveMask(): number {
     return this.mask >= 0 ? this.mask : this.body.mask
   }
+  /** Effective bounciness: the material override, or the body's. */
   effectiveRestitution(): number {
     return this.material.restitution ?? this.body.restitution
   }
+  /** Effective friction: the material override, or the body's. */
   effectiveFriction(): number {
     return this.material.friction ?? this.body.friction
   }
@@ -217,7 +213,7 @@ export class Collider {
       return out
     }
     if (shape.kind === 'aabb') {
-      // AABB shapes stay axis-aligned in world space; only the center follows
+      // AABB shapes stay axis-aligned in world space. Only the center follows
       // the rotated offset. Rotating boxes should use polygonShape.
       out.x = cx - shape.halfW
       out.y = cy - shape.halfH

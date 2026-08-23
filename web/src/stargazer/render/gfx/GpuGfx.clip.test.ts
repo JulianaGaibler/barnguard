@@ -70,3 +70,53 @@ describe('GpuGfx analytic clip', () => {
     expect(clipOffset(device.draws[2]!)).toBe(0)
   })
 })
+
+describe('GpuGfx device pixel grid', () => {
+  it('reports the current transform scale, folding in nested scales', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    expect(gfx.deviceScale()).toBeCloseTo(1)
+    gfx.save()
+    gfx.scale(2, 2)
+    expect(gfx.deviceScale()).toBeCloseTo(2)
+    gfx.scale(1.5, 1.5)
+    expect(gfx.deviceScale()).toBeCloseTo(3)
+    gfx.restore()
+    expect(gfx.deviceScale()).toBeCloseTo(1)
+    gfx.endFrame()
+  })
+
+  it('is unchanged by rotation, which moves no pixels closer together', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    gfx.scale(2, 2)
+    gfx.rotate(Math.PI / 5)
+    expect(gfx.deviceScale()).toBeCloseTo(2)
+    gfx.endFrame()
+  })
+
+  it('snaps a size to whole device pixels', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    gfx.scale(2, 2)
+    // 3.3 local units is 6.6 device px, which rounds to 7 → 3.5 local.
+    expect(gfx.snapSize(3.3)).toBeCloseTo(3.5)
+    expect(gfx.snapSize(4)).toBeCloseTo(4)
+    gfx.endFrame()
+  })
+
+  it('never snaps a size below one device pixel', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    gfx.scale(4, 4)
+    expect(gfx.snapSize(0.01)).toBeCloseTo(0.25)
+    gfx.endFrame()
+  })
+
+  it('leaves a non-finite size alone', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    expect(gfx.snapSize(Number.NaN)).toBeNaN()
+    gfx.endFrame()
+  })
+})

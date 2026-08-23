@@ -30,11 +30,9 @@ const NEAR_PULLBACK = 1
  * Orthographic light-space view-projection that covers `aabb` (the shadow
  * casters' combined world bounds) for a directional light whose rays travel
  * along `lightDir`. The x/y extent is a fixed radius (half the AABB diagonal,
- * optionally capped by `maxDistance`); with the box center snapped to the texel
+ * optionally capped by `maxDistance`). With the box center snapped to the texel
  * grid, the map translates in whole-texel steps as casters move. `texSize` is
  * the shadow map's pixel size.
- *
- * @category Math
  */
 export function fitDirectionalOrtho(
   aabb: Aabb,
@@ -58,8 +56,8 @@ export function fitDirectionalOrtho(
   if (radius === 0) radius = 1
   if (maxDistance > 0) radius = Math.min(radius, maxDistance)
 
-  // Light-space z-range from the 8 corners → ortho near/far; the AABB center
-  // gives the box center.
+  // Light-space z-range from the 8 corners gives the ortho near/far. The AABB
+  // center gives the box center.
   let minZ = Infinity
   let maxZ = -Infinity
   const p = vec3()
@@ -108,9 +106,7 @@ export function fitDirectionalOrtho(
  * `dir`, covering its cone out to `far`. `outerConeAngle` is the cone's
  * half-angle, so the frustum's vertical field of view is twice it (clamped to
  * keep the projection non-degenerate at very wide cones). `texSize` isn't
- * needed — the perspective map isn't texel-snapped.
- *
- * @category Math
+ * needed. The perspective map isn't texel-snapped.
  */
 export function fitSpotPerspective(
   pos: Vec3,
@@ -144,8 +140,6 @@ const CUBE_FACES: ReadonlyArray<{ dir: Vec3; up: Vec3 }> = [
  * A 90° square frustum per face tiles the full sphere. Pass `far` a little
  * larger than the distance the fragment shader normalizes by, so geometry at
  * that distance isn't clipped before writing depth.
- *
- * @category Math
  */
 export function fitPointCubeFace(
   pos: Vec3,

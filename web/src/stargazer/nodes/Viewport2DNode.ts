@@ -9,11 +9,7 @@ import type { TextureInspector } from '../render/gfx/TextureManager'
 import type { Renderer } from '../render/Renderer'
 import type { Rect } from '../math/Rect'
 
-/**
- * Options for a {@link Viewport2DNode}.
- *
- * @category Scene
- */
+/** Options for a {@link Viewport2DNode}. */
 export interface Viewport2DOptions {
   /** Offscreen resolution in pixels. Higher is sharper under close/steep views. */
   width: number
@@ -38,20 +34,19 @@ const LAYERS = ['static', 'above-static', 'dynamic'] as const
  * A 2D scene rendered to a texture and shown on a transformable quad in the 3D
  * world, the bridge for putting stargazer's 2D content (shapes, text, sprites)
  * into a 3D scene. Build the 2D content under
- * {@link Viewport2DNode.scene}`.root` exactly as for a normal stage; the 3D pass
+ * {@link Viewport2DNode.scene}`.root` exactly as for a normal stage. The 3D pass
  * renders it to an offscreen target each frame and draws it on a unit quad that
  * this node's `Transform3D` places, orients, and scales.
  *
  * The quad starts scaled to the surface's aspect ratio (width:height), so 2D
- * content isn't stretched; override `transform.scale` to resize it. The 2D
- * content is a raster snapshot at `width`×`height`; raise the resolution for
+ * content isn't stretched. Override `transform.scale` to resize it. The 2D
+ * content is a raster snapshot at `width`×`height`. Raise the resolution for
  * sharper results under extreme perspective.
  *
  * Display only: pointer input does not route into the embedded 2D tree. Each
  * surface is a separate offscreen render, so use them sparingly. GPU resources
  * are released when the owning stage is disposed.
  *
- * @category Scene
  * @example
  *   const panel = new Viewport2DNode({ width: 512, height: 256 })
  *   panel.scene.root.add(
@@ -102,7 +97,7 @@ export class Viewport2DNode extends Node3D {
   /**
    * The embedded surface's texture inspector (its own atlas, glyph label-page,
    * and per-source cache), or `null` before the first offscreen render. The
-   * debug HUD lists it as a separate source; see `Stage.textureSources`.
+   * debug HUD lists it as a separate source. See `Stage.textureSources`.
    */
   get textureInspector(): TextureInspector | null {
     return this.#gpu?.textureInspector ?? null
@@ -117,7 +112,7 @@ export class Viewport2DNode extends Node3D {
 
   /**
    * Render the embedded 2D scene into the offscreen target. The stage calls
-   * this as a pre-pass before the main frame; the 3D pass then samples
+   * this as a pre-pass before the main frame. The 3D pass then samples
    * {@link Viewport2DNode.colorTexture}. `canvas` is only used to construct the
    * offscreen surface (it never presents to it).
    */
@@ -127,13 +122,13 @@ export class Viewport2DNode extends Node3D {
     dt: number,
   ): void {
     if (!this.#gpu) {
-      // samples: 1 so the target is a sampleable color texture; the 2D pipeline
+      // samples: 1 so the target is a sampleable color texture. The 2D pipeline
       // is analytically anti-aliased, so it stays crisp without MSAA.
       this.#gpu = new GpuGfx(canvas, device, { samples: 1, present: false })
       this.#gpu.setInternalSize(this.#width, this.#height)
     }
     const gpu = this.#gpu
-    // Skip until the offscreen surface's pipelines warm (async); the 3D pass
+    // Skip until the offscreen surface's pipelines warm (async). The 3D pass
     // falls back to a white texture for the first frame or two.
     if (!gpu.ready) return
     const camera = this.camera

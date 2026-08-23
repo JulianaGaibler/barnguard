@@ -1,27 +1,25 @@
 /**
- * Fixed-capacity index allocator with a freelist. Owns no per-slot data itself
- * — callers keep their own typed arrays sized to `capacity` and use the indices
+ * Fixed-capacity index allocator with a freelist. Owns no per-slot data itself,
+ * callers keep their own typed arrays sized to `capacity` and use the indices
  * `spawn()` hands out to index into them. Shared by {@link ParticlePool} (which
  * pairs it with a fixed `ParticleField`) and `VectorParticleNode` (which pairs
  * it with whatever fields a subclass declares).
  *
- * `kill` is fully self-contained and idempotent: it tracks its own active bit
+ * `kill` is fully self-contained and idempotent. It tracks its own active bit
  * per slot, so calling it twice on the same index (a caller bug, a re-entrant
  * destroy path, anything) can never double-free a slot into the freelist and
  * hand the same index to two live occupants at once.
- *
- * @category Particles
  */
 export class SlotPool {
   readonly capacity: number
 
-  /** Stack of currently-free slot indices; top-of-stack is at `freeTop - 1`. */
+  /** Stack of currently-free slot indices, top-of-stack is at `freeTop - 1`. */
   readonly #freelist: Int32Array
   #freeTop: number
   /** 1 = claimed via `spawn()` and not yet `kill()`ed, 0 = free. */
   readonly #active: Uint8Array
   /**
-   * Highest slot index that has EVER been active; bounds a caller's update
+   * Highest slot index that has EVER been active. Bounds a caller's update
    * loop.
    */
   #highWater = 0

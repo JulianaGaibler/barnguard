@@ -34,7 +34,7 @@ struct Clip {
 };
 @group(0) @binding(8) var<uniform> clipShape: Clip;
 
-// Analytic clip coverage in device px; frame.fragYFlip corrects WebGL2's
+// Analytic clip coverage in device px. frame.fragYFlip corrects WebGL2's
 // bottom-up gl_FragCoord. Multiply the premultiplied fragment output by this.
 fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
   let q = abs(p) - b + vec2<f32>(rad);

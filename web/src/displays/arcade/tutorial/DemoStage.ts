@@ -23,16 +23,16 @@ const PARK_H = 240
 
 /**
  * One persistent, arcade-owned demo stage shared by every game's tutorial.
- * Created once at boot (behind the loading screen) so its WebGL2 context init —
- * a synchronous ~20 ms main-thread stall — never lands on a tap. Parked idle
- * (`stage.active = false`) between openings at zero per-frame cost; revealed
+ * Created once at boot (behind the loading screen) so its WebGL2 context init
+ * (a synchronous ~20 ms main-thread stall) never lands on a tap. Parked idle
+ * (`stage.active = false`) between openings at zero per-frame cost. Revealed
  * into a modal's center slot on demand, its scene swapped per centered card.
  */
 export class DemoStage implements DemoStageController {
   readonly #host: EngineHost
   readonly #stage: Stage
   /**
-   * Off-screen parking spot; keeps the canvas in the DOM so its context stays
+   * Off-screen parking spot. Keeps the canvas in the DOM so its context stays
    * live.
    */
   readonly #holder: HTMLDivElement
@@ -68,13 +68,13 @@ export class DemoStage implements DemoStageController {
     } satisfies Partial<CSSStyleDeclaration>)
     this.#holder.appendChild(this.#canvas)
 
-    // `interactive: false` so no input listeners; `transparent` so the modal
+    // `interactive: false` so no input listeners. `transparent` so the modal
     // shows through the media slot.
     this.#stage = host.engine.attachStage(this.#canvas, {
       name: 'Tutorial Demo',
       interactive: false,
       transparent: true,
-      // Revealing into a slot resizes the canvas; build any pending demo once
+      // Revealing into a slot resizes the canvas. Build any pending demo once
       // it has a real backing size.
       onResize: () => this.#tryBuild(),
     })

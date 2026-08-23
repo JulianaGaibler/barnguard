@@ -1,6 +1,6 @@
 /**
  * A short-lived particle burst fired where a wall segment is destroyed. Shards
- * fly outward, spin, damp exponentially, and shrink as they slow; the node
+ * fly outward, spin, damp exponentially, and shrink as they slow. The node
  * self-destructs once every shard has faded. Allocation-free (parallel typed
  * arrays), in the house style adapted from Orbo's explosion.
  */

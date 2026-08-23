@@ -1,7 +1,16 @@
+import { get } from 'svelte/store'
 import { Node2D, type EngineHost } from '@src/stargazer'
+import { daemonConfig } from '@src/stores/daemonConfig'
 import cloudUrl from '../assets/arcade-cloud.svg?url'
 import { REGION_HEIGHT } from '../world'
-import { SUNSET, lerpPalette, type SkyPalette } from './palette'
+import { publishSky } from '../uiState'
+import { type SkyPalette } from './palette'
+import {
+  DAY_CYCLE,
+  effectiveElevationDeg,
+  locationFromConfig,
+  paletteAt,
+} from './dayCycle'
 import { SkyGradientNode } from './SkyGradientNode'
 import { OceanNode } from './OceanNode'
 import { CloudNode } from './CloudNode'
@@ -29,19 +38,69 @@ async function loadCloudBitmap(): Promise<ImageBitmap> {
 
 /**
  * Owns the persistent, world-anchored background (sky + ocean + two drifting
- * clouds) and the live sky palette. Built once at boot; survives across game
- * mounts. `transitionTo` cross-lerps the palette for time-of-day changes.
+ * clouds) and the live sky palette. Built once at boot, survives across game
+ * mounts. A timer walks the palette through the day, see `dayCycle.ts`.
  */
 export class BackgroundController implements PaletteSource {
-  palette: SkyPalette = SUNSET
+  palette: SkyPalette
   version = 0
 
   readonly #group = new Node2D('background')
-  #offFrame: (() => void) | null = null
   readonly #host: EngineHost
+  #timer: ReturnType<typeof setInterval> | null = null
+  #lastDrive: number | null = null
+  #sunOverrideDeg: number | null
 
-  constructor(host: EngineHost) {
+  constructor(host: EngineHost, sunOverrideDeg: number | null = null) {
     this.#host = host
+    // Assign the field rather than the accessor, which repaints and would read
+    // `palette` before it exists.
+    this.#sunOverrideDeg = sunOverrideDeg
+    this.palette = paletteAt(this.#driveDeg())
+  }
+
+  /**
+   * Freeze the cycle at an effective sun elevation, or `null` to follow the
+   * clock. Both the dev URL params and the attendant slider route through
+   * here.
+   *
+   * Writing repaints at once instead of waiting for the next tick, so dragging
+   * the slider tracks the drag.
+   */
+  get sunOverrideDeg(): number | null {
+    return this.#sunOverrideDeg
+  }
+
+  set sunOverrideDeg(deg: number | null) {
+    if (deg === this.#sunOverrideDeg) return
+    this.#sunOverrideDeg = deg
+    this.#applyPalette()
+  }
+
+  /** Where the sun is right now, or wherever an override has pinned it. */
+  #driveDeg(): number {
+    if (this.#sunOverrideDeg !== null) return this.#sunOverrideDeg
+    return effectiveElevationDeg(
+      Date.now(),
+      locationFromConfig(get(daemonConfig)),
+    )
+  }
+
+  /**
+   * Re-evaluate the palette. Skips the write when the sun has not moved and
+   * when the driver is still inside a plateau, where `paletteAt` hands back the
+   * same palette object. That keeps the gradient LUT upload-once at rest.
+   */
+  #applyPalette(): void {
+    const drive = this.#driveDeg()
+    if (this.#lastDrive === drive) return
+    this.#lastDrive = drive
+    const next = paletteAt(drive)
+    if (next !== this.palette) {
+      this.palette = next
+      this.version++
+    }
+    publishSky(next, drive)
   }
 
   /** Load assets + attach the background subtree to the scene root. */
@@ -88,28 +147,20 @@ export class BackgroundController implements PaletteSource {
     // The whole background group is added first to the scene root, so it draws
     // behind any game subtree added later.
     this.#host.engine.tree.root.add(this.#group)
-  }
 
-  /** Cross-lerp the palette to `next` over `seconds` (time-of-day changes). */
-  transitionTo(next: SkyPalette, seconds: number): void {
-    const from = this.palette
-    let elapsed = 0
-    this.#offFrame?.()
-    this.#offFrame = this.#host.engine.ticker.onFrame((dt) => {
-      elapsed += dt
-      const t = seconds <= 0 ? 1 : Math.min(1, elapsed / seconds)
-      this.palette = lerpPalette(from, next, t)
-      this.version++
-      if (t >= 1) {
-        this.#offFrame?.()
-        this.#offFrame = null
-      }
-    })
+    // A wall-clock timer rather than the engine ticker. Reading absolute time
+    // lands on the right color after a pause or a stall, and ticking this
+    // slowly keeps the cloud gradient LUT from being rebuilt every frame.
+    publishSky(this.palette, this.#lastDrive ?? this.#driveDeg())
+    this.#timer = setInterval(
+      () => this.#applyPalette(),
+      DAY_CYCLE.updateSeconds * 1000,
+    )
   }
 
   destroy(): void {
-    this.#offFrame?.()
-    this.#offFrame = null
+    if (this.#timer !== null) clearInterval(this.#timer)
+    this.#timer = null
     if (!this.#group.isDestroyed) this.#group.destroy()
   }
 }

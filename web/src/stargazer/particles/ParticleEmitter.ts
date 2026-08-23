@@ -5,13 +5,11 @@ import type { ParticleSpriteStyle } from './draw'
 /**
  * Behavior and appearance of a {@link ParticleEmitter}: spawn rate, kinematics,
  * and the size/alpha curves each particle follows over its life.
- *
- * @category Particles
  */
 export interface ParticleEmitterConfig {
   /** Maximum number of live particles at once. */
   capacity: number
-  /** Continuous emissions per second; set to 0 for one-shot bursts only. */
+  /** Continuous emissions per second. Set to 0 for one-shot bursts only. */
   ratePerSec: number
   /** Random particle lifespan range, in seconds. */
   lifetimeSec: readonly [number, number]
@@ -29,9 +27,9 @@ export interface ParticleEmitterConfig {
   /** Palette of hex colors, particles pick one uniformly at random. */
   palette: readonly string[]
   /**
-   * Sprite shape: `'gradient'` (default), soft radial fade; pair with `blend:
+   * Sprite shape: `'gradient'` (default), soft radial fade, pair with `blend:
    * 'lighter'` for classic bloom, or `blend: 'source-over'` for a softer glow.
-   * `'disc'`, solid disc with an AA edge; pair with `blend: 'source-over'` for
+   * `'disc'`, solid disc with an AA edge, pair with `blend: 'source-over'` for
    * sharp, non-bloomed particles (sparks, projectiles). `'hexagon'` and
    * `'square'`, solid flat shapes with the same AA margin, for crisp debris or
    * data-style trails under `blend: 'source-over'`.
@@ -50,12 +48,12 @@ export interface ParticleEmitterConfig {
   /**
    * Random per-particle constant angular velocity range, rad/s, e.g. `[-6, 6]`
    * for a symmetric tumble (like every other `[min, max]` range in this config,
-   * pass a negative min for a range that straddles zero — this one is sampled
+   * pass a negative min for a range that straddles zero, this one is sampled
    * with its sign, not folded to a magnitude). Sampled once at spawn,
    * integrated every frame (`angle += spin * dt`), applied at draw time as a
-   * sprite rotation. Omit (default) for no rotation —
-   * `ParticleEmitterNode.draw` then skips the rotate transform entirely, so
-   * non-rotating emitters pay nothing extra.
+   * sprite rotation. Omit (default) for no rotation. `ParticleEmitterNode.draw`
+   * then skips the rotate transform entirely, so non-rotating emitters pay
+   * nothing extra.
    */
   spinRadPerSec?: readonly [number, number]
   /**
@@ -63,7 +61,7 @@ export interface ParticleEmitterConfig {
    * usual `t = 1 - life/maxLife`. `'speed'`: drives the SAME curve by `1 -
    * clamp(currentSpeed / speed0, 0, 1)` instead, so a particle still moving
    * fast reads at `scaleOverLife[0]` and one that's nearly stopped reads at
-   * `scaleOverLife[1]`, regardless of remaining lifetime — use this for a burst
+   * `scaleOverLife[1]`, regardless of remaining lifetime. Use this for a burst
    * that should visually dissolve as it decelerates rather than on a fixed
    * clock. `alphaOverLife` always stays life-driven.
    */
@@ -71,7 +69,7 @@ export interface ParticleEmitterConfig {
   /**
    * Opt-in early despawn: once a particle's current speed drops below
    * `minSpeedFrac * speed0` (its own launch speed), it's killed even if `life`
-   * hasn't run out. Unset (default) disables this — particles only die from
+   * hasn't run out. Unset (default) disables this, particles only die from
    * `life <= 0`. `lifetimeSec`'s upper bound remains the safety backstop either
    * way.
    */
@@ -93,7 +91,6 @@ export interface ParticleEmitterConfig {
  * Usually you build a `ParticleEmitterNode` and reach this through its
  * `emitter` field rather than constructing it directly.
  *
- * @category Particles
  * @example
  *   // One-shot explosion at a world point.
  *   node.emitter.burst(200, worldX, worldY)
@@ -148,18 +145,17 @@ export class ParticleEmitter {
   }
 
   /**
-   * Resolves once `aliveCount` is 0 — immediately if it already is at call
-   * time, else the next time it reaches 0 (checked at the tail of every
-   * `update(dt)` and `clear()`, so it fires the same frame the last particle
-   * dies — no polling). Call this RIGHT AFTER the `burst()` you want to wait
-   * for, in the same synchronous span (no `await` between them): JS's
-   * single-threaded execution then guarantees no `update()` tick runs in
-   * between, so `aliveCount` still reflects the burst you just triggered.
-   * Typical one-shot-burst idiom:
-   * `node.autoDestroy(node.emitter.waitUntilEmpty())`. This method has no
-   * per-burst identity — pair it with the specific burst it should track, not
-   * with reuse across unrelated later bursts, or it may observe a stale
-   * "already empty" left over from a previous cycle.
+   * Resolves once `aliveCount` is 0, immediately if it already is at call time,
+   * else the next time it reaches 0 (checked at the tail of every `update(dt)`
+   * and `clear()`, so it fires the same frame the last particle dies, no
+   * polling). Call this RIGHT AFTER the `burst()` you want to wait for, in the
+   * same synchronous span (no `await` between them). JS's single-threaded
+   * execution then guarantees no `update()` tick runs in between, so
+   * `aliveCount` still reflects the burst you just triggered. Typical
+   * one-shot-burst idiom: `node.autoDestroy(node.emitter.waitUntilEmpty())`.
+   * This method has no per-burst identity, pair it with the specific burst it
+   * should track, not with reuse across unrelated later bursts, or it may
+   * observe a stale "already empty" left over from a previous cycle.
    */
   waitUntilEmpty(): Promise<void> {
     if (this.pool.aliveCount === 0) return Promise.resolve()

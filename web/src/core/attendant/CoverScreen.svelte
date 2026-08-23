@@ -2,7 +2,7 @@
   /**
    * Full-viewport takeover. Toggled by the attendant to hide the game while the
    * booth is off-duty. See `web/src/stores/coverScreen.ts` for the mode/text
-   * state; this component just paints the branded card.
+   * state. This component just paints the branded card.
    *
    * Layered above `TopBar` (z=100) but below `DraggableWindow`s (z≥200), so
    * BoothMenu and PrinterPanel remain reachable to toggle the cover off.
@@ -10,7 +10,7 @@
   import { fade } from 'svelte/transition'
   import { locale, t } from '@src/i18n'
   import { coverScreen } from '@src/stores/coverScreen'
-  import Wave from '@src/core/ui/decor/Wave.svelte'
+  import { activeDisplay } from '@src/core/display'
   import { theme } from '@src/core/theme'
 
   // `custom` with empty (or whitespace-only) text silently falls back to the
@@ -25,6 +25,7 @@
   })
 
   const backgroundColor = $derived($theme?.cover.backgroundColor ?? '#000000')
+  const Backdrop = $derived($activeDisplay?.backdrop)
 </script>
 
 <div
@@ -34,9 +35,11 @@
   in:fade={{ duration: 220 }}
   out:fade={{ duration: 160 }}
 >
-  <div class="cover__wave" aria-hidden="true">
-    <Wave />
-  </div>
+  {#if Backdrop}
+    <div class="cover__decor" aria-hidden="true">
+      <Backdrop />
+    </div>
+  {/if}
 
   {#if $theme?.assets.coverAccent}
     <img
@@ -61,17 +64,6 @@
 </div>
 
 <style lang="sass">
-  // The Mozilla Headline Extended font is registered on `document.fonts`
-  // programmatically by the label renderer. Declare it here as a proper
-  // @font-face so plain DOM text can use it without depending on the print
-  // path being initialised first.
-  @font-face
-    font-family: 'Mozilla Headline Extended'
-    src: url('@src/assets/fonts/MozillaHeadlineExtended-Bold.woff2') format('woff2')
-    font-weight: 700
-    font-style: normal
-    font-display: swap
-
   .cover
     position: fixed
     inset: 0
@@ -85,9 +77,9 @@
     grid-template-rows: auto 1fr auto
     align-items: stretch
 
-  // The gradient wave that ships with BackgroundLayer, dimmed so it reads
-  // as a subtle backdrop under the navy rather than the primary surface.
-  .cover__wave
+  // The display's own backdrop, dimmed so it reads as a subtle texture under
+  // the cover color rather than the primary surface.
+  .cover__decor
     position: absolute
     inset: 0
     opacity: 0.35
@@ -112,13 +104,13 @@
     margin-block-start: tint.$size-48
     margin-inline-start: tint.$size-48
     margin-inline-end: tint.$size-48
-    // 1.5× the ambient logo size elsewhere in the app — set on `height` (not
+    // 1.5× the ambient logo size elsewhere in the app, set on `height` (not
     // `transform: scale`) so the browser rasterises the SVG/PNG at the
     // target resolution and it stays crisp, instead of upscaling a
     // 1×-rasterised bitmap.
     height: clamp(3rem, 5.4vw, 5.25rem)
     width: auto
-    // The PNG has embedded transparency; let it composite over the navy
+    // The PNG has embedded transparency, so let it composite over the navy
     // background as-is (no filter).
     pointer-events: none
 
@@ -126,7 +118,7 @@
     position: relative
     grid-column: 1
     grid-row: 3
-    // Anchor to the block-end / inline-start corner; leaves the middle row
+    // Anchor to the block-end / inline-start corner, leaving the middle row
     // as breathing room.
     justify-self: start
     align-self: end
@@ -137,7 +129,7 @@
     font-weight: 700
     color: var(--color-text-inverse)
     // Bespoke fluid brand headline (viewport-driven), intentionally not a type
-    // token; it scales with the cover, not the UI-scale knob.
+    // token. It scales with the cover, not the UI-scale knob.
     font-size: clamp(3rem, 6vw, 6rem)
     line-height: 1.05
     // `pre-wrap` honours explicit `\n`s from the custom-text textarea while

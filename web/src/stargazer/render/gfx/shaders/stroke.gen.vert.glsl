@@ -18,6 +18,12 @@ struct Clip {
     float rrRadius;
     float clipPad;
 };
+struct Stroke {
+    float coreOnly;
+    float pad0_;
+    float pad1_;
+    float pad2_;
+};
 struct VOut {
     vec4 pos;
     vec2 alongPerp;
@@ -28,6 +34,8 @@ struct VOut {
     float dashOnLen;
     vec4 color;
 };
+const float CORE_MIN_COVERAGE = 0.98;
+
 layout(std140) uniform Frame_block_0Vertex { Frame _group_0_binding_0_vs; };
 
 layout(location = 0) in vec2 _p2vs_location0;

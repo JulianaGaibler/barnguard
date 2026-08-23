@@ -98,7 +98,7 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
     const OPS = 500
     for (let step = 0; step < OPS; step++) {
       const op = rng.int(5)
-      // 0: add a new node; 1: reparent; 2: remove; 3: setRenderLayer;
+      // 0: add a new node, 1: reparent, 2: remove, 3: setRenderLayer,
       // 4: setPosition
       if (op === 0) {
         const n = new Node2D(`fuzz-late-${step}`)
@@ -118,7 +118,7 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
           const others = live.filter((n) => n !== child)
           const target = rng.choice(others)
           // Guard against cycles: if target is a descendant of child,
-          // skip. (Add throws for self-add; this prevents the subtler
+          // skip. (Add throws for self-add. This prevents the subtler
           // ancestor-loop case.)
           let cur: Node2D | null = target
           let isDescendant = false
@@ -192,7 +192,7 @@ describe('Scene cached-index invariants (P1/P3/P4/P8), fuzz', () => {
 
 /**
  * Mimic `Stage.updateTransforms`, dirty-aware compose from root down. Uses each
- * node's cached world where clean; recomputes where dirty.
+ * node's cached world where clean and recomputes where dirty.
  */
 function composeAllWorlds(root: Node2D): void {
   // Root: honor the dirty flag ourselves.

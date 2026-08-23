@@ -13,7 +13,7 @@
 
   interface Props {
     matchScore: MatchScore
-    /** 0..1 reveal; 1 = committed/interactive. */
+    /** 0..1 reveal, 1 = committed/interactive. */
     progress: number
     onResume: () => void
     onQuit: () => void
@@ -48,7 +48,7 @@
     justify-content: center
     background: var(--color-scrim)
     // Preview (mid-swipe) is non-interactive so the swipe keeps reaching the
-    // canvas; only the committed menu captures input to freeze the game.
+    // canvas. Only the committed menu captures input to freeze the game.
     pointer-events: none
     transition: opacity 0.1s linear
 

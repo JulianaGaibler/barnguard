@@ -21,7 +21,7 @@
   let nowTick = $state(Date.now())
   let page = $state(0) // 0-indexed
 
-  // The log holds every display's games; only show the currently active
+  // The log holds every display's games. Only show the currently active
   // display's own games here (arcade sees only arcade games, stallwaechter
   // only stallwaechter games, etc).
   const displayGames = $derived(

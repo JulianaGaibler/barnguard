@@ -23,17 +23,21 @@ export function getSourceHeight(source: TexImageSource): number {
  * (`copyExternalImageToTexture` and the CPU byte path) all resolve `flipY`
  * through here, so the two backends cannot disagree about which way is up.
  *
- * `flipY` flips the SOURCE rows during the copy; it does not encode screen
+ * `flipY` flips the SOURCE rows during the copy, it does not encode screen
  * orientation. Both backends store source row 0 at texel row 0 and sample `uv.y
  * = 0` there, and the shared device-px→clip projection owns the on-screen
- * Y-flip. A source uploaded with the same `flipY` therefore looks identical on
- * both backends, which is why `flipY` must pass through UNCHANGED here.
+ * Y-flip. `flipY` must therefore pass through UNCHANGED here. Inverting it for
+ * one backend double-flips every image that backend uploads, which shows up
+ * first on text because a glyph is usually the only asymmetric texture around.
  *
- * Do not invert this per backend. An earlier WebGPU-only inversion (on the
- * mistaken theory that WebGPU's texture V-origin is opposite) double-flipped
- * every uploaded image, so labels and `drawImage` sources rendered upside down
- * while shapes stayed upright. If an image looks flipped, fix the caller's
- * `flipY` or the shared projection — never this function.
+ * One asymmetry this cannot paper over: WebGL ignores the pixel-store unpack
+ * parameters when the source is an `ImageBitmap`, so `UNPACK_FLIP_Y_WEBGL` does
+ * nothing there while WebGPU's `copyExternalImageToTexture` applies `flipY`.
+ * Prefer `flipY: false` and orient the source itself, through
+ * `createImageBitmap`'s `imageOrientation` where one is needed.
+ *
+ * If an image looks flipped, fix the caller's `flipY` or the shared projection,
+ * never this function.
  */
 export function resolveUploadFlipY(opts: TextureUploadOpts): boolean {
   return opts.flipY ?? false

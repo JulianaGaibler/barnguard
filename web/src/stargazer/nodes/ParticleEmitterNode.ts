@@ -7,11 +7,7 @@ import {
 } from '../particles/ParticleEmitter'
 import { getParticleSprite } from '../particles/draw'
 
-/**
- * Constructor options for {@link ParticleEmitterNode}.
- *
- * @category Nodes
- */
+/** Constructor options for {@link ParticleEmitterNode}. */
 export interface ParticleEmitterNodeOptions {
   id?: string
   /** Emitter behavior and appearance. See {@link ParticleEmitterConfig}. */
@@ -26,10 +22,9 @@ export interface ParticleEmitterNodeOptions {
  *
  * Particles live in the node's local coordinate space. `emitter.setOrigin(x,
  * y)` is a node-local point, so parenting this node under a moving object makes
- * the particles follow it; parenting it to `scene.root` (identity transform)
+ * the particles follow it. Parenting it to `scene.root` (identity transform)
  * means the origin is world coordinates.
  *
- * @category Nodes
  * @example
  *   const trail = new ParticleEmitterNode({
  *     config: {
@@ -85,7 +80,7 @@ export class ParticleEmitterNode extends Node2D {
       cfg.spinRadPerSec !== undefined &&
       (cfg.spinRadPerSec[0] !== 0 || cfg.spinRadPerSec[1] !== 0)
 
-    // save/restore snapshots blend + alpha (and transform); the emitter sets an
+    // save/restore snapshots blend + alpha (and transform). The emitter sets an
     // additive blend and per-particle alpha, then restores the Stage-installed
     // node baseline on exit.
     gfx.save()
@@ -103,8 +98,9 @@ export class ParticleEmitterNode extends Node2D {
         t = 1 - speedRatio
       }
       // Alpha always fades on the lifetime clock, even when scale is
-      // speed-driven — matches every hand-rolled burst this replaces, which
-      // shrinks to near-zero scale and stops drawing rather than fading out.
+      // speed-driven. This matches every hand-rolled burst this replaces,
+      // which shrinks to near-zero scale and stops drawing rather than
+      // fading out.
       const alpha = alphaStart + (alphaEnd - alphaStart) * lifeT
       if (alpha <= 0) continue
       const scale = scaleStart + (scaleEnd - scaleStart) * t

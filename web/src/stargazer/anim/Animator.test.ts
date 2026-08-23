@@ -191,7 +191,7 @@ describe('Animator', () => {
           },
         },
       )
-      a.tick(0.5) // outer.x becomes 50; inner tween is added but should NOT tick this frame
+      a.tick(0.5) // outer.x becomes 50. The inner tween is added but must not tick this frame
       expect(outer.x).toBeCloseTo(50, 5)
       expect(inner.y).toBe(0) // added mid-tick, waits for next tick
       a.tick(0.5) // inner tween now runs its first tick with dt=0.5
@@ -305,7 +305,7 @@ describe('Animator', () => {
         warnings.push(args.join(' '))
       }
       try {
-        // The first is aborted by the keyed restart; swallow its rejection.
+        // The first is aborted by the keyed restart, so swallow its rejection.
         a.tween(target, { x: 100 }, { duration: 1, key: 'move' }).catch(
           () => {},
         )

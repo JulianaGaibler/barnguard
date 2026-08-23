@@ -1,12 +1,12 @@
 //! Pure VC-500W wire protocol: XML command builders, a tolerant tag parser, and
-//! response framing. No I/O here; this is the unit-tested core.
+//! response framing. No I/O here. This is the unit-tested core.
 //!
 //! Framing notes (verified against real captures in `tests/fixtures/`):
 //! - A response is either a single `<status>…</status>` block (print/image
 //!   acks, errors) OR a header `<status>` block carrying a `<datasize>`
 //!   followed by a **NUL-separated** payload of exactly that many bytes
 //!   (config/status reads). The separator after the header's `</status>` is
-//!   `\n\0` in practice; we tolerate any run of whitespace/NUL.
+//!   `\n\0` in practice. We tolerate any run of whitespace/NUL.
 //! - Headers may include a `<path>` echo and a `<comment>`. Always parse by
 //!   tag, never by fixed offset.
 
@@ -114,9 +114,9 @@ impl Framed {
 /// Result of attempting to parse a (possibly partial) buffer.
 #[derive(Debug)]
 pub enum ParseOutcome {
-    /// Not enough bytes yet; read more and try again.
+    /// Not enough bytes yet. Read more and try again.
     NeedMore,
-    /// A complete frame; `consumed` bytes may be dropped from the buffer.
+    /// A complete frame. `consumed` bytes may be dropped from the buffer.
     Done { framed: Framed, consumed: usize },
 }
 
@@ -159,8 +159,8 @@ pub fn try_parse_response(buf: &[u8]) -> ParseOutcome {
     }
 }
 
-/// Map a raw `<print_state>` value to our enum (case-insensitive; `BUSY` is
-/// explicitly *not* ready).
+/// Map a raw `<print_state>` value to our enum. Case-insensitive, and `BUSY` is
+/// explicitly *not* ready.
 pub fn map_print_state(raw: &str) -> PrinterState {
     match raw.trim().to_ascii_lowercase().as_str() {
         "idle" | "ready" => PrinterState::Idle,
@@ -189,7 +189,7 @@ pub fn parse_status_payload(payload: &str) -> StatusPayload {
     StatusPayload {
         state: tag_value_ci(payload, "print_state").map(map_print_state),
         print_job_error: error,
-        // `remain` is in inches per the reference driver; convert to mm.
+        // `remain` is in inches per the reference driver, so convert to mm.
         tape_remaining_mm: tag_f32(payload, "remain").map(|inches| inches * 25.4),
         cassette_type: tag_value_ci(payload, "cassette_type").map(str::to_string),
     }

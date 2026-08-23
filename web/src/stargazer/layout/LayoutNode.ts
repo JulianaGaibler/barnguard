@@ -4,7 +4,6 @@
  * internal glue the pass uses to find a subtree's owning root.
  *
  * @module
- * @category Layout
  */
 import type { Node } from '../scene/Node'
 import { Node2D } from '../scene/Node2D'
@@ -13,7 +12,7 @@ import { BoxConstraints, type Size } from './constraints'
 /**
  * A node that takes part in layout. A parent calls `measure` to learn a child's
  * size under {@link BoxConstraints}, then `arrange` to place it. A built-in leaf
- * like `ShapeNode` implements this directly; the containers ({@link Row},
+ * like `ShapeNode` implements this directly. The containers ({@link Row},
  * {@link Column}, {@link Box}, ...) extend {@link LayoutNode}, which implements it
  * for you.
  *
@@ -21,20 +20,18 @@ import { BoxConstraints, type Size } from './constraints'
  *
  * 1. `measure(constraints)` computes the node's size, writes it into the
  *    preallocated {@link Measurable.measuredSize}, and returns it. Constraints
- *    flow DOWN; sizes flow UP.
+ *    flow DOWN, sizes flow UP.
  * 2. `arrange(x, y, w, h)` positions the node (by setting `transform.x/y`) and,
  *    for a container, positions its children. Placement flows DOWN.
- *
- * @category Layout
  */
 export interface Measurable {
   /**
    * The size computed by the last `measure`. Preallocated and reused, so a
-   * layout pass allocates nothing. Read it right after `measure`; a later
+   * layout pass allocates nothing. Read it right after `measure`. A later
    * `measure` on the same node overwrites it.
    */
   readonly measuredSize: Size
-  /** Compute the size under `constraints`; write into and return `measuredSize`. */
+  /** Compute the size under `constraints`. Write into and return `measuredSize`. */
   measure(constraints: BoxConstraints): Size
   /** Place at `(x, y)` with final size `w × h`, in the parent's local space. */
   arrange(x: number, y: number, w: number, h: number): void
@@ -44,14 +41,12 @@ export interface Measurable {
  * A scene node that participates in layout: a {@link Node2D} that also
  * implements {@link Measurable}. This is the child type the layout containers
  * accept.
- *
- * @category Layout
  */
 export type MeasurableNode = Node2D & Measurable
 
 /**
  * Base class for layout containers. Extend it and implement {@link measure} and
- * {@link arrange}; it wires the shared pieces (a preallocated `measuredSize` and
+ * {@link arrange}. It wires the shared pieces (a preallocated `measuredSize` and
  * {@link markLayoutDirty}) onto a normal {@link Node2D}, so a layout node
  * composes with transforms, culling, hit-testing, behaviors, and tweens like
  * any other node.
@@ -59,10 +54,9 @@ export type MeasurableNode = Node2D & Measurable
  * `arrange` should set `transform.x`/`transform.y` for position (never scale)
  * and write `debugBounds = { x: 0, y: 0, width: w, height: h }` so the node
  * culls and hit-tests correctly. Call {@link markLayoutDirty} whenever an input
- * that affects your measured size changes (a child added, a size prop set); it
+ * that affects your measured size changes (a child added, a size prop set). It
  * schedules one coalesced layout pass on the next frame.
  *
- * @category Layout
  * @example
  *   class FixedBox extends LayoutNode {
  *     constructor(
@@ -85,7 +79,7 @@ export type MeasurableNode = Node2D & Measurable
  */
 export abstract class LayoutNode extends Node2D implements Measurable {
   /**
-   * Preallocated per node; `measure` writes into it (see
+   * Preallocated per node. `measure` writes into it (see
    * {@link Measurable.measuredSize}).
    */
   readonly measuredSize: Size = { w: 0, h: 0 }
@@ -95,7 +89,7 @@ export abstract class LayoutNode extends Node2D implements Measurable {
 
   /**
    * Request a layout pass. Walks up to the owning {@link LayoutRoot} and marks
-   * it dirty; the engine runs one coalesced pass next frame. A no-op if the
+   * it dirty. The engine runs one coalesced pass next frame. A no-op if the
    * node is not yet under a root. Cheap (a flag set plus an ancestor walk), so
    * call it freely whenever a measured-size input changes.
    */
@@ -143,7 +137,7 @@ export function isMeasurable(n: Node): n is Node2D & Measurable {
 /**
  * Internal: throw a named error if a measured size is not finite. A non-finite
  * size means a node read an unbounded (`Infinity`) constraint as its own extent
- * instead of shrink-wrapping; catching it here turns a silent poisoned
+ * instead of shrink-wrapping. Catching it here turns a silent poisoned
  * transform into a clear failure.
  */
 export function assertFiniteSize(node: Node2D, size: Size): void {

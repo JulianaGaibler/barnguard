@@ -5,7 +5,6 @@
  * the leftover space among the flexible ones.
  *
  * @module
- * @category Layout
  */
 import type { Node2D } from '../../scene/Node2D'
 import { BoxConstraints, type Size } from '../constraints'
@@ -37,9 +36,8 @@ export interface FlexOptions {
  * A child that grows to fill leftover main-axis space in a {@link Row} or
  * {@link Column}, in proportion to its `flex` weight. `fit: 'tight'` (the
  * default, and what {@link Expanded} uses) forces the child to exactly its
- * share; `'loose'` lets the child be smaller.
+ * share. `'loose'` lets the child be smaller.
  *
- * @category Layout
  * @example
  *   new Row({
  *     children: [icon, new Flexible({ child: label, flex: 1 }), badge],
@@ -81,8 +79,6 @@ export class Flexible extends LayoutNode {
  * A {@link Flexible} that fills its whole share of the leftover space (`fit:
  * 'tight'`). The common case: `new Expanded({ child })` makes `child` take all
  * remaining room on the main axis.
- *
- * @category Layout
  */
 export class Expanded extends Flexible {
   constructor(opts: { child: MeasurableNode; flex?: number }) {
@@ -108,7 +104,6 @@ class EmptyBox extends LayoutNode {
  * Flexible empty space in a {@link Row} or {@link Column}. Use it to push
  * siblings apart or toward an edge.
  *
- * @category Layout
  * @example
  *   new Row({ children: [title, new Spacer(), closeButton] })
  */
@@ -123,15 +118,13 @@ function flexOf(node: Node2D): number {
 }
 
 /**
- * Lays children out along one axis. Prefer {@link Row} and {@link Column}; this
+ * Lays children out along one axis. Prefer {@link Row} and {@link Column}. This
  * base carries the shared two-pass algorithm and the child-mutation API.
  *
  * Add or remove children after construction with {@link Flex.add},
- * {@link Flex.remove}, {@link Flex.insert}, or {@link Flex.setChildren}; each
+ * {@link Flex.remove}, {@link Flex.insert}, or {@link Flex.setChildren}. Each
  * reuses the existing node instances (so running tweens and state survive) and
  * schedules a relayout.
- *
- * @category Layout
  */
 export class Flex extends LayoutNode {
   readonly direction: Axis
@@ -140,7 +133,7 @@ export class Flex extends LayoutNode {
   crossAxisAlign: CrossAxisAlign
 
   // Reused across passes so a layout does not allocate. `#items` is the ordered
-  // measurable children snapshotted at measure time; `#main`/`#cross` are their
+  // measurable children snapshotted at measure time. `#main`/`#cross` are their
   // resolved extents, read back in arrange.
   readonly #cc = new BoxConstraints()
   #items: MeasurableNode[] = []
@@ -357,7 +350,6 @@ export class Flex extends LayoutNode {
 /**
  * A horizontal {@link Flex}: children are laid out left to right.
  *
- * @category Layout
  * @example
  *   new Row({
  *     gap: 16,
@@ -374,7 +366,6 @@ export class Row extends Flex {
 /**
  * A vertical {@link Flex}: children are laid out top to bottom.
  *
- * @category Layout
  * @example
  *   new Column({
  *     gap: 8,

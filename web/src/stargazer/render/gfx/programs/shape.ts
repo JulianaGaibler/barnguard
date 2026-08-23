@@ -70,7 +70,7 @@ export class ShapeProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
-  /** (atlas → (label → bind group)); the fixed atlas + label page textures. */
+  /** (atlas → (label → bind group)), the fixed atlas + label page textures. */
   #bindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
 
   get stream(): RingStream {
@@ -130,7 +130,7 @@ export class ShapeProgram implements GpuProgram {
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
     // Fixed-unit textures: atlas on 0, label page on 1. Non-textured shapes
-    // ignore them; a placeholder fills a slot before its texture exists.
+    // ignore them. A placeholder fills a slot before its texture exists.
     const atlas = ctx.textureManager.getAtlasTexture() ?? ctx.placeholderTexture
     const label =
       ctx.textureManager.getLabelPageTexture() ?? ctx.placeholderTexture
@@ -316,7 +316,7 @@ export class ShapeProgram implements GpuProgram {
   }
 
   /**
-   * A circle (fill and/or stroke). Center + radius are in device px; the dash
+   * A circle (fill and/or stroke). Center + radius are in device px. The dash
    * phase repeats every `dashPeriod` px starting at `dashStart`.
    */
   circle(
@@ -349,7 +349,7 @@ export class ShapeProgram implements GpuProgram {
 
   /**
    * A rounded rect (fill and/or stroke). `affine` is the local→device columns +
-   * translate; extents/feather/radii are local units.
+   * translate, and extents/feather/radii are local units.
    */
   roundRect(
     ctx: GpuBatchContext,
@@ -394,8 +394,8 @@ export class ShapeProgram implements GpuProgram {
 
   /**
    * A textured quad (text or atlas sprite). `affine` columns + translate map
-   * the unit square to device px; `srcRect` is the sub-rect; `texIndex` picks
-   * the fixed-unit texture (`SHAPE_TEX_ATLAS` / `SHAPE_TEX_LABEL`);
+   * the unit square to device px. `srcRect` is the sub-rect, `texIndex` picks
+   * the fixed-unit texture (`SHAPE_TEX_ATLAS` / `SHAPE_TEX_LABEL`), and
    * `packedTint` is the premultiplied tint.
    */
   textured(

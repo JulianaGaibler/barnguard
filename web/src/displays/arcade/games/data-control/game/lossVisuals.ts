@@ -78,8 +78,8 @@ const DEBRIS_FADE_SEC = 0.6
 /**
  * Collision debris that decays on its own. The plain burst above settles into a
  * PERMANENT ring (the live round sweeps it on reset), which piles up in
- * continuous scenes with no reset — the menu preview and the tutorial demo. So
- * those spawn through this variant instead: it holds briefly, fades the whole
+ * continuous scenes with no reset (the menu preview and the tutorial demo).
+ * Those spawn through this variant instead: it holds briefly, fades the whole
  * burst out, then self-destroys. `signal` cancels the pending fade on
  * teardown.
  */

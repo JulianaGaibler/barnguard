@@ -5,13 +5,13 @@ export type Screen = 'idle' | 'playing' | 'result'
 
 /**
  * The shared, resettable application state. The (future) game logic hangs off
- * this object; the admin overlay reads and controls it. Keep it serializable so
+ * this object. The admin overlay reads and controls it. Keep it serializable so
  * it can be inspected as JSON in the admin panel.
  */
 export interface AppState {
   /** Which screen is active. */
   screen: Screen
-  /** Placeholder game score; replace once the game is designed. */
+  /** Placeholder game score. Replace once the game is designed. */
   score: number
   /** Number of play sessions since the last reset (rough usage metric). */
   sessions: number
@@ -30,8 +30,6 @@ export const appState = writable<AppState>(createInitialState())
 /**
  * Move the booth to a given screen, incrementing the session counter when a new
  * game starts.
- *
- * @param {Screen} screen - The screen to switch to.
  */
 export const goToScreen = (screen: Screen): void => {
   appState.update((state) => ({

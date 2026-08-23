@@ -2,7 +2,7 @@
 precision highp float;
 // Chromatic aberration: split the RGB channels along a radial offset that grows
 // toward the edges (scaled by r² from center), mimicking a lens's transverse
-// color error. The frame is premultiplied-alpha; shifting channels by different
+// color error. The frame is premultiplied-alpha. Shifting channels by different
 // UVs would decouple color from alpha and could leave rgb > a (an invalid
 // premultiplied state that composites as additive fringing over the page). To
 // stay valid the output alpha is the max of the three taps' alphas, which

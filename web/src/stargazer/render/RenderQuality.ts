@@ -1,19 +1,6 @@
-/**
- * Live rendering-quality settings for the 3D pass. One instance lives on the
- * {@link Engine} (`engine.quality`); the renderer reads it each frame, so
- * changes take effect immediately. Setters clamp to supported values and bump
- * {@link RenderQuality.revision}, which the renderer watches to rebuild
- * size-dependent GPU resources (the shadow maps).
- *
- * @category Render
- * @example
- *   engine.quality.shadowMapSize = 2048 // sharper shadows
- *   engine.quality.shadowsEnabled = false // drop shadows on a weak GPU
- */
-
 /** Supported shadow-map edge sizes, in pixels. */
 export const SHADOW_MAP_SIZES = [256, 512, 1024, 2048, 4096] as const
-/** Supported PCF tap counts (shadow-edge softness); 1 is hard. */
+/** Supported PCF tap counts (shadow-edge softness). 1 is hard. */
 export const SHADOW_SOFTNESS_TAPS = [1, 4, 9, 16] as const
 
 /** Construction overrides for {@link RenderQuality}. */
@@ -32,6 +19,17 @@ function nearestAllowed(value: number, allowed: readonly number[]): number {
   return best
 }
 
+/**
+ * Live rendering-quality settings for the 3D pass. One instance lives on the
+ * engine, as `engine.quality`. The renderer reads it each frame, so changes
+ * take effect immediately. Setters clamp to supported values and bump
+ * {@link RenderQuality.revision}, which the renderer watches to rebuild
+ * size-dependent GPU resources (the shadow maps).
+ *
+ * @example
+ *   engine.quality.shadowMapSize = 2048 // sharper shadows
+ *   engine.quality.shadowsEnabled = false // drop shadows on a weak GPU
+ */
 export class RenderQuality {
   #shadowMapSize = 1024
   #shadowsEnabled = true
@@ -94,7 +92,7 @@ export class RenderQuality {
   }
 
   /**
-   * Shadow PCF tap count (snapped to {@link SHADOW_SOFTNESS_TAPS}); 1 = hard
+   * Shadow PCF tap count (snapped to {@link SHADOW_SOFTNESS_TAPS}). 1 is hard
    * edges.
    */
   get shadowSoftness(): number {

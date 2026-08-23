@@ -79,7 +79,7 @@ describe('Camera3D worldToScreen', () => {
     const cam = new Camera3D()
     cam.transform.setPosition(0, 0, 10)
     cam.setAspect(1)
-    // Behind the camera (camera at z=10 looking -z; z=20 is behind it).
+    // Behind the camera (camera at z=10 looking -z, so z=20 is behind it).
     const p = cam.worldToScreen(0, 0, 20, 400, 300)
     expect(p.behind).toBe(true)
   })
@@ -89,7 +89,7 @@ describe('Camera3D worldToScreen', () => {
     cam.transform.setPosition(3, 1, 8)
     cam.setAspect(16 / 9)
     cam.projectionness = 1
-    // A world point in front of the camera projects to some screen px; the ray
+    // A world point in front of the camera projects to some screen px. The ray
     // through that pixel points back toward the point.
     const wx = 3
     const wy = 1

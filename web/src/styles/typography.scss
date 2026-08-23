@@ -1,86 +1,91 @@
 @use 'sass:map';
 
-$mozilla-headline:
-  'Mozilla Headline',
-  -apple-system,
-  'Segoe UI',
-  'Helvetica Neue',
-  Arial,
-  sans-serif;
-$mozilla-text:
-  'Mozilla Text',
-  -apple-system,
-  'Segoe UI',
-  'Helvetica Neue',
-  Arial,
-  sans-serif;
-$mozilla-headline-extended:
-  'Mozilla Headline Extended',
-  -apple-system,
-  'Segoe UI',
-  'Helvetica Neue',
-  Arial,
-  sans-serif;
+// The two themeable roles, resolved at runtime from the `--font-*` custom
+// properties (defaults in scale.sass, overridden per display by
+// core/theme.applyFonts and per game by the `fontScope` action). Using a var()
+// rather than a stack literal is what makes a typeface themeable at all.
+$font-text: var(--font-text);
+$font-heading: var(--font-heading);
+
+// Named handles for specific families. Not themeable: an entry below that uses
+// one is saying "this face in particular", not "whatever the theme picks".
+$font-mozilla-text: var(--font-mozilla-text);
+$font-mozilla-headline: var(--font-mozilla-headline);
+$font-mozilla-headline-extended: var(--font-mozilla-headline-extended);
+$font-azeret-mono: var(--font-azeret-mono);
+$font-geist: var(--font-geist);
+$font-hk-grotesk: var(--font-hk-grotesk);
+$font-bungee: var(--font-bungee);
+$font-raleway: var(--font-raleway);
+$font-sniglet: var(--font-sniglet);
+$font-sorts-mill-goudy: var(--font-sorts-mill-goudy);
+$font-bagnard: var(--font-bagnard);
+
+// Aliases for the pre-role spelling, kept so existing `tint.$mozilla-*` call
+// sites keep working. Prefer `$font-*` in new code.
+$mozilla-headline: $font-heading;
+$mozilla-text: $font-text;
+$mozilla-headline-extended: $font-mozilla-headline-extended;
 
 $typography-styles: (
   title-1: (
     font-size: 2rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 600,
   ),
   title-2: (
     font-size: 1.5rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 600,
   ),
   title-3: (
     font-size: 1.166rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 600,
   ),
   body-large: (
     font-size: 1.166rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 400,
   ),
   body: (
     font-size: 1rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 400,
   ),
   body-small: (
     font-size: 0.812rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 400,
   ),
   body-bold: (
     font-size: 1rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 700,
   ),
   ui: (
     font-size: 0.938rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 500,
   ),
   ui-small: (
     font-size: 0.812rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 500,
   ),
   ui-bold: (
     font-size: 0.938rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 700,
   ),
   ui-small-bold: (
     font-size: 0.812rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 700,
   ),
   action: (
     font-size: 0.875rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 700,
     letter-spacing: 1px,
     text-transform: uppercase,
@@ -88,67 +93,67 @@ $typography-styles: (
   // Display + game roles. All rem, so they scale with the adjustable base.
   display: (
     font-size: 6rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 700,
     letter-spacing: 0.04em,
   ),
   watermark: (
     font-size: 16rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 700,
     line-height: 1,
     font-variant-numeric: tabular-nums,
   ),
   score-lg: (
     font-size: 8.333rem,
-    font-family: $mozilla-headline-extended,
+    font-family: $font-heading,
     font-weight: 700,
     font-variant-numeric: tabular-nums,
   ),
   score: (
     font-size: 3rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 700,
     font-variant-numeric: tabular-nums,
   ),
   headline-lg: (
     font-size: 2.917rem,
-    font-family: $mozilla-headline-extended,
+    font-family: $font-heading,
     font-weight: 700,
   ),
   headline: (
     font-size: 2.5rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 700,
   ),
   headline-sm: (
     font-size: 1.667rem,
-    font-family: $mozilla-headline-extended,
+    font-family: $font-heading,
     font-weight: 700,
   ),
   card-title: (
     font-size: 2rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 700,
   ),
   pill: (
     font-size: 1.1rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 700,
   ),
   pill-small: (
     font-size: 0.95rem,
-    font-family: $mozilla-headline,
+    font-family: $font-heading,
     font-weight: 700,
   ),
   label-lg: (
     font-size: 1.333rem,
-    font-family: $mozilla-headline-extended,
+    font-family: $font-heading,
     font-weight: 700,
   ),
   button: (
     font-size: 1.2rem,
-    font-family: $mozilla-text,
+    font-family: $font-text,
     font-weight: 700,
     letter-spacing: 1px,
   ),

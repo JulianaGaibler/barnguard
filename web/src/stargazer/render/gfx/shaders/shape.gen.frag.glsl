@@ -117,46 +117,42 @@ void main() {
     float _e12 = sdRoundBox(in_.local, in_.halfExt, in_.radii);
     float _e13 = coverage(_e12);
     float _e19 = coverage((abs(_e12) - (in_.strokeWidth * 0.5)));
+    vec2 circDelta = (in_.worldPos - in_.center);
+    float circDist = (length(circDelta) - in_.radius);
+    float _e26 = coverage(circDist);
+    float _e32 = coverage((abs(circDist) - (in_.strokeWidth * 0.5)));
     if ((in_.shapeType == 1)) {
-        vec2 delta = (in_.worldPos - in_.center);
-        float dist = length(delta);
-        float fillAlpha = (1.0 - smoothstep((in_.radius - 0.5), (in_.radius + 0.5), dist));
-        vec4 fill = (in_.colorFill * fillAlpha);
+        vec4 fill = (in_.colorFill * _e26);
         if ((in_.strokeWidth > 0.0)) {
-            float strokeHalf = (in_.strokeWidth * 0.5);
-            float outer = (in_.radius + strokeHalf);
-            float inner = (in_.radius - strokeHalf);
-            float outerEdge = (1.0 - smoothstep((outer - 0.5), (outer + 0.5), dist));
-            float innerEdge = smoothstep((inner - 0.5), (inner + 0.5), dist);
-            strokeAlpha = (outerEdge * innerEdge);
+            strokeAlpha = _e32;
             float dashPeriod = in_.dash.y;
             if ((dashPeriod > 0.0)) {
-                float _e72 = strokeAlpha;
-                local = (_e72 > 0.0);
+                float _e52 = strokeAlpha;
+                local = (_e52 > 0.0);
             } else {
                 local = false;
             }
-            bool _e76 = local;
-            if (_e76) {
+            bool _e56 = local;
+            if (_e56) {
                 float dashStart = in_.dash.x;
                 float dashOnLen = (dashPeriod * 0.5);
-                float angle = atan(delta.y, delta.x);
+                float angle = atan(circDelta.y, circDelta.x);
                 float wrap = ((angle < 0.0) ? (angle + 6.2831855) : angle);
                 float arcPos = (wrap * in_.radius);
                 float s = (dashStart + arcPos);
                 float phase = (s - (dashPeriod * floor((s / dashPeriod))));
                 float off = smoothstep((dashOnLen - 0.5), (dashOnLen + 0.5), phase);
-                float _e101 = strokeAlpha;
-                strokeAlpha = (_e101 * (1.0 - off));
+                float _e81 = strokeAlpha;
+                strokeAlpha = (_e81 * (1.0 - off));
             }
-            float _e106 = strokeAlpha;
-            stroke = (in_.colorStroke * _e106);
+            float _e86 = strokeAlpha;
+            stroke = (in_.colorStroke * _e86);
         }
-        vec4 _e108 = stroke;
-        float _e110 = stroke.w;
-        outColor = (_e108 + (fill * (1.0 - _e110)));
-        float _e116 = outColor.w;
-        if ((_e116 <= 0.0)) {
+        vec4 _e88 = stroke;
+        float _e90 = stroke.w;
+        outColor = (_e88 + (fill * (1.0 - _e90)));
+        float _e96 = outColor.w;
+        if ((_e96 <= 0.0)) {
             discard;
         }
     } else {
@@ -165,11 +161,11 @@ void main() {
             if ((in_.strokeWidth > 0.0)) {
                 stroke_1 = (in_.colorStroke * _e19);
             }
-            vec4 _e132 = stroke_1;
-            float _e134 = stroke_1.w;
-            outColor = (_e132 + (fill_1 * (1.0 - _e134)));
-            float _e140 = outColor.w;
-            if ((_e140 <= 0.0)) {
+            vec4 _e112 = stroke_1;
+            float _e114 = stroke_1.w;
+            outColor = (_e112 + (fill_1 * (1.0 - _e114)));
+            float _e120 = outColor.w;
+            if ((_e120 <= 0.0)) {
                 discard;
             }
         } else {
@@ -177,11 +173,11 @@ void main() {
             outColor = (texel * in_.tint);
         }
     }
-    vec4 _e149 = outColor;
-    float _e152 = clipCoverage(in_.pos.xy);
-    outColor = (_e149 * _e152);
-    vec4 _e154 = outColor;
-    _fs2p_location0 = _e154;
+    vec4 _e129 = outColor;
+    float _e132 = clipCoverage(in_.pos.xy);
+    outColor = (_e129 * _e132);
+    vec4 _e134 = outColor;
+    _fs2p_location0 = _e134;
     return;
 }
 

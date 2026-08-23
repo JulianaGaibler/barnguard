@@ -3,11 +3,16 @@
 // together, so the result stays a valid premultiplied color.
 //
 // Shared fullscreen vertex: one oversized clip-space triangle covering the
-// viewport. v_uv maps clip space to [0,1]. No Y-flip, so source, resolve, every
-// ping-pong pass, and the final blit share the bottom-left FBO origin.
+// viewport. The texture coordinate arrives as a vertex attribute rather than
+// being derived from the position, because the two backends disagree on which
+// row of a sampled render target is the top: WebGPU stores row 0 at the top and
+// WebGL at the bottom (`NdcConventions.textureTopDown`). Deriving uv from the
+// clip position would bake one backend's answer into the shader and turn every
+// odd-numbered ping-pong pass upside down on the other. `PostProcessPipeline`
+// uploads the V-flipped triangle when the device needs it.
 //
 // Bindings (one bind group): u_tex at unit 0, Params at POST_PARAMS_UBO_BINDING
-// (6), a_pos at location 0. Sampler at texture_binding + 16.
+// (6), a_pos at location 0, a_uv at location 1. Sampler at texture_binding + 16.
 
 struct Params {
   vig: vec4<f32>, // x = intensity (0 off, 1 corners black), y = radius, z = softness
@@ -23,9 +28,12 @@ struct VOut {
 };
 
 @vertex
-fn vs_main(@location(0) a_pos: vec2<f32>) -> VOut {
+fn vs_main(
+  @location(0) a_pos: vec2<f32>,
+  @location(1) a_uv: vec2<f32>,
+) -> VOut {
   var out: VOut;
-  out.uv = a_pos * 0.5 + vec2<f32>(0.5);
+  out.uv = a_uv;
   out.pos = vec4<f32>(a_pos, 0.0, 1.0);
   return out;
 }

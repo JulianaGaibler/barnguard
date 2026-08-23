@@ -46,7 +46,7 @@ yarn-debug.log*
 coverage
 *.tsbuildinfo
 
-# SvelteKit (defensive — not currently used)
+# SvelteKit (defensive, not currently used)
 .svelte-kit
 
 # Nix build results

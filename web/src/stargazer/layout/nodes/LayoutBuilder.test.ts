@@ -39,7 +39,7 @@ describe('LayoutBuilder', () => {
     })
     col.measure(tight(400, 500))
     col.arrange(30, 40, 400, 500)
-    // Band takes 100 of the height at the top; the builder fills the rest,
+    // Band takes 100 of the height at the top. The builder fills the rest,
     // offset by the column origin (30, 40) plus the band (100).
     expect(got).toEqual({ x: 30, y: 140, width: 400, height: 400 })
     expect(lb.contentRect).toMatchObject({

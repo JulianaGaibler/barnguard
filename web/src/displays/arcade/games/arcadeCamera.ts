@@ -14,9 +14,9 @@ export interface ArcadeCameraAnimateOptions {
 
 /**
  * A lease over the arcade's single shared 2D camera, handed to a game via
- * `GameProps` so it can frame sub-rects of its region — e.g. a zoom into a
- * detail — without owning the camera. Most games ignore it and render at the
- * region's `home()` framing; games that zoom (Data Control) drive it here.
+ * `GameProps` so it can frame sub-rects of its region, e.g. a zoom into a
+ * detail, without owning the camera. Most games ignore it and render at the
+ * region's `home()` framing. Games that zoom (Data Control) drive it here.
  *
  * The arcade reclaims control on exit via {@link release}, which settles any
  * pending animation so a game `await`ing a zoom can't hang while it's being
@@ -68,7 +68,7 @@ export class ArcadeCamera {
 
   /**
    * Tween the framing to `rect`. Resolves when the tween finishes OR the lease
-   * is released — whichever comes first — so an `await` on a zoom never hangs
+   * is released, whichever comes first, so an `await` on a zoom never hangs
    * when the arcade reclaims the camera mid-move.
    */
   animateTo(rect: Rect, opts?: ArcadeCameraAnimateOptions): Promise<void> {

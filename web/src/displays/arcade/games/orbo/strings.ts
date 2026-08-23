@@ -1,6 +1,6 @@
 /**
  * Orbo's UI copy. English-only, kept as a plain object the game's Svelte
- * components import directly — the game is self-contained and doesn't depend on
+ * components import directly. The game is self-contained and doesn't depend on
  * the arcade's `t` locale store.
  */
 export const ORBO_STRINGS = {

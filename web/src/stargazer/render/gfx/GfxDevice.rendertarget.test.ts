@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { MockGfxDevice } from './webgl2/mockGfxDevice'
 
-// Phase 6 seam growth: RenderTargetOpts gains an opt-in depth-stencil
-// attachment (3D passes). 2D leaves it off, so the default must not request it.
+// The depth-stencil attachment is opt-in, for 3D passes. A pure-2D target must
+// never allocate one, so the default has to stay off.
 describe('GfxDevice render-target depth attachment', () => {
   it('defaults to no depth attachment', () => {
     const device = new MockGfxDevice()

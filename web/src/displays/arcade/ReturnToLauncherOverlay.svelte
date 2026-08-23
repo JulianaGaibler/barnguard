@@ -1,11 +1,11 @@
 <!--
   Arcade-wide escape hatch. While a game is mounted, swiping down from the top
   edge of the screen slides in a "Return to Launcher" pill. Tapping it arms a
-  confirm step (dark circular ✓ / ✗ animate in beside the pill); ✓ returns to
+  confirm step (dark circular ✓ / ✗ animate in beside the pill). ✓ returns to
   the launcher, ✗ (or a tap anywhere else) dismisses it. If left untouched, the
   pill hides itself again after a few seconds.
 
-  This is the permanent fallback — games also expose their own return UI, which
+  This is the permanent fallback. Games also expose their own return UI, which
   calls the same `onExit` the arcade passes here.
 -->
 <script lang="ts">
@@ -16,7 +16,7 @@
   import closeIconRaw from '@src/assets/icons/close-16.svg?raw'
 
   interface Props {
-    /** True while a game is mounted; gates the gesture + rendering. */
+    /** True while a game is mounted, gates the gesture + rendering. */
     active: boolean
     /** Confirmed → hand control back to the arcade (return to launcher). */
     onConfirm: () => void
@@ -40,6 +40,15 @@
    * full-screen scrim over the board.
    */
   const TOP_ZONE_FRAC = 0.05
+  /**
+   * Fraction of the width the zone spans, centred.
+   *
+   * The full width put the hatch on top of anything a game wants in a top
+   * corner, and a pause button is the obvious thing to want there. Centring it
+   * leaves both corners free while keeping the gesture somewhere an attendant
+   * can find without being told.
+   */
+  const CENTER_ZONE_FRAC = 1 / 3
   /** Vertical travel (px) that commits the reveal. */
   const REVEAL_DIST = 72
   /** Hide the revealed pill again after this long without interaction. */
@@ -53,11 +62,12 @@
 
   function onPointerDown(e: PointerEvent): void {
     if (!active || revealed) return
-    if (e.clientY <= window.innerHeight * TOP_ZONE_FRAC) {
-      tracking = true
-      startX = e.clientX
-      startY = e.clientY
-    }
+    if (e.clientY > window.innerHeight * TOP_ZONE_FRAC) return
+    const halfSpan = (window.innerWidth * CENTER_ZONE_FRAC) / 2
+    if (Math.abs(e.clientX - window.innerWidth / 2) > halfSpan) return
+    tracking = true
+    startX = e.clientX
+    startY = e.clientY
   }
   function onPointerMove(e: PointerEvent): void {
     if (!tracking) return
@@ -79,7 +89,7 @@
   })
 
   // Auto-hide the revealed pill after a spell of no interaction. Paused while the
-  // confirm step is armed (the technician is mid-decision); the timer restarts
+  // confirm step is armed (the technician is mid-decision). The timer restarts
   // whenever `revealed`/`armed` change, so re-arming or re-revealing extends it.
   $effect(() => {
     if (!revealed || armed) return
@@ -166,7 +176,7 @@
     position: absolute
     inset-block-start: var(--space-24)
     inset-inline-start: 50%
-    // Hidden just above the top edge; slides in when revealed.
+    // Hidden just above the top edge, slides in when revealed.
     transform: translateX(-50%) translateY(calc(-100% - var(--space-48)))
     transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)
 

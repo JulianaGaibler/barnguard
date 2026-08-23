@@ -46,11 +46,9 @@ export class EpicenterBehavior extends Behavior {
       { name: 'epicenter-growPulse' },
     )
 
-    // Outer breathing pulse, one-shot intro, then infinite alpha loop.
-    // Kick off the intro grow-in as a separate loop that exits after one
-    // iteration by throwing an abort-like sentinel, but simpler: fire it
-    // as a plain tween in onSceneReady and start the alpha loop right
-    // after. Using `loop` for the ongoing part only.
+    // Outer breathing pulse, one-shot intro, then infinite alpha loop. The
+    // intro grow-in runs once as a plain tween, the alpha breathing below
+    // runs continuously via `loop`.
     target.outerScale = 0.7
     void this.node
       .tweenTo(
@@ -59,8 +57,8 @@ export class EpicenterBehavior extends Behavior {
         { duration: 0.45, easing: easings.outBack },
       )
       .catch(() => {
-        // Aborted before completion, the loop below will still start;
-        // scene-attached loops don't care about the intro's fate.
+        // Aborted before completion, the loop below will still start.
+        // Scene-attached loops don't care about the intro's fate.
       })
 
     const halfPulse = TUNING.epicenter.pulsePeriodSec / 2

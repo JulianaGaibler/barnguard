@@ -330,8 +330,8 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
   let diffuseColor = baseColor.rgb * (1.0 - metallic);
 
   let diffuseTransmission = obj.matParams1.y;
-  // Screen-space AO. `ssao` scales the ambient (indirect) term below; `aoDirect`
-  // optionally folds AO into the DIFFUSE direct light too (stylized — off at
+  // Screen-space AO. `ssao` scales the ambient (indirect) term below. `aoDirect`
+  // optionally folds AO into the DIFFUSE direct light too (stylized, off at
   // strength 0), never into specular (a direct highlight stays sharp in a
   // crevice).
   let ssao = sampleSSAO(in.pos);
@@ -373,7 +373,7 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
     let F = fresnelSchlick(max(dot(H, V), 0.0), F0);
     let spec = (NDF * G * F) / max(4.0 * NdotV * NdotL, 1e-4);
     let kd = (vec3<f32>(1.0) - F) * (1.0 - metallic);
-    // AO on the diffuse lobe only (via aoDirect); specular is left untouched.
+    // AO on the diffuse lobe only (via aoDirect). Specular is left untouched.
     Lo = Lo + (kd * diffuseColor / PI * aoDirect + spec) * radiance * NdotL;
     if (diffuseTransmission > 0.0) {
       var tcol = diffuseColor;
@@ -384,13 +384,13 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
     }
   }
 
-  // Material occlusion map (glTF) — indirect only, per spec.
+  // Material occlusion map (glTF), indirect only, per spec.
   var matAo = 1.0;
   if (obj.hasTex0.w > 0.5) {
     matAo = mix(1.0, occTexel.r, obj.matParams0.z);
   }
   // Ambient (indirect) is occluded by both the screen-space AO and the material
-  // occlusion map (combined via min). Direct light `Lo` is NOT scaled here — per
+  // occlusion map (combined via min). Direct light `Lo` is NOT scaled here. Per
   // the glTF spec occlusion affects indirect only (any direct AO was already
   // folded into the diffuse lobe above, via aoDirect).
   let indirectAo = min(ssao, matAo);

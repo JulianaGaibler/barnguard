@@ -2,19 +2,19 @@
  * Custom scene node for a single orb. Draws a flat-filled circle in the
  * player's color. The moment the orb enters its own scoring band a white
  * outline grows around it (nothing inside): its INNER edge is pinned to the orb
- * radius, and only the outer edge (the stroke width) animates — easing out past
+ * radius, and only the outer edge (the stroke width) animates, easing out past
  * the final width, then snapping back with a bit of bounce (`RING.overshoot`).
  * The ring shows/hides on band enter/leave immediately, not on settle. While
  * its lifetime is down to 1, the fill oscillates between the orb's color and
- * black — an "about to expire" warning using the same treatment as the capture
+ * black, an "about to expire" warning using the same treatment as the capture
  * glow below, just toward black instead of the capturing team's color.
  *
  * The ring itself is DRAWN by a companion `RingNode` in a separate, lower layer
- * (so it's painted over by — never obstructs — a neighbouring orb's body); this
- * node owns the ring's animated width and lifecycle, the RingNode just reads +
- * renders it.
+ * so it's painted over by, and never obstructs, a neighbouring orb's body. This
+ * node owns the ring's animated width and lifecycle, the RingNode just reads
+ * and renders it.
  *
- * The physics `body` is the source of truth for position — a sync-only
+ * The physics `body` is the source of truth for position. A sync-only
  * {@link RigidBodyBehavior} mirrors `body.x/y` into the transform each frame
  * (the session owns the body's world membership, so `manageBody: false`), so
  * position tweens run on the body and only scale is tweened on the node. This
@@ -56,7 +56,7 @@ export class OrbNode extends Node2D {
   #captureColor: string | null = null
   /** Companion node that draws the ring in a higher layer (see class doc). */
   readonly #ringNode: RingNode
-  /** Sync-only physics mirror; this node toggles its interpolate/syncEnabled. */
+  /** Sync-only physics mirror. This node toggles its interpolate/syncEnabled. */
   readonly #rb: RigidBodyBehavior
 
   constructor(
@@ -85,7 +85,7 @@ export class OrbNode extends Node2D {
     this.#ringNode = new RingNode(this)
     ringLayer.add(this.#ringNode)
 
-    // The body already lives in the session-owned world (manageBody:false); this
+    // The body already lives in the session-owned world (manageBody:false). This
     // behavior only mirrors it onto the transform, interpolating between fixed
     // steps. `onUpdate` (which runs before behaviors) sets the flags below.
     this.#rb = new RigidBodyBehavior({
@@ -97,7 +97,7 @@ export class OrbNode extends Node2D {
     this.addBehavior(this.#rb)
   }
 
-  /** Current animated ring width (world units); read by the companion RingNode. */
+  /** Current animated ring width (world units). Read by the companion RingNode. */
   get ringWidth(): number {
     return this.#ring.width
   }
@@ -114,8 +114,8 @@ export class OrbNode extends Node2D {
     // slide-off tween owns the transform outright (sync off, via `shouldSync`).
     this.#rb.interpolate = !this.body.isBeingDragged
 
-    // Show as soon as the orb is inside its own scoring band — no wait for it
-    // to settle. Toggles on band enter/leave.
+    // Show as soon as the orb is inside its own scoring band, with no wait for
+    // it to settle. Toggles on band enter/leave.
     const scoring =
       !this.body.markedForRemoval && isInOwnScoringBand(this.#layout, this.body)
 
@@ -126,7 +126,7 @@ export class OrbNode extends Node2D {
 
     // Capture glow: resting in the OTHER team's launch strip with the lifetime
     // left to survive being taken means it's about to change hands. Resolve the
-    // target color once on entry; `draw` blends toward it. Excluding the last
+    // target color once on entry. `draw` blends toward it. Excluding the last
     // life here also keeps this mutually exclusive with the low-life glow: an
     // orb on its last life explodes on return instead of being captured, so it
     // should never flash the other team's color.
@@ -145,7 +145,7 @@ export class OrbNode extends Node2D {
   }
 
   #animateRing(show: boolean): void {
-    // Keyed so each show/hide cleanly replaces the in-flight ring tween — no
+    // Keyed so each show/hide cleanly replaces the in-flight ring tween, with no
     // hand-held AbortController. Fire-and-forget: the width is cosmetic.
     if (show) this.#ring.width = 0
     this.playTo(

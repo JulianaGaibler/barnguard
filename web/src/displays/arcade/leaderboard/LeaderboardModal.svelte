@@ -33,8 +33,8 @@
 <Overlay scrim center class="lb-overlay" onscrimclick={onClose}>
   <div class="lb-frame">
     <!-- Plain spacer: no background of its own, so the frame's own gradient
-         (its `background`, painted once) shows through as the "header" —
-         no second gradient paint to keep in sync with the border's. -->
+         (its `background`, painted once) shows through as the "header".
+         No second gradient paint to keep in sync with the border's. -->
     <div class="lb__header"></div>
     <div class="lb__close">
       <IconButton
@@ -46,7 +46,7 @@
       </IconButton>
     </div>
     <div class="lb__badge">
-      <LeaderboardIcon size={48} filled gold />
+      <LeaderboardIcon size={48} gold />
     </div>
     <Surface tone="light" radius="panel" class="lb__surface">
       <div class="lb__body">
@@ -106,7 +106,7 @@
     // paint over this if the two ever overlapped.
     z-index: 1
 
-  // Same fill as the body behind it, straddling the header/body seam — reads
+  // Same fill as the body behind it, straddling the header/body seam. Reads
   // as a notch cut into the header without any masking.
   .lb__badge
     position: absolute

@@ -7,10 +7,8 @@ import { SlotPool } from '../particles/SlotPool'
 /**
  * Per-particle spawn state a {@link VectorParticleNode} subclass's
  * `spawnParticle` hook fills in. `x`/`y`/`angle` are node-local. `out` is
- * reused scratch across every `spawnParticle` call — copy values out, don't
+ * reused scratch across every `spawnParticle` call, copy values out, don't
  * retain the reference.
- *
- * @category Nodes
  */
 export interface VectorParticleSpawnInit {
   x: number
@@ -20,16 +18,12 @@ export interface VectorParticleSpawnInit {
   angle: number
   /**
    * Launch speed magnitude. Populate from `Math.hypot(vx, vy)` if
-   * `shouldDespawn` or `drawParticle` needs a speed ratio; leave 0 if unused.
+   * `shouldDespawn` or `drawParticle` needs a speed ratio, leave 0 if unused.
    */
   speed0: number
 }
 
-/**
- * Constructor options for {@link VectorParticleNode}.
- *
- * @category Nodes
- */
+/** Constructor options for {@link VectorParticleNode}. */
 export interface VectorParticleNodeOptions {
   id?: string
   /** Fixed particle count for this node's lifetime (no freelist growth). */
@@ -43,30 +37,29 @@ export interface VectorParticleNodeOptions {
 /**
  * Base class for custom-shaped, physics-driven particle bursts: per-particle
  * rotation, arbitrary vector draw shapes (triangles, line shards, anything
- * {@link Gfx2D} can draw), and opt-in despawn rules — the cases the baked,
- * sprite-based {@link ParticleEmitterNode} structurally can't cover (mixed
- * shapes within one burst, multi-stage spin, non-speed despawn rules). Use
- * `ParticleEmitterNode` for sprite-based bursts/trails; reach for this when
+ * {@link Gfx2D} can draw), and opt-in despawn rules. These are the cases the
+ * baked, sprite-based {@link ParticleEmitterNode} structurally can't cover
+ * (mixed shapes within one burst, multi-stage spin, non-speed despawn rules).
+ * Use `ParticleEmitterNode` for sprite-based bursts/trails, reach for this when
  * particles need per-piece vector geometry.
  *
  * Owns `x, y, vx, vy, angle, speed0` typed arrays and integrates standard
- * damped kinematics every frame automatically (the same damp → accel →
- * integrate math as `ParticleEmitter.update`, kept as a separate inline copy
- * here rather than a shared helper — both are tight hot loops over typed arrays
- * with enough surrounding differences that a shared function would just add an
+ * damped kinematics every frame automatically (the same damp, accel, integrate
+ * math as `ParticleEmitter.update`, kept as a separate inline copy here rather
+ * than a shared helper, since both are tight hot loops over typed arrays with
+ * enough surrounding differences that a shared function would just add an
  * indirection). Subclasses add their own parallel typed arrays (spin, shape
  * kind, whatever a specific burst needs) sized to `capacity` and index them
  * with the SAME index the base class hands to `spawnParticle` / `drawParticle`
  * / `updateExtra` / `shouldDespawn`.
  *
- * Nothing auto-despawns unless a subclass's `shouldDespawn` opts in — a node
+ * Nothing auto-despawns unless a subclass's `shouldDespawn` opts in. A node
  * with no override lives until something else destroys it (matches a
  * permanent-debris burst that settles forever and is cleaned up externally,
  * e.g. via a level-reset `destroyChildren()` sweep). Pair with
  * {@link Node2D.autoDestroy} + {@link VectorParticleNode.waitUntilEmpty} for a
  * self-cleaning one-shot burst instead.
  *
- * @category Nodes
  * @example
  *   class ShrapnelBurst extends VectorParticleNode {
  *     readonly #kind: Uint8Array
@@ -103,12 +96,18 @@ export interface VectorParticleNodeOptions {
  *   }
  */
 export abstract class VectorParticleNode extends Node2D {
+  // Structure-of-arrays particle state, all indexed by slot and all allocated
+  // once at `capacity`. A slot is live when `alive[i] === 1`. A subclass reads
+  // these directly in its `drawParticle`, and adds its own parallel arrays for
+  // whatever else its shape needs.
   protected readonly capacity: number
   protected readonly x: Float32Array
   protected readonly y: Float32Array
   protected readonly vx: Float32Array
   protected readonly vy: Float32Array
+  /** Current rotation in radians. */
   protected readonly angle: Float32Array
+  /** Launch speed sampled at spawn, kept so a subclass can scale by it. */
   protected readonly speed0: Float32Array
   protected readonly alive: Uint8Array
 
@@ -140,7 +139,7 @@ export abstract class VectorParticleNode extends Node2D {
     this.#damping = opts.dampingPerSec ?? 0
     this.#accelX = opts.accelerationWorld?.x ?? 0
     this.#accelY = opts.accelerationWorld?.y ?? 0
-    // Forces every slot empty on destroy (particles may still be alive —
+    // Forces every slot empty on destroy (particles may still be alive,
     // `destroy()` doesn't run `shouldDespawn`) and drains any pending
     // `waitUntilEmpty()` resolver, so a caller `await`ing it never hangs if
     // the node is destroyed some other way before its particles naturally
@@ -158,11 +157,11 @@ export abstract class VectorParticleNode extends Node2D {
 
   /**
    * Spawn `count` particles now. For each claimed slot, calls `spawnParticle`
-   * SYNCHRONOUSLY before moving to the next slot — a subclass may rely on this
-   * to stage per-particle state (e.g. a manually-computed spawn angle) in a
-   * scratch field immediately before a `burst(1)` call and read it back inside
-   * `spawnParticle`. This ordering is a documented contract, not an
-   * implementation detail — don't change it to buffer or defer spawns without
+   * SYNCHRONOUSLY before moving to the next slot, so a subclass may rely on
+   * this to stage per-particle state (e.g. a manually-computed spawn angle) in
+   * a scratch field immediately before a `burst(1)` call and read it back
+   * inside `spawnParticle`. This ordering is a documented contract, not an
+   * implementation detail. Don't change it to buffer or defer spawns without
    * updating this doc comment.
    */
   protected burst(count: number): void {
@@ -188,7 +187,7 @@ export abstract class VectorParticleNode extends Node2D {
   }
 
   /**
-   * Kill a slot now; idempotent (delegates to `SlotPool`'s self-guarding
+   * Kill a slot now. Idempotent (delegates to `SlotPool`'s self-guarding
    * `kill`). Also called automatically when `shouldDespawn` returns true.
    */
   protected kill(idx: number): void {
@@ -198,8 +197,8 @@ export abstract class VectorParticleNode extends Node2D {
   }
 
   /**
-   * Resolves once `aliveCount` is 0 — immediately if it already is at call
-   * time, else the next time it reaches 0. Same contract as
+   * Resolves once `aliveCount` is 0, immediately if it already is at call time,
+   * else the next time it reaches 0. Same contract as
    * `ParticleEmitter.waitUntilEmpty`: call this RIGHT AFTER the `burst()` you
    * want to wait for, in the same synchronous span, and don't pair it with
    * reuse across unrelated later bursts. A subclass whose `shouldDespawn` never
@@ -268,7 +267,7 @@ export abstract class VectorParticleNode extends Node2D {
    * Fill `out` with this particle's spawn state (position/velocity/angle in
    * node-local space, plus `speed0` if a despawn predicate or draw hook needs
    * it). Called once per particle from `burst`. `out` is pre-zeroed reused
-   * scratch — do not retain a reference to it.
+   * scratch, do not retain a reference to it.
    */
   protected abstract spawnParticle(
     i: number,
@@ -296,7 +295,7 @@ export abstract class VectorParticleNode extends Node2D {
 
   /**
    * Opt-in despawn predicate evaluated once per live particle per frame, after
-   * `updateExtra`. Default ALWAYS false — a subclass that never overrides this
+   * `updateExtra`. Default ALWAYS false, a subclass that never overrides this
    * produces permanent particles, cleaned up only by an external `destroy()` /
    * `destroyChildren()`. Override to add a speed threshold, a life countdown,
    * or any custom rule.

@@ -70,7 +70,7 @@ class SpiralPolylineBehavior extends Behavior {
 /**
  * M2 demo, a rotating group with nested orbiting children and a live
  * `PolylineNode` growing a spiral in quadratic-smoothing mode. Press `[T]` to
- * destroy the whole subtree; expect no exceptions and a clean canvas.
+ * destroy the whole subtree, expect no exceptions and a clean canvas.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
@@ -136,7 +136,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   // Wire `T` → destroy the whole scene subtree.
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 't' || e.key === 'T') {
-      // Destroy all children of scene.root.
       const children = host.engine.tree.root.children.slice()
       for (const c of children) c.destroy()
       console.info('[demo-scene] destroyed scene tree, canvas should clear')

@@ -3,15 +3,15 @@
 pub mod routes;
 pub mod sse;
 
+use crate::client_config::ClientConfigState;
 use crate::events::EventHub;
-use printer_driver::MockControls;
 use crate::log::LogHub;
 use crate::queue::QueueController;
-use crate::client_config::ClientConfigState;
 use crate::store::{GameLogController, LeaderboardController};
 use axum::http::{header, HeaderValue, Method};
 use axum::routing::{delete, get, post};
 use axum::Router;
+use printer_driver::MockControls;
 use std::sync::{Arc, RwLock};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -22,13 +22,13 @@ pub struct AppState {
     pub controller: QueueController,
     pub events: EventHub,
     pub log: LogHub,
-    /// `Some` only when the mock backend is active; gates `/debug/mock`.
+    /// `Some` only when the mock backend is active. Gates `/debug/mock`.
     pub mock: Option<Arc<MockControls>>,
     pub games: GameLogController,
     pub leaderboard: LeaderboardController,
     /// Client-facing config served to the web app: base value from
     /// `config.toml` plus an optional in-memory override. Mutated by
-    /// `/config/reload` and `/config/override`; read by the SSE snapshot +
+    /// `/config/reload` and `/config/override`. Read by the SSE snapshot +
     /// `GET /config`.
     pub client_config: Arc<RwLock<ClientConfigState>>,
 }

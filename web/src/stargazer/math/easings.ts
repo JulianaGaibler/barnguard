@@ -2,8 +2,6 @@
  * An easing function. Maps normalized time `t` in `[0, 1]` to an eased progress
  * value. Most return `[0, 1]`, but overshoot easings ({@link outBack},
  * {@link outElastic}) can leave that range mid-curve before settling on 1.
- *
- * @category Math
  */
 export type Easing = (t: number) => number
 
@@ -31,7 +29,7 @@ export const outQuint: Easing = (t) => 1 - Math.pow(1 - t, 5)
 
 /**
  * Build an ease-out that overshoots past 1 by a tunable amount before settling.
- * `overshoot` 0 removes the overshoot; the default {@link outBack} uses
+ * `overshoot` 0 removes the overshoot. The default {@link outBack} uses
  * `1.70158` (a ~10% overshoot).
  */
 export function makeOutBack(overshoot: number): Easing {
@@ -53,18 +51,18 @@ export const outElastic: Easing = (t) => {
 }
 
 /**
- * Build an ease-out that treats 1 as a hard floor: a gravity-driven fall
- * (accelerating, since it starts from rest) hits the floor, then bounces — a
+ * Build an ease-out that treats 1 as a hard floor. A gravity-driven fall
+ * (accelerating, since it starts from rest) hits the floor, then bounces: a
  * series of parabolic arcs, each carrying `elasticity` times the previous arc's
  * impact speed, so both the height (∝ speed²) and duration (∝ speed) shrink
  * every bounce. That's what makes a real bounce read as a bounce rather than a
- * spring: the oscillation speeds up as it dies out, unlike {@link outElastic}'s
- * constant-frequency ringing. Unlike {@link outBack}, the curve never crosses
- * past 1 — only back below it, mid-air.
+ * spring, since the oscillation speeds up as it dies out, unlike
+ * {@link outElastic}'s constant-frequency ringing. Unlike {@link outBack}, the
+ * curve never crosses past 1, only back below it, mid-air.
  *
- * `elasticity` is the speed fraction kept per bounce (0 disables bouncing);
+ * `elasticity` is the speed fraction kept per bounce (0 disables bouncing).
  * `firstBounceHeight` is how far the first bounce lifts back off the floor, as
- * a fraction of the fall; `bounces` is how many arcs to render before
+ * a fraction of the fall. `bounces` is how many arcs to render before
  * settling.
  */
 export function makeOutBounce(
@@ -72,8 +70,8 @@ export function makeOutBounce(
   firstBounceHeight: number,
   bounces: number,
 ): Easing {
-  // Arc 0 is the fall; arcs 1..bounces are the bounces. Raw arc durations
-  // decay geometrically by `elasticity` (duration ∝ impact speed); normalize
+  // Arc 0 is the fall. Arcs 1..bounces are the bounces. Raw arc durations
+  // decay geometrically by `elasticity` (duration ∝ impact speed), normalized
   // so they sum to 1 (the whole eased range).
   const rawDurations = [1]
   for (let k = 1; k <= bounces; k++) {

@@ -44,30 +44,25 @@ import type { Component } from 'svelte'
 // along automatically without polluting production bundles that never touch
 // the debug controller.
 import './ui/debug-ui.sass'
+import { debugFont } from './debugFont'
 
 /**
- * Current on/off state of every debug toggle, emitted on the `toggle` event.
- *
- * @category Debug
- */
-/**
- * Which camera drives the debug view. `active` is the engine's normal cameras
- * (no override); `debug-2d` swaps in the free 2D pan/zoom camera; `debug-3d`
+ * Which camera drives the debug view. `active` is the engine's normal cameras,
+ * no override. `debug-2d` swaps in the free 2D pan/zoom camera. `debug-3d`
  * swaps in the free 3D fly camera. The grid, outlines, and camera pad follow
  * the selected mode's space.
- *
- * @category Debug
  */
 export type DebugCameraMode = 'active' | 'debug-2d' | 'debug-3d'
 
 /**
- * Debug render view for the 3D mesh pass. `normal` is the shaded scene;
- * `wireframe` overlays triangle edges; `unshaded` shows flat albedo (no
- * lighting); `normals` colors fragments by world normal.
+ * Debug render view for the 3D mesh pass. `normal` is the shaded scene,
+ * `wireframe` overlays triangle edges, `unshaded` shows flat albedo (no
+ * lighting), and `normals` colors fragments by world normal.
  */
 export type DebugRenderMode =
   'normal' | 'wireframe' | 'unshaded' | 'normals' | 'ao'
 
+/** Current on/off state of every debug toggle, emitted on the `toggle` event. */
 export interface DebugToggleState {
   hud: boolean
   camera: boolean
@@ -88,11 +83,7 @@ export interface DebugToggleState {
   flyPointerLocked: boolean
 }
 
-/**
- * Flattened view of one active pointer, shaped for the HUD's pointer sections.
- *
- * @category Debug
- */
+/** Flattened view of one active pointer, shaped for the HUD's pointer sections. */
 export interface ActivePointerReadout {
   id: number
   kind: 'touch' | 'mouse' | 'pen'
@@ -101,11 +92,7 @@ export interface ActivePointerReadout {
   capturedByNodeId: string | null
 }
 
-/**
- * One entry per attached stage, surfaced to the HUD for the chip strip.
- *
- * @category Debug
- */
+/** One entry per attached stage, surfaced to the HUD for the chip strip. */
 export interface StageChip {
   /** Stable identifier, `'primary'` or `'stage-{N}'`. */
   id: string
@@ -115,11 +102,7 @@ export interface StageChip {
   isPrimary: boolean
 }
 
-/**
- * Per-frame GPU pipeline counters, read from the WebGL2 backend for the HUD.
- *
- * @category Debug
- */
+/** Per-frame GPU pipeline counters, read from the WebGL2 backend for the HUD. */
 export interface DebugGpuStatsReadout {
   drawCalls: number
   programSwitches: number
@@ -136,8 +119,6 @@ export interface DebugGpuStatsReadout {
 /**
  * One frame's worth of debug metrics for the active stage. Produced by
  * {@link DebugController.snapshotStats} and consumed by the HUD.
- *
- * @category Debug
  */
 export interface DebugStatsSnapshot {
   /** CPU work-time percentiles (seconds) per frame, headroom, NOT frame cadence. */
@@ -182,7 +163,7 @@ export interface DebugStatsSnapshot {
   activeIsPrimary: boolean
   /** True when the active stage has its own `InputSystem`. */
   activeHasInput: boolean
-  /** One entry per physics world in the active stage; empty when it has none. */
+  /** One entry per physics world in the active stage, empty when it has none. */
   physics: PhysicsWorldReadout[]
   /** 3D world stats for the active stage, or `null` when it has no 3D content. */
   world3d: World3DReadout | null
@@ -195,8 +176,6 @@ export interface DebugStatsSnapshot {
 /**
  * 3D world + camera metrics for the active stage, shown in the HUD's Rendering
  * (3D subsection) and Camera panels.
- *
- * @category Debug
  */
 export interface World3DReadout {
   nodeCount: number
@@ -224,10 +203,8 @@ export interface World3DReadout {
 
 /**
  * Live stats for one physics world in the active stage, shown in the HUD's
- * Physics panel. One of these per world; several worlds can coexist in a
+ * Physics panel. One of these per world, several worlds can coexist in a
  * stage.
- *
- * @category Debug
  */
 export interface PhysicsWorldReadout {
   /** Stable id for keying the HUD list within one snapshot. */
@@ -247,11 +224,7 @@ export interface PhysicsWorldReadout {
   gravity: { x: number; y: number }
 }
 
-/**
- * Event map for {@link DebugController.events}.
- *
- * @category Debug
- */
+/** Event map for {@link DebugController.events}. */
 export interface DebugEvents {
   toggle: DebugToggleState
   /**
@@ -264,8 +237,6 @@ export interface DebugEvents {
 /**
  * Initial toggle state for a {@link DebugController}. Everything defaults to
  * off.
- *
- * @category Debug
  */
 export interface DebugControllerOptions {
   /** Show the HUD on construction. */
@@ -281,17 +252,15 @@ export interface DebugControllerOptions {
  * append a section to the HUD without any stargazer → game coupling.
  *
  * The `component` is instantiated by `DebugHud.svelte` inside a `DebugSection`
- * wrapper; it receives `debug: DebugController` as a prop plus anything the
+ * wrapper. It receives `debug: DebugController` as a prop plus anything the
  * caller spreads via `props`. Prop-type correctness is the caller's
  * responsibility, we deliberately widen `props` to `Record<string, unknown>`
  * here so the stargazer stays generic.
- *
- * @category Debug
  */
 export interface DebugPanelSpec {
   /**
    * Stable id, used for keying + deregistration. Must be unique across
-   * registered panels; a re-register with the same id replaces the previous
+   * registered panels. A re-register with the same id replaces the previous
    * entry.
    */
   id: string
@@ -319,16 +288,14 @@ export interface DebugPanelSpec {
  * Camera, Scene, Scene tree, Camera pad) show data for the selected stage.
  * Global sections (Performance, Pause) are unaffected. Pointer sections follow
  * the active stage's `InputSystem`, when it has one, its pointers show up in
- * the readouts; when it doesn't, the section shows a hint.
- *
- * @category Debug
+ * the readouts. When it doesn't, the section shows a hint.
  */
 export class DebugController {
   readonly enabled = true as const
   readonly camera: DebugCamera
-  /** CPU work-time per frame (headroom); drives the frame graph + `CPU pXX`. */
+  /** CPU work-time per frame (headroom). Drives the frame graph + `CPU pXX`. */
   readonly frameStats: FrameStats
-  /** Real (post-cap) frame interval per frame; drives the actual FPS readout. */
+  /** Real (post-cap) frame interval per frame. Drives the actual FPS readout. */
   readonly #frameIntervalStats = new FrameStats(300)
   readonly events: Emitter<DebugEvents>
   /** Read-only handle for HUD components that need scene / input access. */
@@ -337,7 +304,7 @@ export class DebugController {
   /**
    * HUD visibility, backed by a Svelte writable so external components (like
    * the booth menu) can subscribe to changes without wiring the `toggle` event
-   * by hand. `toggleHud()` / `setHudVisible()` both write here; the
+   * by hand. `toggleHud()` / `setHudVisible()` both write here, and the
    * `hudVisible` getter reads `get(store)` synchronously for plain-JS callers.
    */
   readonly #hudVisibleStore = writable<boolean>(false)
@@ -545,7 +512,7 @@ export class DebugController {
 
   /**
    * Register a consumer-supplied panel for the HUD to render below its built-in
-   * sections. Returns an unregister function; call it when the consumer
+   * sections. Returns an unregister function. Call it when the consumer
    * unmounts (usually from a `$effect` cleanup) so the panel doesn't outlive
    * its own state.
    *
@@ -590,12 +557,12 @@ export class DebugController {
   get paused(): boolean {
     return this.engine.paused
   }
-  /** Live 3D rendering-quality settings; the Rendering panel overrides these. */
+  /** Live 3D rendering-quality settings. The Rendering panel overrides these. */
   get quality(): RenderQuality {
     return this.engine.quality
   }
   /**
-   * The primary stage's ambient-occlusion controller, created on access — the
+   * The primary stage's ambient-occlusion controller, created on access. The
    * Rendering panel touches this only when the operator enables AO, so a 3D
    * scene that never turns it on warms no AO pipelines.
    */
@@ -616,7 +583,7 @@ export class DebugController {
   get maxFps(): number {
     return this.engine.ticker.maxFps
   }
-  /** Cap the render frame rate (Hz); 0 removes the cap. */
+  /** Cap the render frame rate (Hz). 0 removes the cap. */
   setMaxFps(fps: number): void {
     this.engine.ticker.setMaxFps(fps)
   }
@@ -640,7 +607,7 @@ export class DebugController {
     this.#_inspectedMask = mask
   }
   /**
-   * The stage currently being inspected. Defaults to the primary; the HUD's
+   * The stage currently being inspected. Defaults to the primary. The HUD's
    * chip strip drives it via `setActiveStage`.
    */
   get activeStage(): Stage {
@@ -706,7 +673,7 @@ export class DebugController {
 
   /**
    * Toggle the debug camera for the current {@link DebugController.debugSpace}.
-   * In 2D mode it swaps in the pan/zoom `DebugCamera`; in 3D mode the fly
+   * In 2D mode it swaps in the pan/zoom `DebugCamera`. In 3D mode the fly
    * `DebugCamera3D`. Only one is ever active, matching the space.
    */
   toggleCamera(): void {
@@ -742,7 +709,7 @@ export class DebugController {
 
   #_renderMode: DebugRenderMode = 'normal'
 
-  /** The selected 3D render view; see {@link DebugRenderMode}. */
+  /** The selected 3D render view. See {@link DebugRenderMode}. */
   get renderMode(): DebugRenderMode {
     return this.#_renderMode
   }
@@ -768,14 +735,14 @@ export class DebugController {
           : 0
   }
 
-  /** The camera driving the debug view; see `DebugCameraMode`. */
+  /** The camera driving the debug view. See `DebugCameraMode`. */
   get cameraMode(): DebugCameraMode {
     if (!this.#_cameraActive) return 'active'
     return this.#_debugSpace === '3d' ? 'debug-3d' : 'debug-2d'
   }
 
   /**
-   * Select the debug view camera. `active` clears any debug camera; `debug-2d`
+   * Select the debug view camera. `active` clears any debug camera. `debug-2d`
    * / `debug-3d` engage the free camera for that space (and set the space so
    * the grid + pad follow). This is the HUD dropdown's setter.
    */
@@ -829,7 +796,7 @@ export class DebugController {
   /**
    * Route a camera-pad button to the current-space debug camera, auto-engaging
    * it on the first press so the pad works without first toggling the camera.
-   * `code` is a `KeyW`/`KeyA`/… control key; `pressed` mirrors button down/up.
+   * `code` is a `KeyW`/`KeyA`/… control key, `pressed` mirrors button down/up.
    */
   padKey(code: string, pressed: boolean): void {
     if (pressed && !this.#_cameraActive) this.toggleCamera()
@@ -949,7 +916,7 @@ export class DebugController {
 
   /**
    * Which camera renders `stage` this frame, the debug camera when the
-   * active-debug-stage flag matches AND the debug camera is toggled on;
+   * active-debug-stage flag matches AND the debug camera is toggled on,
    * otherwise the stage's own game camera. Called by `Engine.frame()`.
    */
   activeCameraFor(stage: Stage): CameraView2D | null {
@@ -1166,7 +1133,7 @@ export class DebugController {
       if (s === stage) return `stage-${idx}`
       idx++
     }
-    return 'primary' // fallback; shouldn't happen
+    return 'primary' // unreachable fallback
   }
 
   /**
@@ -1211,7 +1178,7 @@ export class DebugController {
     gfx.setAlpha(1)
     gfx.setBaseTransform(dpr, 0, 0, dpr, 0, 0)
 
-    // The 2D screen grid draws only in 2D mode; 3D mode uses the ground grid in
+    // The 2D screen grid draws only in 2D mode. 3D mode uses the ground grid in
     // `drawOverlay3D`, so the two never overlap.
     if (this.#_gridVisible && this.#_debugSpace === '2d') {
       drawGrid(gfx, activeCamera, renderer.cssSize.w, renderer.cssSize.h)
@@ -1258,8 +1225,8 @@ export class DebugController {
    * Collect 3D gizmos into `lines` for the stage's world, viewed through
    * `cam3d`. Called by `Stage.render` in the depth-tested 3D pass (between the
    * mesh pass and `resetToBaseline`). Grid + world axes ride the grid toggle
-   * (`X`); mesh/quad bounds ride the outlines toggle (`O`); the highlighted
-   * node draws as an always-visible overlay; the game camera frustum shows
+   * (`X`), mesh/quad bounds ride the outlines toggle (`O`), the highlighted
+   * node draws as an always-visible overlay, and the game camera frustum shows
    * while the 3D fly-camera is active.
    */
   drawOverlay3D(
@@ -1308,7 +1275,7 @@ export class DebugController {
         if (n instanceof MeshNode && n.geometry && n.visible) {
           pushWireframe(lines, n)
         } else if (n instanceof Viewport2DNode && n.visible) {
-          // The viewport quad is two triangles; show its border + diagonal.
+          // The viewport quad is two triangles. Show its border + diagonal.
           pushQuadWireframe(lines, n.worldMatrix)
         }
       })
@@ -1557,7 +1524,7 @@ export class DebugController {
 
     const anchor = activeCam.worldToScreen(g.x, g.y)
     gfx.fillText('game camera', anchor.x + 4, anchor.y + 12, {
-      font: '11px monospace',
+      font: debugFont(11),
       color: 'rgba(255, 215, 77, 0.9)',
     })
   }
@@ -1610,10 +1577,10 @@ export class DebugController {
     y: number,
     color: string,
   ): void {
-    // 11px monospace advance is ~6.6px; no measureText on Gfx2D, so approximate.
+    // 11px monospace advance is ~6.6px. No measureText on Gfx2D, so approximate.
     const w = text.length * 6.6
     gfx.fillRect(x - 2, y - 10, w + 4, 14, 'rgba(0, 0, 0, 0.65)')
-    gfx.fillText(text, x, y, { font: '11px monospace', color })
+    gfx.fillText(text, x, y, { font: debugFont(11), color })
   }
 }
 

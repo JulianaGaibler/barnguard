@@ -8,7 +8,7 @@ import {
 /**
  * Solid backdrop for the game region. Fills the camera's visible world rect
  * every frame so the shared arcade sky can never leak in when the camera zooms
- * into a state — the zoom framings deliberately overshoot above the map for
+ * into a state. The zoom framings deliberately overshoot above the map for
  * headroom, which a fixed region-sized rect fails to cover.
  *
  * The bottom edge is pinned to the game region's bottom so it never paints over

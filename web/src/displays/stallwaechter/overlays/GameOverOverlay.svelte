@@ -30,7 +30,7 @@
     highScores: HighScores
     /** Escape heading (radians). Populated only for `'exitedGermany'`. */
     escapeHeadingRad?: number
-    /** Primary engine host; needed to attach the loss-card animation stage. */
+    /** Primary engine host, needed to attach the loss-card animation stage. */
     host: EngineHost
     onContinue: () => void
   }
@@ -95,7 +95,7 @@
         if (phase !== 'held') return
         phase = 'burst'
         // Reveal the bottom stats immediately so they fade in alongside
-        // the shadow burst; no need to wait for the burst's alpha to
+        // the shadow burst, no need to wait for the burst's alpha to
         // reach zero.
         setTimeout(() => {
           if (phase === 'burst') phase = 'stats'
@@ -143,7 +143,7 @@
   }
 
   /**
-   * Only dismisses on a tap that lands directly on the backdrop; clicks on the
+   * Only dismisses on a tap that lands directly on the backdrop. Clicks on the
    * cards themselves bubble up but `e.target !== e.currentTarget` for those, so
    * we ignore them. This matches the design intent of "tap outside the cards to
    * close".
@@ -187,7 +187,7 @@
         escapeHeadingRad,
         printedAt: new Date(),
       }
-      // Size the square to the loaded tape when known; falls back to a safe
+      // Size the square to the loaded tape when known, falls back to a safe
       // default otherwise. The daemon's autofit corrects any mismatch.
       const tapeWidthMm = $printerLive.printer?.tapeWidthMm
       const blob = await renderLabel(input, {
@@ -201,7 +201,7 @@
         source: 'game',
       })
     } catch (err) {
-      // Log for the attendant panel / dev console — the button stays
+      // Log for the attendant panel / dev console. The button stays
       // "sent" either way (the visitor's card is dismissable on Continue).
       console.error('[print] label print failed:', err)
     }
@@ -230,10 +230,10 @@
     <section class="game-over__card game-over__score">
       <div class="game-over__score-top">
         <!--
-          Always rendered; the pill's box (padding + text) reserves its
+          Always rendered. The pill's box (padding + text) reserves its
           layout slot whether or not the player set a high score, so the
           counter never shifts vertically between rounds. `showPill`
-          gates the visible-state classes; without a high score both
+          gates the visible-state classes, without a high score both
           `--expanded` and `--bursting` stay off and the pill stays
           fully clipped by the base `clip-path: inset(0 50% 0 50%)`.
         -->
@@ -326,7 +326,7 @@
     z-index: var(--z-overlay)
 
   // `align-items: stretch` lets flexbox equalise the two buttons' heights
-  // regardless of their intrinsic content — whichever button is taller
+  // regardless of their intrinsic content. Whichever button is taller
   // sets the cross-axis size, and the other grows to match. Removes any
   // "print button is a few px taller because the icon is bigger than a
   // lowercase 'e'" drift.
@@ -337,7 +337,7 @@
     gap: var(--space-16)
 
   // Icon-only print button. Just trim the inline padding since there's no
-  // text next to the icon; height comes from the flex-stretch above.
+  // text next to the icon, height comes from the flex-stretch above.
   :global(.game-over__print-btn)
     padding-inline-start: var(--space-16)
     padding-inline-end: var(--space-16)
@@ -350,7 +350,7 @@
     // The acorn icons ship with `fill="context-fill"` (a Firefox-only value
     // that reads the parent's `-moz-context-properties`). Override to
     // `currentColor` in every browser so the icon picks up the button's
-    // text color — matching the primary button's near-black label.
+    // text color, matching the primary button's near-black label.
     :global(svg)
       width: 1.25em
       height: 1.25em
@@ -359,10 +359,10 @@
 
   .game-over__row
     // Explicit `--card-h` / `--card-w` so both cards render at pixel-
-    // identical dimensions regardless of internal content. Without this,
-    // `aspect-ratio` + flex was letting one card compute a slightly
-    // different width than the other on some viewport sizes. Sized to
-    // 2/3 of the design mock (645 × 490) for a subtler footprint.
+    // identical dimensions regardless of internal content. `aspect-ratio` +
+    // flex alone lets one card compute a slightly different width than the
+    // other on some viewport sizes. Sized to 2/3 of the design mock
+    // (645 × 490) for a subtler footprint.
     --card-h: min(53.33vh, 34.375rem)
     --card-w: calc(var(--card-h) * 490 / 645)
     display: flex
@@ -379,11 +379,9 @@
     overflow: hidden
     position: relative
 
-  // -----------------------------------------------------------------
-  // Loss card (dark); title on top, canvas placeholder in the middle,
-  // subtitle at the bottom. Canvas has no engine attached yet; kept
+  // Loss card (dark). Title on top, canvas placeholder in the middle,
+  // subtitle at the bottom. Canvas has no engine attached yet, kept
   // as a plain element so a future scene mount inherits the layout.
-  // -----------------------------------------------------------------
   .game-over__loss
     background: var(--color-surface-inverse)
     display: flex
@@ -394,16 +392,20 @@
     align-items: center
     gap: var(--space-16)
     // Canvas is absolutely positioned to span the whole card behind the
-    // text; the title + message stay in normal flow but get `position:
+    // text. The title + message stay in normal flow but get `position:
     // relative` so they paint on top of the canvas.
     justify-content: space-between
 
   .game-over__loss-title
     @include tint.type-class(headline-sm)
+    // The wide brand face, named explicitly: the type scale binds every heading
+    // role to `--font-heading` so a game can restyle it, and this display wants
+    // the extended cut here regardless.
+    font-family: tint.$font-mozilla-headline-extended
     line-height: 1.05
     margin: 0
     text-align: center
-    // `z-index: 1` bumps the title above the sibling canvas; both are
+    // `z-index: 1` bumps the title above the sibling canvas. Both are
     // positioned with `z-index: auto`, and the canvas comes AFTER the
     // title in DOM order, so without an explicit z the canvas paints
     // on top and hides the headline.
@@ -429,21 +431,19 @@
     color: var(--color-text-inverse)
     opacity: 0.9
     max-width: 22ch
-    // Same reason as the title; sits above the canvas.
+    // Same reason as the title, sits above the canvas.
     position: relative
     z-index: 1
 
-  // -----------------------------------------------------------------
   // Score card (yellow → orange → pink gradient). Two vertical halves:
   //   top: pill (optional) + big score + Punkte label
   //   bottom: wave background + two smaller high-score cells
-  // -----------------------------------------------------------------
   .game-over__score
     background: var(--color-gradient-result)
     color: var(--color-text)
     display: flex
     flex-direction: column
-    // No padding on the card; the top / bottom halves manage their own
+    // No padding on the card, the top / bottom halves manage their own
     // insets so the wave SVG in the lower half can span the card's
     // full width edge-to-edge without gaps.
 
@@ -470,7 +470,7 @@
     margin-block-end: var(--space-24)
     // Reveal-from-centre: the pill's box (including its padding) is
     // present at final size the whole time, but the visible area is
-    // clipped by `clip-path: inset(0 50% 0 50%)`; a zero-width
+    // clipped by `clip-path: inset(0 50% 0 50%)`, a zero-width
     // clip-path wipe from a zero-width strip. Unlike max-width animation
     // this truly reaches 0 visible size at rest (padding included) and
     // preserves final geometry throughout.
@@ -496,9 +496,13 @@
 
   :global(.game-over__score-big)
     @include tint.type-class(score-lg)
+    // The wide brand face, named explicitly: the type scale binds every heading
+    // role to `--font-heading` so a game can restyle it, and this display wants
+    // the extended cut here regardless.
+    font-family: tint.$font-mozilla-headline-extended
     line-height: 1
 
-  // White-then-black flash on the record readouts. Runs once; the class
+  // White-then-black flash on the record readouts. Runs once, the class
   // is added and stays, but the keyframe returns to the base color on
   // its own so the final rest state matches the initial one. `forwards`
   // guarantees we hold on that rest color even if the browser rounds
@@ -520,6 +524,10 @@
 
   .game-over__score-label
     @include tint.type-class(label-lg)
+    // The wide brand face, named explicitly: the type scale binds every heading
+    // role to `--font-heading` so a game can restyle it, and this display wants
+    // the extended cut here regardless.
+    font-family: tint.$font-mozilla-headline-extended
     line-height: 1
 
   .game-over__score-bottom
@@ -559,6 +567,10 @@
 
     strong
       @include tint.type-class(headline-lg)
+      // The wide brand face, named explicitly: the type scale binds every heading
+      // role to `--font-heading` so a game can restyle it, and this display wants
+      // the extended cut here regardless.
+      font-family: tint.$font-mozilla-headline-extended
       line-height: 1
 
   // Applied to the stat wrapper so both the number and its label share

@@ -26,7 +26,7 @@ export class GridFieldNode extends Node2D {
     this.#lineW = Math.max(1, geom.cell * 0.03)
     this.#alpha = new Float32Array(grid.cols * grid.rows)
     // Draw over the arcade's dynamic sky (paint order is tree order within the
-    // layer; the board subtree is added after the sky).
+    // layer. The board subtree is added after the sky).
     this.renderLayer = 'dynamic'
     this.debugBounds = {
       x: geom.board.x,

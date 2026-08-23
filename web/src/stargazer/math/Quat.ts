@@ -6,8 +6,6 @@
  *
  * The `quat*` helpers follow the engine convention: destination `dst` first,
  * `Readonly` inputs, result written into and returned as `dst`.
- *
- * @category Math
  */
 export interface Quat {
   x: number
@@ -16,20 +14,12 @@ export interface Quat {
   w: number
 }
 
-/**
- * Create a quaternion. Defaults to the identity rotation.
- *
- * @category Math
- */
+/** Create a quaternion. Defaults to the identity rotation. */
 export function quat(x = 0, y = 0, z = 0, w = 1): Quat {
   return { x, y, z, w }
 }
 
-/**
- * Reset `q` to the identity rotation.
- *
- * @category Math
- */
+/** Reset `q` to the identity rotation. */
 export function quatIdentity(q: Quat): Quat {
   q.x = 0
   q.y = 0
@@ -38,11 +28,7 @@ export function quatIdentity(q: Quat): Quat {
   return q
 }
 
-/**
- * Copy `src` into `dst`.
- *
- * @category Math
- */
+/** Copy `src` into `dst`. */
 export function quatCopy(dst: Quat, src: Readonly<Quat>): Quat {
   dst.x = src.x
   dst.y = src.y
@@ -51,11 +37,7 @@ export function quatCopy(dst: Quat, src: Readonly<Quat>): Quat {
   return dst
 }
 
-/**
- * Set `dst` to a rotation of `radians` about the unit axis `(ax, ay, az)`.
- *
- * @category Math
- */
+/** Set `dst` to a rotation of `radians` about the unit axis `(ax, ay, az)`. */
 export function quatFromAxisAngle(
   dst: Quat,
   ax: number,
@@ -75,8 +57,6 @@ export function quatFromAxisAngle(
 /**
  * Hamilton product `dst = a × b`: the rotation that applies `b` then `a`. Reads
  * inputs into locals, so `dst` may alias `a` or `b`.
- *
- * @category Math
  */
 export function quatMultiply(
   dst: Quat,
@@ -101,8 +81,6 @@ export function quatMultiply(
 /**
  * Unit quaternion in the direction of `a`, into `dst`. A zero-length input
  * yields the identity rather than `NaN`.
- *
- * @category Math
  */
 export function quatNormalize(dst: Quat, a: Readonly<Quat>): Quat {
   const len = Math.hypot(a.x, a.y, a.z, a.w)
@@ -120,8 +98,6 @@ export function quatNormalize(dst: Quat, a: Readonly<Quat>): Quat {
  * shorter arc (flips `b` when the quaternions face opposite hemispheres) and
  * falls back to a normalized linear blend when the inputs are nearly parallel,
  * so it never divides by a near-zero `sin`.
- *
- * @category Math
  */
 export function quatSlerp(
   dst: Quat,

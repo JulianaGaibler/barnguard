@@ -23,7 +23,7 @@ function worldCenter(c: Collider, out: Vec2): Vec2 {
 }
 
 /**
- * Ray vs collider. `dx,dy` must be a unit direction; `t` is the world distance
+ * Ray vs collider. `dx,dy` must be a unit direction. `t` is the world distance
  * to the hit. Returns -1 on a miss. Writes the surface normal into
  * `outNormal`.
  */

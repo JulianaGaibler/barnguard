@@ -71,6 +71,6 @@
     @include tint.type-class(title-1)
     margin: 0
     line-height: 1.05
-    font-family: tint.$mozilla-headline-extended
+    font-family: tint.$font-heading
     font-weight: 700
 </style>

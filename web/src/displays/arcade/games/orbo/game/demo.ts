@@ -4,11 +4,12 @@
  * `OrbExplodeNode`), the layout, and the shared field construction
  * (`createOrboPhysicsConfig` / `buildOrboWalls` / `createOrboFieldMask`), laid
  * out to the stage's fixed viewport. They skip the session turn state machine,
- * pointer/flick input, and the pause gesture — a demo builds a subtree and
+ * pointer/flick input, and the pause gesture. A demo builds a subtree and
  * drives orbs directly by assigning launch velocity (no `FlickController`).
  *
  * The launch velocities below are tuned to the demo viewport's damping
- * (horizontal travel ≈ 0.83·v₀); they're feel knobs, adjust visually.
+ * (horizontal travel is about 0.83 times the launch velocity). They are feel
+ * knobs, tuned by eye.
  */
 import {
   Node2D,
@@ -55,7 +56,7 @@ const VX_FINAL = 680 // the round-winning flick into the right zone
 
 /**
  * The field's clip mask depends only on the fixed demo viewport, so cache it
- * across builds (keyed by bounds) — the first reveal rasterizes it once.
+ * across builds, keyed by bounds. The first reveal rasterizes it once.
  */
 const maskCache = new Map<string, Promise<BitmapMask>>()
 
@@ -87,7 +88,7 @@ interface OrboScene {
  * Build the field skeleton (rounded panel + `FieldNode` behind empty ring/orb
  * layers, mirroring the live draw order) plus a physics world with bounding
  * walls. The mask is async, so the panel + field slot into pre-added holders
- * once it resolves; the orbs render immediately meanwhile.
+ * once it resolves. The orbs render immediately meanwhile.
  */
 function buildOrboScene(stage: Stage, host: EngineHost): OrboScene {
   const cam = stage.currentCamera2D
@@ -238,7 +239,7 @@ async function flick(
   vy: number,
 ): Promise<void> {
   const finger = new FingerHintNode()
-  orb.node.add(finger) // child of the orb → tracks it automatically
+  orb.node.add(finger) // child of the orb, so it tracks it automatically
   finger.visible = true
 
   await finger
@@ -255,7 +256,7 @@ async function flick(
       () => zoneAtX(scene.layout, orb.body.x) !== launchZone,
       1.2,
     )
-    // Lift the hand away as the orb flies on — still tracking it, no stop.
+    // Lift the hand away as the orb flies on, still tracking it, with no stop.
     await finger
       .tween(
         { y: finger.transform.y - 45, alpha: 0 },
@@ -431,7 +432,7 @@ export function buildOrboOvershootDemo(
       if (!scene.alive()) return
       await settle(scene)
       if (!scene.alive()) return
-      // Rests deep in Team R's strip; the capture glow signals it's about to be
+      // Rests deep in Team R's strip. The capture glow signals it's about to be
       // taken. Hold on that, then restart.
       await scene.wait(1.6)
       if (!scene.alive()) return
@@ -458,7 +459,7 @@ export function buildOrboLivesDemo(stage: Stage, host: EngineHost): DemoHandle {
 
   async function run(): Promise<void> {
     while (scene.alive()) {
-      // lifetime 1 → the orb pulses the "about to expire" warning.
+      // lifetime 1 makes the orb pulse the "about to expire" warning.
       const orb = spawnOrb(scene, startX, startY, 'MEDIUM', 0, 1)
       await flick(scene, orb, VX_DEATH, 0)
       if (!scene.alive()) return
@@ -478,9 +479,9 @@ export function buildOrboLivesDemo(stage: Stage, host: EngineHost): DemoHandle {
 }
 
 /**
- * "Most orbs win": Team L already leads with orbs resting in its band; a final
+ * "Most orbs win": Team L already leads with orbs resting in its band. A final
  * flick lands one more, then Team L's orbs bounce in a count. Team R keeps
- * fewer orbs in its own band — they stay put, so the tally reads as a count,
+ * fewer orbs in its own band and they stay put, so the tally reads as a count,
  * not a wipeout.
  */
 export function buildOrboWinDemo(stage: Stage, host: EngineHost): DemoHandle {
@@ -513,7 +514,7 @@ export function buildOrboWinDemo(stage: Stage, host: EngineHost): DemoHandle {
       await scene.wait(0.5)
       if (!scene.alive()) return
 
-      // Count Team L's orbs with a staggered bounce; Team R's stay in their band
+      // Count Team L's orbs with a staggered bounce. Team R's stay in their band
       // (fewer, so Team L takes the round). Linger on the final tally.
       const winners = [...blues, finalBlue]
       for (let i = 0; i < winners.length; i++) {

@@ -14,7 +14,7 @@ const BAND_HEIGHT = 218
 
 /**
  * The ocean band at the bottom of the launcher region: a flat base fill plus a
- * "waterline" glow — a vertical gradient from the bright horizon color (top of
+ * "waterline" glow, a vertical gradient from the bright horizon color (top of
  * the band) down to transparent, so it stays confined to the water. Spans the
  * visible width and down to the visible bottom to cover any letterbox.
  */
@@ -26,7 +26,7 @@ export class OceanNode extends Node2D {
   constructor(source: PaletteSource) {
     super('ocean')
     this.#source = source
-    // Part of the world's base layer; see `SkyGradientNode` for why `'static'`.
+    // Part of the world's base layer. See `SkyGradientNode` for why `'static'`.
     this.renderLayer = 'static'
   }
 

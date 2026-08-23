@@ -37,7 +37,7 @@ describe('MeshRenderer with Viewport2DNode', () => {
   it('draws the textured quad with the texture path enabled', async () => {
     const device = new MockGfxDevice()
     const renderer = new MeshRenderer(device, { format: 'linear', samples: 1 })
-    // Pipelines warm asynchronously; wait for them before the 3D pass draws.
+    // Pipelines warm asynchronously, so wait for them before the 3D pass draws.
     for (let i = 0; i < 50 && !renderer.ready; i++) await Promise.resolve()
     const world = new SceneTree(new Node3D('world3d-root'))
     const camera = new Camera3D()

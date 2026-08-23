@@ -8,12 +8,11 @@ import type { Node2D } from './Node2D'
  * independent behaviors and keeps the engine's node types game-agnostic.
  *
  * The attached node is available as `this.node` from `onAttach` onward. The
- * type parameter `N` is the node kind it attaches to; it defaults to
+ * type parameter `N` is the node kind it attaches to. It defaults to
  * {@link Node2D}, so a plain `extends Behavior` targets 2D nodes. A behavior for
  * the 3D tree declares `extends Behavior<Node3D>` (or `Behavior<Node>` for
  * either).
  *
- * @category Scene
  * @example
  *   class Spin extends Behavior {
  *     readonly #radPerSec: number
@@ -31,7 +30,7 @@ import type { Node2D } from './Node2D'
 export abstract class Behavior<N extends Node = Node2D> {
   /**
    * The node this behavior is attached to. Set by {@link Node.addBehavior}
-   * before `onAttach` fires; reading it before attach is a bug.
+   * before `onAttach` fires. Reading it before attach is a bug.
    */
   node!: N
 
@@ -62,7 +61,5 @@ export abstract class Behavior<N extends Node = Node2D> {
 /**
  * Constructor for a {@link Behavior} subclass, used by `getBehavior` /
  * `getBehaviors` to look up attached behaviors by type.
- *
- * @category Scene
  */
 export type BehaviorCtor<T extends Behavior<Node>> = new (...args: never[]) => T

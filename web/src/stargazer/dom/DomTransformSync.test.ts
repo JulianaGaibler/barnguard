@@ -41,7 +41,7 @@ describe('projectWorldToCss', () => {
   })
 
   it('carries a baked-in pivot offset (in world e/f) through unchanged linear part', () => {
-    // originX/originY bake into world.e/f; the projection just scales+offsets them.
+    // originX/originY bake into world.e/f, and the projection just scales+offsets them.
     const world: CssMatrix = { a: 1, b: 0, c: 0, d: 1, e: -5, f: -3 }
     const m = projectWorldToCss(screen(1, 0, 0), world)
     expect(m).toEqual({ a: 1, b: 0, c: 0, d: 1, e: -5, f: -3 })

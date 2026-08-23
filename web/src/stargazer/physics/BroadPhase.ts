@@ -12,11 +12,7 @@ import type { Body } from './Body'
 /** Called once per candidate pair emitted by {@link BroadPhase.queryPairs}. */
 export type PairCallback = (a: Body, b: Body) => void
 
-/**
- * Broad-phase index over the world's bodies.
- *
- * @category Physics
- */
+/** Broad-phase index over the world's bodies. */
 export interface BroadPhase {
   insert(body: Body): void
   remove(body: Body): void
@@ -41,11 +37,9 @@ export interface BroadPhase {
 /**
  * O(n²) broad-phase: every body pair is considered. Fast enough for small
  * worlds and the reference the spatial hash is fuzz-tested against.
- *
- * @category Physics
  */
 export class BruteForceBroadPhase implements BroadPhase {
-  /** Fat-AABB margin applied on update; set by the world. */
+  /** Fat-AABB margin applied on update, set by the world. */
   margin = 0
   readonly #bodies: Body[] = []
   readonly #aabbs: Rect[] = []
@@ -99,7 +93,7 @@ export class BruteForceBroadPhase implements BroadPhase {
     _maxDist: number,
     out: Body[],
   ): Body[] {
-    // Coarse: hand back every body; the raycaster culls precisely.
+    // Coarse: hand back every body. The raycaster culls precisely.
     for (let i = 0; i < this.#bodies.length; i++) out.push(this.#bodies[i])
     return out
   }

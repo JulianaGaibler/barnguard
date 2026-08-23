@@ -6,7 +6,7 @@ describe('resolveRadii', () => {
     expect(resolveRadii(8, 100, 100)).toEqual([8, 8, 8, 8])
   })
 
-  it('expands the CSS 1–4 shorthand', () => {
+  it('expands the CSS 1 to 4 value shorthand', () => {
     expect(resolveRadii([8], 100, 100)).toEqual([8, 8, 8, 8])
     // [tl&br, tr&bl]
     expect(resolveRadii([8, 12], 100, 100)).toEqual([8, 12, 8, 12])

@@ -40,7 +40,7 @@
   }
 
   // Ask the daemon to re-read config.toml. Success is visible when the new
-  // values arrive over SSE (e.g. the label URL); failures land in the Log
+  // values arrive over SSE (e.g. the label URL). Failures land in the Log
   // list below. Transient label mirrors the Printer panel's reconnect button.
   let reloadConfigPending = $state(false)
   let reloadConfigTimer: ReturnType<typeof setTimeout> | null = null
@@ -62,15 +62,14 @@
 
   // `session.reset()` (behind the stop-game handle) is a no-op when the
   // session is already idle, so it's safe to invoke unconditionally on the
-  // confirming tap; the `disabled` check just guards the initial click.
+  // confirming tap. The `disabled` check just guards the initial click.
   function handleStopGame(): void {
     $stopGameHandle?.()
   }
 
-  // Selection preview (state photo, landmark, etc.) is provided by the active
-  // display via its manifest — the section only renders when the display opts
-  // in and has something to show.
-  const SelectionPreview = $derived($activeDisplay?.selectionPreview ?? null)
+  // Display-specific attendant controls come from the active display's
+  // manifest. The section only renders when the display opts in.
+  const AttendantPanel = $derived($activeDisplay?.attendantPanel ?? null)
 
   // Combined printer-queue size (currently-printing job + pending). Shown in
   // the Status section so the attendant sees at-a-glance whether anything's
@@ -216,8 +215,8 @@
 
   <DisplaySettings />
 
-  {#if SelectionPreview}
-    <SelectionPreview />
+  {#if AttendantPanel}
+    <AttendantPanel />
   {/if}
 
   <DebugSection title="Debug">
@@ -248,9 +247,8 @@
       </button>
     </div>
 
-    <!-- Daemon message log. Covers the whole daemon — printer + queue +
-         store + panic hook — so it's more broadly useful than the printer
-         panel it used to live in. Newest first. -->
+    <!-- Daemon message log, covering the whole daemon (printer, queue,
+         store, panic hook) rather than just printing. Newest first. -->
     <div class="log-heading">Log</div>
     <div class="debug-list max-height-300">
       {#each [...$printerLive.logs].reverse() as entry, i (`${entry.tsMs}-${i}`)}
@@ -278,7 +276,7 @@
 
   // Free-text field for the cover-screen custom message. Mirrors
   // `DebugSelect`'s outer chrome so the two controls read as members of the
-  // same family — there's no shared text-input primitive in `debug-ui/`, so
+  // same family. There's no shared text-input primitive in `debug-ui/`, so
   // the styling is duplicated by hand.
   .cover-textarea
     display: block
@@ -304,7 +302,7 @@
 
   // Landmark photo for the "Selected state" section. Fixed height so the
   // section's overall footprint stays predictable regardless of the source
-  // aspect ratio; `cover` keeps the composition sensible when cropping.
+  // aspect ratio. `cover` keeps the composition sensible when cropping.
   .state-photo
     display: block
     width: 100%
@@ -319,9 +317,9 @@
   .dim
     opacity: 0.55
 
-  // Status pill: subtle "offline" (muted red) by default; flips to "connected"
-  // (muted green) when the corresponding stream is live. Dot + text so it's
-  // legible without relying on color alone.
+  // Status pill: subtle "offline" (muted red) by default, flipping to
+  // "connected" (muted green) when the corresponding stream is live. Dot +
+  // text so it's legible without relying on color alone.
   .status-pill
     display: inline-flex
     align-items: center
@@ -353,8 +351,8 @@
     background: currentColor
     flex-shrink: 0
 
-  // Daemon log entries. Broader-than-print-status messages — printer,
-  // queue, store, panic hook — so this lives in the attendant Debug
+  // Daemon log entries cover broader-than-print-status messages (printer,
+  // queue, store, panic hook), so this lives in the attendant Debug
   // section rather than the printer panel.
   .log-heading
     margin-block-start: 8px

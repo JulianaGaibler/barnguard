@@ -13,15 +13,48 @@ import { POST_PARAMS_UBO_BINDING } from '../gfx/batchLayout'
 
 /** Attribute location the fullscreen vertex shader forces for `a_pos`. */
 const LOC_POS = 0
+/** Attribute location for `a_uv`. */
+const LOC_UV = 1
+/** Bytes per fullscreen-triangle vertex: `vec2` position plus `vec2` uv. */
+const VERTEX_STRIDE = 16
 /** Sampler unit for the input texture `u_tex`. */
 const U_TEX = 0
 
+/** Clip-space corners of the fullscreen triangle. */
+const TRI_POS: ReadonlyArray<readonly [number, number]> = [
+  [-1, -1],
+  [3, -1],
+  [-1, 3],
+]
+
 /**
- * Clip-space fullscreen triangle covering the whole `[-1,1]` viewport (the two
- * off-screen corners are clipped). One triangle rather than a quad avoids the
- * diagonal seam that splits `dFdx/dFdy` and hurts texture-cache locality.
+ * The fullscreen triangle, interleaved as `[x, y, u, v]` per vertex. It covers
+ * the whole `[-1,1]` viewport, with the two off-screen corners clipped. One
+ * triangle rather than a quad avoids the diagonal seam that splits `dFdx/dFdy`
+ * and hurts texture-cache locality.
+ *
+ * The uv is carried as an attribute rather than derived from the position in
+ * the shader, because the backends disagree on which row of a sampled render
+ * target is the top: WebGPU stores row 0 at the top, WebGL at the bottom. A
+ * shader deriving `uv = pos * 0.5 + 0.5` therefore samples upside down on
+ * WebGPU, which turned every odd-numbered ping-pong pass on its head and left a
+ * single enabled effect rendering the whole frame flipped. Baking the flip into
+ * three vertices costs nothing per draw and keeps the shaders backend-
+ * agnostic.
+ *
+ * Exported so the orientation contract can be asserted for both backends
+ * without a GPU.
  */
-const FULLSCREEN_TRI = new Float32Array([-1, -1, 3, -1, -1, 3])
+export function fullscreenTri(flipV: boolean): Float32Array {
+  const out = new Float32Array(TRI_POS.length * 4)
+  TRI_POS.forEach(([x, y], i) => {
+    out[i * 4] = x
+    out[i * 4 + 1] = y
+    out[i * 4 + 2] = x * 0.5 + 0.5
+    out[i * 4 + 3] = flipV ? 0.5 - y * 0.5 : y * 0.5 + 0.5
+  })
+  return out
+}
 
 /** GPU resources compiled for one {@link PostPass}. */
 interface PassGpu {
@@ -57,7 +90,9 @@ interface PooledTarget {
  * asynchronously. Until they're ready the pipeline presents the source frame
  * unmodified for a frame or two.
  *
- * @category Render
+ * @example
+ *   stage.postProcess.add(new Vignette({ intensity: 0.6 }))
+ *   stage.postProcess.add(new ChromaticAberration({ amount: 0.01 }))
  */
 export class PostProcessPipeline {
   readonly #device: GfxDevice
@@ -94,6 +129,29 @@ export class PostProcessPipeline {
     return effect
   }
 
+  /**
+   * Compile every added effect's pipelines ahead of time, disabled ones
+   * included.
+   *
+   * Enabling an effect switches the stage off the direct-present path and
+   * compiles its shaders in the same frame, which is a synchronous stall long
+   * enough to read as the screen freezing. Call this when the cost is masked (a
+   * scene load, a transition) so the first pulse is just a pulse. The
+   * counterpart to `Gfx2D.warmText`, and idempotent: an already-compiled pass
+   * is skipped.
+   *
+   * The colour space of the frame is not known until a run, so both are warmed
+   * by default. Pass one to halve the work if the surface is known.
+   */
+  warm(colorSpaces: readonly ColorFormat[] = ['linear', 'srgb']): void {
+    this.#ensureVbo()
+    for (const effect of this.#effects) {
+      for (const pass of effect.passes) {
+        for (const cs of colorSpaces) this.#pipelineFor(pass, cs)
+      }
+    }
+  }
+
   remove(effect: PostEffect): void {
     const i = this.#effects.indexOf(effect)
     if (i < 0) return
@@ -110,7 +168,7 @@ export class PostProcessPipeline {
 
   /**
    * Run the effect chain over `source` (the screen's resolved single-sample
-   * target) and present to the canvas. No-op when {@link active} is false; falls
+   * target) and present to the canvas. No-op when {@link active} is false, falls
    * back to presenting `source` unmodified while any pass pipeline is still
    * compiling.
    */
@@ -212,12 +270,13 @@ export class PostProcessPipeline {
 
   #ensureVbo(): void {
     if (this.#vbo) return
-    this.#vbo = this.#device.createVertexBuffer(FULLSCREEN_TRI.byteLength)
-    this.#device.updateBufferSubData(this.#vbo, 0, FULLSCREEN_TRI)
+    const tri = fullscreenTri(this.#device.ndc.textureTopDown)
+    this.#vbo = this.#device.createVertexBuffer(tri.byteLength)
+    this.#device.updateBufferSubData(this.#vbo, 0, tri)
   }
 
   /**
-   * Ensure a pass has GPU resources; return its pipeline for `cs`, or null if
+   * Ensure a pass has GPU resources. Return its pipeline for `cs`, or null if
    * still compiling.
    */
   #pipelineFor(pass: PostPass, cs: ColorFormat): Pipeline | null {
@@ -261,9 +320,12 @@ export class PostProcessPipeline {
         shader: g.shader,
         vertexLayout: [
           {
-            arrayStride: 8,
+            arrayStride: VERTEX_STRIDE,
             stepMode: 'vertex',
-            attributes: [{ location: LOC_POS, format: 'float32x2', offset: 0 }],
+            attributes: [
+              { location: LOC_POS, format: 'float32x2', offset: 0 },
+              { location: LOC_UV, format: 'float32x2', offset: 8 },
+            ],
           },
         ],
         bindGroupLayouts: [g.layout],
@@ -323,7 +385,7 @@ export class PostProcessPipeline {
   }
 
   #onContextRestored(): void {
-    // GPU handles are dead after a loss; drop references and let the next run
+    // GPU handles are dead after a loss. Drop references and let the next run
     // rebuild the VBO, shaders/pipelines, and targets lazily.
     this.#vbo = null
     this.#passGpu.clear()

@@ -2,14 +2,14 @@
  * Stylized in-engine menu preview for JezzBall: a square and a circle overlaid,
  * with four diagonal spokes reaching in from the square's corners toward its
  * center (stopping short, so the middle stays open). The square sits like a
- * `bottom: -20%; right: -20%` box — its own height tall, pinned so it bleeds
- * past the view's bottom and right edges — and every stroke is clipped to the
+ * `bottom: -20%; right: -20%` box, its own height tall, pinned so it bleeds
+ * past the view's bottom and right edges, and every stroke is clipped to the
  * view rect by hand, since the renderer's `setClipMask` only affects filled
  * triangles, not the `strokeLine`/`strokeCircle` calls this decoration is built
  * from. The square's edges and the spokes are real static colliders, but the
  * collider box itself is inset to the visible area (not the full, partly
- * off-screen square) so the balls — solid fills, which can't be clipped the
- * same cheap way — never wander past the frame either.
+ * off-screen square), so the balls, which are solid fills that can't be clipped
+ * the same cheap way, never wander past the frame either.
  */
 import {
   Body,
@@ -30,17 +30,17 @@ import type { MenuPreview } from '@src/displays/arcade/menu/types'
 import { BallNode } from './nodes/BallNode'
 import { COLORS, PHYSICS } from './tuning'
 
-const SQUARE_SIDE_FRAC = 1 // of view height — the square is as tall as the view
+const SQUARE_SIDE_FRAC = 1 // of view height, the square is as tall as the view
 /**
  * How far the square's bottom-right corner sits past the view's bottom-right
- * corner, as a fraction of the square's own side — the "slightly off screen"
- * `bottom: -20%; right: -20%` positioning.
+ * corner, as a fraction of the square's own side. This is the "slightly off
+ * screen" `bottom: -20%; right: -20%` positioning.
  */
 const OFFSCREEN_FRAC = 0.2
 const CIRCLE_RADIUS_FRAC = 0.62 // of square side
 /** How far each spoke reaches from its corner toward the center. */
 const SPOKE_REACH_FRAC = 0.55
-const BALL_RADIUS_FRAC = 0.018 // of square side — "relatively small"
+const BALL_RADIUS_FRAC = 0.018 // of square side, relatively small
 const LINE_WIDTH_PX = 2.5
 /**
  * Straight segments a stroked circle is approximated by, so it can be clipped
@@ -55,7 +55,7 @@ const CIRCLE_SEGMENTS = 96
 const COLLIDER_HALF_THICKNESS_FRAC = 0.012
 
 /**
- * Rewind `verts` so its signed area is positive — `polygonShape` requires
+ * Rewind `verts` so its signed area is positive. `polygonShape` requires
  * counter-clockwise winding, which in this y-down world means "visually
  * clockwise on screen". Easier to test the sign per segment than to reason
  * about winding for every spoke's direction by hand.
@@ -71,9 +71,9 @@ function windCcw(verts: Vec2[]): Vec2[] {
 }
 
 /**
- * A thin rectangle spanning `a` to `b`, `halfThickness` on each side — the
- * closest stand-in for a line-segment collider, since the physics module has no
- * dedicated segment shape.
+ * A thin rectangle spanning `a` to `b`, `halfThickness` on each side. This is
+ * the closest stand-in for a line-segment collider, since the physics module
+ * has no dedicated segment shape.
  */
 function segmentVerts(a: Vec2, b: Vec2, halfThickness: number): Vec2[] {
   const dx = b.x - a.x
@@ -90,7 +90,7 @@ function segmentVerts(a: Vec2, b: Vec2, halfThickness: number): Vec2[] {
 }
 
 /**
- * The portion of segment `a`→`b` inside `rect`, via Liang-Barsky clipping —
+ * The portion of segment `a`→`b` inside `rect`, via Liang-Barsky clipping,
  * `null` when none of it is. The engine has no cheap way to clip a stroke
  * (`setClipMask` only wires into filled-triangle draws), so every line this
  * file draws is clipped by hand before it reaches `Gfx2D`.
@@ -222,7 +222,7 @@ export function buildJezzballMenuPreview(
   ).world
 
   // The balls are solid fills, not strokes, so they can't be clipped the same
-  // cheap way as the decoration above — instead their play area is the square
+  // cheap way as the decoration above. Instead their play area is the square
   // INSET to the visible view, so they never reach the part of the square
   // that bleeds past the frame in the first place.
   const play: Rect = {
@@ -259,7 +259,7 @@ export function buildJezzballMenuPreview(
           shape: aabbShape(halfT, play.height / 2 + halfT),
           offset: { x: play.x + play.width + halfT, y: playCy },
         },
-        // Spokes keep the true (partly off-screen) corners — the border walls
+        // Spokes keep the true (partly off-screen) corners. The border walls
         // above already block balls from ever reaching the part that would
         // hang past them, so the unreachable tail is harmless dead geometry.
         ...spokes.map((seg) => ({

@@ -1,8 +1,11 @@
 import {
-  Node2D,
   CameraNode2D,
+  Node2D,
   easings,
+  getPathContours,
   ignoreAbort,
+  registerPathTessellation,
+  tessellateContours,
   type CameraView2D,
   type EngineHost,
   type Gfx2D,
@@ -18,17 +21,12 @@ import {
   spawnBorderBreachDebris,
 } from '../lossVisuals'
 import { TUNING } from '../data/tuning'
-import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
-import {
-  getPathContours,
-  registerPathTessellation,
-} from '@src/stargazer/render/gfx/PathTessellationRegistry'
 import { BackgroundStarsNode } from './BackgroundStarsNode'
 import { EyeNode } from './EyeNode'
 import type { GameOverReason } from '../session'
 
 // ----------------------------------------------------------------------------
-// Tuning, module-local; promote to `TUNING.gameOverScene` if any of these
+// Tuning, module-local, promote to `TUNING.gameOverScene` if any of these
 // need to be tweaked from playtesting without touching this file.
 // ----------------------------------------------------------------------------
 
@@ -135,8 +133,7 @@ export interface GameOverSceneOptions {
   /**
    * The pre-centred + pre-scaled impact-flash sparkle from
    * `loadGameAssets().impactFlashPath`. Fired at the exact moment of collision
-   *
-   * - Border crossing to match the live game's impact beat.
+   * or border crossing to match the live game's impact beat.
    */
   impactFlashPath: Path2D
 }
@@ -185,8 +182,8 @@ export class GameOverScene {
     this.#escapeHeadingRad = opts.escapeHeadingRad ?? 0
 
     // Merge the two eyelid paths into one centred Path2D. `eye.svg`
-    // authors the eye at (0, 0)-(125, 76); we shift so (0, 0) is the
-    // visual centre and scale to `EYE_WIDTH_WORLD` on the long axis.
+    // authors the eye with corners at (0, 0) and (125, 76). Shift so (0, 0)
+    // is the visual centre and scale to `EYE_WIDTH_WORLD` on the long axis.
     const merged = mergeEyeParts(opts.eyeOutlineParts, EYE_WIDTH_WORLD)
     this.#eyeOutlinePath = merged.path
     this.#eyeOutlineBounds = merged.bounds
@@ -196,7 +193,7 @@ export class GameOverScene {
       name: 'GameOver',
       interactive: false,
       // Transparent compositing so the frame clear leaves the canvas
-      // corners transparent; the card's own rounded `#010612` background
+      // corners transparent. The card's own rounded `#010612` background
       // (same color) shows through there, so the card's `border-radius`
       // clips cleanly instead of the opaque canvas painting square corners
       // over it. `clearColor` is ignored while `transparent` is true.
@@ -215,7 +212,7 @@ export class GameOverScene {
     this.#camera.makeCurrent()
 
     // Kick off the per-reason async choreography. Both flows finish by
-    // idling; on destroy the shared abort signal cancels every await.
+    // idling. On destroy the shared abort signal cancels every await.
     // Starfield is added inside `runEscapeScene` only, it's the camera
     // motion that sells the parallax, and the collision scene's camera
     // stays put.
@@ -261,7 +258,7 @@ export class GameOverScene {
     left.transform.x += COLLIDE_SPEED_WU_PER_SEC * dt
     right.transform.x -= COLLIDE_SPEED_WU_PER_SEC * dt
     // Feed the shooting-star trails. `setLiveHead` glues the ribbon
-    // tip to the current position each frame; `sample` pushes only if
+    // tip to the current position each frame, and `sample` pushes only if
     // the distance filter accepts it (dedupes near-stationary samples).
     if (this.#leftTrail) {
       this.#leftTrail.setLiveHead(left.transform.x, left.transform.y)
@@ -542,8 +539,8 @@ export class GameOverScene {
     }
   }
 
-  // The loss visuals are shared with the live round (see `lossVisuals.ts`);
-  // these wrappers pin them to this scene's own stage tree.
+  // The loss visuals are shared with the live round (see `lossVisuals.ts`).
+  // These wrappers pin them to this scene's own stage tree.
   #spawnCollisionDebris(at: Vec2): void {
     spawnCollisionDebris(this.#stage.tree.root, at)
   }
@@ -617,7 +614,7 @@ export class GameOverScene {
 
 /**
  * Draws a single dashed line perpendicular to a heading, centred at the node's
- * transform origin. All state fits in `readonly` fields; no per-frame
+ * transform origin. All state fits in `readonly` fields, no per-frame
  * allocations.
  */
 class BorderLineNode extends Node2D {

@@ -74,7 +74,7 @@
     const px = host.engine.renderer.pixelSize
     const view = gameVisibleRect(px.w, px.h)
 
-    // UI-only node at the game region's visible-rect top-left; the overlays
+    // UI-only node at the game region's visible-rect top-left. The overlays
     // attach to it and cover the whole visible area so the menus fill the window.
     const uiAnchor = new Node2D('connect-four-ui-anchor')
     uiAnchor.transform.x = view.x
@@ -90,7 +90,7 @@
     gameRect = view
 
     // Keep the overlay fitted as the window resizes. The board reflows on the
-    // next entry; mid-match board reflow is a separate step.
+    // next entry. Mid-match board reflow is a separate step.
     const offResize = host.engine.events.on('resize', (e) => {
       const v = gameVisibleRect(e.pixel.w, e.pixel.h)
       uiAnchor.transform.x = v.x
@@ -218,7 +218,7 @@
     inset: 0
     pointer-events: none
 
-  // Region-pinned wrapper (positioned by `domAnchor`); click-through so only the
+  // Region-pinned wrapper (positioned by `domAnchor`). Click-through so only the
   // overlays' own controls capture pointer events.
   .cf__ui
     pointer-events: none

@@ -3,6 +3,7 @@
 
 import type { InputSystem } from '../input/InputSystem'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
+import { debugFont } from './debugFont'
 
 /**
  * Palette rotated by `pointerId % length` for the pointer overlay. Each entry
@@ -43,7 +44,7 @@ export function drawPointerOverlay(gfx: Gfx2D, input: InputSystem): void {
     const tx = p.screen.x + radius + 6
     const ty = p.screen.y
     gfx.fillText(label, tx, ty, {
-      font: '11px "SF Mono", "Monaco", "Roboto Mono", "Courier New", monospace',
+      font: debugFont(11),
       align: 'left',
       baseline: 'middle',
       color: '#fff',

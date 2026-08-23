@@ -1,6 +1,6 @@
 /**
  * Generic 2D canvas primitives shared by every display's label renderer. No
- * game/display-specific knowledge lives here — colors, layout, and asset
+ * game/display-specific knowledge lives here. Colors, layout, and asset
  * bindings belong to each display's `label.ts`.
  */
 
@@ -37,49 +37,9 @@ export function loadImage(url: string): Promise<HTMLImageElement> {
   return promise
 }
 
-export interface FontRequest {
-  family: string
-  url: string
-  weight?: string
-  style?: string
-}
-
-/**
- * Register the given fonts with `document.fonts`, keyed by their url so the
- * same URL isn't loaded twice across renderers. Font-load failures are logged
- * and swallowed — labels then fall back to default sans-serif, which is still
- * legible if off-brand.
- */
-const loadedFonts = new Set<string>()
-
-export async function ensureFontsLoaded(fonts: FontRequest[]): Promise<void> {
-  if (typeof document === 'undefined' || !document.fonts) return
-  const pending: Promise<void>[] = []
-  for (const f of fonts) {
-    const key = `${f.family}|${f.url}|${f.weight ?? ''}|${f.style ?? ''}`
-    if (loadedFonts.has(key)) continue
-    loadedFonts.add(key)
-    const face = new FontFace(f.family, `url(${f.url})`, {
-      weight: f.weight,
-      style: f.style,
-    })
-    pending.push(
-      face
-        .load()
-        .then((loaded) => {
-          document.fonts.add(loaded)
-        })
-        .catch((err) => {
-          console.warn('[canvas] font load failed:', err)
-        }),
-    )
-  }
-  await Promise.all(pending)
-}
-
 /**
  * Emulate CSS `linear-gradient(angleDeg, ...stops)` on a 2D canvas. `stops` are
- * given in CSS percent (may lie outside [0,1] to signal "past the edges"); this
+ * given in CSS percent (may lie outside [0,1] to signal "past the edges"). This
  * helper picks canvas endpoints extended far enough to cover them and
  * normalises the stop positions into [0,1] on that extended axis.
  */
@@ -179,7 +139,7 @@ export function drawCover(
   ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh)
 }
 
-/** Trace a rounded-rectangle path (no fill/stroke — the caller decides). */
+/** Trace a rounded-rectangle path (no fill/stroke, the caller decides). */
 export function roundRectPath(
   ctx: Ctx2D,
   x: number,

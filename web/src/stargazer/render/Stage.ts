@@ -23,9 +23,7 @@ import { PhysicsWorld, type PhysicsWorldConfig } from '../physics/PhysicsWorld'
 
 /**
  * Construction options for a {@link Stage}. Every field is optional. A stage
- * starts with no camera; add a {@link CameraNode2D} and call `makeCurrent()`.
- *
- * @category Render
+ * starts with no camera. Add a {@link CameraNode2D} and call `makeCurrent()`.
  */
 export interface StageOptions {
   /** Solid clear color used when `transparent` is false. */
@@ -54,7 +52,7 @@ export interface StageOptions {
    */
   msaaSamples?: number
   /**
-   * Attach a {@link PhysicsWorld} to this stage. `true` uses defaults; pass a
+   * Attach a {@link PhysicsWorld} to this stage. `true` uses defaults, pass a
    * config to tune it. When set, the engine steps this world once per fixed
    * tick before the scene's `onFixedStep` pass. Default: no physics.
    */
@@ -72,8 +70,6 @@ export interface StageOptions {
  * Per-stage pointer events. Fires only on interactive stages. `pointerMove` is
  * high-frequency, do NOT bind Svelte stores to it. Use `$effect` listeners
  * instead.
- *
- * @category Render
  */
 export interface StagePointerEvents {
   pointerDown: PointerEvent2D
@@ -85,8 +81,6 @@ export interface StagePointerEvents {
 /**
  * Info passed to the resize callback so the owning `Engine` can emit its
  * `resize` engine-event without leaking the ResizeObserver upward.
- *
- * @category Render
  */
 export interface StageResizeInfo {
   cssSize: { w: number; h: number }
@@ -95,16 +89,30 @@ export interface StageResizeInfo {
 }
 
 /**
- * A render surface (canvas + `Renderer` + `Scene` + `Camera`). All stages share
- * the engine's `Ticker` and `Animator` for drift-free synced tweens.
+ * A render surface: one canvas with its own {@link Renderer}, {@link SceneTree},
+ * cameras, and render pipeline. The engine owns a primary stage, and every
+ * extra stage shares the engine's `Ticker` and `Animator`, so tweens across
+ * canvases stay in step.
  *
- * @category Render
+ * @example
+ *   // A second canvas, driven by the same clock.
+ *   const stage = engine.attachStage(previewCanvas, {
+ *     clearColor: '#101018',
+ *     interactive: true,
+ *   })
+ *   const cam = new CameraNode2D({
+ *     viewport: { x: 0, y: 0, width: 640, height: 360 },
+ *   })
+ *   stage.tree.root.add(cam)
+ *   cam.makeCurrent()
+ *   // Park it when it goes off screen, at no per-frame cost.
+ *   stage.setActive(false)
  */
 export class Stage implements CameraHost {
   readonly renderer: Renderer
   /**
    * The one scene tree holding both 2D and 3D content. Add nodes under
-   * `tree.root`; the 2D and 3D render passes read from it, bucketed by node
+   * `tree.root`. The 2D and 3D render passes read from it, bucketed by node
    * kind.
    */
   readonly tree: SceneTree
@@ -132,7 +140,7 @@ export class Stage implements CameraHost {
   /** Per-layer node walk: viewport cull, transform compose, draw. */
   readonly #layerRenderer = new StageLayerRenderer()
 
-  /** Set when a render frame threw; the stage then stops rendering. */
+  /** Set when a render frame threw. The stage then stops rendering. */
   #faulted = false
 
   /** Created lazily the first frame the stage has 3D content. */
@@ -144,7 +152,7 @@ export class Stage implements CameraHost {
   /** Created lazily on first `ambientOcclusion` access. */
   #ambientOcclusion: AmbientOcclusion | null = null
 
-  // Camera registry (Godot Viewport model): registration-order arrays + the
+  // Camera registry: registration-order arrays plus the
   // current camera per dimension. Camera nodes register/unregister through the
   // CameraHost bridge on attach/detach.
   readonly #cameras2d: CameraNode2D[] = []
@@ -179,7 +187,7 @@ export class Stage implements CameraHost {
       clearColor: opts.clearColor,
       transparent: opts.transparent,
     })
-    // Kick the initial canvas size BEFORE the GL context is acquired so the
+    // Kick the initial canvas size BEFORE the device is acquired so the
     // default framebuffer starts at the right pixel size.
     const rect = canvas.getBoundingClientRect()
     const initialCssW = rect.width || canvas.clientWidth || 1
@@ -189,6 +197,11 @@ export class Stage implements CameraHost {
     this.#device = opts.gpuDevice ?? new WebGL2Device(canvas)
     this.#screenGfx = new GpuGfx(canvas, this.#device, {
       samples: opts.msaaSamples ?? 4,
+      // Backs the deduplicated translucent-stroke path. Fixed here because a
+      // pipeline bakes its depth-stencil format, so it cannot be turned on
+      // later without re-warming every 2D pipeline. Dropped again if the stage
+      // turns on depth for a 3D pass (see `GpuGfx.enableDepth`).
+      stencil: true,
     })
     this.#screenGfx.setInternalSize(
       this.renderer.pixelSize.w,
@@ -253,20 +266,21 @@ export class Stage implements CameraHost {
   }
 
   /**
-   * All registered 2D cameras, in attachment order (read-only; for the debug
+   * All registered 2D cameras, in attachment order (read-only, for the debug
    * HUD).
    */
   get cameras2d(): readonly CameraNode2D[] {
     return this.#cameras2d
   }
   /**
-   * All registered 3D cameras, in attachment order (read-only; for the debug
+   * All registered 3D cameras, in attachment order (read-only, for the debug
    * HUD).
    */
   get cameras3d(): readonly CameraNode3D[] {
     return this.#cameras3d
   }
 
+  /** Called by a {@link CameraNode2D} when it attaches. Not for game code. */
   registerCamera2D(cam: CameraNode2D): void {
     if (this.#cameras2d.indexOf(cam) < 0) this.#cameras2d.push(cam)
     // First camera attached wins, or one that asked to be current before attach.
@@ -302,6 +316,7 @@ export class Stage implements CameraHost {
     return best
   }
 
+  /** Called by a {@link CameraNode3D} when it attaches. Not for game code. */
   registerCamera3D(cam: CameraNode3D): void {
     if (this.#cameras3d.indexOf(cam) < 0) this.#cameras3d.push(cam)
     if (!this.#current3d || cam.wantsCurrent) {
@@ -338,7 +353,7 @@ export class Stage implements CameraHost {
 
   /**
    * Wipe all non-intrinsic content from the tree. A convenience over
-   * `tree.root.destroyChildren()`; the current cameras update as their nodes
+   * `tree.root.destroyChildren()`. The current cameras update as their nodes
    * detach (a scene rebuild should add and `makeCurrent()` its own camera).
    */
   clearScene(): void {
@@ -352,9 +367,9 @@ export class Stage implements CameraHost {
    */
   render(dt: number): void {
     // A GPU-backend error (often a validation error while bringing up WebGPU)
-    // throws synchronously from a device call and would otherwise re-throw every
-    // frame, pegging the tab. Halt this stage on the first fault and surface it
-    // once, rather than spinning.
+    // throws synchronously from a device call and would otherwise re-throw
+    // every frame, pegging the tab. Halt this stage on the first fault and
+    // surface it once, rather than spinning.
     if (this.#faulted) return
     try {
       this.#renderFrame(dt)
@@ -410,12 +425,12 @@ export class Stage implements CameraHost {
     const screen = this.#screenGfx
 
     // Readiness gate: pipelines warm up asynchronously (a microtask on WebGL2,
-    // longer on WebGPU). Skip the whole frame — no passes, no draws — until the
+    // longer on WebGPU). Skip the whole frame, no passes, no draws, until the
     // surface can render, rather than opening a pass with no pipelines.
     if (!screen.ready) return
 
     // Stand up the 3D pass when the world has 3D content or the 3D debug camera
-    // is active. `has3D` skips intrinsic nodes; a pure-2D stage never enables it.
+    // is active. `has3D` skips intrinsic nodes, a pure-2D stage never enables it.
     const cam3d: CameraView3D | null =
       debug?.activeCamera3dFor(this) ?? this.currentCamera3D
     const has3D = this.tree.has3D
@@ -499,7 +514,7 @@ export class Stage implements CameraHost {
       cam3d.setAspect(ph > 0 ? renderer.pixelSize.w / ph : 1)
       if (has3D && this.#meshRenderer && this.#meshRenderer.ready) {
         // World matrices were composed in the engine's transform pass (or the
-        // caller's) before render; just draw. Skipped until pipelines warm.
+        // caller's) before render, so this just draws. Skipped until pipelines warm.
         this.#meshRenderer.render(
           cam3d,
           this.tree.root,
@@ -596,7 +611,7 @@ export class Stage implements CameraHost {
 
   /**
    * Screen-space post-processing chain for this stage (chromatic aberration,
-   * vignette, custom {@link PostEffect}s). Created on first access; a stage that
+   * vignette, custom {@link PostEffect}s). Created on first access. A stage that
    * never touches it allocates nothing and keeps the direct present path.
    */
   get postProcess(): PostProcessPipeline {
@@ -607,8 +622,8 @@ export class Stage implements CameraHost {
   }
 
   /**
-   * Screen-space ambient occlusion for the 3D pass. Created on first access;
-   * enable it with `stage.ambientOcclusion.enabled = true`. A stage that never
+   * Screen-space ambient occlusion for the 3D pass. Created on first access.
+   * Enable it with `stage.ambientOcclusion.enabled = true`. A stage that never
    * touches it allocates nothing and runs no AO passes.
    */
   get ambientOcclusion(): AmbientOcclusion {
@@ -619,7 +634,7 @@ export class Stage implements CameraHost {
   }
 
   /**
-   * The AO controller only if already created, without constructing it — so a
+   * The AO controller only if already created, without constructing it, so a
    * debug panel can read its state each frame without warming AO pipelines on a
    * stage that never enabled it.
    */
@@ -640,7 +655,7 @@ export class Stage implements CameraHost {
     return this.#meshRenderer?.stats ?? null
   }
 
-  /** Which rendering backend this stage's device is. Read by the debug HUD. */
+  /** Which backend this stage's device is, `'webgpu'` or `'webgl2'`. */
   get backend(): import('./gfx/GfxDevice').GfxBackend {
     return this.#device.backend
   }
@@ -650,7 +665,11 @@ export class Stage implements CameraHost {
     return this.#device
   }
 
-  /** Per-frame GPU pipeline stats. Read by the debug HUD. */
+  /**
+   * Draw counts for the frame just rendered, reset at each `beginFrame`. The
+   * switch counts come from the device after redundant-call elision, so they
+   * reflect work actually done.
+   */
   get gpuStats(): {
     drawCalls: number
     programSwitches: number
@@ -712,7 +731,7 @@ export class Stage implements CameraHost {
     this.#debugLines?.retarget(this.#screenGfx.targetColor)
   }
 
-  /** Effective (post-clamp) MSAA sample count. */
+  /** MSAA sample count actually in use, after the driver clamp. */
   getMsaaSamples(): number {
     return this.#screenGfx.getSamples()
   }
@@ -743,6 +762,24 @@ export class Stage implements CameraHost {
     if (!marks) return
     performance.mark(`phase-${name}:end`)
     performance.measure(name, `phase-${name}:start`, `phase-${name}:end`)
+  }
+
+  /**
+   * Throw away every rasterized label so text is re-shaped next frame.
+   *
+   * For when a webfont finishes loading after text has already been drawn. The
+   * label atlas holds bitmaps rasterized with the fallback face, so they all
+   * have to go. Callers should also clear the measurement caches
+   * (`clearFontMetricsCache`, `clearTextLayoutCaches`), which hold fallback
+   * metrics and so mislay text rather than merely restyling it.
+   *
+   * This cannot fix a font string or a measurement captured once in a node's
+   * constructor. Loading fonts before the first frame is the real answer, and
+   * this is the degradation path.
+   */
+  invalidateText(): void {
+    this.#screenGfx.clearLabelCache()
+    this.tree.invalidateStatic()
   }
 
   /** Re-acquire the rendering context after a `webglcontextrestored` event. */
@@ -789,7 +826,7 @@ export class Stage implements CameraHost {
    * its scene isn't walked (`onUpdate` / `onFixedStep`), transforms aren't
    * propagated, and it isn't rendered. Flipping back to true resumes instantly
    * with no re-init or context churn. Primary stages stay active for their
-   * whole lifetime; a secondary stage (e.g. a pre-warmed demo stage) can park
+   * whole lifetime. A secondary stage (e.g. a pre-warmed demo stage) can park
    * at zero per-frame cost when idle.
    *
    * NOTE: physics worlds step from the engine's GLOBAL registry, independent of
@@ -805,6 +842,11 @@ export class Stage implements CameraHost {
     this.#active = value
   }
 
+  /**
+   * Tear the stage down. Input goes first so pointer capture clears before
+   * scene teardown would synthesise cancels through captured nodes, and the
+   * device goes last because the canvas listeners live on it.
+   */
   dispose(): void {
     if (this.#disposed) return
     this.#disposed = true

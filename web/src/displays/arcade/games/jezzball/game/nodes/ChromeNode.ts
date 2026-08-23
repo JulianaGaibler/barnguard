@@ -4,7 +4,7 @@
  * rounded "tab" pills, and four corner marks (a rotating "+" plus two hollow
  * squares). Every size below is a CSS-pixel value converted to world units via
  * `camera.strokeSpaceScale()` each frame, so it reads at a constant on-screen
- * size regardless of the canvas' actual resolution — matching how the original
+ * size regardless of the canvas' actual resolution, matching how the original
  * absolutely-positioned DOM version behaved.
  */
 import { Node2D, easings, type CameraView2D, type Gfx2D } from '@src/stargazer'
@@ -24,9 +24,20 @@ const TAB_RADIUS_PX = 12.8 // 0.8rem
 const TAB_INSET_FRAC = 0.15
 
 /**
- * Each corner's `+` free-runs on its own loop so all four don't snap in unison
- * — durations/delays (seconds) match the original CSS animation.
+ * Each corner's `+` free-runs on its own loop so all four don't snap in unison.
+ * Durations/delays (seconds) match the original CSS animation.
  */
+/**
+ * How far down the top corner marks reach, in the same px the constants above
+ * are written in.
+ *
+ * Exported so anything the game wants to put in a top corner can sit clear of
+ * them rather than under them. A tap target especially: the marks are drawn
+ * after the rest of the chrome, so they paint over anything placed there and
+ * hit-testing walks painter order back to front.
+ */
+export const CHROME_TOP_ROW_END_PX = PADDING_PX + PLUS_SIZE_PX
+
 const CORNERS = [
   { h: 'left', v: 'top', duration: 13, delay: 0 },
   { h: 'right', v: 'top', duration: 17, delay: 6 },
@@ -37,10 +48,10 @@ const CORNERS = [
 /**
  * The `+`'s rotation over one cycle: mostly still, with a quick quarter-turn
  * snap between holds (an 18%-hold/7%-turn split per quarter, four times a
- * cycle) — ported from the original `@keyframes jb-quarter`, whose keyframes
- * ease (the CSS default) rather than move linearly, hence `inOutCubic` on the
- * turn itself. A symmetric `+` looks identical at every 90° multiple, so the
- * only visible moment is the brief mid-turn flicker to an "X".
+ * cycle), matching the original `@keyframes jb-quarter`, whose keyframes ease
+ * (the CSS default) rather than move linearly, hence `inOutCubic` on the turn
+ * itself. A symmetric `+` looks identical at every 90° multiple, so the only
+ * visible moment is the brief mid-turn flicker to an "X".
  */
 function quarterTurnAngle(
   elapsed: number,

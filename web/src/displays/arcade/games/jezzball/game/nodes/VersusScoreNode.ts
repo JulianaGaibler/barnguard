@@ -1,12 +1,12 @@
 /**
- * A team's points readout in 2p — engine port of the `.vs__pts` block: a big
+ * A team's points readout in 2p, engine port of the `.vs__pts` block: a big
  * number over a small "PTS" label, both in the team's color, left-aligned. Two
  * `TextNode`s rather than one multi-line node, since the number and the label
  * render at different font sizes.
  */
 import { Node2D, TextNode } from '@src/stargazer'
+import { JEZZBALL_FONTS } from '../../fonts'
 
-const FONT_FAMILY = 'system-ui, sans-serif'
 const NUM_FONT_PX = 44.8 // 2.8rem
 const LABEL_FONT_PX = 12.8 // 0.8rem
 const LABEL_GAP_PX = 8 // space below the number, matching the original `.vs__pts` gap
@@ -18,7 +18,7 @@ export class VersusScoreNode extends Node2D {
     super('jb-versus-score')
     this.#numNode = new TextNode({
       text: '0',
-      fontFamily: FONT_FAMILY,
+      fontFamily: JEZZBALL_FONTS.text,
       fontWeight: 900,
       fontSize: NUM_FONT_PX,
       color,
@@ -28,7 +28,7 @@ export class VersusScoreNode extends Node2D {
     const labelNode = new TextNode({
       text: label,
       y: LABEL_GAP_PX,
-      fontFamily: FONT_FAMILY,
+      fontFamily: JEZZBALL_FONTS.text,
       fontWeight: 800,
       fontSize: LABEL_FONT_PX,
       color,

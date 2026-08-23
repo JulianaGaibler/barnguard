@@ -1,6 +1,6 @@
 /**
  * Public entry points for the JezzBall game engine layer. The Svelte component
- * builds boards and input through these; the pure grid/layout/collider modules
+ * builds boards and input through these. The pure grid/layout/collider modules
  * are imported directly where needed.
  */
 export { BoardController, LAYER_BALL, LAYER_SOLID } from './board'

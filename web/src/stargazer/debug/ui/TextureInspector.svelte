@@ -34,7 +34,7 @@
   let lastPoll = 0
 
   // Each render target (the screen, plus every Viewport2DNode) keeps its own
-  // texture caches; the active stage lists them via `textureSources`. The
+  // texture caches, and the active stage lists them via `textureSources`. The
   // dropdown picks which one to inspect. `'screen'` is always present.
   let sources = $state<TextureSource[]>([])
   let selectedSourceId = $state<string>('screen')
@@ -74,7 +74,7 @@
   }
 
   // Preview canvas for the selected label. Recomputed only when the selection
-  // changes (re-rasterizes on the CPU, no GPU readback); null otherwise.
+  // changes (re-rasterizes on the CPU, no GPU readback), and null otherwise.
   const labelPreview = $derived(
     selectedLabel !== null
       ? (activeInspector?.renderLabelPreview(selectedLabel) ?? null)
@@ -85,8 +85,8 @@
     return cap > 0 ? (used / cap) * 100 : 0
   }
 
-  // A 3D-model source is a plain image list — no atlas, no label cache. Real
-  // 2D sources always report a positive label capacity, so this discriminates.
+  // A 3D-model source is a plain image list with no atlas and no label cache.
+  // Real 2D sources always report a positive label capacity, so this discriminates.
   const imageOnly = $derived(snap !== null && snap.labelCap === 0)
 
   function shortText(t: string): string {
@@ -166,6 +166,31 @@
             ? 'warning'
             : 'default'}
         />
+        <DebugRow
+          label="Label page rows"
+          value={`${snap.labelPage.usedHeight} / ${snap.labelPage.size}`}
+          tone={snap.labelPage.usedHeight >= snap.labelPage.size * 0.9
+            ? 'warning'
+            : 'default'}
+        />
+        <ProgressBar
+          percentage={pct(snap.labelPage.usedHeight, snap.labelPage.size)}
+        />
+        <DebugRow
+          label="Label shelves / free spans"
+          value={`${snap.labelPage.shelfCount} / ${snap.labelPage.freeSpanCount}`}
+        />
+        <DebugRow label="Label evictions" value={snap.labelEvictions} />
+        <DebugRow
+          label="Label page wipes"
+          value={snap.labelPageWipes}
+          tone={snap.labelPageWipes > 0 ? 'warning' : 'default'}
+        />
+        <DebugRow
+          label="Labels clamped for size"
+          value={snap.labelScaleClamps}
+          tone={snap.labelScaleClamps > 0 ? 'warning' : 'default'}
+        />
         <DebugRow label="Per-source images" value={snap.perSource.length} />
       </DebugSection>
 
@@ -184,6 +209,26 @@
           </div>
         {:else}
           <p class="hint">Atlas not yet allocated.</p>
+        {/if}
+      </DebugSection>
+
+      <DebugSection
+        title={`Label page (${snap.labelPage.size}×${snap.labelPage.size})`}
+      >
+        {#if snap.labelPage.canvas}
+          <div class="preview">
+            <canvas
+              class="checker"
+              use:fitImage={{
+                source: snap.labelPage.canvas,
+                srcW: snap.labelPage.size,
+                srcH: snap.labelPage.size,
+                max: 260,
+              }}
+            ></canvas>
+          </div>
+        {:else}
+          <p class="hint">Label page not yet allocated.</p>
         {/if}
       </DebugSection>
 

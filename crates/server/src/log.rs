@@ -27,7 +27,7 @@ impl LogHub {
     }
 
     /// Append an entry (evicting the oldest past `cap`), broadcast it, and mirror
-    /// to `tracing`. Blocking lock; safe on the normal (non-panicking) path.
+    /// to `tracing`. Blocking lock, safe on the normal (non-panicking) path.
     pub fn push(&self, level: LogLevel, source: &str, message: impl Into<String>) {
         let entry = LogEntry {
             ts_ms: now_ms(),

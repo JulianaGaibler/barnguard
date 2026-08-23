@@ -8,7 +8,6 @@
  * grouping children. Subclass `Node2D` for anything custom.
  *
  * @module nodes
- * @category Nodes
  */
 export { Node2D } from '../scene/Node2D'
 export { ShapeNode } from '../nodes/ShapeNode'

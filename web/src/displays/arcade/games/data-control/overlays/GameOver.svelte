@@ -1,9 +1,9 @@
 <!--
-  End-of-run screen: the duo-card layout from the original game — a dark loss
+  End-of-run screen: the duo-card layout from the original game, a dark loss
   card with the reason-specific failure animation on the left, and the score +
   leaderboard entry on the right. The leaderboard flow mirrors the shared
   `GameOverPanel` (fetch, qualify, name entry, submit-on-exit) so it behaves
-  like the other arcade games; it's inlined here rather than reused so the two
+  like the other arcade games. It's inlined here rather than reused so the two
   cards can sit side by side.
 -->
 <script lang="ts">
@@ -31,7 +31,7 @@
 
   interface Props {
     reason: GameOverReason
-    /** Escape heading (radians); only meaningful for `'exitedGermany'`. */
+    /** Escape heading (radians). Only meaningful for `'exitedGermany'`. */
     escapeHeadingRad?: number
     score: number
     host: EngineHost

@@ -1,14 +1,14 @@
 <!--
   Reusable "How to play" modal: a horizontally-scrolling, center-snapping card
   carousel tuned for big touch screens. A single arcade-owned demo stage
-  (`demoStage`) renders whichever card is centered — its fixed canvas slots in
+  (`demoStage`) renders whichever card is centered. Its fixed canvas slots in
   over the center of the track while the cards scroll beneath it.
 
-  The centered card is found via an IntersectionObserver (max ratio); the scene
-  swap is committed on scroll settle (debounced) so flinging past several cards
-  doesn't thrash build/destroy. The canvas dims only while the centered card
-  differs from the one that's built — scrolling within (or back to) the current
-  card leaves the demo untouched.
+  The centered card is found via an IntersectionObserver (max ratio). The
+  scene swap is committed on scroll settle (debounced) so flinging past
+  several cards doesn't thrash build/destroy. The canvas dims only while the
+  centered card differs from the one that's built. Scrolling within (or back
+  to) the current card leaves the demo untouched.
 
   Screen-space (not camera-anchored): mounted by each game as a sibling of its
   `domAnchor` overlay wrapper so the demo canvas renders at true resolution.
@@ -38,7 +38,7 @@
   let slotEls = $state<HTMLDivElement[]>([])
   /** Card the observer reports as centered (drives dots + which demo to build). */
   let centeredIndex = $state(0)
-  /** Card whose demo is currently built; -1 until the first commit. */
+  /** Card whose demo is currently built, -1 until the first commit. */
   let committedIndex = $state(-1)
   /** Hide the canvas only while it's showing a card other than the centered one. */
   const dimmed = $derived(centeredIndex !== committedIndex)
@@ -69,7 +69,7 @@
   }
 
   function onScroll(): void {
-    // Rebuild only when the scroll settles on a different card; a nudge that
+    // Rebuild only when the scroll settles on a different card. A nudge that
     // lands back on the current card is a no-op (see `commit`'s guard).
     if (settleTimer) clearTimeout(settleTimer)
     settleTimer = setTimeout(() => {
@@ -205,7 +205,7 @@
     // Sit above the Overlay's full-screen scrim-dismiss button (which is
     // absolutely positioned, so it would otherwise paint over this static
     // content and swallow every click). Positioned + z-index keeps the card UI
-    // interactive; only taps outside it reach the dismiss backdrop.
+    // interactive. Only taps outside it reach the dismiss backdrop.
     position: relative
     z-index: 1
     max-width: 92vw

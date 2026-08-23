@@ -7,23 +7,20 @@
  *
  * The game state is mutated in place through `makeMove` / `unmakeMove` rather
  * than cloned, so a deep search allocates nothing per node. A depth-7 Connect
- * Four search visits tens of thousands of positions; cloning a board at each
+ * Four search visits tens of thousands of positions. Cloning a board at each
  * would churn the garbage collector and stutter on weaker devices.
  *
  * @module ai
- * @category AI
  */
 
 /**
  * A two-player, zero-sum game described for {@link searchBestMove}. `S` is the
- * mutable game state; `M` is a move.
+ * mutable game state, `M` is a move.
  *
  * The two players alternate. `evaluate` and the returned scores are always from
  * the point of view of the player whose turn it is in the given state (the
  * negamax convention), which is what lets one recursive routine serve both
  * players by negating scores as it descends.
- *
- * @category AI
  */
 export interface AdversarialGame<S, M> {
   /**
@@ -58,27 +55,19 @@ export interface AdversarialGame<S, M> {
   evaluate(state: S): number
 }
 
-/**
- * Tuning for a single {@link searchBestMove} call.
- *
- * @category AI
- */
+/** Tuning for a single {@link searchBestMove} call. */
 export interface SearchOptions {
   /** Plies to look ahead. `0` just evaluates the current position. */
   depth: number
   /**
    * Random source in `[0, 1)` used only to break ties between equally scored
    * moves, so the opponent doesn't always play the same game. Defaults to
-   * `Math.random`; pass a seeded generator for deterministic tests.
+   * `Math.random`. Pass a seeded generator for deterministic tests.
    */
   random?: () => number
 }
 
-/**
- * The chosen move and why.
- *
- * @category AI
- */
+/** The chosen move and why. */
 export interface SearchResult<M> {
   /** Best move found, or `null` when the position is terminal or has no moves. */
   move: M | null
@@ -96,7 +85,7 @@ const POS_INF = Infinity
  *
  * @example
  *   // A 3x3 tic-tac-toe adapter. The board is a 9-cell array (`0` empty,
- *   // `1`/`2` players); `turn` is the side to move.
+ *   // `1`/`2` players), `turn` is the side to move.
  *   import { searchBestMove, type AdversarialGame } from '@src/stargazer'
  *
  *   interface TTT {
@@ -218,7 +207,7 @@ function negamax<S, M>(
     game.unmakeMove(state, move)
     if (score > best) best = score
     if (best > alpha) alpha = best
-    if (alpha >= beta) break // opponent won't allow this line; prune
+    if (alpha >= beta) break // opponent won't allow this line, prune
   }
   return best
 }

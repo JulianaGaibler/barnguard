@@ -9,11 +9,7 @@
 import { Behavior } from '../scene/Behavior'
 import { PhysicsWorld, type PhysicsWorldConfig } from './PhysicsWorld'
 
-/**
- * Options for {@link PhysicsWorldBehavior}.
- *
- * @category Physics
- */
+/** Options for {@link PhysicsWorldBehavior}. */
 export interface PhysicsWorldBehaviorOptions {
   /** Tuning for a world created by the behavior. Ignored when `world` is set. */
   config?: PhysicsWorldConfig
@@ -38,12 +34,11 @@ export interface PhysicsWorldBehaviorOptions {
  * bodies before the node is attached to a scene. Registration with the engine
  * (which starts the fixed-step stepping and makes the world visible to the
  * debugger) happens when the node enters a scene. Removing the behavior or
- * destroying the node unregisters the world; a world the behavior created is
+ * destroying the node unregisters the world. A world the behavior created is
  * also cleared then. Reparenting the node does not tear the world down, so a
  * subtree can move without losing its bodies. A node detached from the scene
  * without being destroyed keeps its world registered and stepping.
  *
- * @category Physics
  * @example
  *   const arena = new Node2D('arena')
  *   const physics = arena.addBehavior(

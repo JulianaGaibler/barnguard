@@ -34,7 +34,7 @@ describe('unified scene tree', () => {
     a.add(b)
     b.add(c)
     c.ensureWorldTransform()
-    // C's world X is A.x + C.x = 110; the intervening 3D node contributes nothing.
+    // C's world X is A.x + C.x = 110. The intervening 3D node contributes nothing.
     expect(c.transform.world.e).toBeCloseTo(110, 5)
   })
 

@@ -16,7 +16,7 @@ export interface EyeNodeOptions {
   outlineBounds: Rect
   /**
    * Iris disc radius (world units). ~1/3 of the shortest eye axis reads
-   * "close-up cartoon eye"; smaller reads spooky-beady.
+   * "close-up cartoon eye", smaller reads spooky-beady.
    */
   irisRadius: number
   /**

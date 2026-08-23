@@ -17,13 +17,12 @@ export interface ChromaticAberrationOptions {
  * center, growing toward the edges, for a lens-fringe look. One fullscreen
  * pass.
  *
- * @category Render
  * @example
  *   engine.postProcess.add(new ChromaticAberration({ amount: 0.01 }))
  */
 export class ChromaticAberration implements PostEffect {
   enabled: boolean
-  /** Peak channel separation (uv units) at the corners; tweakable live. */
+  /** Peak channel separation (uv units) at the corners. Tweakable live. */
   amount: number
   readonly passes: readonly PostPass[]
 

@@ -33,11 +33,7 @@ import { DomTransformSync } from '../dom/DomTransformSync'
 import { AccessibilityTree } from '../a11y/AccessibilityTree'
 import type { LayoutRoot } from '../layout/LayoutRoot'
 
-/**
- * Construction options for {@link Engine}.
- *
- * @category Engine
- */
+/** Construction options for {@link Engine}. */
 export interface EngineOptions {
   canvas: HTMLCanvasElement
   /** Solid frame-clear color. Ignored when `transparent` is set. */
@@ -68,7 +64,7 @@ export interface EngineOptions {
   /** Initial 3D distance-fog settings. Off unless `enabled` is set. */
   fog?: FogOptions
   /**
-   * Attach a {@link PhysicsWorld} to the primary stage. `true` uses defaults;
+   * Attach a {@link PhysicsWorld} to the primary stage. `true` uses defaults,
    * pass a config to tune gravity, iterations, sleeping, etc. The fixed-step
    * loop drives it automatically. Secondary stages opt in via their own
    * `StageOptions.physics`. Default: no physics.
@@ -83,11 +79,9 @@ export interface EngineOptions {
 
 /**
  * A physics world the engine steps each fixed tick, together with the node that
- * anchors it in the scene. Stages register their own world; a
+ * anchors it in the scene. Stages register their own world, and a
  * `PhysicsWorldBehavior` registers one for its subtree. Enumerate them with
  * {@link Engine.physicsWorlds}.
- *
- * @category Physics
  */
 export interface RegisteredPhysicsWorld {
   /** The world being stepped. */
@@ -120,11 +114,19 @@ export interface RegisterPhysicsWorldOptions {
  * `renderer`, `tree`, and `currentCamera2D` getters forward to the primary
  * stage for convenience.
  *
- * @category Engine
+ * @example
+ *   // Reached through the host in normal use.
+ *   const engine = host.engine
+ *   engine.tree.root.add(node)
+ *   await engine.tween(node.transform, { x: 400 }, { duration: 0.5 })
+ *   const off = engine.onBeforeFrame((dt) => followCamera(dt))
  */
 export class Engine {
+  /** The shared clock. One rAF loop and one fixed step drive every stage. */
   readonly ticker: Ticker
+  /** Engine-level event bus. Primary-stage pointer events are forwarded here. */
   readonly events: Emitter<EngineEvents>
+  /** The primary stage's canvas. */
   readonly canvas: HTMLCanvasElement
   /** Live 3D rendering-quality settings, read by the renderer each frame. */
   readonly quality: RenderQuality
@@ -136,6 +138,7 @@ export class Engine {
    * getters delegate here.
    */
   readonly primaryStage: Stage
+  /** Drives every tween and wait, on every stage, off the shared ticker. */
   readonly animation: Animator
   /** MSAA sample count inherited by secondary stages. */
   readonly msaaSamples: number
@@ -146,6 +149,10 @@ export class Engine {
    */
   lastFrameWorkSec = 0
 
+  /**
+   * The debug controller, set by `createEngineHost` right after construction.
+   * `null` on an engine built directly.
+   */
   debug: DebugController | null = null
   /**
    * When true, wraps per-node `onUpdate` and `draw` in `performance.mark` /
@@ -186,7 +193,8 @@ export class Engine {
       physics: opts.physics,
       gpuDevice: opts.gpuDevice,
       onResize: (info) => {
-        // Only the primary stage's resize emits on the engine event bus.        // secondary stages resize silently.
+        // Only the primary stage's resize emits on the engine event bus.
+        // Secondary stages resize silently.
         this.events.emit('resize', {
           pixel: info.pixelSize,
           css: info.cssSize,
@@ -226,7 +234,7 @@ export class Engine {
 
     this.ticker.onFrame((dt) => this.#frame(dt))
     this.ticker.onFixedStep((fdt) => this.#fixedStep(fdt))
-    // Kiosk hygiene now lives on Stage, every canvas Stage owns gets it,
+    // Kiosk hygiene lives on Stage, so every canvas a Stage owns gets it,
     // including secondaries mounted from Svelte components.
   }
 
@@ -243,9 +251,9 @@ export class Engine {
 
   /**
    * Register a {@link PhysicsWorld} so the fixed-step loop steps it and the
-   * debug HUD can inspect it. Returns a function that unregisters the world;
-   * call it when the world goes away. Stages register their own world
-   * automatically; a `PhysicsWorldBehavior` calls this for its subtree.
+   * debug HUD can inspect it. Returns a function that unregisters the world.
+   * Call it when the world goes away. Stages register their own world
+   * automatically, and a `PhysicsWorldBehavior` calls this for its subtree.
    *
    * @example
    *   const world = new PhysicsWorld()
@@ -309,7 +317,7 @@ export class Engine {
   }
   /**
    * The primary stage's screen-space ambient occlusion for the 3D pass. Created
-   * on first access; enable with `engine.ambientOcclusion.enabled = true`.
+   * on first access. Enable with `engine.ambientOcclusion.enabled = true`.
    */
   get ambientOcclusion(): AmbientOcclusion {
     return this.primaryStage.ambientOcclusion
@@ -384,6 +392,20 @@ export class Engine {
   }
 
   /**
+   * Re-shape all canvas text on every stage, dropping cached label rasters.
+   *
+   * Call this when a webfont finishes loading after the engine has already
+   * drawn: rasterized labels are keyed by font string, not by load state, so
+   * they keep whatever face was available at first draw. Pair it with
+   * `clearFontMetricsCache()` and `clearTextLayoutCaches()`, which hold the
+   * measurements taken against that face.
+   */
+  invalidateText(): void {
+    this.primaryStage.invalidateText()
+    for (const stage of this.#stageManager.stages) stage.invalidateText()
+  }
+
+  /**
    * Attach a secondary `Stage`. Scene/camera/layers are independent, ticker and
    * animator are shared so tweens stay in sync. Throws if `canvas` is already
    * attached.
@@ -417,6 +439,7 @@ export class Engine {
     }
   }
 
+  /** Start the frame loop. The first call emits `ready`. */
   start(): void {
     if (this.#disposed) return
     this.ticker.start()
@@ -428,11 +451,17 @@ export class Engine {
     }
   }
 
+  /** Halt the frame loop. The scene and GPU resources stay intact. */
   stop(): void {
     if (this.#disposed) return
     this.ticker.stop()
   }
 
+  /**
+   * Tear the engine down: stop the loop, reject every pending tween and wait
+   * with `AbortError`, then dispose the secondary stages before the primary.
+   * Idempotent.
+   */
   destroy(): void {
     if (this.#disposed) return
     this.#disposed = true
@@ -493,12 +522,12 @@ export class Engine {
 
     // 4.5. Layout: re-measure/arrange any dirty layout roots BEFORE transform
     //      propagation so arranged positions land this frame. Runs even while
-    //      paused (a resize during a debug freeze still reflows); each root is a
+    //      paused (a resize during a debug freeze still reflows). Each root is a
     //      no-op unless dirty, and the set is empty when no layout is in use.
     for (const root of this.#layoutRoots) root._runIfDirty()
 
     // 5. Transform propagation, every active stage, always. Idempotent when
-    //    nothing changed; needed even while paused so debug-camera pans reflect
+    //    nothing changed. Needed even while paused so debug-camera pans reflect
     //    in the primary render output. Inactive stages are skipped (nothing
     //    mutated them, so their world matrices are already correct).
     this.primaryStage.updateTransforms()
@@ -530,7 +559,7 @@ export class Engine {
 
   #walkUpdate(stage: Stage, dt: number): void {
     const marks = this.perfMarks
-    // One walk over the unified tree; every field read (`_hasUpdateWork`,
+    // One walk over the unified tree. Every field read (`_hasUpdateWork`,
     // `onUpdate`, `behaviors`) is on the common `Node` base, so 2D and 3D nodes
     // update through the same visitor.
     const visit = (node: Node): void => {
@@ -589,7 +618,7 @@ export class Engine {
     if (this.#_paused) return
     // Step every registered world before any scene walk so game `onFixedStep`
     // hooks and behaviors observe post-step body state this tick. Iterate a
-    // snapshot: a collision callback may destroy a node, which unregisters its
+    // snapshot. A collision callback may destroy a node, which unregisters its
     // world mid-step, and mutating the live Set while iterating would skip
     // entries.
     for (const entry of [...this.#physicsWorlds]) entry.world.step(fdt)

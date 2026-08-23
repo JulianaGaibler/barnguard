@@ -1,13 +1,13 @@
 // Ambient-occlusion G-buffer prepass. Draws opaque geometry and packs, per
 // pixel: the view-space normal (octahedral, RG) and 16-bit LINEAR view depth
 // (BA). Linear depth (not hyperbolic window depth) keeps precision uniform so
-// reconstructed neighbour positions don't jitter into self-occlusion; a stored
+// reconstructed neighbour positions don't jitter into self-occlusion. A stored
 // normal (vs one reconstructed from depth) stays accurate on flat/grazing
 // faces. A plain depth attachment resolves visibility but is never sampled
 // (naga can't cross-compile a depth-texture read to WebGL2 GLSL). Single-sample,
 // before the main MSAA pass.
 //
-// Bindings: a_position (0) + a_normal (1); frame block (view-projection + view +
+// Bindings: a_position (0) + a_normal (1), frame block (view-projection + view +
 // near/far) at CAMERA3D_UBO_BINDING (1) group 0; per-object block (model) at
 // MESH_OBJECT_UBO_BINDING (5) group 1.
 
@@ -59,7 +59,7 @@ fn vs_main(
   var out: VOut;
   let world = obj.model * vec4<f32>(a_position, 1.0);
   out.pos = frame.viewProj * world;
-  // View-space normal (exact for uniform scale + rotation; a slight skew under
+  // View-space normal (exact for uniform scale + rotation, with a slight skew under
   // non-uniform scale, acceptable for AO).
   out.viewNormal = (frame.view * obj.model * vec4<f32>(a_normal, 0.0)).xyz;
   out.viewZ = (frame.view * world).z;

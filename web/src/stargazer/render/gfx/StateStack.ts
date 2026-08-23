@@ -7,7 +7,7 @@ import type { GfxBlend } from './Gfx2D'
 /**
  * An analytic clip shape resolved to device px (a snapshot of the shape under
  * the transform active when `setClip` ran). `kind` 1 = circle, 2 =
- * rounded-rect. The renderer feeds these fields to the shared clip UBO; the
+ * rounded-rect. The renderer feeds these fields to the shared clip UBO, and the
  * fragment stage evaluates an SDF against them. Reference identity drives batch
  * breaks, so a fresh object per `setClip` is intentional.
  */

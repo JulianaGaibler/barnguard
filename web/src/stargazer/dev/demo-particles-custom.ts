@@ -20,10 +20,11 @@ const MIN_SPEED_FRAC = 0.02
 /**
  * `VectorParticleNode` showcase: a burst of mixed triangle/line pieces, drawn
  * via per-particle `gfx.fillConvexPoly`/`strokeLine` rather than a baked
- * sprite. Click to spawn a self-destroying burst (despawns + `autoDestroy` once
- * every piece has settled); shift-click for a permanent variant (no
- * `shouldDespawn` override) that lingers until "reset" clears the layer —
- * demonstrating both lifecycle modes from the vector-particles guide.
+ * sprite. Click spawns a self-destroying burst that despawns and calls
+ * `autoDestroy` once every piece has settled. Shift-click spawns a permanent
+ * variant, with no `shouldDespawn` override, that lingers until "r" clears the
+ * layer. The two variants cover both lifecycle modes from the vector-particles
+ * guide.
  */
 class ShrapnelBurst extends VectorParticleNode {
   readonly #spin: Float32Array

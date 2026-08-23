@@ -1,6 +1,7 @@
 //! Server-side data types / DTOs. Everything serialized to the web client uses
-//! `camelCase` field names; enum string values are `snake_case` (e.g.
-//! `"no_media"`, `"awaiting_removal"`); the TS client matches those literals.
+//! `camelCase` field names. Enum string values are `snake_case` (e.g.
+//! `"no_media"`, `"awaiting_removal"`), and the TS client matches those
+//! literals.
 
 use printer_driver::PrinterState;
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
-
 
 /// Milliseconds since the Unix epoch. Used for job timestamps + mock filenames.
 pub fn now_ms() -> u64 {
@@ -104,7 +104,7 @@ pub struct PrinterStatus {
     pub serial: Option<String>,
     pub backend: String,
     pub last_seen_ms: u64,
-    /// When the printer first became unreachable (epoch ms); `None` while
+    /// When the printer first became unreachable (epoch ms), or `None` while
     /// reachable. Lets the UI show "unreachable for Xm".
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unreachable_since_ms: Option<u64>,
@@ -180,11 +180,11 @@ pub struct LogEntry {
     pub message: String,
 }
 
-/// Client-facing daemon configuration pushed to the web app (SSE `config` event
-/// + `GET /api/printer/config`). Deliberately separate from the on-disk
-/// [`crate::config::ClientCfg`]: TOML deserializes snake_case, but everything
-/// sent to the browser is `camelCase` (`{ "labelUrl": "..." }`), matching the
-/// other DTOs here.
+/// Client-facing daemon configuration pushed to the web app over the SSE
+/// `config` event and `GET /api/printer/config`. Deliberately separate from the
+/// on-disk type [`crate::config::ClientCfg`] because TOML deserializes
+/// snake_case, while everything sent to the browser is `camelCase`
+/// (`{ "labelUrl": "..." }`), matching the other DTOs here.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientConfig {
@@ -195,6 +195,12 @@ pub struct ClientConfig {
     /// thus superseding the `config.toml` value. Lets the UI show the state and
     /// offer a reset.
     pub label_url_overridden: bool,
+    /// Booth latitude in degrees, north positive.
+    pub latitude: f64,
+    /// Booth longitude in degrees, east positive.
+    pub longitude: f64,
+    /// IANA zone name for the booth.
+    pub timezone: String,
 }
 
 /// Events broadcast to SSE subscribers.
@@ -214,7 +220,7 @@ pub enum ServerEvent {
 // Web-facing state & game log
 // ---------------------------------------------------------------------------
 
-/// Stable id for the Stallwächter display; used as the `display` tag on
+/// Stable id for the Stallwächter display. Used as the `display` tag on
 /// records + high scores. Future displays get their own constants alongside.
 pub const DISPLAY_STALLWAECHTER: &str = "stallwaechter";
 
@@ -240,8 +246,8 @@ impl fmt::Display for GameEndReason {
 }
 
 /// Display-specific detail payload. Envelope fields (id/ts/score/duration) live
-/// on [`GameRecord`]; anything only meaningful to one display goes here. Tagged
-/// by `display` on the wire and in `games.json` — that discriminator is
+/// on [`GameRecord`]. Anything only meaningful to one display goes here. Tagged
+/// by `display` on the wire and in `games.json`. That discriminator is
 /// authoritative and matches the `?display=` URL parameter on the web side.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
@@ -262,12 +268,12 @@ impl GameDetails {
 }
 
 /// Arcade-specific game details. `game_id` is the arcade `GameMeta.id` (e.g.
-/// `"jezzball"`, `"connect-four"`, `"orbo"`) — an open string, not a closed
+/// `"jezzball"`, `"connect-four"`, `"orbo"`), an open string, not a closed
 /// enum, so a new arcade game starts logging with no server code change
 /// (mirrors [`LeaderboardEntry::display`] below). `score`'s meaning is
-/// game-specific (points for Jezzball; the winning side's round-win streak
+/// game-specific (points for Jezzball, the winning side's round-win streak
 /// for the round-based games) and is only ever compared within the same
-/// `game_id` — see [`ArcadeHighScores`].
+/// `game_id`. See [`ArcadeHighScores`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArcadeDetails {
@@ -281,9 +287,9 @@ pub struct ArcadeDetails {
     /// True if this score was the best for its `game_id` at the moment it was
     /// recorded.
     pub was_game_high: bool,
-    /// The name the player saved to the leaderboard for this run, if any —
+    /// The name the player saved to the leaderboard for this run, if any.
     /// `None` when they skipped name entry or the score didn't qualify. Purely
-    /// an echo for attendant visibility; the leaderboard entry itself is the
+    /// an echo for attendant visibility. The leaderboard entry itself is the
     /// separate `LeaderboardEntry` this name was actually submitted to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub player_name: Option<String>,
@@ -308,7 +314,7 @@ pub struct StallwaechterDetails {
 }
 
 /// A single finished game. Persisted in `games.json` (newest last). Envelope
-/// fields are shared by every display; display-specific fields live inside
+/// fields are shared by every display. Display-specific fields live inside
 /// `details` (flattened into the top-level JSON object next to a `display`
 /// discriminator).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -341,7 +347,7 @@ pub struct NewGame {
 }
 
 /// Same discriminator as [`GameDetails`], but with the high-score flags left
-/// off — the server fills them in.
+/// off. The server fills them in.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum NewGameDetails {
@@ -386,8 +392,7 @@ impl NewGame {
                     panic!("prev high scores variant didn't match Stallwaechter details")
                 };
                 let was_overall_high = score > s.overall;
-                let was_state_high =
-                    score > s.by_state.get(&d.state_id).copied().unwrap_or(0);
+                let was_state_high = score > s.by_state.get(&d.state_id).copied().unwrap_or(0);
                 GameDetails::Stallwaechter(StallwaechterDetails {
                     state_id: d.state_id,
                     reason: d.reason,
@@ -441,7 +446,7 @@ impl DisplayHighScores {
     }
 
     /// Recompute from a slice of records. Only records whose `display_id()`
-    /// matches `display` contribute; the rest are silently skipped, so
+    /// matches `display` contribute. The rest are silently skipped, so
     /// callers can pass the whole log without prefiltering.
     pub fn from_games(display: &str, games: &[GameRecord]) -> Self {
         match display {
@@ -459,10 +464,7 @@ impl DisplayHighScores {
                         }
                     }
                 }
-                DisplayHighScores::Stallwaechter(StallwaechterHighScores {
-                    overall,
-                    by_state,
-                })
+                DisplayHighScores::Stallwaechter(StallwaechterHighScores { overall, by_state })
             }
             DISPLAY_ARCADE => {
                 let mut by_game: HashMap<String, u32> = HashMap::new();
@@ -488,9 +490,9 @@ pub struct StallwaechterHighScores {
     pub by_state: HashMap<String, u32>,
 }
 
-/// Best score per arcade `game_id`. No `overall` field — Jezzball's points
-/// and the other games' round-win streaks aren't comparable, so there's no
-/// meaningful arcade-wide best.
+/// Best score per arcade `game_id`. There is no `overall` field. Jezzball's
+/// points and the other games' round-win streaks aren't comparable, so there's
+/// no meaningful arcade-wide best.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArcadeHighScores {
@@ -498,7 +500,7 @@ pub struct ArcadeHighScores {
 }
 
 // ---------------------------------------------------------------------------
-// Leaderboard — generic, per-`display` (arcade game id), one entry per name.
+// Leaderboard: generic, per-`display` (arcade game id), one entry per name.
 // ---------------------------------------------------------------------------
 //
 // Unlike `GameDetails`/`NewGameDetails` above, `display` here is an open
@@ -506,7 +508,7 @@ pub struct ArcadeHighScores {
 // scores with no backend code change, just its own id.
 
 /// A single leaderboard row, persisted in `leaderboard.json`. Only the
-/// best score per `(display, name)` is ever kept — see
+/// best score per `(display, name)` is ever kept. See
 /// [`crate::store::LeaderboardController::submit`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -515,7 +517,7 @@ pub struct LeaderboardEntry {
     pub ts_ms: u64,
     pub display: String,
     /// Already normalized (trimmed, lowercased, truncated to 6 chars) by the
-    /// time it's stored — see `NewLeaderboardEntry::normalized_name`.
+    /// time it's stored. See `NewLeaderboardEntry::normalized_name`.
     pub name: String,
     pub score: u32,
 }
@@ -644,7 +646,8 @@ mod tests {
     fn arcade_high_scores_are_grouped_per_game_and_dont_mix() {
         let games = vec![
             arcade_new("jezzball", 4200).into_record(&DisplayHighScores::empty_for(DISPLAY_ARCADE)),
-            arcade_new("connect-four", 3).into_record(&DisplayHighScores::empty_for(DISPLAY_ARCADE)),
+            arcade_new("connect-four", 3)
+                .into_record(&DisplayHighScores::empty_for(DISPLAY_ARCADE)),
         ];
         let DisplayHighScores::Arcade(hs) = DisplayHighScores::from_games(DISPLAY_ARCADE, &games)
         else {
@@ -686,11 +689,14 @@ mod tests {
         let json = serde_json::to_string(&ClientConfig {
             label_url: "mzl.la/enterprise".into(),
             label_url_overridden: false,
+            latitude: 52.52,
+            longitude: 13.405,
+            timezone: "Europe/Berlin".into(),
         })
         .unwrap();
         assert_eq!(
             json,
-            r#"{"labelUrl":"mzl.la/enterprise","labelUrlOverridden":false}"#
+            r#"{"labelUrl":"mzl.la/enterprise","labelUrlOverridden":false,"latitude":52.52,"longitude":13.405,"timezone":"Europe/Berlin"}"#
         );
     }
 

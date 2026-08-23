@@ -4,11 +4,10 @@
  * Constructed and updated only while the debug HUD is active, the plan's
  * zero-overhead-when-off contract keeps this out of the hot path in
  * production.
- *
- * @category Debug
  */
 export class FrameStats {
   readonly #buf: Float32Array
+  /** Samples held before the oldest is overwritten. */
   readonly capacity: number
   #cursor = 0
   #filled = 0
@@ -20,17 +19,20 @@ export class FrameStats {
     this.#sortScratch = new Float32Array(capacity)
   }
 
+  /** Record one frame delta, overwriting the oldest sample once full. */
   push(dt: number): void {
     this.#buf[this.#cursor] = dt
     this.#cursor = (this.#cursor + 1) % this.capacity
     if (this.#filled < this.capacity) this.#filled++
   }
 
+  /** Drop every sample. */
   clear(): void {
     this.#cursor = 0
     this.#filled = 0
   }
 
+  /** Samples currently held, up to {@link FrameStats.capacity}. */
   get count(): number {
     return this.#filled
   }
@@ -63,7 +65,7 @@ export class FrameStats {
     const n = this.#filled
     if (n === 0) return { p50: 0, p95: 0, p99: 0, max: 0, count: 0 }
     // Copy into a scratch typed array and sort. For n = 300 this is trivially
-    // fast; we allocate no per-call arrays.
+    // fast, and it allocates no per-call arrays.
     for (let i = 0; i < n; i++) this.#sortScratch[i] = this.#buf[i]
     // Sort only the filled prefix.
     const slice = this.#sortScratch.subarray(0, n).sort()

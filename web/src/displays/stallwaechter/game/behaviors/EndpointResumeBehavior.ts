@@ -41,7 +41,7 @@ export class EndpointResumeBehavior extends PointerBehavior {
 
   protected handlers(): PointerHandlers {
     return {
-      singlePointer: true, // one finger owns the drag; ignore extra touches
+      singlePointer: true, // one finger owns the drag, ignore extra touches
       down: (e) => this.#handleDown(e),
       move: (e) => this.#handleMove(e),
       up: (e) => this.#handleUp(e),

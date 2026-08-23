@@ -33,7 +33,7 @@ const DEFAULT_TOUCH_SLOP_SCREEN_PX = 30
  * Multi-touch input for one interactive `Stage`, reached as `stage.input` (or
  * `engine.input` for the primary stage). Wire pointer handling on a node
  * (`shape.hitEnabled = true`, `shape.onPointerDown = ...`) rather than going
- * through this class directly; see the input guide. `pointers` and the touch
+ * through this class directly, see the input guide. `pointers` and the touch
  * slop settings are the parts most game code touches here.
  *
  * For engine developers: this owns the DOM `PointerEvent` listeners on the
@@ -42,11 +42,10 @@ const DEFAULT_TOUCH_SLOP_SCREEN_PX = 30
  * capture the topmost `hitEnabled` node, and re-projects every active pointer's
  * `world` at the start of each frame, emitting a synthetic `pointerMove` when a
  * camera animation has drifted the world coord under a still finger. It emits
- * `pointerDown/Move/Up/Cancel` on `stage.events`; the primary stage's events
+ * `pointerDown/Move/Up/Cancel` on `stage.events`. The primary stage's events
  * are also forwarded to `engine.events` by the `Engine` constructor, but
  * secondaries stay isolated.
  *
- * @category Input
  * @example
  *   for (const p of engine.input.pointers.values()) {
  *     if (p.capturedBy === shape) drawDebugDot(p.world)
@@ -91,7 +90,7 @@ export class InputSystem {
 
   /**
    * Camera used for world↔screen conversion. When the debug HUD has picked this
-   * stage AND the debug camera is toggled on, that camera drives; else the
+   * stage AND the debug camera is toggled on, that camera drives, else the
    * stage's own game camera. Recomputed on every access so pan-under-
    * a-still-finger stays glued during debug camera motion.
    */
@@ -115,9 +114,9 @@ export class InputSystem {
 
   /**
    * Hit-test the 3D world for a pointer at canvas-CSS `(sx, sy)`: convert to
-   * NDC (full-canvas — the 3D camera fills the canvas, unlike the letterboxed
-   * 2D camera), cast a ray, and return the nearest hit-enabled mesh, or
-   * `null`.
+   * NDC (full-canvas, since the 3D camera fills the canvas unlike the
+   * letterboxed 2D camera), cast a ray, and return the nearest hit-enabled
+   * mesh, or `null`.
    */
   #pick3d(sx: number, sy: number): PointerTarget | null {
     if (!this.#stage.tree.has3D) return null
@@ -252,15 +251,15 @@ export class InputSystem {
     try {
       this.#canvas.setPointerCapture(e.pointerId)
     } catch {
-      // Some browsers throw for touch pointers under specific conditions;
-      // we fall back gracefully, global window listeners aren't wired
+      // Some browsers throw for touch pointers under specific conditions.
+      // We fall back gracefully, global window listeners aren't wired
       // (would require broader refactor), but capture-less operation still
       // works if the pointer stays over the canvas.
     }
 
     // Node-level hit-test in world coords through the ACTIVE camera on the
-    // owning stage's scene. The 2D overlay wins over 3D (it composites on top);
-    // only when nothing 2D is hit do we ray-pick the 3D world.
+    // owning stage's scene. The 2D overlay wins over 3D (it composites on top),
+    // and only when nothing 2D is hit do we ray-pick the 3D world.
     const hit: PointerTarget | null =
       findHitNode(
         this.#stage.tree.root,

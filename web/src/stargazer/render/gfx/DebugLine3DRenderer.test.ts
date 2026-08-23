@@ -35,7 +35,7 @@ describe('DebugLine3DRenderer', () => {
     const lines = device.draws.filter((d) => d.kind === 'lines')
     expect(lines).toHaveLength(1)
     expect(lines[0].count).toBe(24)
-    // Occluded lines depth-test; neither variant writes depth.
+    // Occluded lines depth-test, and neither variant writes depth.
     expect(depthTest(lines[0].pipeline)).toBe(true)
     expect(
       (lines[0].pipeline as { desc: PipelineDesc }).desc.depth!.write,

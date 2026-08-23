@@ -9,10 +9,14 @@
 2. input.beforeFrame()       reproject pointer world coords, emit synthetic moves
 3. animation.tick(dt)        advance tweens and waits
 4. update pass               walk each stage's tree, call node + behavior onUpdate
-5. transform propagation     each stage: DFS, compose parent × local into world
-6. render                    each stage: static blit, above-static, dynamic
-7. events.emit('frame', ...) external observers, once per frame
+5. layout pass               re-measure and arrange any dirty LayoutRoot
+6. transform propagation     each stage: DFS, compose parent x local into world
+7. render                    each stage: 3D pass, then the three 2D layers, then post-processing
+8. events.emit('frame', ...) external observers, once per frame
 ```
+
+Steps 3 and 4 are skipped while `engine.setPaused(true)` holds. Everything else
+runs, so a debug camera stays live through a freeze and a resize still reflows.
 
 The order matters. Camera-moving subsystems run before input reprojection, so a panning debug camera doesn't drag the pointer state behind by a frame. Input reprojection runs before the update pass, so behaviors read fresh pointer world coords.
 
@@ -26,13 +30,19 @@ const off = engine.onBeforeFrame((dt) => {
 // off() to unregister
 ```
 
-`Ticker` also runs a fixed inner step (120 Hz by default, set via `EngineHostOptions.fixedStepHz`). Behaviors subscribe through `Behavior.onFixedStep` for anything that needs determinism, such as collision or physics integration. The fixed step consumes a time accumulator between rAF frames, capped per frame so a large `dt` after a stall can't spiral. It runs on the primary stage only; secondary stages don't participate.
+`Ticker` also runs a fixed inner step (120 Hz by default, set via `EngineHostOptions.fixedStepHz`). Behaviors subscribe through `Behavior.onFixedStep` for anything that needs determinism, such as collision or physics integration. Every registered physics world steps first, then each active stage's tree gets its `onFixedStep` walk. The fixed step consumes a time accumulator between rAF frames, capped per frame so a large `dt` after a stall can't spiral.
+
+Read `ticker.fixedAlpha` inside a render-time draw to interpolate between the last two fixed steps.
 
 ## Rendering
 
-Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. `GpuGfx` batches the draw programs, does MSAA, and clips two ways: an analytic circle/rounded-rect (`setClip`, evaluated as an SDF in every 2D program's fragment) and an arbitrary bitmap mask (`setClipMask`, only the fills). `?msaa=N` picks the sample count, clamped to the driver's `MAX_SAMPLES`. `GfxDevice` is the seam `GpuGfx` draws through, with WebGL2 and WebGPU implementations behind it, thin enough that facade-level code never changes between them.
+Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. `GpuGfx` implements it as a record-and-submit batcher: draws append into per-program ring buffers, a change of program, texture, blend mode, or clip carves off a draw run, and the whole run list uploads once and replays in painter order at frame end. Alpha, color, and transform fold into per-instance data and never break a batch. See [Drawing](/guides/drawing).
 
-A stage with 3D content runs a depth-tested 3D pass first (`MeshRenderer`, drawing `Node3D` meshes and `Viewport2DNode` quads through the same `GfxDevice` seam), then resets device state to the 2D baseline and composites the painter-order 2D layers on top. The offscreen target grows a depth attachment the first time a stage hosts 3D and keeps it; a pure-2D stage never allocates one. See [3D](/guides/3d).
+It clips two ways: an analytic circle or rounded rect (`setClip`, evaluated as a signed distance field in every 2D program's fragment stage) and an arbitrary bitmap mask (`setClipMask`, fills only). `?msaa=N` picks the sample count, clamped to the driver maximum.
+
+`GfxDevice` is the seam `GpuGfx` draws through. It is modelled on WebGPU semantics (immutable pipelines, render passes with load and store ops, bind groups, fully explicit draws), so the WebGPU backend implements it directly and the WebGL2 backend emulates it. Facade-level code never changes between them. Shaders are authored in WGSL, and the GLSL the WebGL2 backend needs is generated from it, so a `*.gen.*.glsl` file is never hand-edited.
+
+A stage with 3D content runs a depth-tested 3D pass first (`MeshRenderer`, drawing `Node3D` meshes and `Viewport2DNode` quads through the same `GfxDevice` seam), then resets device state to the 2D baseline and composites the painter-order 2D layers on top. The offscreen target grows a depth attachment the first time a stage hosts 3D and keeps it. A pure-2D stage never allocates one. See [3D](/guides/3d).
 
 Cross-cutting facade rules (per-call styles, absolute alpha, pre-resolved stroke widths) are documented on the `Gfx2D` interface.
 
@@ -44,9 +54,9 @@ There are three coordinate spaces:
 - **Screen (CSS px).** Position on the visible canvas element. `InputSystem` reads these from the pointer event, and the camera converts between screen and world via `worldToScreen` / `screenToWorld`.
 - **Device px.** Physical pixels. `Renderer` multiplies by `devicePixelRatio` and applies that as the baseline transform. Game code never sees device px.
 
-`Camera` fits its world `viewport` rect into the canvas at a uniform scale. Canvas area outside the fitted region shows the clear color, so there are no letterbox bars and no distortion; when the canvas aspect doesn't match the viewport, the extra space sits on the sides or the top and bottom. Resizing reflows automatically.
+`Camera` fits its world `viewport` rect into the canvas at a uniform scale. Canvas area outside the fitted region shows the clear color, so there are no letterbox bars and no distortion. When the canvas aspect doesn't match the viewport, the extra space sits on the sides or the top and bottom. Resizing reflows automatically.
 
-Convert between the two spaces through the camera. Game code that reads a DOM pointer coord maps it to world; code that positions an HTML element maps the other way:
+Convert between the two spaces through the camera. Game code that reads a DOM pointer coord maps it to world. Code that positions an HTML element maps the other way:
 
 ```ts
 const world = engine.currentCamera2D.screenToWorld(cssX, cssY) // CSS px → world
@@ -62,19 +72,19 @@ Both take an optional `out: Vec2` to avoid allocating in a per-frame loop.
 
 ## Stages
 
-A `Stage` bundles what varies per canvas: `Renderer`, `Scene`, `Camera`, `Layers`, a `ResizeObserver`, and the render pipeline that targets it. `Engine` owns a `primaryStage`; `engine.renderer` / `engine.tree` / `engine.currentCamera2D` / `engine.layers` are getters onto it.
+A `Stage` bundles what varies per canvas: `Renderer`, `Scene`, `Camera`, `Layers`, a `ResizeObserver`, and the render pipeline that targets it. `Engine` owns a `primaryStage`. `engine.renderer`, `engine.tree`, `engine.currentCamera2D`, and `engine.layers` are getters onto it.
 
-More stages attach via `engine.attachStage(canvas, opts)` and detach via `engine.detachStage(stage)`. Each has its own scene tree, camera, and static-layer cache; nothing bleeds between stages.
+More stages attach via `engine.attachStage(canvas, opts)` and detach via `engine.detachStage(stage)`. Each has its own scene tree, cameras, and render target. Nothing bleeds between stages.
 
-Secondary stages share the `Ticker` (one rAF loop drives every stage), the `Animator` (`engine.animation.cancelAll()` catches tweens on any stage), and the pause flag (`engine.setPaused(true)` freezes every update pass at once). They do not get an `InputSystem` unless constructed with `interactive: true`, and `onFixedStep` runs on the primary scene only. See [Stages](/guides/stages).
+Secondary stages share the `Ticker` (one rAF loop drives every stage), the `Animator` (`engine.animation.cancelAll()` catches tweens on any stage), and the pause flag (`engine.setPaused(true)` freezes every update pass at once). They do not get an `InputSystem` unless constructed with `interactive: true`. A stage with `active` set to false is skipped entirely, so a parked stage costs nothing per frame. See [Stages](/guides/stages).
 
 ## The scene graph
 
 `SceneTree` owns one root (a `GroupNode`) holding both 2D and 3D nodes. Every 2D renderable is a `Node2D` subclass (`ShapeNode`, `Path2DNode`, `PolylineNode`, `TextNode`, `ParticleEmitterNode`, `Node2D`). Nodes compose spatially through their `transform` as parent world matrix × child local matrix.
 
-`Node2D` (2D) and `Node3D` (3D) share a non-spatial `Node` base that owns children, behaviors, the abort/event lifecycle, and the tween/wait/loop helpers, and both live in the **one** `SceneTree`. Each keeps its own transform type and world composition (2×3 affine for 2D, 4×4 for 3D), composed from its nearest same-`kind` ancestor; render passes bucket the single tree walk by `node.kind`. See [3D](/guides/3d).
+`Node2D` (2D) and `Node3D` (3D) share a non-spatial `Node` base that owns children, behaviors, the abort/event lifecycle, and the tween/wait/loop helpers, and both live in the **one** `SceneTree`. Each keeps its own transform type and world composition (2×3 affine for 2D, 4×4 for 3D), composed from its nearest same-`kind` ancestor. Render passes bucket the single tree walk by `node.kind`. See [3D](/guides/3d).
 
-`Behavior` objects attach game logic to nodes, with optional `onAttach`, `onDetach`, `onUpdate(dt)`, and `onFixedStep(fixedDt)` hooks. Multiple behaviors can share a node; `node.getBehavior<T>(Ctor)` and `getBehaviors<T>(Ctor)` look them up by class.
+`Behavior` objects attach game logic to nodes, with optional `onAttach`, `onDetach`, `onUpdate(dt)`, and `onFixedStep(fixedDt)` hooks. Multiple behaviors can share a node. `node.getBehavior<T>(Ctor)` and `getBehaviors<T>(Ctor)` look them up by class.
 
 Every node owns an `AbortController`. `node.destroy()` aborts the signal before recursing into children, so pending `node.tween(...)`, `node.wait(...)`, and `node.animate(...)` promises reject with `AbortError` and clean up. See [Animation](/guides/animation).
 
@@ -84,22 +94,22 @@ Details in [Scene graph](/guides/scene).
 
 Each `Node2D` has a `renderLayer`:
 
-- `'static'`, drawn first each frame. Use it for content that changes rarely, such as a background or a map.
-- `'above-static'`, drawn per frame between the static and dynamic passes. The place to promote a static node that is temporarily animating.
-- `'dynamic'` (default), drawn per frame on top.
+- `'static'`, drawn first. Backgrounds and maps.
+- `'above-static'`, drawn between the other two.
+- `'dynamic'` (default), drawn on top.
 
-The three passes exist for draw order (static under, dynamic over), not caching, GPU fill rate makes redrawing the static layer every frame trivial. See [Scene graph](/guides/scene#render-layers).
+All three redraw every frame. The names are historical: the three passes are draw order and nothing else, because GPU fill rate makes redrawing a background every frame trivial. Nothing is cached, so mutating a node on any layer is safe at any time. See [Scene graph](/guides/scene#render-layers).
 
 ## The Svelte boundary
 
-`EngineHost` is the only surface Svelte code should touch. Commands go in (`start`, `stop`, `pause`, `resume`, `destroy`, `loadScene`); engine events come out on `host.events: Emitter<EngineEvents>` (`ready`, `frame`, `resize`, `pointerDown/Move/Up/Cancel`, `contextlost`, `contextrestored`, `destroyed`).
+`EngineHost` is the only surface Svelte code should touch. Commands go in (`start`, `stop`, `pause`, `resume`, `destroy`, `loadScene`). Engine events come out on `host.events: Emitter<EngineEvents>` (`ready`, `frame`, `resize`, `pointerDown/Move/Up/Cancel`, `contextlost`, `contextrestored`, `backendlost`, `destroyed`).
 
-Game code owns its own `Emitter` for game events; the engine never learns about them. Two Svelte helpers bridge the gap:
+Game code owns its own `Emitter` for game events. The engine never learns about them. Two Svelte helpers bridge the gap:
 
 - `mountEngine`, a `<canvas>` action that constructs the host, forwards resize, and destroys on unmount.
-- `emitterStore(emitter, key, initial)` / `latestEventStore(emitter, key)`, readable stores backed by emitter subscriptions. Both warn if you bind them to `'frame'` or `'pointerMove'`, which fire many times per second and thrash Svelte's reactivity graph. Use direct `.on(...)` in a `$effect` for high-frequency events; reserve the stores for discrete events.
+- `emitterStore(emitter, key, initial)` / `latestEventStore(emitter, key)`, readable stores backed by emitter subscriptions. Both warn if you bind them to `'frame'` or `'pointerMove'`, which fire many times per second and thrash Svelte's reactivity graph. Use direct `.on(...)` in a `$effect` for high-frequency events. Reserve the stores for discrete events.
 
-A discrete game event is fine as a store; a per-frame value is read directly:
+A discrete game event is fine as a store. A per-frame value is read directly:
 
 ```ts
 // Discrete: a score that changes a few times a second.

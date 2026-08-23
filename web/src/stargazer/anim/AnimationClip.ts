@@ -3,10 +3,8 @@ import { quat, quatSlerp } from '../math/Quat'
 
 /**
  * Keyframe interpolation for an {@link AnimationSampler}. `CUBICSPLINE` is
- * approximated as `LINEAR` over the value keyframes (the tangents are ignored);
- * the two glTF assets this engine targets use only `LINEAR`.
- *
- * @category Animation
+ * approximated as `LINEAR` over the value keyframes (the tangents are ignored).
+ * The two glTF assets this engine targets use only `LINEAR`.
  */
 export type Interpolation = 'LINEAR' | 'STEP' | 'CUBICSPLINE'
 
@@ -17,8 +15,6 @@ export type ChannelPath = 'translation' | 'rotation' | 'scale'
  * Keyframe times and values for one channel. `output` is `input.length`
  * elements of stride 3 (translation/scale) or 4 (rotation), or three times that
  * for `CUBICSPLINE` (in-tangent, value, out-tangent per keyframe).
- *
- * @category Animation
  */
 export interface AnimationSampler {
   input: Float32Array
@@ -36,8 +32,6 @@ export interface AnimationChannel {
 /**
  * A named set of channels plus the clip `duration` (the latest keyframe time).
  * Play it with an {@link AnimationPlayer}.
- *
- * @category Animation
  */
 export interface AnimationClip {
   name: string
@@ -73,7 +67,7 @@ function sampleChannel(channel: AnimationChannel, time: number): void {
       'AnimationClip: CUBICSPLINE interpolation is approximated as LINEAR.',
     )
   }
-  // CUBICSPLINE stores [inTangent, value, outTangent] per keyframe; take value.
+  // CUBICSPLINE stores [inTangent, value, outTangent] per keyframe, only the value is used.
   const valueAt = (k: number, out: Float64Array): void => {
     const base = (cubic ? k * 3 + 1 : k) * stride
     for (let c = 0; c < stride; c++) out[c] = sampler.output[base + c]

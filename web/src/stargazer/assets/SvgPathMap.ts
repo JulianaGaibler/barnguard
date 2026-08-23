@@ -6,8 +6,6 @@ import { flattenSvgPath, tessellateContours } from './SvgPathContours'
 /**
  * One entry in a {@link SvgPathMap}: the parsed `Path2D` plus its bounds and,
  * when tessellation was requested, GPU-ready contours and triangles.
- *
- * @category Assets
  */
 export interface SvgPathEntry {
   path: Path2D
@@ -26,11 +24,7 @@ export interface SvgPathEntry {
   triangles?: GeometryHandle
 }
 
-/**
- * Options for {@link parseSvgPaths}.
- *
- * @category Assets
- */
+/** Options for {@link parseSvgPaths}. */
 export interface ParseSvgPathsOptions {
   /**
    * When true, also emit `contours` + `triangles` for each path. A path with no
@@ -46,16 +40,9 @@ export interface ParseSvgPathsOptions {
 }
 
 /**
- * Result of {@link parseSvgPaths}: the SVG's viewBox and its paths keyed by id.
- *
- * @category Assets
- */
-/**
  * Result of {@link parseSvgPaths}: the source `viewBox` and a map from key to
  * {@link SvgPathEntry} (a `Path2D` plus its local AABB). Feed an entry's `path`
  * to a `Path2DNode` to render it.
- *
- * @category Assets
  */
 export interface SvgPathMap {
   /** The SVG's coordinate space, from its `viewBox` (or `width`/`height`). */
@@ -84,7 +71,6 @@ export interface SvgPathMap {
  * GPU backend, which a `Path2DNode` needs before it can draw the path on GPU
  * (see `Path2DNode`).
  *
- * @category Assets
  * @example
  *   const { paths } = parseSvgPaths(svgText, { tessellate: true })
  *   const france = paths.get('france')
@@ -209,15 +195,6 @@ function parseViewBox(
 }
 
 /**
- * Compute an approximate axis-aligned bounding box for a raw SVG path `d`
- * string. Handles M/m, L/l, H/h, V/v, C/c, S/s, Q/q, T/t, A/a, Z/z with
- * implicit continuation semantics. For Bézier segments we bound by the control
- * polygon (slightly conservative, always encloses the actual curve).
- *
- * "Approximate but safe", the returned box is always ≥ the true AABB.
- * Sufficient for hit-broad-phase and debug outlines.
- */
-/**
  * Tokenize a raw SVG `d` string into commands and numeric arguments. Returned
  * as a flat `string[]` where letters are commands (`M`, `l`, `Z` …) and every
  * other token is a number literal. Used by both `computePathBounds` (AABB) and
@@ -236,8 +213,6 @@ export function tokenizeSvgPath(d: string): string[] {
  * Approximate axis-aligned bounds for a raw SVG `d` string. The result is
  * always ≥ the true AABB (Bézier and arc segments are bounded conservatively),
  * which is fine for hit broad-phase and debug outlines.
- *
- * @category Assets
  */
 export function computePathBounds(d: string): Rect {
   let minX = Infinity
@@ -343,8 +318,8 @@ export function computePathBounds(d: string): Rect {
         const x = num() + (abs ? 0 : cx)
         const y = num() + (abs ? 0 : cy)
         // Conservative: include endpoint. Doesn't fully bound the arc's
-        // extremes, but a real arc AABB requires solving trig systems;
-        // acceptable for our AABB-as-broad-phase use.
+        // extremes, but a real arc AABB requires solving trig systems, which
+        // isn't worth it for our AABB-as-broad-phase use.
         include(x, y)
         cx = x
         cy = y

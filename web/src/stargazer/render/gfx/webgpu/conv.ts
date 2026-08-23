@@ -10,6 +10,8 @@ import type {
   GfxBlendMode,
   IndexType,
   PrimitiveTopology,
+  StencilFaceState,
+  StencilOp,
   VertexFormat,
 } from '../GfxDevice'
 
@@ -68,7 +70,10 @@ export function blendToGPU(mode: GfxBlendMode): GPUBlendState | undefined {
   }
 }
 
-/** Depth comparison → WebGPU compare function. */
+/**
+ * Depth/stencil comparison → WebGPU compare function. The names line up
+ * one-to-one, so this is an exhaustiveness check as much as a conversion.
+ */
 export function compareFnToGPU(c: CompareFn): GPUCompareFunction {
   switch (c) {
     case 'less-equal':
@@ -79,6 +84,29 @@ export function compareFnToGPU(c: CompareFn): GPUCompareFunction {
       return 'less'
     case 'greater':
       return 'greater'
+    case 'equal':
+      return 'equal'
+    case 'not-equal':
+      return 'not-equal'
+    case 'always':
+      return 'always'
+    case 'never':
+      return 'never'
+  }
+}
+
+/** Stencil op → WebGPU stencil operation. The names line up one-to-one. */
+export function stencilOpToGPU(op: StencilOp): GPUStencilOperation {
+  return op
+}
+
+/** One facing's stencil state → WebGPU, filling in the pass-through defaults. */
+export function stencilFaceToGPU(f: StencilFaceState): GPUStencilFaceState {
+  return {
+    compare: compareFnToGPU(f.compare ?? 'always'),
+    failOp: stencilOpToGPU(f.failOp ?? 'keep'),
+    depthFailOp: stencilOpToGPU(f.depthFailOp ?? 'keep'),
+    passOp: stencilOpToGPU(f.passOp ?? 'keep'),
   }
 }
 

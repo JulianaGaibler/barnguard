@@ -1,9 +1,9 @@
 /**
  * WebGL2 implementation of `GfxDevice`. Owns the GL context and emulates the
- * pipeline/bind-group/render-pass model: a pipeline is a linked program plus
+ * pipeline/bind-group/render-pass model. A pipeline is a linked program plus
  * baked draw state, applied through independent self-eliding setters so
- * back-to-back draws that share state issue no redundant driver calls; a bind
- * group is a resolved set of UBO/texture bindings; a render pass is an FBO bind
+ * back-to-back draws that share state issue no redundant driver calls. A bind
+ * group is a resolved set of UBO/texture bindings. A render pass is an FBO bind
  * plus load-op clears with an optional MSAA resolve on end.
  *
  * Context creation:
@@ -14,7 +14,7 @@
  *   on `ImageBitmap` / `HTMLImageElement` upload.
  *
  * Binding-number convention: `@binding` numbers are treated as globally unique
- * flat indices — uniform-buffer bindings index GL uniform-block binding points,
+ * flat indices. Uniform-buffer bindings index GL uniform-block binding points,
  * texture bindings index texture units. The shader reflection maps each binding
  * to its GLSL block/sampler name so the wiring survives naga's identifier
  * mangling. (`batchLayout.ts` assigns the flat numbers.)
@@ -29,6 +29,8 @@ import type {
   BlitOpts,
   ColorFormat,
   CompareFn,
+  StencilOp,
+  StencilState,
   ComputeDispatch,
   ComputePipeline,
   ComputePipelineDesc,
@@ -87,7 +89,7 @@ interface WebGL2Vao {
 interface WebGL2Pipeline extends Pipeline {
   shader: WebGL2Shader
   vertexLayout: VertexBufferLayout[]
-  color: { format: ColorFormat; blend: GfxBlendMode } | null
+  color: { format: ColorFormat; blend: GfxBlendMode; write?: boolean } | null
   depth: {
     test: boolean
     write: boolean
@@ -95,6 +97,7 @@ interface WebGL2Pipeline extends Pipeline {
     biasSlopeScale: number
     biasConstant: number
   } | null
+  stencil: StencilState | null
   cull: CullMode
   frontFace: FrontFace
   mode: number // gl.TRIANGLES | gl.LINES
@@ -176,6 +179,8 @@ export type WebGL2RenderTarget = RenderTarget & {
   height: number
   samples: number
   depthRb?: WebGLRenderbuffer
+  /** Renderbuffer format, so a resize reallocates the one it was created with. */
+  depthRbFormat?: number
   /** Sampleable depth texture, when allocated with `depthSampled` (G-buffer). */
   depthTex?: WebGL2Texture
 } & (
@@ -202,7 +207,7 @@ export class WebGL2Device implements GfxDevice {
   readonly #lostCbs = new Set<() => void>()
   readonly #restoredCbs = new Set<() => void>()
 
-  // Cached state; bind lazily so back-to-back identical calls are free. Blend,
+  // Cached state. Bind lazily so back-to-back identical calls are free. Blend,
   // depth-test, depth-write, cull, front-face, depth-func, and polygon offset
   // are INDEPENDENT caches so a pipeline that changes only one issues one call.
   #curProgram: WebGLProgram | null = null
@@ -217,6 +222,11 @@ export class WebGL2Device implements GfxDevice {
   #curFrontFace: FrontFace = 'ccw'
   #curPolyOffsetOn = false
   #curPolyOffset: [number, number] = [0, 0]
+  #curStencilTest = false
+  /** Serialized front/back func + op, so one compare covers the whole state. */
+  #curStencilState: string | null = null
+  #curStencilWriteMask = 0xff
+  #curColorWrite = true
   #boundTex: (WebGLTexture | null)[] = []
   #boundTexTarget: number[] = []
   /**
@@ -245,7 +255,7 @@ export class WebGL2Device implements GfxDevice {
 
   readonly backend = 'webgl2' as const
 
-  /** WebGL2 has no compute stage; features branch to a fragment off-ramp. */
+  /** WebGL2 has no compute stage. Features branch to a fragment off-ramp. */
   readonly supportsCompute = false
 
   /** WebGL conventions: `[-1,1]` depth, CCW front faces, bottom-up textures. */
@@ -298,6 +308,8 @@ export class WebGL2Device implements GfxDevice {
     gl.depthFunc(gl.LEQUAL)
     this.#curDepthFunc = 'less-equal'
     gl.disable(gl.STENCIL_TEST)
+    gl.stencilMask(0xff)
+    gl.colorMask(true, true, true, true)
     gl.disable(gl.POLYGON_OFFSET_FILL)
     gl.enable(gl.BLEND)
 
@@ -331,7 +343,7 @@ export class WebGL2Device implements GfxDevice {
 
   /**
    * Force a context-loss for testing + field debugging. Uses
-   * `WEBGL_lose_context` when available; falls back to synthesizing the DOM
+   * `WEBGL_lose_context` when available, falling back to synthesizing the DOM
    * events (happy-dom tests).
    */
   simulateContextLoss(): void {
@@ -409,17 +421,17 @@ export class WebGL2Device implements GfxDevice {
       if (idx !== gl.INVALID_INDEX) {
         gl.uniformBlockBinding(program, idx, b.binding)
       } else if (import.meta.env?.DEV) {
-        // A reflection block that doesn't resolve reads all-zeros silently — the
-        // catastrophic-but-invisible failure mode of a block-name typo. Surface
-        // it in dev (a genuinely-unused block optimized out is the only false
-        // positive, rare for a declared-and-referenced block).
+        // A reflection block that doesn't resolve reads all-zeros silently. That
+        // is the catastrophic-but-invisible failure mode of a block-name typo.
+        // Surface it in dev (a genuinely-unused block optimized out is the only
+        // false positive, rare for a declared-and-referenced block).
         console.warn(
           `WebGL2Device: shader '${desc.label ?? '?'}' declares no active uniform block '${b.glslName}'`,
         )
       }
     }
     // Sampler → unit is fixed by the layout (unit === binding), so set it once
-    // here; draws only bind textures to those units afterwards.
+    // here. Draws only bind textures to those units afterwards.
     const prevProgram = this.#curProgram
     gl.useProgram(program)
     this.#curProgram = program
@@ -465,6 +477,7 @@ export class WebGL2Device implements GfxDevice {
             biasConstant: desc.depth.biasConstant ?? 0,
           }
         : null,
+      stencil: desc.stencil ?? null,
       cull: desc.cull,
       frontFace: desc.frontFace,
       mode: desc.primitive === 'line-list' ? gl.LINES : gl.TRIANGLES,
@@ -546,7 +559,7 @@ export class WebGL2Device implements GfxDevice {
 
   deleteBindGroup(_g: BindGroup): void {
     // Bind groups hold no GL objects of their own (they reference buffers /
-    // textures); nothing to release.
+    // textures), so there is nothing to release.
     void _g
   }
 
@@ -818,6 +831,12 @@ export class WebGL2Device implements GfxDevice {
   ): void {
     const gl = this.#gl
     const t = tex as WebGL2Texture
+    // TODO: honour the documented reallocate contract. WebGPU implements it and
+    // this does not, so `updateTexture2D(tex, null)` silently does nothing here.
+    // Doing it properly means re-speccing the mip chain, not just level 0, and
+    // giving the bind-group caches in `programs/shape.ts` and
+    // `programs/textQuad.ts` a way to notice. See the note on
+    // `GfxDevice.updateTexture2D`.
     if (source === null) return
     gl.bindTexture(gl.TEXTURE_2D, t.gl)
     this.#boundTexInvalidate(t.gl)
@@ -915,6 +934,7 @@ export class WebGL2Device implements GfxDevice {
         samples,
         colorSpace: 'linear',
         hasDepth: !!opts.depth,
+        hasStencil: rtHasStencil(opts),
       } as WebGL2RenderTarget
     } else {
       const color = this.createTexture2D({
@@ -941,13 +961,14 @@ export class WebGL2Device implements GfxDevice {
         samples: 1,
         colorSpace: opts.colorSpace ?? 'linear',
         hasDepth: !!opts.depth,
+        hasStencil: rtHasStencil(opts),
       } as WebGL2RenderTarget
     }
     if (opts.depth && opts.depthSampled) {
       // Sampleable depth: a single-sample DEPTH_COMPONENT24 texture (no stencil)
       // attached as DEPTH_ATTACHMENT, with compare mode off and NEAREST filter
       // so a shader reads the raw depth (not a shadow test). This is a distinct
-      // target kind from the renderbuffer depth below; MSAA depth is never
+      // target kind from the renderbuffer depth below. MSAA depth is never
       // sampleable, so this path is single-sample only.
       const dtex = this.#createDepthTexture(clampedW, clampedH)
       gl.framebufferTexture2D(
@@ -958,7 +979,7 @@ export class WebGL2Device implements GfxDevice {
         0,
       )
       rt.depthTex = dtex
-    } else if (opts.depth) {
+    } else if (opts.depth || opts.stencil) {
       const drb = gl.createRenderbuffer()
       if (!drb) {
         this.deleteRenderTarget(rt)
@@ -966,31 +987,34 @@ export class WebGL2Device implements GfxDevice {
           'WebGL2Device.createRenderTarget: depth createRenderbuffer returned null',
         )
       }
+      // Depth always comes packed with stencil (there is no cheaper depth-only
+      // renderbuffer worth having here). Stencil alone gets STENCIL_INDEX8, a
+      // quarter of the memory, which is what a 2D target wants.
+      const format = opts.depth ? gl.DEPTH24_STENCIL8 : gl.STENCIL_INDEX8
+      const attachment = opts.depth
+        ? gl.DEPTH_STENCIL_ATTACHMENT
+        : gl.STENCIL_ATTACHMENT
       gl.bindRenderbuffer(gl.RENDERBUFFER, drb)
       if (samples > 1) {
         gl.renderbufferStorageMultisample(
           gl.RENDERBUFFER,
           samples,
-          gl.DEPTH24_STENCIL8,
+          format,
           clampedW,
           clampedH,
         )
       } else {
-        gl.renderbufferStorage(
-          gl.RENDERBUFFER,
-          gl.DEPTH24_STENCIL8,
-          clampedW,
-          clampedH,
-        )
+        gl.renderbufferStorage(gl.RENDERBUFFER, format, clampedW, clampedH)
       }
       gl.bindRenderbuffer(gl.RENDERBUFFER, null)
       gl.framebufferRenderbuffer(
         gl.FRAMEBUFFER,
-        gl.DEPTH_STENCIL_ATTACHMENT,
+        attachment,
         gl.RENDERBUFFER,
         drb,
       )
       rt.depthRb = drb
+      rt.depthRbFormat = format
     }
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
@@ -1038,22 +1062,18 @@ export class WebGL2Device implements GfxDevice {
       ;(r.color as { height: number }).height = clampedH
     }
     if (r.depthRb !== undefined) {
+      const format = r.depthRbFormat ?? gl.DEPTH24_STENCIL8
       gl.bindRenderbuffer(gl.RENDERBUFFER, r.depthRb)
       if (r.samples > 1) {
         gl.renderbufferStorageMultisample(
           gl.RENDERBUFFER,
           r.samples,
-          gl.DEPTH24_STENCIL8,
+          format,
           clampedW,
           clampedH,
         )
       } else {
-        gl.renderbufferStorage(
-          gl.RENDERBUFFER,
-          gl.DEPTH24_STENCIL8,
-          clampedW,
-          clampedH,
-        )
+        gl.renderbufferStorage(gl.RENDERBUFFER, format, clampedW, clampedH)
       }
       gl.bindRenderbuffer(gl.RENDERBUFFER, null)
     }
@@ -1303,7 +1323,7 @@ export class WebGL2Device implements GfxDevice {
       this.#curFbo = target.fbo
     }
     // A color FBO created with drawBuffers NONE (reused shadow FBO) is not our
-    // case here — color targets carry COLOR_ATTACHMENT0 as the draw buffer.
+    // case here. Color targets carry COLOR_ATTACHMENT0 as the draw buffer.
     gl.viewport(0, 0, target.width, target.height)
     let mask = 0
     if (color.loadOp === 'clear') {
@@ -1316,6 +1336,14 @@ export class WebGL2Device implements GfxDevice {
       this.setDepthWrite(true)
       gl.clearDepth(desc.depth.clearValue ?? 1.0)
       mask |= gl.DEPTH_BUFFER_BIT
+    }
+    if (desc.stencil && desc.stencil.loadOp === 'clear') {
+      // `gl.clear` is gated by the stencil write mask the same way it is by the
+      // depth mask, so a pipeline's narrower mask left over from the last frame
+      // would make this silently do nothing.
+      this.setStencilWriteMask(0xff)
+      gl.clearStencil(desc.stencil.clearValue ?? 0)
+      mask |= gl.STENCIL_BUFFER_BIT
     }
     if (mask !== 0) gl.clear(mask)
     this.#passColor = {
@@ -1358,7 +1386,7 @@ export class WebGL2Device implements GfxDevice {
   }
 
   endFrame(): void {
-    // No device-level end work; `present` blits the frame to the canvas.
+    // No device-level end work. `present` blits the frame to the canvas.
   }
 
   // --- draw -----------------------------------------------------------------
@@ -1403,7 +1431,21 @@ export class WebGL2Device implements GfxDevice {
       this.#curProgram = p.shader.gl
       this.deviceStats.pipelineSwitches++
     }
-    if (p.color) this.#setBlend(p.color.blend)
+    if (p.color) {
+      this.#setBlend(p.color.blend)
+      this.#setColorWrite(p.color.write !== false)
+    } else {
+      this.#setColorWrite(true)
+    }
+    // Both branches must run: leaving stencil enabled from a previous pipeline
+    // would silently reject fragments of every later draw.
+    if (p.stencil) {
+      this.#setStencilTest(true)
+      this.#setStencilState(p.stencil)
+      this.#setStencilWriteMask(p.stencil.writeMask ?? 0xff)
+    } else {
+      this.#setStencilTest(false)
+    }
     if (p.depth) {
       this.#setDepthTest(p.depth.test)
       this.#setDepthWrite(p.depth.write)
@@ -1473,7 +1515,7 @@ export class WebGL2Device implements GfxDevice {
 
   /**
    * Re-point a slot's attributes when the draw's base byte-offset differs from
-   * what the (shared) VAO currently captures — the WebGL2 stand-in for a
+   * what the (shared) VAO currently captures. This is the WebGL2 stand-in for a
    * base-instance, and how one cached VAO replays many ring sub-ranges.
    */
   #repointVertexOffsets(
@@ -1519,7 +1561,7 @@ export class WebGL2Device implements GfxDevice {
           const off = b.offset + dynOffset
           if (b.size !== undefined) {
             // bindBufferRange requires the offset be a multiple of the driver's
-            // UBO offset alignment; a misaligned offset is a caller bug (an
+            // UBO offset alignment. A misaligned offset is a caller bug (an
             // unpadded ring slice) that would otherwise fail as GL_INVALID_VALUE.
             const align = this.limits.minUniformBufferOffsetAlignment
             if (off % align !== 0) {
@@ -1568,7 +1610,7 @@ export class WebGL2Device implements GfxDevice {
 
   /**
    * Invalidate the active unit's cache entry after a raw create/upload path
-   * bound and unbound a texture there — the unit no longer holds what the cache
+   * bound and unbound a texture there. The unit no longer holds what the cache
    * says, so force the next `#bindTextureUnit` for it to actually bind.
    */
   #invalidateActiveUnit(): void {
@@ -1587,7 +1629,7 @@ export class WebGL2Device implements GfxDevice {
     const gl = this.#gl
     const r = source as WebGL2RenderTarget
     // A multisample source resolve via blitFramebuffer requires NEAREST and
-    // identical bounds; single-sample allows LINEAR scaling.
+    // identical bounds. Single-sample allows LINEAR scaling.
     const filter =
       r.samples > 1
         ? gl.NEAREST
@@ -1661,6 +1703,71 @@ export class WebGL2Device implements GfxDevice {
     this.#curDepthFunc = compare
   }
 
+  #setStencilTest(enabled: boolean): void {
+    if (this.#curStencilTest === enabled) return
+    const gl = this.#gl
+    if (enabled) gl.enable(gl.STENCIL_TEST)
+    else gl.disable(gl.STENCIL_TEST)
+    this.#curStencilTest = enabled
+  }
+
+  /** Front and back func + op together, cached on their serialized form. */
+  #setStencilState(st: StencilState): void {
+    const front = st.front
+    const back = st.back ?? st.front
+    const read = st.readMask ?? 0xff
+    const ref = st.reference ?? 0
+    const key = `${faceKey(front)}~${faceKey(back)}/${read}/${ref}`
+    if (this.#curStencilState === key) return
+    const gl = this.#gl
+    gl.stencilFuncSeparate(
+      gl.FRONT,
+      compareFnGl(gl, front.compare ?? 'always'),
+      ref,
+      read,
+    )
+    gl.stencilFuncSeparate(
+      gl.BACK,
+      compareFnGl(gl, back.compare ?? 'always'),
+      ref,
+      read,
+    )
+    gl.stencilOpSeparate(
+      gl.FRONT,
+      stencilOpGl(gl, front.failOp ?? 'keep'),
+      stencilOpGl(gl, front.depthFailOp ?? 'keep'),
+      stencilOpGl(gl, front.passOp ?? 'keep'),
+    )
+    gl.stencilOpSeparate(
+      gl.BACK,
+      stencilOpGl(gl, back.failOp ?? 'keep'),
+      stencilOpGl(gl, back.depthFailOp ?? 'keep'),
+      stencilOpGl(gl, back.passOp ?? 'keep'),
+    )
+    this.#curStencilState = key
+  }
+
+  #setStencilWriteMask(mask: number): void {
+    if (this.#curStencilWriteMask === mask) return
+    this.#gl.stencilMask(mask)
+    this.#curStencilWriteMask = mask
+  }
+
+  /**
+   * Public so a stencil clear can force writes on first. `gl.clear` is gated by
+   * the stencil write mask exactly as it is by the depth mask, so clearing with
+   * a pipeline's narrower mask still in place silently does nothing.
+   */
+  setStencilWriteMask(mask: number): void {
+    this.#setStencilWriteMask(mask)
+  }
+
+  #setColorWrite(enabled: boolean): void {
+    if (this.#curColorWrite === enabled) return
+    this.#gl.colorMask(enabled, enabled, enabled, enabled)
+    this.#curColorWrite = enabled
+  }
+
   #setCullFace(mode: CullMode): void {
     if (this.#curCull === mode) return
     const gl = this.#gl
@@ -1726,7 +1833,7 @@ export class WebGL2Device implements GfxDevice {
     this.#boundTexTarget = []
     this.#boundArrayBuffer = null
     this.#passColor = null
-    // Pipelines' cached programs/VAOs are dead; a rebuild recreates them.
+    // Pipelines' cached programs/VAOs are dead. A rebuild recreates them.
     this.#pipelineCache.clear()
     for (const cb of this.#lostCbs) cb()
   }
@@ -1791,6 +1898,55 @@ function compareFnGl(gl: WebGL2RenderingContext, c: CompareFn): number {
       return gl.LESS
     case 'greater':
       return gl.GREATER
+    case 'equal':
+      return gl.EQUAL
+    case 'not-equal':
+      return gl.NOTEQUAL
+    case 'always':
+      return gl.ALWAYS
+    case 'never':
+      return gl.NEVER
+  }
+}
+
+/** The half of a face's state the GL calls actually depend on. */
+function faceKey(f: {
+  compare?: CompareFn
+  failOp?: StencilOp
+  depthFailOp?: StencilOp
+  passOp?: StencilOp
+}): string {
+  return `${f.compare ?? 'always'},${f.failOp ?? 'keep'},${f.depthFailOp ?? 'keep'},${f.passOp ?? 'keep'}`
+}
+
+/**
+ * Whether a target reports stencil bits. A depth renderbuffer is packed
+ * DEPTH24_STENCIL8 and so physically carries them, but they stay unreported
+ * alongside depth to match WebGPU, where a combined attachment would mean
+ * threading its format into every pipeline. See `RenderTargetOpts.stencil`.
+ */
+function rtHasStencil(opts: RenderTargetOpts): boolean {
+  return !!opts.stencil && !opts.depth
+}
+
+function stencilOpGl(gl: WebGL2RenderingContext, op: StencilOp): number {
+  switch (op) {
+    case 'keep':
+      return gl.KEEP
+    case 'zero':
+      return gl.ZERO
+    case 'replace':
+      return gl.REPLACE
+    case 'invert':
+      return gl.INVERT
+    case 'increment-clamp':
+      return gl.INCR
+    case 'decrement-clamp':
+      return gl.DECR
+    case 'increment-wrap':
+      return gl.INCR_WRAP
+    case 'decrement-wrap':
+      return gl.DECR_WRAP
   }
 }
 

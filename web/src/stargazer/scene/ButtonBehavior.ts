@@ -14,7 +14,7 @@ export interface ButtonOptions {
 }
 
 /**
- * Turns its node into a tap button. Attach with `node.addBehavior(...)`; the
+ * Turns its node into a tap button. Attach with `node.addBehavior(...)`. The
  * node draws itself and reads the pressed state from `onPressedChange`.
  *
  * The node is pressed on `down` and `onClick` fires on `up` only if the release

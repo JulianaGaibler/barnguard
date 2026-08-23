@@ -1,7 +1,7 @@
 // The per-layer node walk: viewport cull, compose the final transform, draw.
-// Split out of `Stage` because it's a self-contained loop with its own
-// scratch state (the cull-rect corners), independent of `Stage`'s render
-// dispatch, static-cache bookkeeping, and resize handling.
+// Split out of `Stage` because it is a self-contained loop with its own scratch
+// state (the cull-rect corners), independent of `Stage`'s pass dispatch, camera
+// resolution, and resize handling.
 
 import type { Affine2x3, CameraView2D } from '../camera/CameraView2D'
 import type { Vec2 } from '../math/Vec2'
@@ -19,8 +19,6 @@ const CULL_AA_PAD_WORLD = 2
 /**
  * Walks one render layer's nodes, culls, and draws. Owns the cull-rect scratch
  * buffers so `Stage.render` doesn't allocate a `Vec2` pair per frame.
- *
- * @category Render
  */
 export class StageLayerRenderer {
   // Scratch for the per-layer viewport-cull bounds, reused each frame.
@@ -58,7 +56,7 @@ export class StageLayerRenderer {
       if (!node.visible) continue
       if (!node.draw) continue
       // Skip nodes whose bounds are fully outside the visible rect. Only nodes
-      // that declare `debugBounds` can be culled; the rest always draw.
+      // that declare `debugBounds` can be culled, the rest always draw.
       if (
         node.debugBounds &&
         this.#isOutsideView(
@@ -73,7 +71,7 @@ export class StageLayerRenderer {
         continue
       }
       const w = node.transform.world
-      // final = render · node.world (full 2×3 matmul; the camera affine may be
+      // final = render · node.world (full 2×3 matmul, the camera affine may be
       // rotated/skewed via a transformed or parented camera). For an identity
       // camera `render` is uniform-scale + translate, so this reduces to the old
       // `scaleDpr * w.* (+ off)` fast path with identical numbers.
@@ -135,7 +133,7 @@ export class StageLayerRenderer {
     const maxY = Math.max(wy0, wy1, wy2, wy3)
 
     // Stroke half-width in world units (0 for non-stroked nodes). Screen-space
-    // strokes (the default) scale by `strokeScale`; world-space strokes are
+    // strokes (the default) scale by `strokeScale`, world-space strokes are
     // already in world units.
     const strokeNode = node as { lineWidth?: number; strokeSpace?: string }
     const lw = strokeNode.lineWidth ?? 0

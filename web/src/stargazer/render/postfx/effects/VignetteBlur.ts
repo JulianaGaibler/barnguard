@@ -22,17 +22,16 @@ export interface VignetteBlurOptions {
  * passes (separable horizontal then vertical Gaussian), each modulated by the
  * same radial mask.
  *
- * @category Render
  * @example
  *   engine.postProcess.add(new VignetteBlur({ strength: 6, radius: 0.5 }))
  */
 export class VignetteBlur implements PostEffect {
   enabled: boolean
-  /** Max blur reach in texels at the edges; tweakable live. */
+  /** Max blur reach in texels at the edges. Tweakable live. */
   strength: number
-  /** Distance from center (uv) where blur begins; tweakable live. */
+  /** Distance from center (uv) where blur begins. Tweakable live. */
   radius: number
-  /** Falloff band width; tweakable live. */
+  /** Falloff band width. Tweakable live. */
   softness: number
   readonly passes: readonly PostPass[]
 

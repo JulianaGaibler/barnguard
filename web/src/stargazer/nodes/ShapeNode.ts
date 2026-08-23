@@ -10,11 +10,7 @@ import type { Measurable } from '../layout/LayoutNode'
 /** Reused scratch for the 4-corner rect-stroke polyline (draw is synchronous). */
 const RECT_STROKE_SCRATCH = new Float32Array(8)
 
-/**
- * Local-space extent of a {@link ShapeNode}: a circle or a rect.
- *
- * @category Nodes
- */
+/** Local-space extent of a {@link ShapeNode}: a circle or a rect. */
 export type ShapeGeometry =
   | {
       kind: 'circle'
@@ -36,11 +32,7 @@ export type ShapeGeometry =
       radii?: RoundRectRadii
     }
 
-/**
- * Constructor options for {@link ShapeNode}.
- *
- * @category Nodes
- */
+/** Constructor options for {@link ShapeNode}. */
 export interface ShapeNodeOptions {
   id?: string
   geometry: ShapeGeometry
@@ -60,12 +52,11 @@ export interface ShapeNodeOptions {
 
 /**
  * Draws a filled and/or stroked circle or rect. The node's `Transform2D` places
- * it in the world; {@link ShapeGeometry} gives the local-space extent. A circle
+ * it in the world. {@link ShapeGeometry} gives the local-space extent. A circle
  * centers on the node origin, a rect centers by default (set `centered: false`
- * for a top-left origin). Circles hit-test exactly; rects fall back to the AABB
+ * for a top-left origin). Circles hit-test exactly. Rects fall back to the AABB
  * check.
  *
- * @category Nodes
  * @example
  *   const dot = new ShapeNode({
  *     geometry: { kind: 'circle', radius: 12 },
@@ -77,12 +68,16 @@ export interface ShapeNodeOptions {
  *   scene.root.add(dot)
  */
 export class ShapeNode extends Node2D implements Measurable {
+  // Live mirrors of ShapeNodeOptions, documented there. `debugBounds` is
+  // derived from `geometry` in the constructor only, so replacing `geometry`
+  // afterwards leaves the bounds behind and the node culls and hit-tests
+  // against its old extent. Build a new node instead.
   geometry: ShapeGeometry
   fill: string | null
   stroke: string | null
   lineWidth: number
   strokeSpace: 'screen' | 'world'
-  /** Preallocated size for layout; see {@link ShapeNode.measure}. */
+  /** Preallocated size for layout. See {@link ShapeNode.measure}. */
   readonly measuredSize: Size = { w: 0, h: 0 }
 
   constructor(opts: ShapeNodeOptions) {
@@ -116,9 +111,9 @@ export class ShapeNode extends Node2D implements Measurable {
 
   /**
    * Circle-accurate hit-test (distance ≤ radius+slop in local coords).
-   * Rectangles fall through to the base class's AABB check via `debugBounds`. *
-   * for non-rotated rects that's exact, and for rotated rects a slightly loose
-   * but safe superset.
+   * Rectangles fall through to the base class's AABB check via `debugBounds`,
+   * exact for non-rotated rects and a slightly loose but safe superset for
+   * rotated ones.
    */
   override hitTest(
     worldX: number,
@@ -158,7 +153,7 @@ export class ShapeNode extends Node2D implements Measurable {
 
   /**
    * Position the shape within the box its parent assigned. A circle and a
-   * centered rect place their origin at the box center; a top-left rect places
+   * centered rect place their origin at the box center. A top-left rect places
    * it at the corner. The geometry and `debugBounds` are unchanged: a shape
    * keeps its intrinsic size rather than stretching to fill.
    */

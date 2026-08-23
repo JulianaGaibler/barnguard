@@ -7,24 +7,20 @@ import type { CameraHost } from '../camera/CameraHost'
 import { walkTree } from './traverse'
 
 /**
- * Owns the one scene tree (rooted at {@link SceneTree.root}) that holds both 2D
- * ({@link Node2D}) and 3D ({@link Node3D}) content, mirroring Godot's single
- * `SceneTree`. It is the sole {@link NodeOwner}: every node reaches the engine
- * through it. It also holds the derived caches the renderer reads each frame,
- * bucketed by node kind:
+ * Owns the one tree (rooted at {@link SceneTree.root}) holding both 2D
+ * ({@link Node2D}) and 3D ({@link Node3D}) content. It is the sole
+ * {@link NodeOwner}, so every node reaches the engine through it, and it holds
+ * the derived caches the renderer reads each frame, bucketed by node kind:
  *
- * - **2D:** painter order + per-layer node lists + the static-layer dirty flag,
- *   collected by walking the tree and keeping only {@link Node2D}s in DFS
- *   order.
+ * - **2D:** painter order and the per-layer node lists, collected by walking the
+ *   tree and keeping the {@link Node2D}s in DFS order.
  * - **3D:** the transform pass that composes each {@link Node3D}'s world matrix.
  *
  * The two render pipelines stay separate (2D painter order, 3D depth-tested),
  * but they read from this one tree. Bridge dimensions with a `Viewport2DNode`.
  *
- * Each `Stage` owns one `SceneTree`. {@link Scene} and {@link World3D} are thin
- * subclasses that default the root to a 2D or 3D node for standalone use.
- *
- * @category Scene
+ * Each `Stage` owns one `SceneTree`, rooted at a plain {@link GroupNode} unless
+ * the constructor is handed another root.
  */
 export class SceneTree implements NodeOwner {
   /** Tree root. Add top-level nodes here (2D, 3D, or {@link GroupNode}s). */
@@ -38,8 +34,8 @@ export class SceneTree implements NodeOwner {
   engine: Engine | null = null
 
   /**
-   * The camera registry this tree's cameras attach to — the owning `Stage`. Set
-   * by the Stage right after construction; null for standalone trees (unit
+   * The camera registry this tree's cameras attach to, the owning `Stage`. Set
+   * by the Stage right after construction, null for standalone trees (unit
    * tests) and the embedded tree inside a `Viewport2DNode`. A camera node whose
    * tree has no `stage` cannot register, so attaching one hard-errors.
    */
@@ -56,6 +52,15 @@ export class SceneTree implements NodeOwner {
     root.onAttachedToScene(this)
   }
 
+  /**
+   * Whether the `'static'` layer has been marked dirty since the last
+   * {@link SceneTree.markStaticClean}.
+   *
+   * The renderer redraws all three layers every frame and never reads this, so
+   * the flag and its two setters have no consumer. `Stage`, `Node2D` and
+   * `LayoutRoot` still call `invalidateStatic`, and `markStaticClean` is never
+   * called at all. Drop the whole group together if a cleanup pass gets to it.
+   */
   get staticInvalid(): boolean {
     return this.#_staticInvalid
   }
@@ -69,7 +74,7 @@ export class SceneTree implements NodeOwner {
   }
 
   /**
-   * Mark the painter-order + per-layer indices dirty. Cheap (flags only); the
+   * Mark the painter-order + per-layer indices dirty. Cheap (flags only), the
    * next `getPainterOrder()` / `getLayerNodes()` read rebuilds them in one DFS.
    * Called from {@link Node2D} mutations (add/remove/renderLayer change).
    */
@@ -87,7 +92,7 @@ export class SceneTree implements NodeOwner {
     const out: Node2D[] = []
     walkTree(this.root, (n) => {
       // Intrinsic nodes (camera nodes) are not content: they never draw, so
-      // they stay out of painter order — and thus out of layer buckets, the
+      // they stay out of painter order, and thus out of layer buckets, the
       // render walk, and hit-testing (which reads this list).
       if (n.kind === '2d' && !n.intrinsic) out.push(n as Node2D)
     })
@@ -179,7 +184,7 @@ const EMPTY_LAYER: readonly Node2D[] = Object.freeze([]) as readonly Node2D[]
 /**
  * Depth-first search with early exit: does the subtree hold a non-intrinsic
  * node of `kind`? Intrinsic nodes (e.g. a stage's default `CameraNode3D`, which
- * is kind `'3d'`) are skipped so they don't spuriously flip on the 3D pass; the
+ * is kind `'3d'`) are skipped so they don't spuriously flip on the 3D pass. The
  * walk still recurses through them.
  */
 function hasKind(node: Node, kind: string): boolean {

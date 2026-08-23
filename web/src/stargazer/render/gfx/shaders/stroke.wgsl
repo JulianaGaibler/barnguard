@@ -3,6 +3,13 @@
 // the quad by (halfWidth + 1 px) past each endpoint so the fragment stage's
 // round-cap AA falls inside the quad without a second draw.
 //
+// `Stroke.coreOnly` splits a deduplicated translucent stroke into two passes.
+// Segments overlap at every joint, and a stencil that admits each pixel once
+// would otherwise let whichever segment drew first win outright — including
+// where its antialiased rim lands inside a later segment's solid core, which
+// reads as a pale seam across the joint. Drawing the cores first claims those
+// pixels for full coverage, then the fringe pass fills what is left.
+//
 // The fragment stage is a signed-distance-to-segment with round caps (endpoint
 // distance when `along` is outside [0, segLen]), 1-px smoothstep AA, and dashing
 // via `mod(dashStart + along, period)` fading out the off half. `dashPeriod == 0`
@@ -31,7 +38,23 @@ struct Clip {
 };
 @group(0) @binding(8) var<uniform> clipShape: Clip;
 
-// Analytic clip coverage in device px; frame.fragYFlip corrects WebGL2's
+struct Stroke {
+  // 1 = keep only near-full coverage (the core pass), 0 = keep everything.
+  coreOnly: f32,
+  pad0: f32,
+  pad1: f32,
+  pad2: f32,
+};
+// Binding 2, not 0: the WebGL2 reflection keys uniform blocks by binding number
+// alone with no group, so a group-1 block sharing a number with group 0's Frame
+// would bind over it and leave the projection matrix reading garbage.
+@group(1) @binding(2) var<uniform> stroke: Stroke;
+
+// Below this, a fragment is antialiasing rather than body. Just under 1 so a
+// core fragment that smoothstep leaves a hair short still counts.
+const CORE_MIN_COVERAGE: f32 = 0.98;
+
+// Analytic clip coverage in device px. frame.fragYFlip corrects WebGL2's
 // bottom-up gl_FragCoord. Multiply the premultiplied fragment output by this.
 fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
   let q = abs(p) - b + vec2<f32>(rad);
@@ -117,6 +140,9 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     alpha = alpha * (1.0 - off);
   }
   if (alpha <= 0.0) {
+    discard;
+  }
+  if (stroke.coreOnly > 0.5 && alpha < CORE_MIN_COVERAGE) {
     discard;
   }
   return in.color * (alpha * clipCoverage(in.pos.xy));

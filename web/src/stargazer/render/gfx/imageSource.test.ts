@@ -2,11 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { resolveUploadFlipY, packUploadRGBA } from './imageSource'
 
 // The single source of truth for texture-upload orientation. These pin the
-// contract both backends depend on; a regression once inverted `flipY` on
-// WebGPU only and rendered every label and image upside down (see
-// resolveUploadFlipY's doc). If one of these fails because someone "fixed" an
-// orientation bug by inverting the flip, the fix belongs in the caller's
-// `flipY` or the shared projection, not here.
+// contract both backends depend on: inverting `flipY` for one backend renders
+// every label and image upside down there (see `resolveUploadFlipY`'s doc). If
+// one of these fails because someone "fixed" an orientation bug by inverting
+// the flip, the fix belongs in the caller's `flipY` or the shared projection,
+// not here.
 describe('resolveUploadFlipY', () => {
   it('passes flipY through unchanged (must never invert per backend)', () => {
     expect(resolveUploadFlipY({ flipY: true })).toBe(true)
@@ -44,7 +44,7 @@ describe('packUploadRGBA', () => {
       data: new Uint8ClampedArray([200, 100, 50, 128]),
     }
     const out = packUploadRGBA(img, { premultiply: true })
-    // s = 128/255; each channel * s, rounded.
+    // s = 128/255, each channel * s, rounded.
     expect([...out]).toEqual([100, 50, 25, 128])
   })
 

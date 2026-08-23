@@ -4,6 +4,7 @@
   import AttendantControls from '@src/core/attendant/AttendantControls.svelte'
   import PauseOverlay from './PauseOverlay.svelte'
   import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
+  import { invalidateTextOnFontLoad } from '@src/core/fonts'
   import { t } from '@src/displays/stallwaechter/i18n'
   import { goToScreen } from '@src/stores/appState'
   import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
@@ -42,6 +43,7 @@
   }
 
   let host = $state<EngineHost | null>(null)
+  let offFontChange: (() => void) | null = null
   let session = $state<GameSession | null>(null)
   let activeStateId = $state<StateId | null>(null)
   let gameOverPayload = $state<GameOverPayload | null>(null)
@@ -55,7 +57,7 @@
   let score = $state(0)
   /**
    * Attendant-driven engine pause. Distinct from the session-level playing /
-   * gameOver / preGame state; this simply freezes the whole engine ticker via
+   * gameOver / preGame state, this simply freezes the whole engine ticker via
    * `EngineHost.pause()`. The pause overlay covers the canvas so the visible
    * frame stays still.
    */
@@ -74,8 +76,8 @@
 
   // The cover screen freezes the engine while visible so idle CPU/GPU drops
   // and in-progress rounds don't tick down while nobody's looking. Idempotent
-  // with the manual pause button — either signal being "on" keeps the engine
-  // paused; both being "off" resumes it.
+  // with the manual pause button. Either signal being "on" keeps the engine
+  // paused, both being "off" resumes it.
   $effect(() => {
     if (!host) return
     if (paused || $coverScreen.visible) host.pause()
@@ -85,6 +87,7 @@
   async function onEngineReady(h: EngineHost): Promise<void> {
     try {
       host = h
+      offFontChange = invalidateTextOnFontLoad(h.engine)
       const s = await startGame(h)
       session = s
       s.events.on('stateSelected', (payload) => {
@@ -118,6 +121,8 @@
   }
 
   function onEngineDestroy(): void {
+    offFontChange?.()
+    offFontChange = null
     session?.destroy()
     session = null
     host = null
@@ -128,7 +133,7 @@
   }
 
   function reset(): void {
-    // Kick the overlay's fade-out immediately; otherwise the DOM sticks
+    // Kick the overlay's fade-out immediately, otherwise the DOM sticks
     // around until `session.reset()`'s camera zoom completes (~600 ms)
     // and only THEN begins to fade, which reads as a stuck card. The
     // `'reset'` event listener still fires later and re-clears this
@@ -156,7 +161,7 @@
   //                          to 2 digits so single-digit scores read
   //                          "01", "02", … which matches the mock)
   //
-  // `activeStateId` is the pivot; it's non-null only during / after a
+  // `activeStateId` is the pivot, it's non-null only during / after a
   // round, which is exactly when we want the state-name + score pair.
   const isRoundActive = $derived(activeStateId !== null)
   const backdropLeftText = $derived(
@@ -176,7 +181,7 @@
         ? $t.game.confirmStateHint
         : null,
   )
-  // Two-digit minimum with leading zero; reads as a scoreboard. Scores
+  // Two-digit minimum with leading zero, reads as a scoreboard. Scores
   // past 99 (unlikely but possible) render bare (100, 101, …) and just
   // extend leftward from the anchored right edge. `tabular-nums` on the
   // CSS side keeps every digit the same width so the readout doesn't
@@ -184,7 +189,7 @@
   const scoreDisplay = $derived(String(score).padStart(2, '0'))
 
   // Mirror the booth-menu-driven `debugHudVisible` store into the engine's
-  // debug controller. Runs when either the store or the host changes; the
+  // debug controller. Runs when either the store or the host changes. The
   // controller's `setHudVisible` is idempotent so re-entry after a
   // no-op flip costs nothing.
   $effect(() => {
@@ -207,7 +212,7 @@
 <main class="game">
   <!--
     Backdrop text sits BEFORE the canvas in DOM order so the transparent
-    canvas draws on top; the text reads through as a muted background
+    canvas draws on top, the text reads through as a muted background
     layer while the map + packets composite over it. No z-index needed:
     document order controls the stacking within `.game`.
   -->
@@ -305,9 +310,9 @@
     user-select: none
     -webkit-user-select: none
     outline: none
-    // Dynamic resolution downscales the backing store during zooms; the CSS
+    // Dynamic resolution downscales the backing store during zooms. The CSS
     // compositor upscales it to the 4K element. Bilinear (`auto`) is the right
-    // filter for our anti-aliased vector shapes; pin it so a UA/theme default
+    // filter for our anti-aliased vector shapes, pin it so a UA/theme default
     // can't swap in `pixelated`/`crisp-edges` and introduce jaggies.
     image-rendering: auto
 
@@ -323,7 +328,7 @@
     color: var(--color-text-secondary)
     @include tint.type-class(ui)
 
-  // Bottom-corner backdrop copy; sits behind the transparent canvas so
+  // Bottom-corner backdrop copy, sits behind the transparent canvas so
   // the map + packets composite over it. `pointer-events: none` so it
   // never intercepts a state tap that lands in the same pixel area.
 
@@ -336,7 +341,7 @@
     font-weight: 700
     line-height: 0.95
 
-  // Idle-state distances from the edges; noticeably larger than the
+  // Idle-state distances from the edges, noticeably larger than the
   // playing-state figures below so the headline + mission text sit
   // clearly inset from the corners. `.game__backdrop--active` overrides
   // these back to the tighter playing values.
@@ -366,7 +371,7 @@
     inset-inline-end: var(--space-48)
     inset-block-end: var(--space-48)
     // Huge outlined-looking numeral. `font-variant-numeric: slashed-zero`
-    // matches the mock's slash through the leading zero; `tabular-nums`
+    // matches the mock's slash through the leading zero. `tabular-nums`
     // keeps every digit the same width so the score doesn't jitter as
     // it counts up (10 vs 11 render the same shape width). Text is
     // right-anchored so 3-digit scores extend leftward from a fixed
@@ -378,12 +383,11 @@
 
   // When a round is live, both slots dim to a low-opacity backdrop so
   // they don't compete with the gameplay foreground. Position also
-  // tightens back toward the corner; the idle padding is decorative,
+  // tightens back toward the corner, the idle padding is decorative,
   // gameplay wants the score bigger against the frame edge. The
-  // typography switches to Mozilla Slab Headline Expanded per the mock;
-  // the woff2 isn't shipped yet, so the cascade falls through to Mozilla
-  // Headline Extended (bold slab-ish) until it lands in
-  // `src/assets/fonts/`.
+  // typography switches to the widest brand face, standing in for the
+  // Mozilla Slab Headline Expanded the mock calls for until that woff2
+  // ships in `src/assets/fonts/`.
   .game__backdrop--active
     .game__backdrop-headline
       inset-inline-start: var(--space-48)
@@ -392,5 +396,5 @@
     .game__backdrop-headline,
     .game__backdrop-score
       color: rgba(9, 22, 44, 0.55)
-      font-family: 'Mozilla Slab Headline Expanded', 'Mozilla Headline Extended', tint.$mozilla-headline
+      font-family: tint.$font-mozilla-headline-extended
 </style>

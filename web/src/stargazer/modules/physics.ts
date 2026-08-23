@@ -7,7 +7,6 @@
  * the physics guide for the full model.
  *
  * @module physics
- * @category Physics
  */
 export { PhysicsWorld } from '../physics/PhysicsWorld'
 export type {

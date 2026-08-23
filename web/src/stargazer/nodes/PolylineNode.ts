@@ -6,16 +6,10 @@ import type { Gfx2D } from '../render/gfx/Gfx2D'
 /**
  * How a {@link PolylineNode} renders between points: `'none'` draws straight
  * segments, `'quadratic'` fits a smooth Bézier through the samples.
- *
- * @category Nodes
  */
 export type PolylineSmoothing = 'none' | 'quadratic'
 
-/**
- * Constructor options for {@link PolylineNode}.
- *
- * @category Nodes
- */
+/** Constructor options for {@link PolylineNode}. */
 export interface PolylineNodeOptions {
   id?: string
   /** Initial buffer capacity in _points_ (each point is 2 floats). Default 128. */
@@ -49,7 +43,6 @@ export interface PolylineNodeOptions {
  * next point as the on-curve anchor, so a jaggy multi-touch sample stream draws
  * as a smooth path with no post-processing.
  *
- * @category Nodes
  * @example
  *   const trail = new PolylineNode({
  *     strokeStyle: '#4ade80',
@@ -61,6 +54,8 @@ export interface PolylineNodeOptions {
  *   trail.pushIfFar(worldX, worldY, 4)
  */
 export class PolylineNode extends Node2D {
+  // Live mirrors of PolylineNodeOptions, documented there. Points go through
+  // `push`/`clear`, not a public array.
   strokeStyle: string
   lineWidth: number
   lineJoin: CanvasLineJoin
@@ -137,8 +132,8 @@ export class PolylineNode extends Node2D {
   /**
    * Drop the first `count` points from the head of the polyline, used to
    * "consume" a drawn path behind a moving object (a trail that shortens from
-   * the tail). `copyWithin` shifts the tail down in-place; zero allocations per
-   * call. `pointCount` reduces by `count`; `debugBounds` is invalidated
+   * the tail). `copyWithin` shifts the tail down in-place, zero allocations per
+   * call. `pointCount` reduces by `count`. `debugBounds` is invalidated
    * (recomputed lazily by the next draw or hit test).
    *
    * Clamps to `[0, pointCount]`, a caller can safely pass any non-negative
@@ -195,7 +190,7 @@ export class PolylineNode extends Node2D {
 
   /**
    * Ramer-Douglas-Peucker simplification. Reduces jitter without changing the
-   * overall shape. Rarely needed at runtime; useful for saving a completed
+   * overall shape. Rarely needed at runtime, useful for saving a completed
    * drawing. Returns `this` for chaining.
    */
   simplify(toleranceWorld: number): this {

@@ -35,7 +35,7 @@
     /**
      * What the overlay highlights when this row is selected. Usually `node`,
      * but for a node inside a `Viewport2DNode`'s embedded scene it's the
-     * containing viewport quad — that node lives in an offscreen texture space,
+     * containing viewport quad. That node lives in an offscreen texture space,
      * so its own outline can't be drawn in the main overlay.
      */
     highlightTarget: Node
@@ -121,7 +121,7 @@
     return CUSTOM_TYPE_COLORS[Math.abs(h) % CUSTOM_TYPE_COLORS.length]
   }
 
-  // Expanded set survives the ~1 Hz refresh; `SvelteSet` is reactive without a
+  // Expanded set survives the ~1 Hz refresh. `SvelteSet` is reactive without a
   // fresh allocation per toggle.
   const treeExpanded = new SvelteSet<string>()
   let treeNodes = $state<TreeNode[]>([])
@@ -132,7 +132,7 @@
    * Build one flat, depth-tagged list from the whole tree (2D, 3D, and group
    * nodes together). A `Viewport2DNode`'s embedded 2D scene is shown nested
    * under it (the SubViewport bridge). Rows are keyed by tree path, not
-   * `node.id` (ids aren't unique; a duplicate key would cross-link
+   * `node.id` (ids aren't unique, so a duplicate key would cross-link
    * expansion/selection).
    */
   function buildTree(root: Node, expanded: Set<string>): TreeNode[] {
@@ -301,7 +301,7 @@
   })
 
   // Live camera registry for the active stage (node-based camera model). Each
-  // stage tracks a current 2D + 3D camera; `make` switches it.
+  // stage tracks a current 2D + 3D camera, and `make` switches it.
   const cameras = $derived.by(() => {
     void revision
     const stage = debug.activeStage

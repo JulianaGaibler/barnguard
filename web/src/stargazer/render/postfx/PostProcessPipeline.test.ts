@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PostProcessPipeline } from './PostProcessPipeline'
+import { fullscreenTri, PostProcessPipeline } from './PostProcessPipeline'
 import { MockGfxDevice } from '../gfx/webgl2/mockGfxDevice'
 import { ChromaticAberration } from './effects/ChromaticAberration'
 import { Vignette } from './effects/Vignette'
@@ -87,6 +87,41 @@ describe('PostProcessPipeline', () => {
     expect(device.presents[0].dstHeight).toBe(FRAME.canvasH)
   })
 
+  it('warm compiles a disabled effect, so enabling it never stalls', async () => {
+    // Enabling an effect switches the stage off the direct-present path and
+    // compiles its shaders in the same frame. That stall is long enough to read
+    // as the screen flickering, so it has to be payable in advance.
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    const effect = new ChromaticAberration({ enabled: false })
+    pp.add(effect)
+    expect(device.pipelines).toHaveLength(0)
+
+    pp.warm()
+    await Promise.resolve()
+    expect(device.pipelines.length).toBeGreaterThan(0)
+
+    // Now the first enabled run draws straight away rather than falling back to
+    // presenting the source untouched.
+    const compiled = device.pipelines.length
+    effect.enabled = true
+    pp.run(makeSource(device), FRAME)
+    expect(fullscreenDraws(device)).toBe(1)
+    expect(device.pipelines).toHaveLength(compiled)
+  })
+
+  it('warm is idempotent', async () => {
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    pp.add(new Vignette())
+    pp.warm()
+    await Promise.resolve()
+    const after = device.pipelines.length
+    pp.warm()
+    await Promise.resolve()
+    expect(device.pipelines).toHaveLength(after)
+  })
+
   it('presents the source unmodified while pass pipelines are still compiling', () => {
     const device = new MockGfxDevice()
     const pp = new PostProcessPipeline(device)
@@ -161,7 +196,7 @@ describe('PostProcessPipeline', () => {
       canvasH: 50,
       dt: 0.016,
     })
-    // u_p0 = (dirX, dirY, radius, softness); two 32-byte param uploads (H, V).
+    // u_p0 = (dirX, dirY, radius, softness). Two 32-byte param uploads (H, V).
     const dirs = paramUploads(device, 32)
     expect(dirs).toHaveLength(2)
     const horiz = dirs.find((d) => d[1] === 0)
@@ -195,7 +230,7 @@ describe('PostProcessPipeline', () => {
     const progsBefore = device.programs.length
     device.simulateContextRestored()
     // A fresh run recreates the pass shader (synchronously) against the new
-    // context; the pipeline recompiles asynchronously.
+    // context. The pipeline recompiles asynchronously.
     expect(() => pp.run(makeSource(device), FRAME)).not.toThrow()
     expect(device.programs.length).toBe(progsBefore + 1)
   })
@@ -265,10 +300,60 @@ describe('Stage post-process wiring', () => {
     const engine = new Engine({ canvas, gpuDevice: device })
     engine.postProcess.add(new Vignette())
     await renderUntilPresent(engine, device)
-    // The pipeline (or its warming fallback) presents a single-sample target;
+    // The pipeline (or its warming fallback) presents a single-sample target.
     // GpuGfx did not self-present.
     expect(device.presents).toHaveLength(1)
     expect(device.presents[0].source.samples).toBe(1)
     engine.destroy()
+  })
+})
+
+describe('fullscreen triangle orientation', () => {
+  /** Interpolate the triangle's `v` at a clip-space y, as the rasterizer does. */
+  function vAtClipY(tri: Float32Array, clipY: number): number {
+    // The two vertices sharing x = -1 span the full y range, so `v` is linear
+    // between them.
+    const y0 = tri[1]
+    const v0 = tri[3]
+    const y2 = tri[9]
+    const v2 = tri[11]
+    return v0 + ((clipY - y0) / (y2 - y0)) * (v2 - v0)
+  }
+
+  it('carries a uv per vertex alongside the position', () => {
+    expect(fullscreenTri(false)).toHaveLength(12)
+    expect(fullscreenTri(false).byteLength).toBe(48)
+  })
+
+  it('covers the viewport with the same clip-space triangle either way', () => {
+    const gl = fullscreenTri(false)
+    const gpu = fullscreenTri(true)
+    for (const i of [0, 4, 8]) {
+      expect(gpu[i]).toBe(gl[i])
+      expect(gpu[i + 1]).toBe(gl[i + 1])
+    }
+  })
+
+  it('samples the source top row at the top of the screen, on both backends', () => {
+    // The bug this pins: deriving `uv` from the clip position samples the
+    // source upside down wherever a render target stores row 0 at the top, so
+    // one enabled effect flipped the whole frame on WebGPU.
+    //
+    // Clip y = +1 is the top of the viewport. The v it must read is whichever
+    // one addresses the source's first row: 0 where textures are top-down
+    // (WebGPU), 1 where they are bottom-up (WebGL2).
+    expect(vAtClipY(fullscreenTri(true), 1)).toBeCloseTo(0, 6)
+    expect(vAtClipY(fullscreenTri(false), 1)).toBeCloseTo(1, 6)
+  })
+
+  it('samples the source bottom row at the bottom of the screen', () => {
+    expect(vAtClipY(fullscreenTri(true), -1)).toBeCloseTo(1, 6)
+    expect(vAtClipY(fullscreenTri(false), -1)).toBeCloseTo(0, 6)
+  })
+
+  it('leaves u alone, since the backends agree on column order', () => {
+    const gl = fullscreenTri(false)
+    const gpu = fullscreenTri(true)
+    for (const i of [2, 6, 10]) expect(gpu[i]).toBe(gl[i])
   })
 })

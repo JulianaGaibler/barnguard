@@ -15,6 +15,7 @@
  */
 
 import { get } from 'svelte/store'
+import { fontMetrics } from '@src/stargazer'
 import type { GameOverReason, StateId } from './game'
 import type { StallwaechterHighScores as HighScores } from './game-log'
 import type { StallwaechterMessages } from './i18n/types'
@@ -23,23 +24,24 @@ import { daemonConfig, DEFAULT_LABEL_URL } from '@src/stores/daemonConfig'
 import {
   drawCssGradient,
   drawMaskedImage,
-  ensureFontsLoaded,
   loadImage,
   roundRectPath,
   type Ctx2D,
 } from '@src/core/print/canvas'
+import { preloadFonts } from '@src/core/fonts'
 
-import headlineFontUrl from '@src/assets/fonts/MozillaHeadlineExtended-Bold.woff2?url'
-import textFontUrl from '@src/assets/fonts/MozillaText-Regular.woff2?url'
-import textBoldFontUrl from '@src/assets/fonts/MozillaText-Bold.woff2?url'
 import waveUrl from './assets/wave-label.svg?url'
 import firefoxLogoUrl from './assets/firefox-enterprise-logo-horizontal.png?url'
 
-/** Font family names registered with `document.fonts` by `renderLabel`. */
-const FONT_HEADLINE = 'Mozilla Slab Headline Expanded'
+/**
+ * Font families the label draws with. Declared as `@font-face` in
+ * `styles/fonts.scss` and awaited at boot by `core/fonts`, so these are plain
+ * references to faces the document already has.
+ */
+const FONT_HEADLINE = 'Mozilla Headline Extended'
 const FONT_TEXT = 'Mozilla Text'
 
-/** Everything the label needs; exactly the `gameOver` payload plus a time. */
+/** Everything the label needs, exactly the `gameOver` payload plus a time. */
 export interface LabelInput {
   reason: GameOverReason
   stateId: StateId
@@ -52,7 +54,7 @@ export interface LabelInput {
 }
 
 export interface LabelRenderOptions {
-  /** Resolved locale strings; passed in so the renderer has no store dependency. */
+  /** Resolved locale strings, passed in so the renderer has no store dependency. */
   messages: StallwaechterMessages
   /** Square edge in px. */
   size: number
@@ -61,18 +63,6 @@ export interface LabelRenderOptions {
   height?: number
   /** JPEG quality 0..1. */
   quality?: number
-}
-
-let fontsReadyPromise: Promise<void> | null = null
-
-function fontsReady(): Promise<void> {
-  if (fontsReadyPromise) return fontsReadyPromise
-  fontsReadyPromise = ensureFontsLoaded([
-    { family: FONT_HEADLINE, url: headlineFontUrl, weight: '700' },
-    { family: FONT_TEXT, url: textFontUrl, weight: '400' },
-    { family: FONT_TEXT, url: textBoldFontUrl, weight: '700' },
-  ])
-  return fontsReadyPromise
 }
 
 interface LabelAssets {
@@ -91,9 +81,9 @@ async function loadAssets(stateId: StateId): Promise<LabelAssets> {
 }
 
 /**
- * Render the label and encode it as a JPEG blob. Awaits fonts + image assets on
- * the first call, then delegates to the pure {@link drawLabel}. Throws if the
- * runtime lacks `OffscreenCanvas` (i.e. outside a browser).
+ * Render the label and encode it as a JPEG blob. Awaits fonts + image assets,
+ * then delegates to the pure {@link drawLabel}. Throws if the runtime lacks
+ * `OffscreenCanvas` (i.e. outside a browser).
  */
 export async function renderLabel(
   input: LabelInput,
@@ -105,7 +95,12 @@ export async function renderLabel(
   const width = opts.width ?? opts.size
   const height = opts.height ?? opts.size
 
-  const [assets] = await Promise.all([loadAssets(input.stateId), fontsReady()])
+  const [assets] = await Promise.all([
+    loadAssets(input.stateId),
+    // Boot already awaited these; re-awaiting is cheap and keeps the renderer
+    // correct if it is ever driven outside the normal boot path.
+    preloadFonts(),
+  ])
 
   const canvas = new OffscreenCanvas(width, height)
   const ctx = canvas.getContext('2d')
@@ -140,7 +135,6 @@ const R = {
   edgePad: 16 / 330,
   headerTopPad: 22 / 330,
   logoHeight: 26 / 330,
-  scoreGapAfterHeader: -20 / 330,
   captionGapAfterScore: -10 / 330,
   pillGapAfterCaption: 10 / 330,
   pillPadY: 8 / 330,
@@ -222,28 +216,36 @@ export function drawLabel(
 
   const scorePx = Math.round(edge * R.scoreFont)
   const captionPx = Math.round(edge * R.captionFont)
-  const scoreGap = Math.round(edge * R.scoreGapAfterHeader)
   const captionGap = Math.round(edge * R.captionGapAfterScore)
   const pillGap = Math.round(edge * R.pillGapAfterCaption)
   const pillPx = Math.round(edge * R.pillFont)
   const pillPadY = Math.round(edge * R.pillPadY)
   const pillH = Math.round(pillPx + pillPadY * 2)
 
-  const blockH =
-    scorePx + captionGap + captionPx + (isHigh ? pillGap + pillH : 0)
-  const blockTop = Math.round((h - blockH) / 2 + scoreGap)
+  // Stacked on measured heights rather than on the requested font sizes. A
+  // font's drawn height is its ascent plus its descent, which is not its px
+  // size, and using the size as a stand-in drifts the block off centre.
+  const scoreFont = `700 ${scorePx}px "${FONT_HEADLINE}", sans-serif`
+  const captionFont = `400 ${captionPx}px "${FONT_TEXT}", sans-serif`
+  const scoreM = fontMetrics(scoreFont)
+  const captionM = fontMetrics(captionFont)
+  const scoreH = scoreM.ascent + scoreM.descent
+  const captionH = captionM.ascent + captionM.descent
+
+  const blockH = scoreH + captionGap + captionH + (isHigh ? pillGap + pillH : 0)
+  const blockTop = Math.round((h - blockH) / 2)
 
   ctx.fillStyle = COL.ink
   ctx.textAlign = 'center'
-  ctx.textBaseline = 'top'
-  ctx.font = `700 ${scorePx}px "${FONT_HEADLINE}", sans-serif`
-  ctx.fillText(String(input.score), w / 2, blockTop)
+  ctx.textBaseline = 'alphabetic'
+  ctx.font = scoreFont
+  ctx.fillText(String(input.score), w / 2, blockTop + scoreM.ascent)
 
-  const captionY = blockTop + scorePx + captionGap
-  ctx.font = `400 ${captionPx}px "${FONT_TEXT}", sans-serif`
+  const captionY = blockTop + scoreH + captionGap
+  ctx.font = captionFont
   const pointsLabel =
     input.score === 1 ? messages.game.point : messages.game.points
-  ctx.fillText(pointsLabel, w / 2, captionY)
+  ctx.fillText(pointsLabel, w / 2, captionY + captionM.ascent)
 
   if (isHigh) {
     const pillPadX = Math.round(edge * R.pillPadX)
@@ -252,7 +254,7 @@ export function drawLabel(
     ctx.font = `700 ${pillPx}px "${FONT_TEXT}", sans-serif`
     const textWidth = ctx.measureText(pillText).width
     const pillW = Math.round(textWidth + pillPadX * 2)
-    const pillY = captionY + captionPx + pillGap
+    const pillY = captionY + captionH + pillGap
     const pillX = Math.round((w - pillW) / 2)
     const radius = Math.min(R.pillRadius, pillH / 2)
 

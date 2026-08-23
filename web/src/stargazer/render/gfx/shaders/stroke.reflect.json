@@ -10,6 +10,10 @@
       "glslName": "Frame_block_0Vertex"
     },
     {
+      "binding": 2,
+      "glslName": "Stroke_block_2Fragment"
+    },
+    {
       "binding": 8,
       "glslName": "Clip_block_1Fragment"
     }

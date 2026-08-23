@@ -7,13 +7,27 @@ import type { Gfx2D, GfxTextStyle } from '../render/gfx/Gfx2D'
 // `measureText` depends on a real Canvas2D text engine, unavailable under
 // happy-dom. Stub it with a deterministic width (10px/char) so `measure()`
 // tests can assert on layout math rather than font shaping.
+// A 10px-per-character monospace model, with vertical metrics that make a
+// `Npx` font exactly `N` tall so the block arithmetic below reads directly.
 vi.mock('../render/gfx/rasterizeLabel', () => ({
   measureText: (text: string) => ({
     localW: text.length * 10,
     localH: 0,
+    advance: text.length * 10,
+    ascent: 0,
+    descent: 0,
     anchorOffsetX: 0,
     anchorOffsetY: 0,
   }),
+  fontMetrics: (font: string) => {
+    const size = Number(/(\d+(?:\.\d+)?)px/.exec(font)?.[1] ?? 10)
+    return {
+      ascent: size * 0.8,
+      descent: size * 0.2,
+      capHeight: size * 0.7,
+      lineHeight: size,
+    }
+  },
 }))
 
 interface FillTextCall {
@@ -105,7 +119,7 @@ describe('TextNode', () => {
   })
 
   describe('multi-line', () => {
-    it('draws one fillText call per line, each with baseline "top"', () => {
+    it('draws one fillText call per line, on its own alphabetic baseline', () => {
       const { gfx, calls } = recordingGfx()
       const node = new TextNode({
         text: 'one\ntwo\nthree',
@@ -114,10 +128,10 @@ describe('TextNode', () => {
       })
       node.draw(gfx, cameraWithScale(1), 0)
       expect(calls.map((c) => c.text)).toEqual(['one', 'two', 'three'])
-      expect(calls.every((c) => c.baseline === 'top')).toBe(true)
+      expect(calls.every((c) => c.baseline === 'alphabetic')).toBe(true)
     })
 
-    it('spaces lines by fontSize * lineHeight, default 1.2', () => {
+    it("spaces lines by the font's line height, scaled by lineHeight", () => {
       const { gfx, calls } = recordingGfx()
       const node = new TextNode({
         text: 'a\nb',
@@ -126,8 +140,10 @@ describe('TextNode', () => {
         y: 0,
       })
       node.draw(gfx, cameraWithScale(1), 0)
-      expect(calls[0].y).toBe(0)
-      expect(calls[1].y).toBeCloseTo(12) // 10 * 1.2
+      // The stub makes a 10px font 10 tall with an ascent of 8, so the first
+      // baseline sits 8 below the block top and the second a line after it.
+      expect(calls[0].y).toBeCloseTo(8)
+      expect(calls[1].y).toBeCloseTo(20)
     })
 
     it('honors a custom lineHeight', () => {
@@ -140,7 +156,7 @@ describe('TextNode', () => {
         y: 0,
       })
       node.draw(gfx, cameraWithScale(1), 0)
-      expect(calls[1].y).toBeCloseTo(20) // 10 * 2
+      expect(calls[1].y).toBeCloseTo(28) // ascent 8 + 10 * 2
     })
 
     it('anchors the whole block on y for baseline "middle"', () => {
@@ -152,9 +168,10 @@ describe('TextNode', () => {
         y: 100,
       })
       node.draw(gfx, cameraWithScale(1), 0)
-      // total block height = 24 (2 lines * 12); top = 100 - 12
-      expect(calls[0].y).toBeCloseTo(88)
-      expect(calls[1].y).toBeCloseTo(100)
+      // Two lines span one gap plus one line box, 12 + 10 = 22, so the top is
+      // 100 - 11 and the first baseline an ascent below that.
+      expect(calls[0].y).toBeCloseTo(97)
+      expect(calls[1].y).toBeCloseTo(109)
     })
 
     it('anchors the whole block above y for baseline "bottom"', () => {
@@ -166,24 +183,23 @@ describe('TextNode', () => {
         y: 100,
       })
       node.draw(gfx, cameraWithScale(1), 0)
-      // total block height = 24; top = 100 - 24
-      expect(calls[0].y).toBeCloseTo(76)
-      expect(calls[1].y).toBeCloseTo(88)
+      expect(calls[0].y).toBeCloseTo(86) // top 78, plus an ascent of 8
+      expect(calls[1].y).toBeCloseTo(98)
     })
   })
 
   describe('measure', () => {
-    it('measures single-line text width and fontSize*lineHeight height', () => {
+    it('measures a single line as one line box, with no trailing leading', () => {
       const node = new TextNode({ text: 'hi', fontSize: 10 })
       const size = node.measure(BoxConstraints.loose(Infinity, Infinity))
-      expect(size.h).toBeCloseTo(12) // 10 * 1.2
+      expect(size.h).toBeCloseTo(10) // ascent 8 + descent 2
       expect(size.w).toBe(20) // stubbed measureText: 2 chars * 10
     })
 
-    it('measures multi-line width as the widest line, height as fontSize*lineHeight*lineCount', () => {
+    it('measures multi-line width as the widest line, height as the gaps plus one box', () => {
       const node = new TextNode({ text: 'one\ntwo\nthree', fontSize: 10 })
       const size = node.measure(BoxConstraints.loose(Infinity, Infinity))
-      expect(size.h).toBeCloseTo(36) // 10 * 1.2 * 3
+      expect(size.h).toBeCloseTo(34) // 2 gaps of 12, plus a 10 line box
       expect(size.w).toBe(50) // 'three' is the widest line, 5 chars * 10
     })
 

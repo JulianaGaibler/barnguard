@@ -9,8 +9,6 @@ const DELTA_SNAP_RATIO = 0.5
  * Drives the frame loop off `requestAnimationFrame`. Runs a variable-rate
  * render step and a fixed-rate step from an accumulator. Build one with
  * {@link createTicker}.
- *
- * @category Engine
  */
 export interface Ticker {
   /** Total seconds since `start()`. Excludes time while stopped. */
@@ -18,11 +16,11 @@ export interface Ticker {
   /** Seconds elapsed in the last render frame, clamped to `maxDt`. */
   readonly dt: number
   /**
-   * Wall-clock seconds between this processed frame and the previous one —
+   * Wall-clock seconds between this processed frame and the previous one,
    * unsmoothed and unclamped, unlike {@link dt}. This is the true post-cap frame
    * interval (only processed frames advance it, so it already reflects the FPS
-   * cap); measure actual FPS as `1 / rawDt`. `dt` is smoothed + clamped for
-   * stable simulation stepping and must NOT be used for a frame-rate readout —
+   * cap). Measure actual FPS as `1 / rawDt`. `dt` is smoothed and clamped for
+   * stable simulation stepping and must NOT be used for a frame-rate readout,
    * its `maxDt` clamp would floor the reported rate at `1 / maxDt`.
    */
   readonly rawDt: number
@@ -64,11 +62,7 @@ export interface Ticker {
   readonly running: boolean
 }
 
-/**
- * Construction options for {@link createTicker}.
- *
- * @category Engine
- */
+/** Construction options for {@link createTicker}. */
 export interface TickerOptions {
   /** Hz for the deterministic inner step. Default 120. */
   fixedStepHz?: number
@@ -93,15 +87,15 @@ class TickerImpl implements Ticker {
   #accumulator = 0
   #lastMs = 0
   #rafId = 0
-  /** Requested render cap in Hz; 0 = uncapped. Stored exactly for readback. */
+  /** Requested render cap in Hz, 0 for uncapped. Stored exactly for readback. */
   #_maxFps = 0
-  /** Minimum ms between processed frames; 0 = uncapped. */
+  /** Minimum ms between processed frames, 0 for uncapped. */
   #minFrameMs = 0
   /** Earliest timestamp the next frame may be processed (cap scheduling). */
   #nextFrameMs = 0
   /** Whether to low-pass filter the frame delta. */
   #_smoothTimestep: boolean
-  /** Filtered frame delta in seconds; 0 = not yet seeded. */
+  /** Filtered frame delta in seconds, 0 until seeded. */
   #smoothedDt = 0
   readonly #frameCallbacks = new Set<(dt: number) => void>()
   readonly #fixedCallbacks = new Set<(fixedDt: number) => void>()
@@ -170,7 +164,7 @@ class TickerImpl implements Ticker {
 
     // Frame-rate cap: skip processing rAFs that arrive before the next
     // scheduled frame. Scheduling by target time (rather than "time since last
-    // frame") keeps the average rate accurate on high-refresh displays; the
+    // frame") keeps the average rate accurate on high-refresh displays. The
     // `Math.max` clamp stops it from bursting catch-up frames after a stall.
     if (this.#minFrameMs > 0) {
       if (this.#nextFrameMs === 0) this.#nextFrameMs = nowMs
@@ -220,11 +214,7 @@ class TickerImpl implements Ticker {
   }
 }
 
-/**
- * Create a {@link Ticker}. It stays stopped until you call `start()`.
- *
- * @category Engine
- */
+/** Create a {@link Ticker}. It stays stopped until you call `start()`. */
 export function createTicker(opts?: TickerOptions): Ticker {
   return new TickerImpl(opts)
 }

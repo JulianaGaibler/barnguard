@@ -5,7 +5,7 @@
   import type { StateId } from '@src/displays/stallwaechter/game'
   import { DebugSection } from '@src/stargazer/debug/ui'
 
-  // The store carries an opaque id; narrow to the display's StateId here.
+  // The store carries an opaque id, narrow to the display's StateId here.
   const id = $derived($selectedStateId as StateId | null)
   const selectedPhoto = $derived(id !== null ? STATE_PHOTOS[id] : null)
 </script>

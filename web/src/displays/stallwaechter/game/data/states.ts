@@ -26,7 +26,7 @@ export type StateId = (typeof STATE_IDS)[number]
  * Static per-state metadata. `capitalWorld`, `stateCenter`, and `half` are
  * filled at load time from parsed SVG geometry, declared nullable here so the
  * record is exhaustive before the maps parse. `capitalWorld` comes from the
- * circle centres in `de-cities.svg`; `stateCenter` + `half` come from
+ * circle centres in `de-cities.svg`. `stateCenter` + `half` come from
  * `de-states.svg` AABBs.
  */
 export interface StateInfo {

@@ -7,8 +7,6 @@
  * `Readonly`, so aliasing `dst` with an input is safe.
  *
  * The 3D world is right-handed, y-up, in meters (glTF convention).
- *
- * @category Math
  */
 export interface Vec3 {
   x: number
@@ -16,20 +14,12 @@ export interface Vec3 {
   z: number
 }
 
-/**
- * Create a vector. Defaults to the origin.
- *
- * @category Math
- */
+/** Create a vector. Defaults to the origin. */
 export function vec3(x = 0, y = 0, z = 0): Vec3 {
   return { x, y, z }
 }
 
-/**
- * Set `v` to `(x, y, z)` in place.
- *
- * @category Math
- */
+/** Set `v` to `(x, y, z)` in place. */
 export function vec3Set(v: Vec3, x: number, y: number, z: number): Vec3 {
   v.x = x
   v.y = y
@@ -37,11 +27,7 @@ export function vec3Set(v: Vec3, x: number, y: number, z: number): Vec3 {
   return v
 }
 
-/**
- * Copy `src` into `dst`.
- *
- * @category Math
- */
+/** Copy `src` into `dst`. */
 export function vec3Copy(dst: Vec3, src: Readonly<Vec3>): Vec3 {
   dst.x = src.x
   dst.y = src.y
@@ -49,11 +35,7 @@ export function vec3Copy(dst: Vec3, src: Readonly<Vec3>): Vec3 {
   return dst
 }
 
-/**
- * Add `a + b` into `dst`.
- *
- * @category Math
- */
+/** Add `a + b` into `dst`. */
 export function vec3Add(dst: Vec3, a: Readonly<Vec3>, b: Readonly<Vec3>): Vec3 {
   dst.x = a.x + b.x
   dst.y = a.y + b.y
@@ -61,11 +43,7 @@ export function vec3Add(dst: Vec3, a: Readonly<Vec3>, b: Readonly<Vec3>): Vec3 {
   return dst
 }
 
-/**
- * Subtract `a - b` into `dst`.
- *
- * @category Math
- */
+/** Subtract `a - b` into `dst`. */
 export function vec3Sub(dst: Vec3, a: Readonly<Vec3>, b: Readonly<Vec3>): Vec3 {
   dst.x = a.x - b.x
   dst.y = a.y - b.y
@@ -73,11 +51,7 @@ export function vec3Sub(dst: Vec3, a: Readonly<Vec3>, b: Readonly<Vec3>): Vec3 {
   return dst
 }
 
-/**
- * Scale `a` by scalar `s` into `dst`.
- *
- * @category Math
- */
+/** Scale `a` by scalar `s` into `dst`. */
 export function vec3Scale(dst: Vec3, a: Readonly<Vec3>, s: number): Vec3 {
   dst.x = a.x * s
   dst.y = a.y * s
@@ -85,11 +59,7 @@ export function vec3Scale(dst: Vec3, a: Readonly<Vec3>, s: number): Vec3 {
   return dst
 }
 
-/**
- * Length of `a`.
- *
- * @category Math
- */
+/** Length of `a`. */
 export function vec3Length(a: Readonly<Vec3>): number {
   return Math.hypot(a.x, a.y, a.z)
 }
@@ -97,8 +67,6 @@ export function vec3Length(a: Readonly<Vec3>): number {
 /**
  * Squared distance between `a` and `b`. Skips the square root, so use it for
  * distance comparisons where the exact value doesn't matter.
- *
- * @category Math
  */
 export function vec3DistanceSq(a: Readonly<Vec3>, b: Readonly<Vec3>): number {
   const dx = a.x - b.x
@@ -107,20 +75,14 @@ export function vec3DistanceSq(a: Readonly<Vec3>, b: Readonly<Vec3>): number {
   return dx * dx + dy * dy + dz * dz
 }
 
-/**
- * Distance between `a` and `b`.
- *
- * @category Math
- */
+/** Distance between `a` and `b`. */
 export function vec3Distance(a: Readonly<Vec3>, b: Readonly<Vec3>): number {
   return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z)
 }
 
 /**
  * Linearly interpolate from `a` to `b` by `t` into `dst`. `t` of 0 gives `a`, 1
- * gives `b`; values outside `[0, 1]` extrapolate.
- *
- * @category Math
+ * gives `b`. Values outside `[0, 1]` extrapolate.
  */
 export function vec3Lerp(
   dst: Vec3,
@@ -134,11 +96,7 @@ export function vec3Lerp(
   return dst
 }
 
-/**
- * Dot product `a · b`.
- *
- * @category Math
- */
+/** Dot product `a · b`. */
 export function vec3Dot(a: Readonly<Vec3>, b: Readonly<Vec3>): number {
   return a.x * b.x + a.y * b.y + a.z * b.z
 }
@@ -146,8 +104,6 @@ export function vec3Dot(a: Readonly<Vec3>, b: Readonly<Vec3>): number {
 /**
  * Cross product `a × b` into `dst`. Right-handed. Safe when `dst` aliases an
  * input (reads into locals).
- *
- * @category Math
  */
 export function vec3Cross(
   dst: Vec3,
@@ -169,8 +125,6 @@ export function vec3Cross(
 /**
  * Unit vector in the direction of `a`, into `dst`. A zero-length input yields
  * `(0, 0, 0)` rather than `NaN`.
- *
- * @category Math
  */
 export function vec3Normalize(dst: Vec3, a: Readonly<Vec3>): Vec3 {
   const len = Math.hypot(a.x, a.y, a.z)
@@ -187,11 +141,7 @@ export function vec3Normalize(dst: Vec3, a: Readonly<Vec3>): Vec3 {
   return dst
 }
 
-/**
- * Negate `a`, into `dst`.
- *
- * @category Math
- */
+/** Negate `a`, into `dst`. */
 export function vec3Negate(dst: Vec3, a: Readonly<Vec3>): Vec3 {
   dst.x = -a.x
   dst.y = -a.y

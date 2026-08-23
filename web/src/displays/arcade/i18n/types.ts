@@ -7,6 +7,29 @@ export interface ArcadeMessages extends CoreMessages {
     play: string
     players: string
     player: string
+    /** Conjunction joining non-consecutive player counts, as in "2 or 4". */
+    or: string
+    /** Badge on the launcher card of the game leading the carousel today. */
+    gameOfTheDay: string
+    /** The launcher's filter bar, above the game cards. */
+    filters: {
+      /** Accessible name for the bar as a whole. */
+      label: string
+      /** Leading label for the player-count chips. */
+      players: string
+      /** Accessible label for one player-count chip. */
+      playerCount: (n: number) => string
+      /** Accessible label for the leaderboard toggle, which shows only an icon. */
+      leaderboardAriaLabel: string
+      /** Visible label on the AI toggle. */
+      ai: string
+      /** Accessible label for that toggle, since "AI" alone is thin. */
+      aiAriaLabel: string
+      /** Shown in place of the cards when nothing matches. */
+      noMatches: string
+      /** Resets every filter. */
+      clear: string
+    }
     /** Label for the swipe-down escape-hatch pill. */
     returnToLauncher: string
     /** Accessible label for the confirm (✓) button. */
@@ -34,7 +57,7 @@ export interface ArcadeMessages extends CoreMessages {
       close: string
       /** Shown when a display has no entries yet. */
       empty: string
-      /** `GameOverPanel`'s exit buttons — shared across every game. */
+      /** `GameOverPanel`'s exit buttons, shared across every game. */
       playAgain: string
       menu: string
       /** Shown when the leaderboard couldn't be reached at all. */

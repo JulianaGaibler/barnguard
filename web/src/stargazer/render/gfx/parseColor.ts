@@ -1,3 +1,21 @@
+/** A color with each channel in `0..1`. Not premultiplied. */
+
+export interface RGBA {
+  r: number
+  g: number
+  b: number
+  a: number
+}
+
+const BLACK: RGBA = { r: 0, g: 0, b: 0, a: 1 }
+
+// Small string → RGBA cache. Bounded so a pathological caller can't blow up
+// the working set. The game realistically visits <100 distinct strings.
+const CACHE_MAX = 256
+const cache = new Map<string, RGBA>()
+
+const warned = new Set<string>()
+
 /**
  * Normalize a CSS color string to `{r,g,b,a}` in `0..1`. Not premultiplied.
  * Callers multiply by the current alpha stack when packing vertex/instance
@@ -18,23 +36,6 @@
  * Unsupported input falls back to opaque black and warns exactly once per
  * unrecognized token.
  */
-
-export interface RGBA {
-  r: number
-  g: number
-  b: number
-  a: number
-}
-
-const BLACK: RGBA = { r: 0, g: 0, b: 0, a: 1 }
-
-// Small string → RGBA cache. Bounded so a pathological caller can't blow up
-// the working set; the game realistically visits <100 distinct strings.
-const CACHE_MAX = 256
-const cache = new Map<string, RGBA>()
-
-const warned = new Set<string>()
-
 export function parseColor(css: string): RGBA {
   const hit = cache.get(css)
   if (hit) return hit
@@ -57,12 +58,11 @@ function rgbaString(c: RGBA): string {
 }
 
 /**
- * Linear blend of two CSS colors as a CSS string; `t=0` returns `a`, `t=1`
+ * Linear blend of two CSS colors as a CSS string. `t=0` returns `a`, `t=1`
  * returns `b`. `t` is clamped to `[0, 1]`. Both inputs parse through the same
  * cache as {@link parseColor}, so repeatedly mixing the same endpoints is
  * cheap.
  *
- * @category Advanced
  * @example
  *   const c = mixColor('#ff0000', '#0000ff', 0.5) // 'rgb(128, 0, 128)'
  */
@@ -82,7 +82,6 @@ export function mixColor(a: string, b: string, t: number): string {
  * Return `color` with its alpha replaced by `alpha` (0..1, clamped), as a CSS
  * `rgba()` string. Parsing goes through the {@link parseColor} cache.
  *
- * @category Advanced
  * @example
  *   withAlpha('#3b82f6', 0.5) // 'rgba(59, 130, 246, 0.5)'
  */
@@ -141,7 +140,7 @@ function parseHex(s: string): RGBA | null {
   return null
 }
 
-/** Parse one hex digit; return `-1` on non-hex. */
+/** Parse one hex digit, return `-1` on non-hex. */
 function h1(code: number): number {
   if (code >= 0x30 && code <= 0x39) return code - 0x30
   if (code >= 0x61 && code <= 0x66) return code - 0x61 + 10
@@ -149,7 +148,7 @@ function h1(code: number): number {
   return -1
 }
 
-/** Parse two hex digits at `off`; return `-1` on non-hex. */
+/** Parse two hex digits at `off`, return `-1` on non-hex. */
 function h2(s: string, off: number): number {
   const hi = h1(s.charCodeAt(off))
   const lo = h1(s.charCodeAt(off + 1))
@@ -178,7 +177,7 @@ function parseRgbFn(s: string, hasAlpha: boolean): RGBA | null {
   return { r: r / 255, g: g / 255, b: b / 255, a }
 }
 
-/** Test-only reset; not exported from the module barrel. */
+/** Test-only reset, not exported from the module barrel. */
 export function _resetParseColorCacheForTests(): void {
   cache.clear()
   warned.clear()

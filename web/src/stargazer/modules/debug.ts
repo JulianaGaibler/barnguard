@@ -1,13 +1,13 @@
 /**
- * Dev-only debugging tools, present when the host is built with `?debug`.
+ * Debugging tools. The controller is always constructed, and `?debug` only
+ * decides whether the HUD starts open, so a menu can toggle it at runtime.
  * {@link DebugController} owns the HUD state, hotkeys, stats snapshot, and the
- * on-canvas overlays (grid, node outlines, pointer markers); {@link DebugCamera}
+ * on-canvas overlays (grid, node outlines, pointer markers). {@link DebugCamera}
  * is a free-fly camera for inspecting a stage, and {@link FrameStats} is the
  * frame-time ring buffer behind the perf readout. {@link DebugRenderMode}
  * selects a GPU visualization (overdraw, batch coloring, clip mask).
  *
  * @module debug
- * @category Debug
  */
 export { DebugController } from '../debug/DebugController'
 export type {

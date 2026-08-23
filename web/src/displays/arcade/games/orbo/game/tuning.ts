@@ -20,7 +20,7 @@ export const TARGET_ZONE_FRACTION = 0.35
 /**
  * Per-size orb geometry. Radii rescaled ~1.75× from the reference (15/25/35) to
  * read well on the big field: 26/44/62. **Mass is hardcoded 1/2/4** and is
- * deliberately NOT derived from area — doubling a radius would quadruple an
+ * deliberately NOT derived from area. Doubling a radius would quadruple an
  * area-derived mass and wreck the arcade feel.
  */
 export const ORB_SIZES: Record<
@@ -45,10 +45,10 @@ export const STARTING_ORBS: Record<OrbSize, number> = {
  * Team 1 = {P1, P3}.
  */
 export const PLAYER_COLORS = [
-  '#4A90E2', // P0 — Team L (blue)
-  '#E24A4A', // P1 — Team R (red)
-  '#4AE24A', // P2 — Team L (green)
-  '#FFDA0D', // P3 — Team R (yellow)
+  '#4A90E2', // P0, Team L (blue)
+  '#E24A4A', // P1, Team R (red)
+  '#4AE24A', // P2, Team L (green)
+  '#FFDA0D', // P3, Team R (yellow)
 ] as const
 
 /** Base color per team (used for the tinted scoring bands). */
@@ -59,13 +59,13 @@ export const PHYSICS = {
   /** Per-frame velocity retention, applied as `friction^(dt*60)`. */
   friction: 0.98,
   /**
-   * Rest threshold (world u/s). Reference used 0.1 in pixel space; in world
-   * space that never settles in reasonable time, so this is retuned up — a feel
+   * Rest threshold (world u/s). Reference used 0.1 in pixel space. In world
+   * space that never settles in reasonable time, so this is retuned up, a feel
    * knob balancing "snappy turns" against "orbs stop dead too early".
    */
   minVelocity: 6,
   /**
-   * Restitution. `1.0` is the exact equal-mass velocity-swap case; 0.9 feels
+   * Restitution. `1.0` is the exact equal-mass velocity-swap case, 0.9 feels
    * good.
    */
   restitution: 0.9,
@@ -77,8 +77,8 @@ export const PHYSICS = {
    */
   positionalSlop: 0.5,
   /**
-   * Per-iteration positional correction cap (~largest radius) — anti-explosion
-   * backstop.
+   * Per-iteration positional correction cap (~largest radius), an
+   * anti-explosion backstop.
    */
   maxPositionalCorrection: ORB_SIZES.LARGE.radius,
 } as const
@@ -92,14 +92,17 @@ export const MAX_SPEED = ORB_SIZES.SMALL.radius / FIXED_DT
 
 /** Flick interaction. */
 export const FLICK = {
-  /** Release drag-speed → launch-speed multiplier (reference 0.5). */
+  /** Release drag-speed to launch-speed multiplier (reference 0.5). */
   velocityToForce: 0.5,
   /**
-   * Minimum windowed drag speed (world u/s) to count as a throw — feel knob
-   * (~2× reference 500).
+   * Minimum windowed drag speed (world u/s) to count as a throw, a feel knob
+   * (~2x reference 500).
    */
   minThrowVelocity: 900,
-  /** Velocity is computed over this trailing window; digitizers are noisy. */
+  /**
+   * Velocity is computed over this trailing window because digitizers are
+   * noisy.
+   */
   sampleWindowMs: 70,
 } as const
 
@@ -113,12 +116,12 @@ export const ANIM = {
   reclaimSlideOff: 0.4,
   /** Game-over: shrink out orbs that don't contribute to the score. */
   gameOverShrink: 0.25,
-  /** Game-over "counting": each scoring orb bounces big → back. */
+  /** Game-over "counting": each scoring orb bounces big, then back. */
   countBounceUp: 0.16,
   countBounceDown: 0.22,
   countBounceScale: 1.5,
   /**
-   * Delay between the START of each counted orb's bounce — a staggered cascade,
+   * Delay between the START of each counted orb's bounce, a staggered cascade,
    * not one-waits-for-the-last. Only the final orb's bounce is fully awaited.
    */
   countStagger: 0.05,
@@ -149,8 +152,8 @@ export const SETTLE_TIMEOUT_SEC = 9
 
 /**
  * White scoring-ring look + its grow/bounce entrance. The ring's INNER edge is
- * pinned to the orb radius; only its outer edge (the stroke width) animates —
- * it eases out past the final width, then snaps back to it.
+ * pinned to the orb radius. Only its outer edge (the stroke width) animates: it
+ * eases out past the final width, then snaps back to it.
  */
 export const RING = {
   /** Settled outline thickness, growing outward from the orb edge (world units). */
@@ -166,8 +169,8 @@ export const RING = {
 
 /**
  * Low-lifetime glow: while an orb's `lifetimeRemaining` is down to its last
- * life, its fill oscillates between its current color and black — a warning
- * that the next zone return destroys the orb instead of handing it to the other
+ * life, its fill oscillates between its current color and black, a warning that
+ * the next zone return destroys the orb instead of handing it to the other
  * team. Unlike the symmetric capture glow, this pulse dwells in the orb's color
  * and dips only briefly to black: `blackFraction` of the period is spent on the
  * excursion to black and back, the rest resting on the color.
@@ -183,7 +186,7 @@ export const LOW_LIFE_GLOW = {
 /**
  * Capture glow: while an orb rests in the OTHER team's launch strip (and has
  * the lifetime left to survive being taken), its fill oscillates between its
- * current color and the color it is about to become — a cue that it's about to
+ * current color and the color it is about to become, a cue that it's about to
  * change hands. `maxMix` = 1 reaches the target color fully at the peak of the
  * cycle.
  */
@@ -214,7 +217,6 @@ export const INDICATOR = {
  * World-unit font so it scales with the field like the orbs and indicators.
  */
 export const SCORE_TEXT = {
-  fontFamily: 'sans-serif',
   fontWeight: 700,
   /** Font size in world units. */
   fontPx: 32,
@@ -224,12 +226,22 @@ export const SCORE_TEXT = {
 
 /**
  * The light play-field panel the game sits on. Fills the game area (which the
- * arcade insets with equal padding), ~white, rounded corners — the shared
- * arcade gradient shows in the surrounding padding.
+ * arcade insets with equal padding), ~white, rounded corners. The shared arcade
+ * gradient shows in the surrounding padding.
  */
 export const PANEL = {
   /** Corner radius in world units. */
   radius: 32,
   /** Panel background fill (~90% white). */
   bg: 'rgba(255, 255, 255, 0.75)',
+} as const
+
+/**
+ * The game's own backdrop, painted over the arcade sky inside the game region.
+ * These are the launcher's sunset sky, transcribed so orbo keeps the look it
+ * was designed against while the launcher's own sky tracks the time of day.
+ */
+export const BACKGROUND = {
+  topLeft: '#eac6f2',
+  bottomRight: '#f6cce1',
 } as const

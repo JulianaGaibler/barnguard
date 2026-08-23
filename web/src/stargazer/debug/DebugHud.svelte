@@ -189,7 +189,7 @@
   }
 
   onMount(() => {
-    // Hydrate from the controller once; later updates arrive via `toggle`.
+    // Hydrate from the controller once. Later updates arrive via `toggle`.
     visible = debug.hudVisible
     toggleState = {
       hud: debug.hudVisible,
@@ -276,7 +276,7 @@
   onClose={() => debug.toggleHud()}
 >
   {#if toggleState.paused}
-    <div class="paused-banner">⏸ PAUSED — game updates frozen (P)</div>
+    <div class="paused-banner">⏸ PAUSED: game updates frozen (P)</div>
   {/if}
   {#if stats.stages.length > 1}
     <DebugSection title="Stage" bind:open={stageOpen}>

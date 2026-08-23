@@ -169,7 +169,7 @@ impl PrinterBackend for TcpBackend {
                 ))
             }
         }
-        // Stream the JPEG (exactly `datasize` bytes; the same buffer whose
+        // Stream the JPEG (exactly `datasize` bytes, the same buffer whose
         // length we declared).
         {
             let s = self.stream.as_mut().ok_or(PrinterError::Disconnected)?;

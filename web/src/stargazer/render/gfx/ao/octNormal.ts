@@ -1,11 +1,11 @@
 /**
  * Octahedral normal encoding (Cigolle et al.), the CPU-side reference for the
  * encode in `gbuffer.wgsl` and the decode the AO shaders use. Packs a unit
- * vector into two `[0,1]` components — a normal fits the G-buffer's RG channels
- * with room to spare, so its depth stays a full depth texture.
+ * vector into two `[0,1]` components, so a normal fits the G-buffer's RG
+ * channels with room to spare, and its depth stays a full depth texture.
  *
  * @example
- *   const [x, y] = octEncode(0, 0, 1) // +Z → (0.5, 0.5)
+ *   const [x, y] = octEncode(0, 0, 1) // +Z maps to (0.5, 0.5)
  *   const [nx, ny, nz] = octDecode(x, y)
  */
 

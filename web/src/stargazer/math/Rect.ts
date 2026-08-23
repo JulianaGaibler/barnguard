@@ -1,3 +1,5 @@
+import { clamp } from './scalar'
+
 /**
  * An axis-aligned rectangle in world coords: top-left corner `(x, y)` plus
  * `width` and `height`. Plain mutable object, no methods.
@@ -5,12 +7,7 @@
  * Like the `vec2*` helpers, `rectCopy` and `rectUnion` write into a `dst`
  * passed as the first argument and return it, so a scratch rect can be reused
  * across frames instead of allocating.
- *
- * @category Math
  */
-
-import { clamp } from './scalar'
-
 export interface Rect {
   x: number
   y: number
@@ -18,20 +15,12 @@ export interface Rect {
   height: number
 }
 
-/**
- * Create a rectangle. Defaults to a zero-size rect at the origin.
- *
- * @category Math
- */
+/** Create a rectangle. Defaults to a zero-size rect at the origin. */
 export function rect(x = 0, y = 0, width = 0, height = 0): Rect {
   return { x, y, width, height }
 }
 
-/**
- * Copy `src` into `dst`.
- *
- * @category Math
- */
+/** Copy `src` into `dst`. */
 export function rectCopy(dst: Rect, src: Readonly<Rect>): Rect {
   dst.x = src.x
   dst.y = src.y
@@ -43,8 +32,6 @@ export function rectCopy(dst: Rect, src: Readonly<Rect>): Rect {
 /**
  * Whether the point `(x, y)` is inside `r`. The left and top edges are
  * inclusive, the right and bottom edges exclusive.
- *
- * @category Math
  */
 export function rectContains(r: Readonly<Rect>, x: number, y: number): boolean {
   return x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height
@@ -53,8 +40,6 @@ export function rectContains(r: Readonly<Rect>, x: number, y: number): boolean {
 /**
  * Whether `a` and `b` overlap. Edge-only contact does not count as an
  * intersection.
- *
- * @category Math
  */
 export function rectIntersects(a: Readonly<Rect>, b: Readonly<Rect>): boolean {
   return !(
@@ -65,11 +50,7 @@ export function rectIntersects(a: Readonly<Rect>, b: Readonly<Rect>): boolean {
   )
 }
 
-/**
- * Smallest rectangle covering both `a` and `b`, written into `dst`.
- *
- * @category Math
- */
+/** Smallest rectangle covering both `a` and `b`, written into `dst`. */
 export function rectUnion(
   dst: Rect,
   a: Readonly<Rect>,
@@ -87,11 +68,25 @@ export function rectUnion(
 }
 
 /**
+ * Grow `r` by `by` on every side, written into `dst`. A negative `by` shrinks
+ * it, and never past zero on either axis.
+ *
+ * @example
+ *   rectInflate(box, cell, -gap / 2) // the cell with a gutter taken off it
+ */
+export function rectInflate(dst: Rect, r: Readonly<Rect>, by: number): Rect {
+  dst.x = r.x - by
+  dst.y = r.y - by
+  dst.width = Math.max(0, r.width + by * 2)
+  dst.height = Math.max(0, r.height + by * 2)
+  return dst
+}
+
+/**
  * The world point at fractions `(fx, fy)` across `r`, where `0` is the left or
  * top edge and `1` is the right or bottom. Values outside `[0, 1]` fall outside
  * `r`. Use `0.5, 0.5` for the center.
  *
- * @category Math
  * @example
  *   rectPointAt(board, 0.5, 0.5) // center of the board, in world coords
  */
@@ -109,7 +104,6 @@ export function rectPointAt(
  * overlay sized to `r`. Not clamped, so a point outside `r` maps outside `[0,
  * 1]`. A zero-width or zero-height axis reports `0` rather than `NaN`.
  *
- * @category Math
  * @example
  *   const f = rectPercentOf(gameRect, worldX, worldY)
  *   el.style.left = `${f.x * 100}%`
@@ -134,7 +128,6 @@ export function rectPercentOf(
  * size would be negative, when `inner` extends past that edge, is clamped to
  * zero.
  *
- * @category Math
  * @example
  *   // Center a badge in the gap to the left of a centered board:
  *   const m = rectMargins(gameRect, board)
@@ -179,7 +172,6 @@ export function rectMargins(
  * insetting every edge by `margin`. When `r` is wider or taller than that inset
  * area on an axis it pins to the start (left or top) edge.
  *
- * @category Math
  * @example
  *   // Keep a tooltip on screen next to the cursor:
  *   const placed = clampRectToBounds(rect(cx, cy, tipW, tipH), viewport, 8)

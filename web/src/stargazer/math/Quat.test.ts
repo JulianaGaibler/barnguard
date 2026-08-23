@@ -90,7 +90,7 @@ describe('quatSlerp', () => {
 
   it('takes the shorter arc across opposite hemispheres', () => {
     const a = quatIdentity(quat())
-    // Negated identity is the same rotation; slerp should stay near identity.
+    // Negated identity is the same rotation, so slerp should stay near identity.
     const b = { x: 0, y: 0, z: 0, w: -1 }
     const mid = quatSlerp(quat(), a, b, 0.5)
     expect(Math.abs(mid.w)).toBeCloseTo(1, 5)

@@ -9,8 +9,8 @@ import type { LanguageCode, Messages } from '@src/i18n'
  * label for the language-toggle UI, and the full merged `Messages` bundle for
  * that language (typically composed by spreading `@src/i18n/coreLocales.de` or
  * `.en` and adding the display's own sections on top). Displays can also
- * introduce languages the core has never shipped — the label + messages are
- * fully owned here.
+ * introduce languages the core has never shipped, since the label + messages
+ * are fully owned here.
  */
 export interface LocaleBundle {
   language: LanguageCode
@@ -51,8 +51,8 @@ export interface DisplayManifest {
   theme: Theme
   /**
    * Languages this display ships. Must contain at least one entry. Attendant
-   * UI's language toggle cycles this list — single-locale displays end up with
-   * the toggle hidden.
+   * UI's language toggle cycles this list, and single-locale displays end up
+   * with the toggle hidden.
    */
   locales: LocaleBundle[]
   /** Language selected at boot. Must be one of the `locales` language codes. */
@@ -64,18 +64,18 @@ export interface DisplayManifest {
    */
   root: Component
   /**
-   * The `display` ids this kiosk display submits to `/api/leaderboard` under —
-   * NOT the manifest's own `id`. For the arcade that's one entry per game that
+   * The `display` ids this kiosk display submits to `/api/leaderboard` under,
+   * not the manifest's own `id`. For the arcade that's one entry per game that
    * opts in (`GameMeta.supportsLeaderboard`), e.g. `['jezzball']`, since the
    * leaderboard is scoped per arcade game, not per kiosk display. Empty/omitted
-   * gates the attendant BoothMenu's "Leaderboard" panel toggle off entirely —
-   * Stallwächter has no name-entry concept.
+   * gates the attendant BoothMenu's "Leaderboard" panel toggle off entirely,
+   * since Stallwächter has no name-entry concept.
    */
   leaderboardIds?: string[]
   /**
    * Render a game record's label to a JPEG blob for printing. Called by the
    * attendant "Games" panel when the operator asks for a reprint. Omit entirely
-   * if nothing in this display ever prints — `formatGameRecord`'s `printable`
+   * if nothing in this display ever prints. `formatGameRecord`'s `printable`
    * decides, per record, whether the panel even offers the button, so this only
    * needs to handle records it declared printable.
    */
@@ -91,7 +91,7 @@ export interface DisplayManifest {
   /**
    * Format a game-log record for the attendant "Games" panel's list. The
    * envelope fields (score, duration, timestamp) are rendered by the panel
-   * itself; this callback owns the display-specific summary column plus the
+   * itself, and this callback owns the display-specific summary column plus the
    * high-score marker (if any).
    */
   formatGameRecord(record: GameRecord): {
@@ -99,12 +99,12 @@ export interface DisplayManifest {
     label: string
     /** The name the player saved to the leaderboard for this run, if any. */
     playerName?: string
-    /** `null` = no star; `'overall'` = ★; `'category'` = ☆. */
+    /** `null` = no star, `'overall'` = ★, `'category'` = ☆. */
     highScore: 'overall' | 'category' | null
     /**
      * Whether this specific record can be printed/reprinted. A display that
      * hosts several games (e.g. the arcade) can support printing for some and
-     * not others — the panel hides the Print button when this is `false`.
+     * not others, and the panel hides the Print button when this is `false`.
      */
     printable: boolean
     /** Metadata attached to the reprint job's `JobMeta`. */
@@ -115,18 +115,28 @@ export interface DisplayManifest {
     }
   }
   /**
-   * Optional Svelte component slotted into the attendant BoothMenu, below the
-   * cover-screen controls. Renders whatever preview of the current selection
-   * the display finds meaningful. Omit if there's nothing to show.
+   * Optional decorative component painted full-bleed behind everything, on top
+   * of the `appBackdrop` palette role (see `BackgroundLayer.svelte`) and,
+   * dimmed, behind the off-duty `CoverScreen`. This is where a display's
+   * branded chrome, such as a gradient shape or a texture, belongs, so it never
+   * leaks into displays that want a plain backdrop. Omit for a flat
+   * background.
    */
-  selectionPreview?: Component
+  backdrop?: Component
+  /**
+   * Optional Svelte component slotted into the attendant BoothMenu, below the
+   * global Display section. Holds whatever controls or readouts only this
+   * display can offer. Omit if there is nothing to show.
+   */
+  attendantPanel?: Component
 }
 
 const displayStore = writable<DisplayManifest | null>(null)
 
 /**
- * The active display. `null` before `setActiveDisplay` runs; consumers should
- * gate on it (or accept that they render after boot, when it's populated).
+ * The active display. `null` before `setActiveDisplay` runs, so consumers
+ * should gate on it (or accept that they render after boot, when it's
+ * populated).
  */
 export const activeDisplay: Readable<DisplayManifest | null> = {
   subscribe: displayStore.subscribe,

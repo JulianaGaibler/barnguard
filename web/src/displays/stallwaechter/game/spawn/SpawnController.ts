@@ -72,7 +72,7 @@ export interface SpawnControllerHooks {
 
 /**
  * Drives the packet spawn cadence for one round. Rejection-samples the world
- * rect for spawn positions, respects the border / epicenter / active- packet
+ * rect for spawn positions, respects the border / epicenter / active-packet
  * buffers from `TUNING.spawn`, and advances `SessionDifficulty`. Fully
  * abortable via its `AbortController` so `session.destroy` / `session.reset`
  * don't leave dangling waits.
@@ -119,7 +119,7 @@ export class SpawnController {
   #trySpawn(): void {
     const point = this.#rejectionSample()
     if (!point) {
-      // Every spawn slot has 20 retries; if all failed, we log and skip.
+      // Every spawn slot has 20 retries. If all failed, log and skip.
       // The next interval kicks in normally, no cascade of failures.
       console.warn(
         '[spawn] no valid spawn point found within retry cap; skipping slot',
@@ -204,7 +204,7 @@ function pickInitialHeading(
     const angle = randomHeading(towardTarget, useTarget)
     const dx = Math.cos(angle)
     const dy = Math.sin(angle)
-    // Walk the ray forward; `clear` is the last distance at which the
+    // Walk the ray forward, `clear` is the last distance at which the
     // ray still had `inset` clearance to any border. Break as soon as
     // it fails, coastline clips at 45 wu are what this catches.
     let clear = 0

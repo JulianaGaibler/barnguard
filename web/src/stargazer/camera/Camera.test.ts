@@ -76,7 +76,7 @@ describe('Camera (uniform aspect-preserving fit)', () => {
       const cam = new Camera({ x: 0, y: 0, width: 1000, height: 1000 })
       cam.setPixelSize(500, 500)
       expect(cam.strokeSpaceScale()).toBe(2)
-      // Half the viewport = 2× the world→screen scale; strokeSpaceScale
+      // Half the viewport = 2× the world→screen scale, so strokeSpaceScale
       // halves to compensate so `lineWidth × strokeSpaceScale()` renders
       // as the same CSS-px count.
       cam.setViewport({ x: 0, y: 0, width: 500, height: 500 })

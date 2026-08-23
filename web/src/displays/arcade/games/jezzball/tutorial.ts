@@ -4,7 +4,12 @@
  */
 import type { TutorialSpec } from '../../tutorial/types'
 import { JEZZBALL_STRINGS as S } from './strings'
-import { buildCaptureDemo, buildDestroyDemo, buildWallDemo } from './game/demo'
+import {
+  buildCaptureDemo,
+  buildDestroyDemo,
+  buildScoreDemo,
+  buildWallDemo,
+} from './game/demo'
 
 export const JEZZBALL_TUTORIAL: TutorialSpec = [
   {
@@ -21,5 +26,10 @@ export const JEZZBALL_TUTORIAL: TutorialSpec = [
     title: S.tutorial.destroyTitle,
     body: S.tutorial.destroyBody,
     build: buildDestroyDemo,
+  },
+  {
+    title: S.tutorial.scoreTitle,
+    body: S.tutorial.scoreBody,
+    build: buildScoreDemo,
   },
 ]

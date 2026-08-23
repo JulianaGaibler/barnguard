@@ -6,7 +6,7 @@ import { MockGfxDevice } from '../render/gfx/webgl2/mockGfxDevice'
 /**
  * Happy-dom's `<canvas>` doesn't return a real WebGL2 context, but `GpuGfx`
  * only needs it for `canvas.width` / `canvas.height` bookkeeping and the FBO
- * blit destination; all GL calls go through the injected mock device.
+ * blit destination. All GL calls go through the injected mock device.
  */
 function makeCanvas(): HTMLCanvasElement {
   return document.createElement('canvas')

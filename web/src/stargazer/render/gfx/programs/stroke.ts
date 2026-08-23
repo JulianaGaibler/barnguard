@@ -1,9 +1,16 @@
-// Stroke program: lines, quadratics, and polylines. No texture; the batch key
-// is blend-only. Owns curve flattening (`smoothToBuffer`, the quadratic
+// Stroke program: lines, quadratics, and polylines. No texture, so the batch
+// key is blend-only. Owns curve flattening (`smoothToBuffer`, the quadratic
 // flatten scratch) since every stroke shape funnels through the polyline
 // emitter.
 
-import type { GfxDevice, Pipeline, VertexBufferLayout } from '../GfxDevice'
+import type {
+  BindGroup,
+  BindGroupLayout,
+  GfxDevice,
+  Pipeline,
+  StencilState,
+  VertexBufferLayout,
+} from '../GfxDevice'
 import type { GfxStrokeStyle } from '../Gfx2D'
 import { flattenQuadratic } from '../../../assets/SvgPathContours'
 import { RingStream } from '../RingStream'
@@ -32,6 +39,29 @@ import strokeVertSrc from '../shaders/stroke.gen.vert.glsl?raw'
 import strokeFragSrc from '../shaders/stroke.gen.frag.glsl?raw'
 import strokeReflect from '../shaders/stroke.reflect.json'
 
+/**
+ * Paint each covered pixel exactly once. The first fragment passes the `equal
+ * 0` test and bumps the bits to 1, and every later fragment over the same pixel
+ * fails it. That is what stops a segment's round cap and its neighbour's body
+ * from compositing twice at a shared vertex.
+ */
+const STENCIL_DRAW: StencilState = {
+  front: { compare: 'equal', passOp: 'increment-clamp' },
+  reference: 0,
+}
+
+/**
+ * Zero the bits again, over the same geometry, so the next stroke starts from a
+ * clean buffer. Colour writes are off, so this only touches the stencil.
+ */
+const STENCIL_RESET: StencilState = {
+  front: { compare: 'always', passOp: 'zero' },
+  reference: 0,
+}
+
+/** One `f32` plus padding to the 16-byte uniform block alignment. */
+const STROKE_UBO_BYTES = 16
+
 export class StrokeProgram implements GpuProgram {
   readonly kind = 'stroke' as const
 
@@ -39,6 +69,11 @@ export class StrokeProgram implements GpuProgram {
   #stream!: RingStream
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
+  #materialLayout!: BindGroupLayout
+  /** `coreOnly = 0`: every fragment, including the antialiased rim. */
+  #fringeBind!: BindGroup
+  /** `coreOnly = 1`: only near-full coverage, for the first of the two passes. */
+  #coreBind!: BindGroup
 
   get stream(): RingStream {
     return this.#stream
@@ -77,17 +112,52 @@ export class StrokeProgram implements GpuProgram {
         ],
       },
     ]
+    // Two constant uniform blocks rather than a per-draw ring: the only value
+    // is a pass flag, so there are exactly two of them for the life of the
+    // program.
+    // Binding 2 to match the shader: uniform-block binding numbers must be
+    // unique across BOTH groups, since the WebGL2 reflection has no group.
+    this.#materialLayout = device.createBindGroupLayout([
+      { binding: 2, type: 'uniform-buffer' },
+    ])
+    this.#fringeBind = this.#makeBind(device, 0)
+    this.#coreBind = this.#makeBind(device, 1)
+  }
+
+  #makeBind(device: GfxDevice, coreOnly: number): BindGroup {
+    const data = new Float32Array(STROKE_UBO_BYTES / 4)
+    data[0] = coreOnly
+    const ubo = device.createUniformBuffer(STROKE_UBO_BYTES)
+    device.updateUniformBuffer(ubo, data)
+    return device.createBindGroup(this.#materialLayout, [
+      { binding: 2, resource: { uniformBuffer: ubo } },
+    ])
   }
 
   async warmup(device: GfxDevice, ctx: GpuBatchContext): Promise<void> {
     this.#pipelines = await warmupBlendPipelines(device, ctx, {
       shader: this.#shader,
       vertexLayout: this.#vertexLayout,
-      bindGroupLayouts: [ctx.frameBindGroupLayout],
+      bindGroupLayouts: [ctx.frameBindGroupLayout, this.#materialLayout],
+      // Only worth building where a stencil buffer exists to use them.
+      variants: ctx.targetHasStencil
+        ? [
+            { suffix: 'draw', stencil: STENCIL_DRAW },
+            { suffix: 'reset', stencil: STENCIL_RESET, colorWrite: false },
+          ]
+        : [],
     })
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    // Core and fringe share one pipeline and differ only by the uniform. The
+    // reset pass is its own pipeline (colour off, bits zeroed).
+    const variant =
+      run.strokePass === undefined
+        ? undefined
+        : run.strokePass === 'reset'
+          ? 'reset'
+          : 'draw'
     drawInstancedRun(
       ctx,
       this.#pipelines,
@@ -95,7 +165,8 @@ export class StrokeProgram implements GpuProgram {
       this.#stream,
       STROKE_INSTANCE_STRIDE,
       run,
-      null,
+      run.strokePass === 'core' ? this.#coreBind : this.#fringeBind,
+      variant,
     )
   }
 
@@ -288,7 +359,7 @@ export class StrokeProgram implements GpuProgram {
         dashInfo.dashOnLen,
       )
       // Join disc at the interior vertex we just arrived at (skip on final
-      // vertex of open polyline; do emit on closed's last vertex).
+      // vertex of open polyline, but do emit on closed's last vertex).
       const isInterior = closed || i < segTotal
       if (doJoins && isInterior) {
         this.#emitInstance(

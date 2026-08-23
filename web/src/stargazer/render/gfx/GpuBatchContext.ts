@@ -38,8 +38,6 @@ import type { RingStream } from './RingStream'
  * - `'overdraw'`. Constant dim red under `lighter` blend. Hot regions accumulate.
  * - `'batch-color'`. Each coloredTri flush picks a distinct hue.
  * - `'clip-mask'`. End-of-frame overlay of the inspected `BitmapMask`.
- *
- * @category Debug
  */
 export type DebugRenderMode =
   'normal' | 'polygons' | 'overdraw' | 'batch-color' | 'clip-mask'
@@ -47,11 +45,9 @@ export type DebugRenderMode =
 /**
  * One recorded draw call: a program's contiguous sub-range of its ring buffer
  * plus the device state captured while that batch was open. During the frame,
- * batch changes push `DrawRun`s onto a command list instead of drawing; at
+ * batch changes push `DrawRun`s onto a command list instead of drawing. At
  * frame end each stream uploads once and the list replays in order, so painter
  * order holds. `blend` selects the program's matching pipeline variant.
- *
- * @category Debug
  */
 export interface DrawRun {
   kind: BatchKind
@@ -70,11 +66,19 @@ export interface DrawRun {
    * Retained-geometry draw: when set, this run draws pre-uploaded GPU geometry
    * with an indexed draw instead of a streamed range, so `startWord`/`endWord`
    * are unused. `model` is the captured world matrix (2D affine as a
-   * column-major mat3, 9 floats); `colorRgba` is premultiplied 0..1.
+   * column-major mat3, 9 floats). `colorRgba` is premultiplied 0..1.
    */
   geometry?: GpuGeometry
   model?: Float32Array
   colorRgba?: readonly [number, number, number, number]
+  /**
+   * Which pass of a deduplicated stroke this run is, over one shared instance
+   * range. `'core'` paints only near-full-coverage fragments, so a joint's
+   * solid body claims its pixels before any neighbour's antialiased rim can.
+   * `'fringe'` then fills what is left, and `'reset'` zeroes the stencil again
+   * with colour writes off. Absent on an ordinary stroke.
+   */
+  strokePass?: 'core' | 'fringe' | 'reset'
 }
 
 /** Per-frame stats surfaced to the debug HUD. */
@@ -103,13 +107,20 @@ export class GpuBatchContext {
 
   /**
    * Color format + sample count of the target the 2D pipelines render into.
-   * `GpuGfx` sets this before warming pipelines and on MSAA/format change; a
+   * `GpuGfx` sets this before warming pipelines and on MSAA/format change. A
    * program reads it in `warmup` to build matching pipeline variants.
    */
   targetColor: { format: ColorFormat; samples: number } = {
     format: 'linear',
     samples: 1,
   }
+
+  /**
+   * Whether the target carries stencil bits. A program reads it in `warmup` to
+   * decide whether to build its stencil pipeline variants, and the stroke path
+   * reads it to decide whether deduplication is available at all.
+   */
+  targetHasStencil = false
 
   /** Column-major 3×3 for `u_proj`. Updated once per frame. */
   readonly projMat = new Float32Array(9)
@@ -139,7 +150,7 @@ export class GpuBatchContext {
   /**
    * 1×1 opaque-white texture, bound to a sampler slot a shader declares but
    * does not sample this draw (a `shape` instance with no atlas, a `coloredTri`
-   * run with no clip mask) — a bind group must still supply every texture its
+   * run with no clip mask). A bind group must still supply every texture its
    * layout declares.
    */
   placeholderTexture!: import('./GfxDevice').Texture
@@ -160,6 +171,8 @@ export class GpuBatchContext {
   readonly #programs = new Map<BatchKind, GpuProgram>()
 
   readonly #drawRuns: DrawRun[] = []
+  /** Index into `#drawRuns` where the open stencil group began, or -1. */
+  #stencilGroupStart = -1
 
   constructor(device: GfxDevice, stats: GpuGfxStats) {
     this.device = device
@@ -179,7 +192,7 @@ export class GpuBatchContext {
     this.#clipRing = new UboRing(this.device, CLIP_UBO_BYTES, 2048, 'clip')
     // Group 0 carries the per-frame Frame block plus a per-run dynamic clip UBO,
     // so every 2D pipeline reaches the analytic clip through the shared group it
-    // already binds — no per-program material-layout change.
+    // already binds. No per-program material-layout change is required.
     this.#frameLayout = this.device.createBindGroupLayout([
       { binding: FRAME_UBO_BINDING, type: 'uniform-buffer' },
       {
@@ -275,7 +288,7 @@ export class GpuBatchContext {
     // targetH + fragYFlip follow the mat3 (offsets 48/52 B). Height comes from
     // the projection itself (p[4] = -2/h), so it always matches the pass the
     // fragment renders into (main or offscreen). WebGL2's gl_FragCoord.y is
-    // bottom-up, so the clip's device-px Y must flip there; WebGPU's is top-down.
+    // bottom-up, so the clip's device-px Y must flip there. WebGPU's is top-down.
     s[12] = p[4] !== 0 ? -2 / p[4] : 0
     s[13] = this.device.backend === 'webgl2' ? 1 : 0
     this.device.updateUniformBuffer(this.#frameUbo, s)
@@ -323,6 +336,46 @@ export class GpuBatchContext {
    * Record a retained-geometry draw into the command list, preserving painter
    * order across streamed + retained draws.
    */
+  /**
+   * Open a deduplicated stroke. Every run recorded until
+   * {@link GpuBatchContext.endStencilGroup} is replayed a second time to clear
+   * the stencil bits it set.
+   *
+   * Scoped to one stroke on purpose: two separate translucent strokes that
+   * cross must still blend where they cross, and only self-overlap within a
+   * single stroke is removed.
+   */
+  beginStencilGroup(): void {
+    this.#recordActiveRun()
+    this.#stencilGroupStart = this.#drawRuns.length
+  }
+
+  /** Close the group opened by {@link GpuBatchContext.beginStencilGroup}. */
+  endStencilGroup(): void {
+    const start = this.#stencilGroupStart
+    if (start < 0) return
+    this.#stencilGroupStart = -1
+    this.#recordActiveRun()
+    this.#sealStencilGroup(start)
+  }
+
+  /**
+   * Turn `[start, end)` into the core pass and append the fringe and reset
+   * passes after it. All three point at the same buffer range, so the extra
+   * passes cost no upload and no extra instance data.
+   */
+  #sealStencilGroup(start: number): void {
+    const end = this.#drawRuns.length
+    for (let i = start; i < end; i++) {
+      this.#drawRuns[i].strokePass = 'core'
+    }
+    for (const pass of ['fringe', 'reset'] as const) {
+      for (let i = start; i < end; i++) {
+        this.#drawRuns.push({ ...this.#drawRuns[i], strokePass: pass })
+      }
+    }
+  }
+
   recordRetained(
     geometry: GpuGeometry,
     model: Float32Array,
@@ -392,6 +445,8 @@ export class GpuBatchContext {
     }
     this.stats.blendSwitches = blendSwitches
     this.#drawRuns.length = 0
+    // Indices into the list are meaningless once it is emptied.
+    this.#stencilGroupStart = -1
   }
 
   /**
@@ -425,6 +480,22 @@ export class GpuBatchContext {
    * interrupted emit resumes.
    */
   #overflowSubmit(): void {
+    // A mid-stroke overflow would replay the group's draw runs and then wipe
+    // the command list, so the reset runs that were still to come would never
+    // be recorded. The stencil would stay set over those pixels for the rest of
+    // the frame and silently reject every later stroke touching them. Sealing
+    // here splits the stroke into two self-contained groups instead.
+    //
+    // The cost is one bead: the first segment after the split overlaps the last
+    // one before it, and the earlier half has already zeroed its bits, so that
+    // single joint double-blends. Overflow mid-stroke is rare enough to accept
+    // it. If a lone dark spot on a translucent stroke is ever reported, this is
+    // where it comes from.
+    const stencilGroup = this.#stencilGroupStart
+    if (stencilGroup >= 0) {
+      this.#recordActiveRun()
+      this.#sealStencilGroup(stencilGroup)
+    }
     const batch = this.curBatch
     const blend = this.curBlend
     const texture = this.curTexture
@@ -442,6 +513,8 @@ export class GpuBatchContext {
     this.curLut = lut
     this.curClipMask = clipMask
     this.curClip = clip
+    // Reopen the group so the rest of the stroke gets its own reset runs.
+    if (stencilGroup >= 0) this.#stencilGroupStart = this.#drawRuns.length
   }
 
   /** Called once per frame, after the ring slot has advanced. */

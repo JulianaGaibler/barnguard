@@ -1,7 +1,7 @@
 import type { StallwaechterMessages } from './types'
 import { coreEn } from '@src/i18n/coreLocales'
 
-/** English strings — secondary language, mainly for development and testing. */
+/** English strings, secondary language, mainly for development and testing. */
 export const en: StallwaechterMessages = {
   ...coreEn,
   app: {

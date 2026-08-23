@@ -1,6 +1,6 @@
 #version 300 es
 // Shared post-processing vertex stage. Draws a single oversized clip-space
-// triangle (a_pos = [-1,-1], [3,-1], [-1,3]) covering the whole viewport; the
+// triangle (a_pos = [-1,-1], [3,-1], [-1,3]) covering the whole viewport. The
 // off-screen corners are clipped away. v_uv maps clip space to [0,1] texture
 // space. No y-flip: the source render, the resolve, every ping-pong pass, and
 // the final blit all share the bottom-left FBO origin, so the image stays

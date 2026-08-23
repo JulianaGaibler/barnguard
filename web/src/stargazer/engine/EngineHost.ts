@@ -7,8 +7,6 @@ import { DebugController } from '../debug/DebugController'
 /**
  * Construction options for {@link createEngineHost}. Extends
  * {@link EngineOptions} but takes its own context-loss handlers.
- *
- * @category Engine
  */
 export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
   canvas: HTMLCanvasElement
@@ -34,7 +32,7 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
    * Fallback triggered when the retry ladder decides recovery isn't feasible
    * (≥3 context losses within 60 s, or the browser signaled the loss is
    * unrestorable). Default: `() => window.location.reload()`. Tests inject a
-   * stub to observe the trigger without actually reloading; deployments can
+   * stub to observe the trigger without actually reloading. Deployments can
    * wire it to a supervisor.
    */
   onReload?: () => void
@@ -52,11 +50,10 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
 /**
  * Populates a fresh {@link SceneTree}. Passed to {@link EngineHost.loadScene},
  * which destroys the current scene's contents before calling it. Add root nodes
- * through `scene.root`; reach shared services (input, animation, camera)
+ * through `scene.root`. Reach shared services (input, animation, camera)
  * through `engine`. May be async, so it can await asset loads before building
  * the tree.
  *
- * @category Engine
  * @example
  *   const build: SceneBuilder = (scene) => {
  *     scene.root.add(
@@ -80,8 +77,6 @@ export type SceneBuilder = (
  * you.
  *
  * Build one with {@link createEngineHost}.
- *
- * @category Engine
  */
 export interface EngineHost {
   /** The wrapped engine. Reach scene, camera, input, and animation through it. */
@@ -92,7 +87,7 @@ export interface EngineHost {
   readonly paused: boolean
   /**
    * The debug controller. Always present so an external menu can toggle the HUD
-   * at runtime; the `?debug` URL flag only decides whether it starts open.
+   * at runtime, the `?debug` URL flag only decides whether it starts open.
    */
   readonly debug: DebugController
   /** Start the render loop. The first call also emits the `ready` event. */
@@ -136,9 +131,9 @@ function resolveDebugMode(
 }
 
 /**
- * Resolve MSAA sample count: explicit option wins; otherwise read `?msaa=N`
- * from the URL. Accepts `0` (off), `2`, `4`, `8`. Default `4`. WebGL2 minimum
- * universally supported and gives visible fill- edge AA without unreasonable
+ * Resolve MSAA sample count. The explicit option wins, otherwise read `?msaa=N`
+ * from the URL. Accepts `0` (off), `2`, `4`, `8`. Default `4`, the minimum
+ * WebGL2 guarantees support for, and it gives visible edge AA without excessive
  * bandwidth cost.
  */
 export function resolveMsaaSamples(explicit?: number): number {
@@ -166,7 +161,6 @@ export function resolveMsaaSamples(explicit?: number): number {
  * probed without a code change. See {@link EngineHostOptions} for the per-field
  * precedence.
  *
- * @category Engine
  * @example
  *   const host = createEngineHost({
  *     canvas,
@@ -218,7 +212,7 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
       onBackendLost()
     })
   } else {
-    // Retry ladder: track the timestamps of recent context losses; if we
+    // Retry ladder: track the timestamps of recent context losses. If we
     // hit ≥3 in a rolling 60-second window (or the browser flags the loss
     // as unrestorable), abandon in-place recovery and fire `onReload`. The
     // ring buffer holds at most 3 entries, evict entries older than the

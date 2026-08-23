@@ -9,11 +9,12 @@
  *
  * The helper only writes a starting position on the child's FIRST open (no
  * saved position). Once the operator has dragged the window anywhere, their
- * saved position wins; subsequent opens honour it and `placeNextTo` no-ops.
+ * saved position wins, and subsequent opens honour it while `placeNextTo`
+ * no-ops.
  *
  * Re-anchor cascades: when a parent window re-anchors (its `side` prop changes,
  * or the × close button resets it), any window that declared it as their
- * `spawnedBy` also resets — otherwise a child's stale saved position (e.g.
+ * `spawnedBy` also resets. Otherwise a child's stale saved position (e.g.
  * seeded when the parent was on the OTHER side) would keep it far from the
  * parent's new location. See `resetChildrenOf`.
  */
@@ -82,7 +83,7 @@ export function placeNextTo(
   if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
     return
   }
-  // Operator preference wins; if the child already knows where it belongs,
+  // Operator preference wins. If the child already knows where it belongs,
   // don't overwrite.
   if (localStorage.getItem(childStorageId) !== null) return
 
@@ -110,7 +111,7 @@ export function placeNextTo(
   } else if (leftSlot >= padding) {
     x = leftSlot
   } else {
-    // Neither horizontal slot fits; drop below the parent instead.
+    // Neither horizontal slot fits, so drop below the parent instead.
     x = parentRect.left
     y = parentRect.bottom + gap
   }

@@ -2,14 +2,14 @@ import { Node2D, parseSvgPaths, type Gfx2D } from '@src/stargazer'
 import handSvgRaw from './hand.svg?raw'
 
 /**
- * Fingertip position inside the hand SVG's viewBox — the (non-rendered)
- * `<circle>` marker. The hand is drawn shifted by `-(x, y)` so the fingertip
- * lands on the node's transform origin; position the node (and its alpha) to
- * place / fade the finger.
+ * Fingertip position inside the hand SVG's viewBox (the non-rendered `<circle>`
+ * marker). The hand is drawn shifted by `-(x, y)` so the fingertip lands on the
+ * node's transform origin. Position the node (and its alpha) to place or fade
+ * the finger.
  */
 const FINGERTIP = { x: 22, y: 10 }
 
-/** SVG viewBox is 238×277; scale it to read as a hand on the field. */
+/** SVG viewBox is 238×277, scale it to read as a hand on the field. */
 const HAND_SCALE = 1.2
 
 // Inverted from the source asset (dark hand + light creases) so it reads on the
@@ -18,7 +18,7 @@ const HAND_SCALE = 1.2
 const SILHOUETTE_COLOR = '#ffffff'
 const HAND_COLOR = '#17171b'
 
-// Parse once at module load; the two <path>s are the silhouette then the
+// Parse once at module load. The two <path>s are the silhouette then the
 // crease/detail overlay. Tessellated so the GPU backend can fill them.
 const HAND_PATHS = Array.from(
   parseSvgPaths(handSvgRaw, { tessellate: true }).paths.values(),

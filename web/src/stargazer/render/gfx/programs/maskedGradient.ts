@@ -1,7 +1,7 @@
 // Masked-radial-gradient program: `Gfx2D.fillMaskedRadialGradient` (the arcade
 // launcher's drifting clouds). Mask silhouette on texture unit 0, gradient LUT
-// on unit 1. The mask/LUT lookups live on `GpuGfx` (need `TextureManager`);
-// this program owns the shader/VAO/stream plumbing and the buffer write.
+// on unit 1. The mask/LUT lookups live on `GpuGfx` (need `TextureManager`).
+// This program owns the shader/VAO/stream plumbing and the buffer write.
 
 import { RingStream } from '../RingStream'
 import {
@@ -42,7 +42,7 @@ export class MaskedGradientProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
-  /** (mask → (lut → bind group)); both textures vary per run. */
+  /** (mask → (lut → bind group)), both textures vary per run. */
   #bindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
 
   get stream(): RingStream {
@@ -112,7 +112,7 @@ export class MaskedGradientProgram implements GpuProgram {
 
   /**
    * Begin (or continue) the `maskedGradient` batch for `(mask, lut)` and
-   * reserve one instance record; returns the word offset, or `-1` on overflow.
+   * reserve one instance record. Returns the word offset, or `-1` on overflow.
    */
   beginInstance(ctx: GpuBatchContext, mask: Texture, lut: Texture): number {
     ctx.beginBatch('maskedGradient', { texture: mask, lut })
@@ -128,7 +128,7 @@ export class MaskedGradientProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
-    // Mask silhouette on unit 0, gradient LUT on unit 1; both required.
+    // Mask silhouette on unit 0, gradient LUT on unit 1, both required.
     const material =
       run.texture && run.lut
         ? this.#bindGroupFor(ctx, run.texture, run.lut)

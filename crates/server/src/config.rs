@@ -162,19 +162,30 @@ impl Default for MockCfg {
     }
 }
 
-/// Client-facing config (TOML `[client]`). Snake_case on disk; mapped to the
+/// Client-facing config (TOML `[client]`). Snake_case on disk, mapped to the
 /// camelCase [`ClientConfig`] DTO before it's sent to the browser.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default)]
 pub struct ClientCfg {
     /// URL printed top-right on every result label.
     pub label_url: String,
+    /// Booth latitude in degrees, north positive. Positions the sun for the
+    /// arcade launcher's time-of-day sky.
+    pub latitude: f64,
+    /// Booth longitude in degrees, east positive.
+    pub longitude: f64,
+    /// IANA zone name, used only to resolve the launcher's wall-clock dev
+    /// overrides. The sky itself runs on UTC and needs no zone.
+    pub timezone: String,
 }
 
 impl Default for ClientCfg {
     fn default() -> Self {
         Self {
             label_url: "mzl.la/enterprise".into(),
+            latitude: 52.52,
+            longitude: 13.405,
+            timezone: "Europe/Berlin".into(),
         }
     }
 }
@@ -224,6 +235,21 @@ impl Config {
                 self.client.label_url = v;
             }
         }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_CLIENT_LATITUDE") {
+            if let Ok(n) = v.parse() {
+                self.client.latitude = n;
+            }
+        }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_CLIENT_LONGITUDE") {
+            if let Ok(n) = v.parse() {
+                self.client.longitude = n;
+            }
+        }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_CLIENT_TIMEZONE") {
+            if !v.is_empty() {
+                self.client.timezone = v;
+            }
+        }
     }
 
     /// Resolved config-file path (`$PRINTER_DAEMON_CONFIG` or `./config.toml`),
@@ -244,6 +270,21 @@ impl Config {
                 "unknown backend {:?} (expected \"mock\" or \"tcp\")",
                 self.backend
             ));
+        }
+        if !(-90.0..=90.0).contains(&self.client.latitude) {
+            return Err(format!(
+                "client.latitude {} is outside [-90, 90]",
+                self.client.latitude
+            ));
+        }
+        if !(-180.0..=180.0).contains(&self.client.longitude) {
+            return Err(format!(
+                "client.longitude {} is outside [-180, 180]",
+                self.client.longitude
+            ));
+        }
+        if self.client.timezone.trim().is_empty() {
+            return Err("client.timezone must not be empty".into());
         }
         Ok(())
     }
@@ -270,5 +311,29 @@ mod tests {
     fn missing_client_section_falls_back_to_default() {
         let cfg: Config = toml::from_str(r#"backend = "mock""#).unwrap();
         assert_eq!(cfg.client.label_url, "mzl.la/enterprise");
+        assert_eq!(cfg.client.latitude, 52.52);
+        assert_eq!(cfg.client.timezone, "Europe/Berlin");
+    }
+
+    #[test]
+    fn partial_client_section_defaults_the_rest() {
+        let cfg: Config = toml::from_str(
+            r#"
+            backend = "mock"
+            [client]
+            latitude = 64.15
+            "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.client.latitude, 64.15);
+        assert_eq!(cfg.client.longitude, 13.405);
+        assert_eq!(cfg.client.label_url, "mzl.la/enterprise");
+    }
+
+    #[test]
+    fn out_of_range_latitude_is_rejected() {
+        let mut cfg = Config::default();
+        cfg.client.latitude = 91.0;
+        assert!(cfg.validate().is_err());
     }
 }

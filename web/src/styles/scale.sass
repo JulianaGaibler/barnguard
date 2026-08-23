@@ -1,5 +1,5 @@
 // Static token layer emitted once at :root. Everything here is either relative
-// (rem, so it scales with the adjustable base font-size — see global.sass) or a
+// (rem, so it scales with the adjustable base font-size, see global.sass) or a
 // neutral default that a display/game theme overrides at runtime (see
 // core/theme). Defining every color role here means no `var(--color-*)` is ever
 // undefined, so a theme only needs to override what differs.
@@ -26,10 +26,33 @@
   --radius-pill: 100vmax
 
   // Stacking order, single source of truth. In-game overlays sit low (below the
-  // core chrome); the off-duty cover sits above the top bar but below the
+  // core chrome). The off-duty cover sits above the top bar but below the
   // attendant's draggable windows so they stay reachable to toggle it off.
   --z-overlay: 40
   --z-cover: 120
+
+  // Font roles. The two defaults a display/game theme may override via
+  // `--font-*` (core/theme.applyFonts); a game's canvas resolves the same two
+  // through core/theme/fonts.ts. Full stacks, fallbacks included. Kept
+  // byte-identical to `DEFAULT_FONTS` there, asserted by fonts.test.ts.
+  --font-text: "Mozilla Text", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-heading: "Mozilla Headline", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+
+  // Every shipped family, by name. NOT themeable and not overridden by a
+  // theme: these are handles, so a component wanting one specific face can
+  // name it without repeating the fallback tail. Mirrors `FAMILIES` in
+  // core/theme/fonts.ts, which is what canvas code uses for the same purpose.
+  --font-mozilla-text: "Mozilla Text", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-mozilla-headline: "Mozilla Headline", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-mozilla-headline-extended: "Mozilla Headline Extended", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-azeret-mono: "Azeret Mono", ui-monospace, "SF Mono", Menlo, monospace
+  --font-geist: "Geist", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-hk-grotesk: "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-bungee: "Bungee", "Arial Black", sans-serif
+  --font-raleway: "Raleway", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-sniglet: "Sniglet", "Comic Sans MS", cursive
+  --font-sorts-mill-goudy: "Sorts Mill Goudy", Georgia, "Times New Roman", serif
+  --font-bagnard: "Bagnard", Georgia, serif
 
   // Neutral color defaults (light). A theme overrides these via `--color-*`.
   --color-surface: #ffffff
@@ -64,8 +87,11 @@
   --color-shadow-card: 0 0.5rem 2.5rem rgba(10, 12, 20, 0.18)
   // Heavier lift for large modal panels (pause / game-over cards).
   --color-shadow-panel: 0 1.25rem 3.75rem rgba(9, 22, 44, 0.45)
-  // App-wide DOM backdrop (behind the canvas-less chrome).
-  --color-app-backdrop: linear-gradient(299deg, #243b67 19.93%, #223663 75.96%), #263860
+  // App-wide DOM backdrop (behind the canvas-less chrome). Neutral dark, so a
+  // display with no branded chrome of its own reads as plain rather than
+  // borrowing another event's colors. Light-on-dark: the landing / fatal-error
+  // screens set `--color-text-inverse` against this.
+  --color-app-backdrop: #1b1c20
 
   // Optional decorative gradients (themes may override).
   --color-gradient-play: linear-gradient(120deg, #f6cce1, #cfb5f3)

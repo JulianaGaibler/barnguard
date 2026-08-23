@@ -4,16 +4,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // headlessly and reports zero for everything. These tests are about the line
 // breaking, so measurement is stubbed with a deterministic monospace model:
 // one unit of width per character per point of font size.
+//
+// The stub keeps `localW` a padded bitmap box and `advance` the bare pen step,
+// as the real one does. Conflating them is what put a gap between every pair of
+// runs on a line, so the difference has to survive into the tests.
+const PAD = 4
 vi.mock('./rasterizeLabel', () => ({
   measureText: (text: string, style: { font: string }) => {
     const size = Number(/(\d+(?:\.\d+)?)px/.exec(style.font)?.[1] ?? 10)
+    const ink = text.length * size
     return {
-      localW: text.length * size,
-      localH: size,
+      localW: ink + PAD,
+      localH: size + PAD,
+      advance: ink,
+      ascent: size * 0.8,
+      descent: size * 0.2,
       anchorOffsetX: 0,
       anchorOffsetY: 0,
     }
   },
+  fontMetrics: (font: string) => {
+    const size = Number(/(\d+(?:\.\d+)?)px/.exec(font)?.[1] ?? 10)
+    return {
+      ascent: size * 0.8,
+      descent: size * 0.2,
+      capHeight: size * 0.7,
+      lineHeight: size,
+    }
+  },
+  parseFontSizePx: (font: string) =>
+    Number(/(\d+(?:\.\d+)?)px/.exec(font)?.[1] ?? 10),
 }))
 
 const {
@@ -22,21 +42,43 @@ const {
   fitFontSize,
   fitRichTextBlock,
   fitTextBlock,
+  textAdvance,
+  textMetrics,
   textWidth,
   wrapRichText,
   wrapText,
   wrapTextInfo,
+  richText,
 } = await import('./textLayout')
+type RichRun = import('./textLayout').RichRun
+type TextSpan = import('./textLayout').TextSpan
 
 const FONT = '400 10px sans-serif'
-/** Width of `n` characters under the stub. */
-const chars = (n: number) => n * 10
+/** What `textWidth` reports for `n` characters under the stub. */
+const chars = (n: number) => n * 10 + PAD
+/** What the pen advances over `n` characters, which is what positions runs. */
+const adv = (n: number) => n * 10
 
 describe('textLayout', () => {
   beforeEach(() => _resetTextLayoutCacheForTests())
 
   it('measures a longer string as wider', () => {
     expect(textWidth('mmmmmmmmmm', FONT)).toBeGreaterThan(textWidth('m', FONT))
+  })
+
+  it('reports an advance narrower than the padded bitmap box', () => {
+    expect(textAdvance('abc', FONT)).toBe(30)
+    expect(textWidth('abc', FONT)).toBe(34)
+  })
+
+  it('steps rich runs by the advance, leaving no gap between them', () => {
+    const [line] = wrapRichText(
+      [{ text: 'ab' }, { text: 'cd', bold: true }, { text: 'ef' }],
+      () => FONT,
+      chars(40),
+    )
+    expect(line!.runs.map((r) => r.x)).toEqual([0, 20, 40])
+    expect(line!.width).toBe(60)
   })
 
   it('returns one line when it already fits', () => {
@@ -88,9 +130,11 @@ describe('textLayout', () => {
 
   it('picks the largest size that fits', () => {
     const make = (s: number) => `400 ${s}px sans-serif`
-    // 'word' is 4 characters, so size 20 needs 80 units and size 10 needs 40.
-    expect(fitFontSize('word', [20, 10], make, 80)).toBe(20)
-    expect(fitFontSize('word', [20, 10], make, 79)).toBe(10)
+    // Fitting goes by the padded bitmap box, so it stays conservative about ink
+    // that overhangs the advance: 'word' is 4 characters, needing 80 + PAD at
+    // size 20 and 40 + PAD at size 10.
+    expect(fitFontSize('word', [20, 10], make, chars(8))).toBe(20)
+    expect(fitFontSize('word', [20, 10], make, chars(8) - 1)).toBe(10)
   })
 
   it('falls back to the smallest size when nothing fits', () => {
@@ -166,9 +210,65 @@ describe('fitTextBlock', () => {
     expect(block.size).toBe(8)
   })
 
-  it('spaces lines by the ratio', () => {
+  it("spaces lines by the font's own line height, scaled by the ratio", () => {
+    // The stub reports a 10px font as 10 tall, so the default is the typeface's
+    // natural spacing rather than a multiple of the em size.
+    const natural = fitTextBlock('alpha', [10], make, {
+      width: 200,
+      height: 40,
+    })
+    expect(natural.lineHeight).toBeCloseTo(10, 6)
+    const loose = fitTextBlock(
+      'alpha',
+      [10],
+      make,
+      {
+        width: 200,
+        height: 40,
+      },
+      1.2,
+    )
+    expect(loose.lineHeight).toBeCloseTo(12, 6)
+  })
+
+  it('puts the first baseline an ascent below the block top', () => {
     const block = fitTextBlock('alpha', [10], make, { width: 200, height: 40 })
-    expect(block.lineHeight).toBeCloseTo(12, 6)
+    expect(block.firstBaselineY).toBeCloseTo(8, 6)
+  })
+
+  it('reports a height with no phantom trailing line', () => {
+    const one = fitTextBlock('alpha', [10], make, { width: 200, height: 40 })
+    expect(one.lines).toHaveLength(1)
+    // One line is its own box, not a whole line advance.
+    expect(one.height).toBeCloseTo(10, 6)
+
+    const two = fitTextBlock('alpha beta', [10], make, {
+      width: 60,
+      height: 40,
+    })
+    expect(two.lines).toHaveLength(2)
+    expect(two.height).toBeCloseTo(one.lineHeight + 10, 6)
+  })
+})
+
+describe('textMetrics', () => {
+  it('reports the advance, the string ink and the font-wide values', () => {
+    const m = textMetrics('abc', FONT)
+    expect(m.advance).toBeCloseTo(30)
+    expect(m.ascent).toBeCloseTo(8)
+    expect(m.descent).toBeCloseTo(2)
+    expect(m.capHeight).toBeCloseTo(7)
+    expect(m.lineHeight).toBeCloseTo(10)
+  })
+
+  it('evicts the oldest entry rather than flushing the whole cache', () => {
+    // The old behaviour cleared everything at the cap, so a working set one
+    // over budget got a zero hit rate.
+    _resetTextLayoutCacheForTests()
+    for (let i = 0; i < 600; i++) textAdvance(`w${i}`, FONT)
+    // The most recent entries survive an overflow that would have wiped them.
+    expect(textAdvance('w599', FONT)).toBeCloseTo(textAdvance('w599', FONT))
+    expect(textAdvance('w598', FONT)).toBeGreaterThan(0)
   })
 })
 
@@ -176,6 +276,13 @@ describe('fitTextBlock', () => {
 // runs measure the same. That is deliberate: these tests pin structure and x
 // offsets, not the visual weight.
 const RICH_FONT = (bold: boolean) => `${bold ? 700 : 400} 10px sans-serif`
+
+const richMake = (size: number, bold: boolean) =>
+  `${bold ? 700 : 400} ${size}px sans-serif`
+
+/** The words on a line, with inline boxes skipped. */
+const lineText = (line: { runs: RichRun[] }): string =>
+  line.runs.map((r) => (r.kind === 'text' ? r.text : '')).join('')
 
 describe('wrapRichText', () => {
   beforeEach(() => _resetTextLayoutCacheForTests())
@@ -193,7 +300,7 @@ describe('wrapRichText', () => {
       bold: false,
       x: 0,
     })
-    expect(lines[0]!.width).toBe(chars(16))
+    expect(lines[0]!.width).toBe(adv(16))
   })
 
   it('splits into runs at each weight change and offsets them', () => {
@@ -206,11 +313,11 @@ describe('wrapRichText', () => {
     const runs = lines[0]!.runs
     expect(runs).toHaveLength(3)
     expect(runs[0]).toMatchObject({ text: 'gain ', bold: false, x: 0 })
-    expect(runs[1]).toMatchObject({ text: '3 ', bold: true, x: chars(5) })
+    expect(runs[1]).toMatchObject({ text: '3 ', bold: true, x: adv(5) })
     expect(runs[2]).toMatchObject({
       text: 'approvals',
       bold: false,
-      x: chars(7),
+      x: adv(7),
     })
   })
 
@@ -222,7 +329,7 @@ describe('wrapRichText', () => {
       chars(2),
     )
     expect(lines).toHaveLength(1)
-    expect(lines[0]!.runs.map((r) => r.text).join('')).toBe('+$6k')
+    expect(lineText(lines[0]!)).toBe('+$6k')
   })
 
   it('wraps on whitespace across lines', () => {
@@ -232,10 +339,7 @@ describe('wrapRichText', () => {
       chars(11),
       4,
     )
-    expect(lines.map((l) => l.runs.map((r) => r.text).join(''))).toEqual([
-      'alpha beta',
-      'gamma delta',
-    ])
+    expect(lines.map(lineText)).toEqual(['alpha beta', 'gamma delta'])
   })
 
   it('returns no lines for empty spans', () => {
@@ -248,11 +352,169 @@ describe('wrapRichText', () => {
   })
 })
 
-describe('fitRichTextBlock', () => {
+// A box two ems wide and one tall, so its advance is unmistakable against the
+// stub's one-unit-per-character-per-point text.
+const BOX: TextSpan = { box: 'badge', heightEm: 1, aspect: 2, alt: 'Design' }
+
+describe('inline boxes', () => {
   beforeEach(() => _resetTextLayoutCacheForTests())
 
-  const richMake = (size: number, bold: boolean) =>
-    `${bold ? 700 : 400} ${size}px sans-serif`
+  it('steps the pen by the box, and by its lead and trail', () => {
+    const lines = wrapRichText(
+      [{ text: 'per ' }, BOX, { text: ' each' }],
+      RICH_FONT,
+      chars(40),
+    )
+    const runs = lines[0]!.runs
+    expect(runs).toHaveLength(3)
+    expect(runs[1]).toMatchObject({ kind: 'box', box: 'badge', width: 20 })
+    expect(runs[2]).toMatchObject({ kind: 'text', x: adv(4) + 20 })
+
+    const spaced = wrapRichText(
+      [{ text: 'per ' }, { ...BOX, leadEm: 0.5, trailEm: 0.5 }, { text: ' e' }],
+      RICH_FONT,
+      chars(40),
+    )
+    const spacedRuns = spaced[0]!.runs
+    expect(spacedRuns[1]).toMatchObject({ x: adv(4) + 5 })
+    expect(spacedRuns[2]).toMatchObject({ x: adv(4) + 30 })
+  })
+
+  it('centres the box on the cap height, level with the digits', () => {
+    const lines = wrapRichText([{ text: '2' }, BOX], RICH_FONT, chars(40))
+    const box = lines[0]!.runs[1]!
+    expect(box.kind).toBe('box')
+    if (box.kind !== 'box') return
+    // Cap height is 7 under the stub, and the box is 10 tall.
+    expect(box.y).toBe(-(7 + 10) / 2)
+  })
+
+  it('breaks run coalescing, so the text either side is not merged', () => {
+    const lines = wrapRichText(
+      [{ text: 'a' }, BOX, { text: 'b' }],
+      RICH_FONT,
+      chars(40),
+    )
+    expect(lines[0]!.runs.map((r) => r.kind)).toEqual(['text', 'box', 'text'])
+  })
+
+  it('welds to the text beside it, so a value never wraps off its badge', () => {
+    const lines = wrapRichText(
+      [{ text: '2' }, BOX],
+      RICH_FONT,
+      // Narrower than the pair, which still goes down whole on one line.
+      chars(2),
+      4,
+    )
+    expect(lines).toHaveLength(1)
+    expect(lines[0]!.runs.map((r) => r.kind)).toEqual(['text', 'box'])
+  })
+
+  it('takes the space between words from the last text run, not the box', () => {
+    // The box ends the first word, so the space after it has to reach back
+    // past the box for a weight. A box carries none.
+    const lines = wrapRichText(
+      [{ text: 'x', bold: true }, BOX, { text: ' y' }],
+      RICH_FONT,
+      chars(40),
+    )
+    const runs = lines[0]!.runs
+    expect(runs.map((r) => r.kind)).toEqual(['text', 'box', 'text', 'text'])
+    expect(runs[2]).toMatchObject({ kind: 'text', text: ' ', bold: true })
+  })
+
+  it('drops a box with no area rather than breaking a run for nothing', () => {
+    const lines = wrapRichText(
+      [{ text: 'a' }, { box: 'b', heightEm: 0, aspect: 2 }, { text: 'b' }],
+      RICH_FONT,
+      chars(40),
+    )
+    expect(lines[0]!.runs).toHaveLength(1)
+    expect(lineText(lines[0]!)).toBe('ab')
+  })
+
+  it('reads back as a sentence through alt', () => {
+    expect(richText([{ text: 'per ' }, BOX, { text: ' each' }])).toBe(
+      'per Design each',
+    )
+  })
+
+  it('caches on the box geometry, not just its name', () => {
+    const spans = (heightEm: number): TextSpan[] => [
+      { text: 'a' },
+      { box: 'badge', heightEm, aspect: 2 },
+    ]
+    const a = wrapRichText(spans(1), RICH_FONT, chars(40))
+    expect(wrapRichText(spans(1), RICH_FONT, chars(40))).toBe(a)
+    expect(wrapRichText(spans(2), RICH_FONT, chars(40))).not.toBe(a)
+  })
+})
+
+describe('fitRichTextBlock with inline boxes', () => {
+  beforeEach(() => _resetTextLayoutCacheForTests())
+
+  it('widens the line for a box that overhangs the font', () => {
+    const tall: TextSpan = { box: 'badge', heightEm: 2, aspect: 1 }
+    const plain = fitRichTextBlock([{ text: 'a' }], [10], richMake, {
+      width: 400,
+      height: 100,
+    })
+    const withBox = fitRichTextBlock([{ text: 'a' }, tall], [10], richMake, {
+      width: 400,
+      height: 100,
+    })
+    // Cap height 7 and a 20px box put the baseline 13.5 down, past the font's 8.
+    expect(plain.lineHeight).toBe(10)
+    expect(withBox.lineHeight).toBe(13.5 + 6.5)
+    expect(withBox.firstBaselineY).toBe(13.5)
+  })
+
+  it('spends the extra height out of the line budget', () => {
+    const tall: TextSpan = { box: 'badge', heightEm: 2, aspect: 1 }
+    const box = { width: chars(6), height: 32 }
+    const plain = fitRichTextBlock(
+      [{ text: 'alpha beta gamma' }],
+      [10],
+      richMake,
+      box,
+    )
+    const withBox = fitRichTextBlock(
+      [{ text: 'alpha beta gamma' }, tall],
+      [10],
+      richMake,
+      box,
+    )
+    expect(withBox.lines.length).toBeLessThan(plain.lines.length)
+  })
+
+  it('drops a trailing box whole rather than slicing it', () => {
+    const block = fitRichTextBlock(
+      [{ text: 'alpha' }, { text: ' beta ' }, BOX],
+      [10],
+      richMake,
+      { width: chars(6), height: 12 },
+    )
+    expect(block.truncated).toBe(true)
+    expect(
+      block.lines.every((l) => l.runs.every((r) => r.kind === 'text')),
+    ).toBe(true)
+  })
+
+  it('ellipsizes a line that is nothing but boxes', () => {
+    // Spaces so the boxes are three words rather than one welded run, and a
+    // box wider than the whole line so nothing survives the trim.
+    const spans: TextSpan[] = [BOX, { text: ' ' }, BOX, { text: ' ' }, BOX]
+    const block = fitRichTextBlock(spans, [10], richMake, {
+      width: 5,
+      height: 12,
+    })
+    expect(block.truncated).toBe(true)
+    expect(lineText(block.lines[block.lines.length - 1]!)).toBe('\u2026')
+  })
+})
+
+describe('fitRichTextBlock', () => {
+  beforeEach(() => _resetTextLayoutCacheForTests())
 
   it('keeps the largest size that fits the box whole', () => {
     const block = fitRichTextBlock(
@@ -277,8 +539,6 @@ describe('fitRichTextBlock', () => {
       { width: 30, height: 12 },
     )
     expect(block.truncated).toBe(true)
-    expect(
-      block.lines[block.lines.length - 1]!.runs.some((r) => /…$/.test(r.text)),
-    ).toBe(true)
+    expect(/…$/.test(lineText(block.lines[block.lines.length - 1]!))).toBe(true)
   })
 })

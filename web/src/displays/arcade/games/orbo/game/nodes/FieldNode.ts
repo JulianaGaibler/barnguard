@@ -3,11 +3,11 @@
  * (Team R's scoring band) and `rightCenter` (Team L's) each wear the color of
  * the team that scores in them. In 2v2 a team has two players of different
  * colors, so the active player's band re-tints to their color with a short
- * transition (e.g. red-blue → green's turn → red-green). The edge launch strips
- * stay neutral.
+ * transition (e.g. red-blue to green's turn to red-green). The edge launch
+ * strips stay neutral.
  *
  * Drawn on the dynamic layer (behind the orbs, added first) so the color tween
- * is visible — it's just two `fillRect`s per frame.
+ * is visible. It's just two `fillRect`s per frame.
  */
 import {
   Node2D,
@@ -26,8 +26,8 @@ interface RevealRef {
   frac: number
 }
 
-// Tint strength over the light (~white) panel — bumped from the old dark-field
-// value so the scoring bands still read.
+// Tint strength over the light (~white) panel, chosen so the scoring bands
+// still read.
 const BAND_ALPHA = 0.3
 const RETINT_SEC = 0.35
 
@@ -49,7 +49,7 @@ function rgba(c: Rgb, alpha: number): string {
 }
 
 export class FieldNode extends Node2D {
-  // leftCenter is Team R's (team 1) band; rightCenter is Team L's (team 0).
+  // leftCenter is Team R's (team 1) band, rightCenter is Team L's (team 0).
   readonly #leftBand = parseHex(TEAM_COLORS[1])
   readonly #rightBand = parseHex(TEAM_COLORS[0])
   readonly #layout: FieldLayout

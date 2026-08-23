@@ -29,7 +29,7 @@ const setup = (opts: Partial<DraggableOptions<Cell>> = {}): Scene => {
   card.transform.y = 20
   home.add(card)
 
-  // `tween` needs an engine-owned scene; stub it so the snap-back can start
+  // `tween` needs an engine-owned scene. Stub it so the snap-back can start
   // without one. Default: a pending promise so the snap stays "in flight".
   let resolveSnap: (() => void) | null = null
   const tween = vi.fn(
@@ -83,7 +83,7 @@ describe('DraggableBehavior', () => {
   it('promotes past the threshold, reparents, and keeps the grab point under the finger', () => {
     const onDragStart = vi.fn()
     const s = setup({ onDragStart })
-    // Card origin world is (10, 20); grab offset becomes (5, 8).
+    // Card origin world is (10, 20). Grab offset becomes (5, 8).
     down(s, 15, 28)
     move(s, 50, 60) // 40px travel → a drag
     expect(onDragStart).toHaveBeenCalledTimes(1)

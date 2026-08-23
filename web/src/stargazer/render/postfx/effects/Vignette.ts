@@ -20,17 +20,16 @@ export interface VignetteOptions {
  * Darkens the frame toward its edges by a smooth radial falloff. One fullscreen
  * pass. Premultiplied-safe (a scalar multiply).
  *
- * @category Render
  * @example
  *   engine.postProcess.add(new Vignette({ intensity: 0.6, radius: 0.4 }))
  */
 export class Vignette implements PostEffect {
   enabled: boolean
-  /** Corner darkening, `0`..`1`; tweakable live. */
+  /** Corner darkening, `0`..`1`. Tweakable live. */
   intensity: number
-  /** Distance from center (uv) where darkening begins; tweakable live. */
+  /** Distance from center (uv) where darkening begins. Tweakable live. */
   radius: number
-  /** Falloff band width; tweakable live. */
+  /** Falloff band width. Tweakable live. */
   softness: number
   readonly passes: readonly PostPass[]
 

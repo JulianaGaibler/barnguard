@@ -9,11 +9,7 @@ import type {
   Dom3DAttachOptions,
 } from '../dom/DomTransformSync'
 
-/**
- * Params for the {@link domAnchor} Svelte action.
- *
- * @category Svelte
- */
+/** Params for the {@link domAnchor} Svelte action. */
 export interface DomAnchorParams extends DomAttachOptions {
   /** The engine that drives the sync. */
   engine: Engine
@@ -23,15 +19,14 @@ export interface DomAnchorParams extends DomAttachOptions {
 
 /**
  * Svelte action that keeps an element flush with a scene node. Attaches the
- * element to the node via {@link Engine.dom} on mount and detaches on unmount;
- * the engine then writes the element's CSS transform each frame so it tracks
+ * element to the node via {@link Engine.dom} on mount and detaches on unmount.
+ * The engine then writes the element's CSS transform each frame so it tracks
  * the node through camera pans and zooms.
  *
  * The element must live in a container that overlays the canvas exactly (same
- * bounding rect); this action only drives the transform. See the HTML overlays
+ * bounding rect). This action only drives the transform. See the HTML overlays
  * guide.
  *
- * @category Svelte
  * @example
  *   <div use:domAnchor={{ engine: host.engine, node, size: { width: 480, height: 320 } }}>
  *   <Menu />
@@ -45,7 +40,7 @@ export function domAnchor(
   let handle: DomAttachment = params.engine.dom.attach(node, element, params)
   return {
     update(next: DomAnchorParams): void {
-      // Re-attach only when the target node (or engine) changes; otherwise just
+      // Re-attach only when the target node (or engine) changes. Otherwise just
       // push the new options so an inline params object doesn't churn attaches.
       if (next.engine !== params.engine || next.node !== node) {
         handle.detach()
@@ -62,11 +57,7 @@ export function domAnchor(
   }
 }
 
-/**
- * Params for the {@link domAnchor3d} Svelte action.
- *
- * @category Svelte
- */
+/** Params for the {@link domAnchor3d} Svelte action. */
 export interface DomAnchor3dParams extends Dom3DAttachOptions {
   /** The engine that drives the sync. */
   engine: Engine
@@ -78,15 +69,14 @@ export interface DomAnchor3dParams extends Dom3DAttachOptions {
 
 /**
  * Svelte action that pins an element to a {@link Node3D}'s projected screen
- * position. Attaches via {@link Engine.dom} on mount and detaches on unmount;
- * the engine projects the node through `camera` each frame, translates the
+ * position. Attaches via {@link Engine.dom} on mount and detaches on unmount.
+ * The engine projects the node through `camera` each frame, translates the
  * element (centered on the point), and hides it when the node is behind the
  * camera. Position-only, so the element stays screen-upright.
  *
  * The element must live in a container overlaying the canvas exactly. See the
  * HTML overlays guide.
  *
- * @category Svelte
  * @example
  *   <div use:domAnchor3d={{ engine, node: cube, camera: engine.currentCamera3D }}>
  *   <button onclick={fire}>Launch</button>

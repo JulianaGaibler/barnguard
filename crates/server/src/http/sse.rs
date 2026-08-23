@@ -20,13 +20,13 @@ pub async fn events(
     let live = BroadcastStream::new(st.events.subscribe()).filter_map(|res| async move {
         match res {
             Ok(ev) => Some(Ok(event_to_sse(ev))),
-            // Dropped due to lag; skip. The next full `queue` event re-syncs.
+            // Dropped due to lag, so skip. The next full `queue` event re-syncs.
             Err(_) => None,
         }
     });
 
     // Real named `ping` events every 15 s. The `KeepAlive` below sends an SSE
-    // comment line (`:ping\n\n`) — browsers ignore comment lines, so they
+    // comment line (`:ping\n\n`). Browsers ignore comment lines, so they
     // don't dispatch to any EventSource handler and can't feed the client's
     // heartbeat monitor. A named event does dispatch, so the client bumps its
     // liveness clock on receipt. Comment keep-alive is kept as a byte-level
@@ -75,9 +75,7 @@ fn event_to_sse(ev: ServerEvent) -> Event {
         ServerEvent::Queue(q) => sse_json("queue", &q),
         ServerEvent::Log(e) => sse_json("log", &e),
         ServerEvent::GameCreated(g) => sse_json("game.created", &g),
-        ServerEvent::GameDeleted(id) => {
-            Event::default().event("game.deleted").data(id.to_string())
-        }
+        ServerEvent::GameDeleted(id) => Event::default().event("game.deleted").data(id.to_string()),
         ServerEvent::Config(c) => sse_json("config", &c),
     }
 }

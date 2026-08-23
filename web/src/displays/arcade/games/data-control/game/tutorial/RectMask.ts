@@ -7,7 +7,7 @@ import type { PacketMask } from '../behaviors/PacketBehavior'
  * every side, matching `BitmapMask.contains(pt, inset)` semantics:
  *
  * - `contains(x, y, 0)`, true iff `(x, y)` is inside the full rect.
- *   `PacketBehavior::onFixedStep` uses this as the exit gate; when it flips to
+ *   `PacketBehavior::onFixedStep` uses this as the exit gate. When it flips to
  *   false the packet fires `onExitedGermany`.
  * - `contains(x, y, 8)`, true iff `(x, y)` is at least 8 world units inside every
  *   edge. `PacketBehavior::applyBorderTurnaround` uses this to short-circuit

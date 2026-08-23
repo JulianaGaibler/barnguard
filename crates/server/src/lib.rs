@@ -29,7 +29,7 @@ use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
 /// Global handle so the panic hook can record a final message. Set once at
-/// start-up; the hook no-ops until then.
+/// start-up. The hook no-ops until then.
 static LOG_HUB: OnceLock<LogHub> = OnceLock::new();
 
 /// Load config, supervise the worker, and serve the HTTP + SSE API until shutdown.
@@ -67,7 +67,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     ))));
     let controller = QueueController::new(store, events.clone(), log.clone());
 
-    // Supervise the worker in its own task; the HTTP server below runs
+    // Supervise the worker in its own task. The HTTP server below runs
     // independently, so the panel + log stay reachable even if the worker flaps.
     tokio::spawn(supervise(
         cfg.clone(),
@@ -82,9 +82,7 @@ pub async fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Client-facing config lives behind a lock: `POST /config/reload` refreshes
     // the base from disk, `POST/DELETE /config/override` set/clear the in-memory
     // override, and every SSE (re)connect reads the effective value.
-    let client_config = Arc::new(RwLock::new(ClientConfigState::new(
-        cfg.client.label_url.clone(),
-    )));
+    let client_config = Arc::new(RwLock::new(ClientConfigState::new(&cfg.client)));
 
     let state = AppState {
         controller,
@@ -180,7 +178,7 @@ impl RestartTracker {
         }
     }
 
-    /// Record a failure at `now`; returns the backoff to wait before the next
+    /// Record a failure at `now` and return the backoff to wait before the next
     /// attempt, or `None` once `max` failures occur within the window (give up).
     fn on_failure(&mut self, now: Instant) -> Option<Duration> {
         if now.duration_since(self.window_start) > self.window {

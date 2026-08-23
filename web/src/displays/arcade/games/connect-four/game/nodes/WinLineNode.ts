@@ -10,9 +10,9 @@ interface Point {
  * The winning line: a thin white segment connecting the four winning chips,
  * drawn on over {@link ANIM.winLineDraw} seconds, with a ring + dot "node" mark
  * popping in on each chip as the line reaches it. The winning cells are
- * collinear, so the tip lerps along the first→last segment. Coordinates are
- * world-space; add this at identity transform so local == world. Self-drives
- * its progress, so no external tween is needed.
+ * collinear, so the tip lerps along the segment from the first cell to the
+ * last. Coordinates are world-space. Add this at identity transform so local
+ * equals world. Self-drives its progress, so no external tween is needed.
  */
 const RING_POP_DURATION = 0.12
 
@@ -32,7 +32,7 @@ export class WinLineNode extends Node2D {
 
   override onUpdate(dt: number): void {
     // Progress keeps advancing past 1 so the last chip's ring gets its full
-    // pop-in window too; only the line's tip position clamps to 1 in draw().
+    // pop-in window too. Only the line's tip position clamps to 1 in draw().
     const max = 1 + RING_POP_DURATION
     if (this.#progress >= max || dt <= 0) return
     this.#progress = Math.min(max, this.#progress + dt / ANIM.winLineDraw)

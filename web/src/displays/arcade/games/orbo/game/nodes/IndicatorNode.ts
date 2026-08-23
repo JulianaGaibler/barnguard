@@ -1,10 +1,10 @@
 /**
  * In-engine queue indicator for one player: a horizontal, center-anchored row
  * of small filled circles (no outline) sized to represent the queued orbs.
- * Rendering it in the scene (rather than DOM) makes the animations trivial —
- * each dot is a `ShapeNode` we tween.
+ * Rendering it in the scene (rather than DOM) makes the animations trivial,
+ * since each dot is a `ShapeNode` we tween.
  *
- * The group sits at the world origin; dots live in absolute world coordinates,
+ * The group sits at the world origin. Dots live in absolute world coordinates,
  * laid out centered on `(cx, cy)` so the row re-centers as it grows and
  * shrinks. `update(orbs)` (all motion is horizontal, conveyor-style):
  *
@@ -49,8 +49,8 @@ export class IndicatorNode extends Node2D {
       )
     }
 
-    // Added (returned to the end): created hidden to the right of their slot;
-    // the fade-in + slide is kicked off in `relayout` once positions are known.
+    // Added (returned to the end): created hidden to the right of their slot.
+    // The fade-in + slide is kicked off in `relayout` once positions are known.
     const fresh = new Set<string>()
     for (const orb of orbs) {
       if (this.#dots.has(orb.id)) continue

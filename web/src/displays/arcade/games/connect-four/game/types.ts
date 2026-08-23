@@ -3,7 +3,10 @@
  * session, and nodes can all import them without cycles.
  */
 
-/** A player. 1 is blue (left, human in single-player); 2 is red (right / AI). */
+/**
+ * A player. 1 is the left side (human in single-player), 2 is the right side
+ * (AI).
+ */
 export type Player = 1 | 2
 
 /** A board cell: 0 empty, or the player who owns it. */

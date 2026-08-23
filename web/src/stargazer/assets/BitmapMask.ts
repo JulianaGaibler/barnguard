@@ -1,10 +1,6 @@
 import type { Rect } from '../math/Rect'
 
-/**
- * Options for {@link buildBitmapMask}.
- *
- * @category Assets
- */
+/** Options for {@link buildBitmapMask}. */
 export interface BitmapMaskOptions {
   /** The shape filled to produce the mask. */
   path: Path2D
@@ -14,8 +10,8 @@ export interface BitmapMaskOptions {
   resolution?: number
   /**
    * Alpha threshold (0..255) above which a pixel counts as inside. Default 128.
-   * Anti-aliased edges just outside the fitted path have low alpha. * a strict
-   * threshold trims them off.
+   * Anti-aliased edges just outside the fitted path have low alpha, and a
+   * strict threshold trims them off.
    */
   alphaThreshold?: number
 }
@@ -23,8 +19,6 @@ export interface BitmapMaskOptions {
 /**
  * A rasterized fill mask with O(1) `contains()` lookups. Build one with
  * {@link buildBitmapMask}.
- *
- * @category Assets
  */
 export interface BitmapMask {
   readonly worldRect: Rect
@@ -42,9 +36,9 @@ export interface BitmapMask {
    * `Uint8ClampedArray` lookup.
    *
    * `insetWorld > 0` samples an extra 4 cardinal offsets at that world-space
-   * distance and requires ALL points inside, a cheap "grace band" that prevents
-   * alias-edge false positives (e.g., a packet dying the instant its center
-   * touches the 1-pixel-wide border).
+   * distance and requires all points inside, a cheap "grace band" that prevents
+   * alias-edge false positives (a packet dying the instant its center touches
+   * the 1-pixel-wide border, for example).
    */
   contains(worldX: number, worldY: number, insetWorld?: number): boolean
   dispose(): void
@@ -53,10 +47,8 @@ export interface BitmapMask {
 /**
  * Rasterise a Path2D to a 1-bit mask and expose O(1) `contains()` lookups for
  * boundary checks. Async because the readback (`getImageData`) can be expensive
- * on GPU-backed canvases, we yield around it so a stalled readback doesn't
- * freeze the page.
- *
- * @category Assets
+ * on GPU-backed canvases. The function yields around it so a stalled readback
+ * doesn't freeze the page.
  */
 export async function buildBitmapMask(
   opts: BitmapMaskOptions,
@@ -104,9 +96,9 @@ export async function buildBitmapMask(
     const px = Math.floor((worldX - worldRect.x) * invScaleX)
     const py = Math.floor((worldY - worldRect.y) * invScaleY)
     if (px < 0 || py < 0 || px >= w || py >= h) return false
-    // Alpha channel, the fill of a Path2D with fill='#fff' onto a
-    // transparent canvas gives us alpha≈255 inside, 0 outside, with
-    // anti-aliased edges in between.
+    // Alpha channel. Filling a Path2D with fill='#fff' onto a transparent
+    // canvas gives alpha near 255 inside, 0 outside, with anti-aliased
+    // edges in between.
     return data[(py * w + px) * 4 + 3] >= alphaThreshold
   }
 
@@ -131,8 +123,8 @@ export async function buildBitmapMask(
     imageData,
     contains,
     dispose() {
-      // No explicit teardown, closure holds `data` which the GC frees when
-      // this mask is no longer referenced. Kept as an API for future
+      // No explicit teardown. The closure holds `data`, which the GC frees
+      // once this mask is no longer referenced. Kept as an API for future
       // Worker-backed masks that would need explicit transfer disposal.
     },
   }

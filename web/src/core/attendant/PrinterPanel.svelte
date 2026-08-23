@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Attendant-facing printer panel. Opened from the booth menu; shows live
-  // printer + queue status over SSE and offers cancel / reprint / clear plus
+  // Attendant-facing printer panel. Opened from the booth menu, shows live
+  // printer + queue status over SSE, and offers cancel / reprint / clear plus
   // (in mock mode) fault-injection buttons for testing. Labels are hardcoded
   // English to match the booth menu's operator-facing convention.
   import {
@@ -106,11 +106,10 @@
     console.error('[printer-panel]', err)
   }
 
-  // --- Label URL override -------------------------------------------------
-  // Escape hatch: set an in-memory URL on the daemon that supersedes
-  // config.toml (and propagates to every client), or reset back to config.
-  // The draft is a local input; the "Current" line reflects whatever the
-  // daemon last echoed over SSE into `daemonConfig`.
+  // Label URL override: an escape hatch to set an in-memory URL on the daemon
+  // that supersedes config.toml (and propagates to every client), or reset
+  // back to config. The draft is a local input, and the "Current" line
+  // reflects whatever the daemon last echoed over SSE into `daemonConfig`.
   let urlDraft = $state('')
   let urlPending = $state(false)
   const urlDirty = $derived(
@@ -144,8 +143,8 @@
 
   // Design-preview: render a representative label so the attendant can see
   // what the printed output looks like without having to run a game. Values
-  // are placeholders; the "new high score" pill is toggleable so the
-  // attendant can preview both variants of the layout — the composition
+  // are placeholders, and the "new high score" pill is toggleable so the
+  // attendant can preview both variants of the layout. The composition
   // re-centers when the pill drops in / out.
   let previewHighScore = $state(true)
 
@@ -159,7 +158,7 @@
     const messages = $t
     const highScore = previewHighScore
     // Re-render the preview when a config reload changes the label URL.
-    // The renderer reads the live value itself; this read just tracks the dep.
+    // The renderer reads the live value itself. This read just tracks the dep.
     const _labelUrl = $daemonConfig.labelUrl
     const display = $activeDisplay
     if (!display?.renderPreviewLabel) return
@@ -190,12 +189,12 @@
     }
   })
 
-  // Mock printing: with the toggle on, `enqueuePrint` (anywhere in the app —
-  // attendant reprint or an actual game-over print) never reaches the daemon;
-  // it publishes here instead. Show whatever most recently "printed" in place
-  // of the design preview above, so the toggle turns the preview slot into an
-  // actual mock print output. Reverts to the design preview when the toggle
-  // turns off (not when a mock print merely gets old).
+  // Mock printing: with the toggle on, `enqueuePrint` (anywhere in the app,
+  // whether an attendant reprint or an actual game-over print) never reaches
+  // the daemon and publishes here instead. Show whatever most recently
+  // "printed" in place of the design preview above, so the toggle turns the
+  // preview slot into an actual mock print output. Reverts to the design
+  // preview when the toggle turns off (not when a mock print merely gets old).
   let mockPrintUrl = $state<string | null>(null)
   $effect(() => {
     const mock = $lastMockPrint
@@ -373,7 +372,7 @@
     </div>
     <div class="meta">
       {$daemonConfig.labelUrlOverridden
-        ? 'Override active — supersedes config.toml'
+        ? 'Override active: supersedes config.toml'
         : 'From config.toml'}
     </div>
     <input

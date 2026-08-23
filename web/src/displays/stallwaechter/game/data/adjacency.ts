@@ -1,15 +1,15 @@
 import type { StateId } from './states'
 
 /**
- * Hand-authored neighbor graph for the German states. Used by
- * `ShockwaveBehavior` to propagate the game-over pulse from the selected state
- * outward in BFS order.
+ * Hand-authored neighbor graph for the German states. Used by `fireStateRipple`
+ * to propagate the state-selection flash from the selected state outward in BFS
+ * order.
  *
  * Every entry is symmetric, if `A` lists `B`, `B` lists `A`. Verified by the
  * `adjacency.symmetry` Vitest.
  *
- * Berlin (BE) is fully surrounded by Brandenburg (BB); Bremen (HB) sits inside
- * Niedersachsen (NI); Saarland (SL) touches only Rheinland-Pfalz (RP), a couple
+ * Berlin (BE) is fully surrounded by Brandenburg (BB). Bremen (HB) sits inside
+ * Niedersachsen (NI). Saarland (SL) touches only Rheinland-Pfalz (RP), a couple
  * of degenerate cases worth double-checking against a real map when tweaking.
  */
 export const ADJACENCY: Record<StateId, readonly StateId[]> = {
@@ -62,8 +62,8 @@ export function bfsDepth(from: StateId, to: StateId, maxDepth: number): number {
 /**
  * BFS the graph outward from `origin` up to `maxDepth` layers deep. Returns a
  * map `stateId → depth (1..maxDepth)`. `origin` itself is NOT included. Used by
- * `ShockwaveBehavior.pulse` to schedule delayed alpha pulses on concentric
- * rings of neighbors.
+ * `fireStateRipple` to schedule delayed alpha pulses on concentric rings of
+ * neighbors.
  */
 export function bfsLayers(
   origin: StateId,

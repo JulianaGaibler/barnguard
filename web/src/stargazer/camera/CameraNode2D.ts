@@ -13,28 +13,26 @@ const EPS = 1e-9
 /**
  * A 2D camera as a scene-tree node. It unifies two models:
  *
- * - **Transform camera** (Godot parity): position / rotation /
- *   {@link CameraNode2D.zoom} via the node's `transform`. Parent it under
- *   another node to make the view follow that node.
+ * - **Transform camera**: position / rotation / {@link CameraNode2D.zoom} via the
+ *   node's `transform`. Parent it under another node to make the view follow
+ *   that node.
  * - **Rect framing**: {@link CameraNode2D.setViewport} /
  *   {@link CameraNode2D.animateTo} fit a world rect into the canvas
- *   contain-style, recomputed on resize — the responsive framing kiosk layouts
- *   rely on.
+ *   contain-style, recomputed on resize. This is the responsive framing kiosk
+ *   layouts rely on.
  *
  * The two compose: the framing sets the base fit, the node's world transform is
  * an additional view offset on top (identity by default, so a plain framed
  * camera behaves exactly like the pre-node `Camera`). The effective CSS-pixel
- * world→screen affine is `containFit(framing) ∘ inverse(node.world)`; the
+ * world→screen affine is `containFit(framing) ∘ inverse(node.world)`. The
  * renderer folds DPR in on top.
  *
  * A `Stage` tracks one _current_ 2D camera and renders through it. The first
- * camera attached to a stage becomes current; {@link CameraNode2D.makeCurrent}
+ * camera attached to a stage becomes current. {@link CameraNode2D.makeCurrent}
  * switches, {@link CameraNode2D.enabled} gates.
  *
  * Camera nodes are leaf-only (they reject children) and {@link Node.intrinsic}
  * when auto-created as a stage default.
- *
- * @category Camera
  */
 export class CameraNode2D extends Node2D implements CameraView2D {
   /**
@@ -45,12 +43,12 @@ export class CameraNode2D extends Node2D implements CameraView2D {
   #framingEnabled = true
 
   #enabled = true
-  /** Tiebreak for auto pick-next when the current camera detaches; higher wins. */
+  /** Tiebreak for auto pick-next when the current camera detaches, higher wins. */
   priority = 0
-  /** `makeCurrent()` called before attach; consumed on first register. */
+  /** `makeCurrent()` called before attach, consumed on first register. */
   #wantsCurrent = false
-  // Host captured at attach so detach can unregister — onDetachedFromScene nulls
-  // the owner before _onDetach runs, so `this.scene` is gone by then.
+  // Host captured at attach so detach can unregister. onDetachedFromScene
+  // nulls the owner before _onDetach runs, so `this.scene` is gone by then.
   #registeredHost: CameraHost | null = null
 
   // Bumps whenever this node's world transform changes, so the composed affine
@@ -94,7 +92,7 @@ export class CameraNode2D extends Node2D implements CameraView2D {
     else this.#wantsCurrent = true
   }
 
-  /** Stop being current; by default the next enabled camera is promoted. */
+  /** Stop being current. By default the next enabled camera is promoted. */
   clearCurrent(enableNext = true): void {
     this.#wantsCurrent = false
     const host = this.#host()
@@ -133,7 +131,7 @@ export class CameraNode2D extends Node2D implements CameraView2D {
   /**
    * Drop rect framing and behave as a pure transform camera (position + zoom).
    * The reference is 1 world unit = 1 CSS px with the canvas centered on the
-   * camera position; the node transform provides all pan / zoom / rotate.
+   * camera position. The node transform provides all pan / zoom / rotate.
    */
   clearFraming(): void {
     this.#framingEnabled = false
@@ -152,9 +150,9 @@ export class CameraNode2D extends Node2D implements CameraView2D {
   }
 
   /**
-   * Zoom scalar (Godot Camera2D parity): larger = closer. A camera's world
-   * scale relates inversely to on-screen size — scaling the camera node up
-   * shows _more_ world — so `zoom` maps to `1 / transform.scale`.
+   * Zoom scalar, larger is closer. A camera's world scale relates inversely to
+   * on-screen size, since scaling the camera node up shows _more_ world, so
+   * `zoom` maps to `1 / transform.scale`.
    */
   get zoom(): number {
     const s = this.transform.scaleX
@@ -247,7 +245,7 @@ export class CameraNode2D extends Node2D implements CameraView2D {
   }
 
   /**
-   * True when the composed view affine is singular / non-finite; the renderer
+   * True when the composed view affine is singular / non-finite. The renderer
    * skips such a frame.
    */
   get degenerate(): boolean {
@@ -273,7 +271,7 @@ export class CameraNode2D extends Node2D implements CameraView2D {
   /**
    * The device-pixel base affine `DPR · S` the renderer multiplies onto each
    * node's world. DPR is applied here and ONLY here (screen queries stay in CSS
-   * px). Without `out`, returns a cached object; treat it as read-only.
+   * px). Without `out`, returns a cached object. Treat it as read-only.
    */
   getRenderAffine(dpr: number, out?: Affine2x3): Affine2x3 {
     this.#ensureAffine()

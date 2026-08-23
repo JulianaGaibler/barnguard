@@ -294,7 +294,7 @@ describe('parseGltf materials', () => {
 
   it('degrades KHR_materials_transmission glass to a translucent blend', () => {
     const { doc, buffer } = triangleDoc()
-    // Default white opaque glass; transmission must make it see-through, not a
+    // Default white opaque glass. Transmission must make it see-through, not a
     // solid slab (alpha well below 1).
     doc.materials = [
       {

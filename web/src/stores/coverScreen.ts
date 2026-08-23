@@ -3,7 +3,7 @@
  *
  * A branded full-viewport takeover the attendant can flip on to hide the game
  * (break, tech pause, event lulls). Two headline modes: a localized preset
- * ("back soon") and a free-text field. The store lives entirely in memory —
+ * ("back soon") and a free-text field. The store lives entirely in memory,
  * reloads reset to `off`, matching the locale + other attendant toggles.
  */
 
@@ -12,10 +12,10 @@ import { writable } from 'svelte/store'
 /**
  * Cover-screen headline modes:
  *
- * - `brand` — the active display's branded headline (default). Sourced from the
+ * - `brand`: the active display's branded headline (default). Sourced from the
  *   theme, so each display renders its own marketing copy.
- * - `backSoon` — casual "we'll be right back" copy for breaks / event lulls.
- * - `custom` — operator-authored free text.
+ * - `backSoon`: casual "we'll be right back" copy for breaks / event lulls.
+ * - `custom`: operator-authored free text.
  */
 export type CoverMode = 'brand' | 'backSoon' | 'custom'
 

@@ -1,13 +1,13 @@
 /**
- * Bottom progress readout — engine port of `Progress.svelte`. Solo: a track
+ * Bottom progress readout, engine port of `Progress.svelte`. Solo: a track
  * filled to the captured percentage with the big number over it, plus a small
  * accent dot and "of N%". Versus: both players' percentages flank a shared
  * vertical "of N%" pill, each growing its own vertical meter.
  */
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, textAdvance, type Gfx2D } from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
+import { font } from '../../fonts'
 
-const FONT_FAMILY = 'system-ui, sans-serif'
 const TRACK_FILL = 'rgba(39, 39, 39, 0.14)'
 
 export type ProgressMode = 'solo' | 'versus'
@@ -68,14 +68,18 @@ export class ProgressNode extends Node2D {
     const numFont = 57.6
     const metaFont = 13.6
     const numText = String(Math.round(pct))
-    // Rough number width so the number + meta block centers as one unit,
-    // matching the original flex row's layout.
-    const numW = numText.length * numFont * 0.62
+    const metaText = `of ${this.#target}%`
+    const numFontString = font(800, numFont)
+    const metaFontString = font(700, metaFont)
+    // The number and the meta block centre as one unit, so both are measured.
+    // Digits are not all one width in this face, and neither is the target, so
+    // a per-character estimate drifts the pair off centre as the value climbs.
+    const numW = textAdvance(numText, numFontString)
     const gap = 9.6
-    const metaW = 70
+    const metaW = textAdvance(metaText, metaFontString)
     const numCX = -(numW + gap + metaW) / 2 + numW / 2
     gfx.fillText(numText, numCX, 0, {
-      font: `800 ${numFont}px ${FONT_FAMILY}`,
+      font: numFontString,
       align: 'center',
       baseline: 'middle',
       color: COLORS.ink,
@@ -83,8 +87,8 @@ export class ProgressNode extends Node2D {
     const metaX = numCX + numW / 2 + gap
     const dot = 8
     gfx.fillRect(metaX, -14, dot, dot, PROGRESS_ACCENT)
-    gfx.fillText(`of ${this.#target}%`, metaX, 4, {
-      font: `700 ${metaFont}px ${FONT_FAMILY}`,
+    gfx.fillText(metaText, metaX, 4, {
+      font: metaFontString,
       align: 'left',
       baseline: 'middle',
       color: COLORS.ink,
@@ -109,13 +113,13 @@ export class ProgressNode extends Node2D {
     drawMeter(rightBarX, (this.#rightPct / this.#target) * 100)
 
     gfx.fillText(String(Math.round(this.#leftPct)), leftBarX - 12, 0, {
-      font: `800 ${numFont}px ${FONT_FAMILY}`,
+      font: font(800, numFont),
       align: 'right',
       baseline: 'middle',
       color: COLORS.ink,
     })
     gfx.fillText(String(Math.round(this.#rightPct)), rightBarX + barW + 12, 0, {
-      font: `800 ${numFont}px ${FONT_FAMILY}`,
+      font: font(800, numFont),
       align: 'left',
       baseline: 'middle',
       color: COLORS.ink,
@@ -133,7 +137,7 @@ export class ProgressNode extends Node2D {
     gfx.save()
     gfx.rotate(Math.PI / 2)
     gfx.fillText(`of ${this.#target}%`, 0, 0, {
-      font: `800 19.2px ${FONT_FAMILY}`,
+      font: font(800, 19.2),
       align: 'center',
       baseline: 'middle',
       color: COLORS.white,

@@ -1,16 +1,16 @@
 import {
   Node2D,
   easings,
+  flattenCubic,
   lerp,
+  registerPathTessellation,
   type CameraView2D,
   type Gfx2D,
   type Vec2,
 } from '@src/stargazer'
-import { flattenCubic } from '@src/stargazer/assets/SvgPathContours'
-import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessellationRegistry'
 
 // -----------------------------------------------------------------------------
-// Tuning, kept module-local; promote to `TUNING.tutorial.hint` if the demo
+// Tuning, kept module-local, promote to `TUNING.tutorial.hint` if the demo
 // grows more knobs or we need per-context overrides.
 // -----------------------------------------------------------------------------
 
@@ -48,7 +48,7 @@ const HAND_OFFSCREEN_FRAC = 0.6
 
 /**
  * Uniform scale applied to the hand SVG when rendering. The SVG's viewBox is
- * 238 × 277; at scale 1 that's much wider than the 200 wu tutorial viewport.
+ * 238 × 277. At scale 1 that's much wider than the 200 wu tutorial viewport.
  * `0.5` shrinks it to ~119 × 139 wu, big enough to read as a hand, small enough
  * to leave room for the arch.
  */

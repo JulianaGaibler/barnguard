@@ -2,14 +2,13 @@ import type { PointerEvent2D } from '../input/PointerState'
 
 /**
  * The event map for the engine's `Emitter` (`host.events` / `engine.events`).
- * `frame` and `pointerMove` fire every frame, don't bind them to Svelte stores;
- * `svelte/emitterStore.ts` has a dev-time guard.
+ * `frame` and `pointerMove` fire every frame, so don't bind them to Svelte
+ * stores. `svelte/emitterStore.ts` has a dev-time guard.
  *
  * The four `pointer*` keys carry primary-stage events only. `Engine` forwards
- * them from `primaryStage.events` for convenience; a secondary `Stage` emits on
+ * them from `primaryStage.events` for convenience. A secondary `Stage` emits on
  * its own `stage.events`, so listen there for a specific canvas.
  *
- * @category Events
  * @example
  *   const off = host.events.on('frame', ({ dt }) => {
  *     // per-frame work, dt in seconds

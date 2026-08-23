@@ -1,4 +1,4 @@
-//! REST handlers. JSON out; the print body is raw `image/jpeg`.
+//! REST handlers. JSON out. The print body is raw `image/jpeg`.
 
 use super::AppState;
 use crate::config::Config;
@@ -181,7 +181,7 @@ pub async fn config_get(State(st): State<AppState>) -> impl IntoResponse {
 /// `POST /config/reload`. Re-reads `config.toml` from disk and pushes the
 /// client-facing subset to every browser over SSE. Refreshes the base label URL
 /// but leaves any active override in place. Only `[client]` values take effect
-/// live; printer/print/timing/mock changes still need a daemon restart. Reads
+/// live. Printer/print/timing/mock changes still need a daemon restart. Reads
 /// the same file the daemon booted with (`main` forwards `--config` into
 /// `$PRINTER_DAEMON_CONFIG`, which `Config::load` honours).
 pub async fn config_reload(State(st): State<AppState>) -> Response {
@@ -189,7 +189,7 @@ pub async fn config_reload(State(st): State<AppState>) -> Response {
         Ok(cfg) => {
             let snapshot = {
                 let mut cc = st.client_config.write().unwrap();
-                cc.set_base_label_url(cfg.client.label_url);
+                cc.set_base(&cfg.client);
                 cc.snapshot()
             };
             st.events.publish(ServerEvent::Config(snapshot));
@@ -201,8 +201,7 @@ pub async fn config_reload(State(st): State<AppState>) -> Response {
             Json(json!({ "ok": true })).into_response()
         }
         Err(e) => {
-            st.log
-                .warn("system", format!("config reload failed: {e}"));
+            st.log.warn("system", format!("config reload failed: {e}"));
             (
                 StatusCode::BAD_REQUEST,
                 Json(json!({ "error": e.to_string() })),
@@ -219,7 +218,7 @@ pub struct ConfigOverride {
 }
 
 /// `POST /config/override`. Set an in-memory label-URL override that supersedes
-/// the `config.toml` value until reset. Not persisted — a last-minute escape
+/// the `config.toml` value until reset. Not persisted, a last-minute escape
 /// hatch. Rejects a blank URL so the label can't be emptied.
 pub async fn config_override(
     State(st): State<AppState>,
@@ -269,7 +268,7 @@ pub async fn healthz() -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// /api/games — append-only log of finished games
+// /api/games: append-only log of finished games
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -299,17 +298,14 @@ pub async fn games_list(
 }
 
 /// `POST /api/games`. Persists the record and emits `game.created`.
-pub async fn games_create(
-    State(st): State<AppState>,
-    Json(body): Json<NewGame>,
-) -> Response {
+pub async fn games_create(State(st): State<AppState>, Json(body): Json<NewGame>) -> Response {
     match st.games.push(body) {
         Ok(record) => (StatusCode::CREATED, Json(record)).into_response(),
         Err(e) => write_error(&st, "games", e),
     }
 }
 
-/// `DELETE /api/games`. Wipes the whole log; returns `{ cleared: N }`.
+/// `DELETE /api/games`. Wipes the whole log and returns `{ cleared: N }`.
 pub async fn games_clear(State(st): State<AppState>) -> Response {
     match st.games.clear() {
         Ok(n) => Json(json!({ "cleared": n })).into_response(),
@@ -347,13 +343,13 @@ pub async fn games_high_scores(
 }
 
 // ---------------------------------------------------------------------------
-// /api/leaderboard — generic, per-display top scores by name
+// /api/leaderboard: generic, per-display top scores by name
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LeaderboardQuery {
-    /// Which arcade game to list. Required — there's no cross-game default.
+    /// Which arcade game to list. Required, because there's no cross-game default.
     pub display: String,
     pub limit: Option<usize>,
 }

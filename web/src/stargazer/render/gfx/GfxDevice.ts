@@ -9,11 +9,12 @@
  * backend can return `GPURenderPipeline` / `GPUBuffer` / etc. through the same
  * seam without `instanceof` checks.
  *
- * The imperative WebGL-shaped surface (per-name `setUniform*`, `useProgram`,
- * `bindVao`, `setBlend`/`setDepthTest`, `drawArrays`/`drawElements`, a bare
- * `bindRenderTarget`) is gone: per-draw data rides in vertex buffers or
- * dynamic-offset uniform buffers, state lives in the pipeline, attachment
- * clears live in the pass, and a single `draw(desc)` carries the rest.
+ * There is no imperative WebGL-shaped surface (per-name `setUniform*`,
+ * `useProgram`, `bindVao`, `setBlend`/`setDepthTest`,
+ * `drawArrays`/`drawElements`, a bare `bindRenderTarget`). Per-draw data rides
+ * in vertex buffers or dynamic-offset uniform buffers, state lives in the
+ * pipeline, attachment clears live in the pass, and a single `draw(desc)`
+ * carries the rest.
  */
 
 import type { ClipDepth } from '../../math/Mat4'
@@ -36,7 +37,8 @@ export interface ShaderModule {
  * `shader`/`bindGroupLayouts`, structural for the scalar fields), so requesting
  * the same configuration returns the same handle. Pipelines whose
  * `bindGroupLayouts[i]` is the _same_ {@link BindGroupLayout} handle accept the
- * same bind group at group `i` — reuse layout handles, don't rebuild them.
+ * same bind group at group `i`. Reuse layout handles instead of rebuilding
+ * them.
  */
 export interface Pipeline {
   readonly __gfxPipeline: unique symbol
@@ -45,8 +47,8 @@ export interface Pipeline {
 /**
  * The shape of one bind group: which slots hold uniform buffers vs textures vs
  * shadow samplers, and which uniform slots are addressed with a per-draw
- * dynamic offset. A pipeline references its bind group layouts by group index;
- * a bind group created against a layout is reusable across every pipeline that
+ * dynamic offset. A pipeline references its bind group layouts by group index.
+ * A bind group created against a layout is reusable across every pipeline that
  * references that same layout handle.
  */
 export interface BindGroupLayout {
@@ -61,7 +63,7 @@ export interface BindGroup {
 /**
  * An immutable compute pipeline: a `@compute` shader plus its bind-group
  * layouts. Dispatched inside a compute pass ({@link GfxDevice.beginComputePass}
- * / {@link GfxDevice.dispatchCompute}). WebGPU only —
+ * / {@link GfxDevice.dispatchCompute}). WebGPU only.
  * {@link GfxDevice.supportsCompute} is `false` on WebGL2, which has no compute
  * stage.
  */
@@ -82,11 +84,19 @@ export interface Texture {
 
 /**
  * Depth comparison function for a shadow map's comparison sampler. Stored on
- * the shadow handle so the backend can build the comparison sampler correctly —
- * the choice matters under reversed-Z, so it lives in the interface rather than
+ * the shadow handle so the backend can build the comparison sampler correctly.
+ * The choice matters under reversed-Z, so it lives in the interface rather than
  * being hardcoded in one backend. Default `'less-equal'`.
  */
-export type CompareFn = 'less-equal' | 'greater-equal' | 'less' | 'greater'
+export type CompareFn =
+  | 'less-equal'
+  | 'greater-equal'
+  | 'less'
+  | 'greater'
+  | 'equal'
+  | 'not-equal'
+  | 'always'
+  | 'never'
 
 /**
  * A layered depth texture for shadow maps: a `DEPTH_COMPONENT` 2D-array with a
@@ -113,7 +123,7 @@ export interface ShadowCube {
 
 /**
  * GPU-side uniform-block buffer (`GL_UNIFORM_BUFFER` on WebGL2). Bound through
- * a bind group; a `'uniform-buffer'` layout entry with `dynamicOffset` lets one
+ * a bind group. A `'uniform-buffer'` layout entry with `dynamicOffset` lets one
  * buffer feed many draws by supplying a per-draw byte offset (the
  * dynamic-offset ring used for per-object and per-run uniforms). Like the
  * vertex ring it can be {@link GfxDevice.orphanUniformBuffer}ed on a mid-frame
@@ -125,7 +135,7 @@ export interface UBuffer {
 
 /**
  * GPU-side index buffer (`GL_ELEMENT_ARRAY_BUFFER` on WebGL2). `type` picks the
- * element width; retained 2D geometry uses `'u16'` (asserts ≤ 65 535 vertices),
+ * element width. Retained 2D geometry uses `'u16'` (asserts ≤ 65 535 vertices),
  * large 3D meshes `'u32'`.
  */
 export interface IBuffer {
@@ -139,7 +149,7 @@ export interface RenderTarget {
   /**
    * Effective (post-clamp) MSAA sample count: `1` when MSAA is off, `>1` when a
    * multisample color attachment was allocated. A multisample target is not
-   * sampleable — resolve it (a pass `resolveTarget`, or
+   * sampleable. Resolve it (a pass `resolveTarget`, or
    * {@link GfxDevice.colorTexture} on a single-sample target) before reading
    * it.
    */
@@ -147,11 +157,13 @@ export interface RenderTarget {
   /**
    * Color-attachment color space the target was allocated with. A post-process
    * pass reads this to allocate ping-pong / resolve targets with a matching
-   * format — a multisample→single-sample resolve requires identical formats.
+   * format. A multisample→single-sample resolve requires identical formats.
    */
   readonly colorSpace: ColorFormat
   /** Whether the target carries a depth attachment (opted in at creation). */
   readonly hasDepth: boolean
+  /** Whether the target carries stencil bits (opted in at creation). */
+  readonly hasStencil: boolean
 }
 
 // --- shader modules ---------------------------------------------------------
@@ -160,8 +172,8 @@ export interface RenderTarget {
  * Reflection metadata pairing the backend-neutral binding numbers used in
  * {@link VertexBufferLayout} / {@link BindGroupLayoutEntry} with the concrete
  * names a backend needs. WebGL2 reads this to `bindAttribLocation`, resolve
- * `getUniformBlockIndex`, and set sampler units by name — so naga's mangled
- * GLSL identifiers never leak into calling code. WebGPU ignores it (WGSL
+ * `getUniformBlockIndex`, and set sampler units by name, so naga's mangled GLSL
+ * identifiers never leak into calling code. WebGPU ignores it (WGSL
  * `@location`/`@group`/`@binding` are authoritative). Std140 member offsets
  * within a block stay the caller's responsibility (see `batchLayout.ts`).
  */
@@ -179,8 +191,8 @@ export interface ShaderModuleDesc {
   glsl?: { vertex: string; fragment: string }
   /**
    * WebGPU source with entry-point names. A render module names `vertexEntry` +
-   * `fragmentEntry`; a compute module names `computeEntry` instead (WebGPU only
-   * — WebGL2 has no compute). Present once WGSL is generated.
+   * `fragmentEntry`. A compute module names `computeEntry` instead (WebGPU
+   * only, WebGL2 has no compute). Present once WGSL is generated.
    */
   wgsl?: {
     code: string
@@ -212,10 +224,10 @@ export type VertexFormat =
 
 /**
  * Layout of one vertex buffer feeding a pipeline. `stepMode: 'instance'`
- * advances per instance (divisor 1); `'vertex'` per vertex (divisor 0). A
- * pipeline takes an array of these, one per bound vertex buffer slot; a draw
- * supplies the matching buffers (with per-binding byte offsets) in the same
- * order.
+ * advances per instance (divisor 1). `'vertex'` advances per vertex (divisor
+ * 0). A pipeline takes an array of these, one per bound vertex buffer slot. A
+ * draw supplies the matching buffers (with per-binding byte offsets) in the
+ * same order.
  */
 export interface VertexBufferLayout {
   arrayStride: number
@@ -238,7 +250,7 @@ export type BindingType =
   | 'texture-2d-depth'
   /**
    * A storage texture a compute shader writes (and optionally reads). No
-   * companion sampler. WebGPU only — never appears on a WebGL2 bind group.
+   * companion sampler. WebGPU only. Never appears on a WebGL2 bind group.
    */
   | 'storage-texture-2d'
 
@@ -254,7 +266,7 @@ export interface BindGroupLayoutEntry {
    */
   dynamicOffset?: boolean
   /**
-   * For `'storage-texture-2d'` only. Access defaults to `'write-only'`; the
+   * For `'storage-texture-2d'` only. Access defaults to `'write-only'`. The
    * storage format defaults to `'linear'` (`rgba8unorm`). Read-write needs the
    * backend feature and is left off by default.
    */
@@ -265,8 +277,8 @@ export interface BindGroupLayoutEntry {
 /**
  * A resource bound to one slot. For a uniform buffer, `size` is the bound slice
  * length in bytes and is **required** when the layout entry is dynamic (the
- * per-draw offset selects the slice; `size` fixes its extent). `offset` binds a
- * static sub-range when the entry is not dynamic.
+ * per-draw offset selects the slice, and `size` fixes its extent). `offset`
+ * binds a static sub-range when the entry is not dynamic.
  */
 export type BindingResource =
   | { uniformBuffer: UBuffer; offset?: number; size?: number }
@@ -284,7 +296,7 @@ export interface BindGroupEntry {
 export type GfxBlendMode = 'source-over' | 'lighter' | 'none'
 
 /**
- * Face-culling mode. `'none'` draws both faces (the 2D baseline); `'back'` /
+ * Face-culling mode. `'none'` draws both faces (the 2D baseline). `'back'` /
  * `'front'` cull that face of triangles wound per
  * {@link PipelineDesc.frontFace}.
  */
@@ -307,7 +319,7 @@ export type FrontFace = 'ccw' | 'cw'
  *   depth lands in the range the backend keeps (WebGPU clips outside `[0,1]`).
  * - `frontFace`: winding of a front face for standard geometry. WebGPU's
  *   framebuffer is top-left origin, so the same NDC triangle has opposite
- *   apparent winding from WebGL's bottom-left origin; the 3D pipelines take
+ *   apparent winding from WebGL's bottom-left origin. The 3D pipelines take
  *   this so face culling keeps the same faces.
  * - `textureTopDown`: row order of a sampled render-target texture. WebGPU stores
  *   row 0 at the top, WebGL at the bottom, so a pass that samples an offscreen
@@ -343,6 +355,53 @@ export interface DepthState {
 export interface ColorState {
   format: ColorFormat
   blend: GfxBlendMode
+  /**
+   * Whether the draw writes color at all. Default `true`. `false` keeps the
+   * fragment stage and its side effects on depth/stencil while leaving the
+   * color attachment untouched, which is how a stencil pass resets its own bits
+   * without repainting.
+   */
+  write?: boolean
+}
+
+/** What a stencil test does to the buffer at one fragment. */
+export type StencilOp =
+  | 'keep'
+  | 'zero'
+  | 'replace'
+  | 'invert'
+  | 'increment-clamp'
+  | 'decrement-clamp'
+  | 'increment-wrap'
+  | 'decrement-wrap'
+
+/** Stencil test and write behaviour for one facing. */
+export interface StencilFaceState {
+  /** Comparison against {@link StencilState.reference}. Default `'always'`. */
+  compare?: CompareFn
+  /** Applied when the stencil test fails. Default `'keep'`. */
+  failOp?: StencilOp
+  /** Applied when stencil passes but depth fails. Default `'keep'`. */
+  depthFailOp?: StencilOp
+  /** Applied when both tests pass. Default `'keep'`. */
+  passOp?: StencilOp
+}
+
+/**
+ * Stencil state for a pipeline. The reference value is part of the pipeline
+ * rather than per-draw state: every use in this engine compares against a
+ * constant, so baking it keeps {@link DrawCall} free of dynamic state.
+ */
+export interface StencilState {
+  front: StencilFaceState
+  /** Defaults to {@link StencilState.front} when omitted. */
+  back?: StencilFaceState
+  /** Bits read by the comparison. Default `0xff`. */
+  readMask?: number
+  /** Bits the ops may write. Default `0xff`. */
+  writeMask?: number
+  /** Compared against, per {@link StencilFaceState.compare}. Default `0`. */
+  reference?: number
 }
 
 export interface PipelineDesc {
@@ -355,6 +414,12 @@ export interface PipelineDesc {
   color: ColorState | null
   /** Depth state, or `null` for no depth (the painter-ordered 2D pipelines). */
   depth: DepthState | null
+  /**
+   * Stencil state, or `null`/omitted for no stencil test. Independent of
+   * {@link PipelineDesc.depth}: a 2D pipeline can use stencil with no depth at
+   * all, which is what the deduplicated stroke path does.
+   */
+  stencil?: StencilState | null
   cull: CullMode
   frontFace: FrontFace
   primitive: PrimitiveTopology
@@ -395,7 +460,7 @@ export interface Texture2DOpts {
   wrap?: 'clamp' | 'repeat'
   /**
    * Allocate sRGB storage so sampling decodes sRGB → linear in hardware. Set
-   * for glTF base-color / emissive textures; leave off (default linear `RGBA8`)
+   * for glTF base-color / emissive textures. Leave off (default linear `RGBA8`)
    * for normal / metallic-roughness / occlusion maps.
    */
   srgb?: boolean
@@ -403,12 +468,12 @@ export interface Texture2DOpts {
   mipmap?: boolean
   /**
    * Anisotropic-filtering cap for minified mipmapped textures, clamped to the
-   * driver max; ignored when unsupported or the texture is not mipmapped.
+   * driver max. Ignored when unsupported or the texture is not mipmapped.
    */
   anisotropy?: number
   /**
    * Allocate with storage-texture usage so a compute shader can write it (and
-   * still sample it later). WebGPU only; throws on WebGL2, which has no
+   * still sample it later). WebGPU only. Throws on WebGL2, which has no
    * compute.
    */
   storage?: boolean
@@ -419,10 +484,10 @@ export interface TextureUploadOpts {
    * Flip the source's rows during the copy. Default `false`. This is a
    * source-row flip, not a screen-orientation switch: both backends store
    * source row 0 at texel row 0 and the shared projection owns the on-screen
-   * Y-flip, so a source uploaded with the same `flipY` looks identical on
-   * WebGL2 and WebGPU. Backends must resolve it through `resolveUploadFlipY`
-   * (imageSource.ts) and must NOT invert it per backend — see that function for
-   * the upside-down-labels regression this prevents.
+   * Y-flip. Backends must resolve it through `resolveUploadFlipY`
+   * (imageSource.ts) and must NOT invert it per backend. That function also
+   * covers the one source type where the two backends genuinely diverge,
+   * `ImageBitmap`.
    */
   flipY?: boolean
   premultiply?: boolean
@@ -430,7 +495,7 @@ export interface TextureUploadOpts {
    * The texture is sampled with object-space UVs (e.g. a glTF mesh's own UVs),
    * not the screen-space UVs the 2D pass uses. WebGL2 ignores this. WebGPU uses
    * it to skip the render-origin V-flip it otherwise applies (so 2D
-   * screen-space textures match WebGL's bottom-up sampling); a mesh's
+   * screen-space textures match WebGL's bottom-up sampling). A mesh's
    * object-space UVs must not be flipped, or its texture samples upside-down.
    */
   objectSpaceUV?: boolean
@@ -441,24 +506,36 @@ export interface RenderTargetOpts {
   height: number
   /**
    * MSAA sample count. Default `1`. `> 1` allocates a multisample color
-   * attachment that cannot be sampled as a texture; read it back through a pass
+   * attachment that cannot be sampled as a texture. Read it back through a pass
    * `resolveTarget`. Backends clamp to their max.
    */
   samples?: number
   /**
-   * Attach a depth buffer. Default `false` — the 2D renderer is painter-ordered
-   * and needs none; a 3D pass opts in.
+   * Attach a depth buffer. Default `false`. The 2D renderer is painter-ordered
+   * and needs none. A 3D pass opts in.
    */
   depth?: boolean
   /**
    * Allocate the depth attachment as a sampleable texture instead of the
    * default renderbuffer, so a later pass can read it through
    * {@link GfxDevice.depthTexture} + a `'texture-2d-depth'` binding (the AO
-   * G-buffer). Single-sample only — implies `samples: 1`. Requires `depth`.
+   * G-buffer). Single-sample only. Implies `samples: 1`. Requires `depth`.
    */
   depthSampled?: boolean
   /**
-   * Color-attachment format. `'linear'` (default) → `RGBA8`; `'srgb'` →
+   * Attach stencil bits, as a stencil-ONLY attachment. Default `false`.
+   *
+   * Ignored when {@link RenderTargetOpts.depth} is set. A pipeline bakes its
+   * depth-stencil format and has no way to learn its target's, so allowing both
+   * would mean threading that format through every `PipelineDesc` to keep
+   * depth-only 3D pipelines matching a combined attachment. Stencil is for the
+   * painter-ordered 2D path, which wants no depth at all, so the two are kept
+   * apart and {@link RenderTarget.hasStencil} reports `false` alongside depth.
+   * Callers gate on `hasStencil` and fall back.
+   */
+  stencil?: boolean
+  /**
+   * Color-attachment format. `'linear'` (default) → `RGBA8`. `'srgb'` →
    * sRGB-encoded. Only the single-sample path honors `'srgb'`.
    */
   colorSpace?: ColorFormat
@@ -473,9 +550,8 @@ export type StoreOp = 'store' | 'discard'
 
 /**
  * The color attachment of a render pass. `resolveTarget` (a single-sample
- * target) receives the MSAA resolve of `target` when `target.samples > 1` —
- * this replaces a standalone post-hoc resolve, matching WebGPU where resolve is
- * part of the pass that produced the samples.
+ * target) receives the MSAA resolve of `target` when `target.samples > 1`. This
+ * matches WebGPU, where resolve is part of the pass that produced the samples.
  */
 export interface ColorAttachment {
   target: RenderTarget
@@ -483,7 +559,7 @@ export interface ColorAttachment {
   storeOp?: StoreOp
   /**
    * Required when `loadOp === 'clear'`. Straight (non-premultiplied) RGBA in
-   * `0..1`; the backend premultiplies for the premultiplied-alpha surface.
+   * `0..1`. The backend premultiplies for the premultiplied-alpha surface.
    */
   clearColor?: readonly [number, number, number, number]
   resolveTarget?: RenderTarget
@@ -509,12 +585,27 @@ export interface DepthAttachment {
 
 /**
  * A render pass: its attachments and their load/store ops. Omit `color` for a
- * depth-only shadow pass; omit `depth` for a pure-2D pass. The pass sets the
+ * depth-only shadow pass. Omit `depth` for a pure-2D pass. The pass sets the
  * viewport to the attachment size.
  */
+/**
+ * The stencil bits of a pass. A sibling of {@link DepthAttachment} rather than a
+ * field on it, because the 2D renderer wants stencil with no depth at all. On a
+ * packed depth-stencil target both are given, pointing at the same target.
+ */
+export interface StencilAttachment {
+  target: RenderTarget
+  loadOp: LoadOp
+  storeOp?: StoreOp
+  /** Clear value when `loadOp === 'clear'`. Default `0`. */
+  clearValue?: number
+}
+
 export interface RenderPassDesc {
   color?: ColorAttachment
   depth?: DepthAttachment
+  /** Ignored when the target carries no stencil bits. */
+  stencil?: StencilAttachment
 }
 
 export interface BlitOpts {
@@ -547,7 +638,7 @@ export interface DrawBindGroup {
 /**
  * A single draw. All inputs are explicit: no ambient program/VAO/blend state.
  * Supply either `vertexCount` (array draw) or `indexBuffer` + `indexCount`
- * (indexed draw); `instanceCount > 1` draws instanced.
+ * (indexed draw). `instanceCount > 1` draws instanced.
  */
 export interface DrawCall {
   pipeline: Pipeline
@@ -571,7 +662,7 @@ export interface DrawCall {
 // --- stats & limits ---------------------------------------------------------
 
 /**
- * Per-frame counts of real GPU state changes — incremented after the backend's
+ * Per-frame counts of real GPU state changes, incremented after the backend's
  * redundant-call elision, so the HUD reflects work actually done. Reset in
  * `beginFrame`.
  */
@@ -613,7 +704,7 @@ export interface GfxDevice {
   deleteShaderModule(s: ShaderModule): void
   /**
    * Create (or return a memoized) pipeline for `desc`. Async because WebGPU
-   * compiles pipelines asynchronously; WebGL2 resolves immediately. Pipelines
+   * compiles pipelines asynchronously. WebGL2 resolves immediately. Pipelines
    * are pre-warmed at init/rebuild (never created inside the frame loop, which
    * is synchronous). Identical descriptors return the same handle.
    */
@@ -653,7 +744,7 @@ export interface GfxDevice {
     byteOffset?: number,
   ): void
   /**
-   * Reallocate a uniform buffer's storage — the UBO-ring analogue of
+   * Reallocate a uniform buffer's storage, the UBO-ring analogue of
    * {@link orphanBuffer}.
    */
   orphanUniformBuffer(buf: UBuffer): void
@@ -677,7 +768,22 @@ export interface GfxDevice {
     source: TexImageSource,
     opts?: TextureUploadOpts,
   ): void
-  /** `source === null` reallocates storage at the texture's current size. */
+  /**
+   * Replace a texture's contents from `source`.
+   *
+   * `source === null` is meant to reallocate storage at the texture's current
+   * size, dropping the contents. **The backends disagree**: WebGPU destroys and
+   * recreates the underlying texture, WebGL2 ignores the call entirely. Nothing
+   * passes null today, so pick a different route rather than relying on it.
+   *
+   * TODO: implement the WebGL2 side (a null `texImage2D` re-specs level 0 only,
+   * so a mipmapped texture needs its chain rebuilt), and give callers a way to
+   * drop the bind groups that reallocating invalidates. Reallocation swaps the
+   * object a bind group was built from, and both `programs/shape.ts` and
+   * `programs/textQuad.ts` cache bind groups per texture with nothing watching
+   * for it. To zero a region without that hazard, upload a transparent source
+   * over it instead: the handle survives, so cached bind groups stay valid.
+   */
   updateTexture2D(
     tex: Texture,
     source: TexImageSource | null,
@@ -692,7 +798,7 @@ export interface GfxDevice {
   /**
    * The sampleable color texture backing a single-sample render target (for a
    * post-process pass or a `Viewport2DNode` quad). Throws for a multisample
-   * target — resolve it via a pass `resolveTarget` first.
+   * target. Resolve it via a pass `resolveTarget` first.
    */
   colorTexture(rt: RenderTarget): Texture
   /**
@@ -713,7 +819,7 @@ export interface GfxDevice {
   deleteShadowCube(s: ShadowCube): void
 
   // Frame lifecycle & passes ------------------------------------------------
-  /** Start a frame: reset per-frame stats; open the command encoder (WebGPU). */
+  /** Start a frame: reset per-frame stats and open the command encoder (WebGPU). */
   beginFrame(): void
   /** Open a render pass with the given attachments and load/store ops. */
   beginRenderPass(desc: RenderPassDesc): void
@@ -722,9 +828,9 @@ export interface GfxDevice {
   /**
    * Open a compute pass. Like a render pass it records into the frame's shared
    * encoder (opened lazily), so a compute dispatch may be the first work in a
-   * frame — before any render pass or `beginFrame`. WebGPU only. No-op
-   * semantics are not offered: calling this when {@link supportsCompute} is
-   * `false` throws.
+   * frame, before any render pass or `beginFrame`. WebGPU only. No-op semantics
+   * are not offered: calling this when {@link supportsCompute} is `false`
+   * throws.
    */
   beginComputePass(): void
   /** Record a compute dispatch into the current compute pass. */
@@ -741,8 +847,15 @@ export interface GfxDevice {
   // Present -----------------------------------------------------------------
   /**
    * Present `source`'s color to the default framebuffer (the canvas). WebGL2
-   * blits; WebGPU draws a fullscreen pass into the swapchain texture. Called
+   * blits. WebGPU draws a fullscreen pass into the swapchain texture. Called
    * outside a render pass.
+   *
+   * Everything recorded so far must be visible to the read. A backend that
+   * buffers commands has to submit them before sampling `source`, or it
+   * presents whatever the target held beforehand: the previous frame, or
+   * uninitialised memory the first time a target is used. Immediate backends
+   * get this for free. WebGPU has to flush its frame encoder, because the
+   * present blit runs on an encoder of its own and submits straight away.
    */
   present(
     source: RenderTarget,
@@ -753,7 +866,7 @@ export interface GfxDevice {
 
   // Context loss ------------------------------------------------------------
   isContextLost(): boolean
-  /** Register a listener; returns an unsubscribe function. */
+  /** Registers a listener and returns an unsubscribe function. */
   onContextLost(cb: () => void): () => void
   onContextRestored(cb: () => void): () => void
 

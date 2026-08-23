@@ -72,7 +72,7 @@ describe('TextureManager.snapshot', () => {
       color: '#000',
     })
     expect(Number.isInteger(l.bucket)).toBe(true)
-    // texW/texH come from the (mocked) rasterization; both positive.
+    // texW/texH come from the (mocked) rasterization, and both are positive.
     expect(l.texW).toBeGreaterThan(0)
     expect(l.texH).toBeGreaterThan(0)
   })

@@ -1,6 +1,7 @@
 import type { GameModule } from '../GameModule'
 import ConnectFourGame from './ConnectFourGame.svelte'
 import thumbImage from './assets/thumb.png?url'
+import { CONNECT_FOUR_FONT_TOKENS } from './fonts'
 
 export const connectFourModule: GameModule = {
   meta: {
@@ -8,7 +9,8 @@ export const connectFourModule: GameModule = {
     title: 'Connect Four',
     description:
       'Take turns dropping discs into a grid. The first to line up four in a row across, down, or diagonally wins.',
-    players: '1-2',
+    playerCounts: [1, 2],
+    supportsAi: true,
     thumbColor: '#DDDDDD',
     thumbImage,
     // Scoped to the game's DOM (splash / pause): purple vs green teams, a purple
@@ -23,6 +25,7 @@ export const connectFourModule: GameModule = {
       actionPrimaryHover: '#7d61d8',
       actionPrimaryActive: '#6b50c4',
     },
+    fontTokens: CONNECT_FOUR_FONT_TOKENS,
   },
   component: ConnectFourGame,
 }

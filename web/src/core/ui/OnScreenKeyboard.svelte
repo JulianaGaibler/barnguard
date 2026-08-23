@@ -15,6 +15,11 @@
     onSubmit?: () => void
     /** Leading key, bottom row, that closes the keyboard. */
     onClose?: () => void
+    /**
+     * Names what is being typed. Two players entering names on one screen share
+     * a single keyboard, and this is what tells them whose turn it is at.
+     */
+    caption?: string
     closeLabel?: string
     submitLabel?: string
   }
@@ -23,6 +28,7 @@
     maxLength,
     onSubmit,
     onClose,
+    caption,
     closeLabel = 'Close',
     submitLabel = 'Enter',
   }: Props = $props()
@@ -63,6 +69,9 @@
 
 <Surface tone="light" radius="panel" blur>
   <div class="keyboard">
+    {#if caption}
+      <p class="caption">{caption}</p>
+    {/if}
     {#each ROWS as row, i (row)}
       <div
         class="row"
@@ -104,4 +113,10 @@
   .row
     display: flex
     gap: var(--space-8)
+
+  .caption
+    margin: 0 0 var(--space-4)
+    text-align: center
+    @include tint.type-class(ui-small-bold)
+    color: var(--color-text-secondary)
 </style>

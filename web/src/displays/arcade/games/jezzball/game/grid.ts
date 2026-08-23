@@ -3,7 +3,7 @@
  * level-clear, and collider geometry. Pure and allocation-light so it is
  * unit-testable in isolation and independent of the renderer/physics timing.
  *
- * Cells are a flat `Uint8Array` of {@link CellState}; index is `row * cols +
+ * Cells are a flat `Uint8Array` of {@link CellState}. Index is `row * cols +
  * col`, row 0 at the top, y grows downward (matching world coordinates).
  */
 import {
@@ -24,10 +24,6 @@ export interface Grid {
 
 export function createGrid(cols: number, rows: number): Grid {
   return { cols, rows, cells: new Uint8Array(cols * rows) }
-}
-
-export function cloneGrid(g: Grid): Grid {
-  return { cols: g.cols, rows: g.rows, cells: g.cells.slice() }
 }
 
 export function inBounds(g: Grid, col: number, row: number): boolean {
@@ -71,7 +67,7 @@ export function markWallSpan(
   }
 }
 
-/** Count of flood-filled (captured-region) cells; excludes the player's walls. */
+/** Count of flood-filled (captured-region) cells. Excludes the player's walls. */
 export function filledCount(g: Grid): number {
   let n = 0
   const cells = g.cells
@@ -102,10 +98,10 @@ export interface WallSpans {
 /**
  * Compute the cell spans a two-way wall from `seed` would occupy, extending
  * through open cells until blocked. Segment A owns the seed cell and every open
- * cell before it; segment B starts one cell past the seed. Splitting on the
+ * cell before it. Segment B starts one cell past the seed. Splitting on the
  * seed cell's boundary (rather than its center) means every solidified cell is
- * owned by exactly one segment — so if one half is destroyed the seed cell
- * stays open and a follow-up wall abuts the survivor cleanly, with no orphaned
+ * owned by exactly one segment, so if one half is destroyed the seed cell stays
+ * open and a follow-up wall abuts the survivor cleanly, with no orphaned
  * half-cell.
  */
 export function wallSpans(
@@ -138,14 +134,14 @@ export function wallSpans(
  * grid cells the live balls occupy (typically each ball's center cell).
  *
  * Walks connected components of {@link CELL_OPEN} cells (4-connectivity, walls
- * and filled cells are barriers); any component free of a ball is converted to
+ * and filled cells are barriers). Any component free of a ball is converted to
  * {@link CELL_FILLED}. Returns the cells newly filled, in scan order, so the
  * caller can animate the flood. Deterministic: cells are scanned in index order
  * and the BFS uses a stable queue.
  *
  * Scanning the whole grid rather than only the new wall's neighbors is
- * equivalent in result — any ball-free enclosed region was already filled when
- * it formed, so only regions the new wall just sealed can newly qualify — and
+ * equivalent in result. Any ball-free enclosed region was already filled when
+ * it formed, so only regions the new wall just sealed can newly qualify. This
  * avoids seed bookkeeping.
  */
 export function captureEmptyRegions(g: Grid, ballCells: CellRef[]): CellRef[] {

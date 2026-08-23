@@ -1,7 +1,7 @@
 <!--
   One tutorial card: a transparent, fixed-aspect media slot (the shared demo
   canvas overlays it when this card is centered) above a title + body. Pure
-  DOM — no canvas of its own. Sizing comes from the `--htp-*` custom properties
+  DOM, no canvas of its own. Sizing comes from the `--htp-*` custom properties
   set on the carousel root in `HowToPlay.svelte`.
 -->
 <script lang="ts">
