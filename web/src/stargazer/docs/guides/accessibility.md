@@ -13,21 +13,21 @@ a keyboard can drive. It is entirely opt-in: an engine that never touches
 ## The shape
 
 - Register a node with `engine.a11y.attach(node, semantics)`. The subsystem
-  keeps a registry of these nodes — the scene tree itself is untouched.
+  keeps a registry of these nodes. The scene tree itself is untouched.
 - Each registered node becomes a real, hidden HTML element (`<button>`, a
   heading, a `role="gridcell"` div, …) inside a mount element you provide. The
   elements nest by scene hierarchy and read in scene (painter) order.
 - Nodes with no semantics are absent from the tree, so decorative content is
   hidden by simply not registering it.
 - The mirror rebuilds only when something changes (a handle `update`, an
-  attach/detach, or a node destroy), never per frame — screen readers ignore
+  attach/detach, or a node destroy), never per frame. Screen readers ignore
   position, so a static scene reconciles zero times.
 
 ## Mounting the hidden root
 
 The subsystem needs an element to fill. It must be one your app owns, placed
-where its reading order relative to the canvas is correct — a sibling right
-after the `<canvas>`. From Svelte, use the `a11yRoot` action; the engine makes
+where its reading order relative to the canvas is correct: a sibling right
+after the `<canvas>`. From Svelte, use the `a11yRoot` action. The engine makes
 the element visually hidden but screen-reader readable:
 
 ```svelte
@@ -56,7 +56,7 @@ const cell = engine.a11y.attach(cellNode, {
   onBlur: () => focusRing.hide(cellNode),
 })
 
-// State changes go through the handle; the element is patched in place.
+// State changes go through the handle. The element is patched in place.
 cell.update({ label: 'Column 1, row 1, red', states: { selected: true } })
 ```
 
@@ -65,11 +65,11 @@ cell.update({ label: 'Column 1, row 1, red', states: { selected: true } })
 
 There are two ways to register the same thing: the imperative
 `engine.a11y.attach(node, …)` shown above, and a chainable `node.a11y(…)` that
-reads well when you build the node — used below.
+reads well when you build the node, used below.
 
 ## Upgrading a node
 
-Making a node accessible is purely additive — you don't restructure the scene or
+Making a node accessible is purely additive: you don't restructure the scene or
 touch how the node draws. Take a start button that today only handles touch:
 
 ```ts
@@ -82,7 +82,7 @@ panel.add(startBtn)
 ```
 
 Upgrade it by chaining `.a11y(...)` onto the node. The drawing and the pointer
-handler stay exactly as they were; this just adds a hidden `<button>` that a
+handler stay exactly as they were. This just adds a hidden `<button>` that a
 screen reader announces and a keyboard activates, reusing the same handler:
 
 ```ts
@@ -100,14 +100,14 @@ panel.add(startBtn)
 
 `.a11y()` returns the node, so it composes with the other chainable setters
 (`.setVisible()`, `.setHitEnabled()`, `.setRenderLayer()`). `bindPointer` is the
-exception — it returns an unbind function, so call it separately. Registration
+exception: it returns an unbind function, so call it separately. Registration
 is deferred until the node joins a scene, so `.a11y()` on a freshly-built node is
 fine. Nothing about the visual node, its transform, or its touch behavior
 changes.
 
 ## Changing a11y info
 
-Update by calling `.a11y()` again with only the fields that changed — it merges
+Update by calling `.a11y()` again with only the fields that changed. It merges
 into the current semantics and patches the existing element in place, so focus
 and screen-reader state survive (no re-announcement of the whole node). A mute
 toggle, for example:
@@ -120,7 +120,7 @@ muteNode.a11y({
   onActivate: toggleMute,
 })
 
-// on toggle — merges, patched in place:
+// on toggle, merges, patched in place:
 muteNode.a11y({ label: 'Unmute', states: { pressed: true } })
 ```
 
@@ -130,7 +130,7 @@ The imperative equivalent is `handle.update(...)` on the handle returned by
 ## Nested nodes
 
 You register only the nodes that carry meaning. The hidden tree follows the
-scene hierarchy, but **unregistered nodes collapse out** — a decorative
+scene hierarchy, but **unregistered nodes collapse out**: a decorative
 background or a pure layout container leaves no trace, and its registered
 descendants reattach to the nearest registered ancestor. So a menu built like
 this:
@@ -168,7 +168,7 @@ panel.add(background, titleText, buttonRow)
 buttonRow.add(startBtn, optionsBtn)
 ```
 
-which the engine mirrors into this hidden HTML — note that `background` and
+which the engine mirrors into this hidden HTML. Note that `background` and
 `buttonRow` are gone, and the buttons sit directly under the panel:
 
 ```html
@@ -179,22 +179,22 @@ which the engine mirrors into this hidden HTML — note that `background` and
 </div>
 ```
 
-Children read in scene (painter) order; nudge a sibling with `order` on its
+Children read in scene (painter) order. Nudge a sibling with `order` on its
 semantics if you need a different order than the tree gives. To turn the buttons
 into a single arrow-navigable tab stop, give `panel` a composite role
-(`toolbar`, `radiogroup`, …) instead of `group` — see below.
+(`toolbar`, `radiogroup`, …) instead of `group`, described below.
 
 ## Keyboard navigation
 
-Independent controls are natural tab stops. A composite role — `grid`,
-`radiogroup`, `listbox`, `toolbar` — becomes a **single** tab stop whose members
+Independent controls are natural tab stops. A composite role (`grid`,
+`radiogroup`, `listbox`, `toolbar`) becomes a **single** tab stop whose members
 rove with the arrow keys (and Home/End), so a 42-cell board is one stop, not 42.
-Native `<button>`s activate on Enter/Space for free; other widgets are activated
+Native `<button>`s activate on Enter/Space for free. Other widgets are activated
 by the subsystem.
 
 ## Announcing events
 
-Transient events that aren't tied to a node — "your turn", "Red wins" — go
+Transient events that aren't tied to a node, such as "your turn" or "Red wins", go
 through a live region:
 
 ```ts
@@ -205,7 +205,7 @@ engine.a11y.announce('Red wins!', 'assertive') // interrupts
 ## Linking to HTML overlays
 
 Real overlay HTML (a pause menu, a HUD) built as `domAnchor` elements is already
-natively accessible and lives in its own DOM. The two trees stay **separate** —
+natively accessible and lives in its own DOM. The two trees stay **separate**:
 they are not merged. To connect them for the screen reader, point a canvas
 node's proxy at the overlay with a relationship link (rendered as
 `aria-controls` / `aria-labelledby` / `aria-describedby` / `aria-details` /
@@ -221,8 +221,8 @@ engine.a11y.attach(helpButtonNode, {
 ```
 
 Prefer a stable id string (the overlay already has one), so no app-owned DOM is
-mutated. An id that isn't in the DOM yet — an overlay behind `{#if}` — is fine;
-the browser resolves it once the element mounts. This is deliberately **not**
+mutated. An id that isn't in the DOM yet, such as an overlay behind `{#if}`, is fine.
+The browser resolves it once the element mounts. This is deliberately **not**
 `aria-owns`: reparenting into one tree diverges from focus order and is fragile
 across screen readers.
 
@@ -246,8 +246,8 @@ function closePause() {
 - Cross-region reading order follows DOM order. Keep the a11y root right after
   the canvas and app overlays after that.
 - Use `role: 'application'` only on a composite subtree that needs raw arrow
-  keys, never the whole page — it suppresses the screen reader's browse mode.
-- `roleDescription` overrides how AT announces the role; use it sparingly.
+  keys, never the whole page. It suppresses the screen reader's browse mode.
+- `roleDescription` overrides how AT announces the role. Use it sparingly.
 - Automated checks (axe-core, keyboard) catch structure and attribute bugs, but
   verify reading order and announcements with a real screen reader (NVDA,
   VoiceOver, TalkBack).

@@ -6,15 +6,22 @@
  * closure so it tracks orbs rolling in and out of the band.
  *
  * The node is positioned at its anchor via its transform and draws the number
- * centered on the origin; a world-unit font keeps it in scale with the field.
+ * centered on the origin. A world-unit font keeps it in scale with the field.
  */
 import { Node2D, type Gfx2D } from '@src/stargazer'
+import { fontFor } from '@src/core/theme'
 import { SCORE_TEXT } from '../tuning'
+import { ORBO_FONTS } from '../../fonts'
 
 export class ScoringCountNode extends Node2D {
   readonly #count: () => number
   readonly #color: string
-  readonly #font = `${SCORE_TEXT.fontWeight} ${SCORE_TEXT.fontPx}px ${SCORE_TEXT.fontFamily}`
+  readonly #font = fontFor(
+    ORBO_FONTS,
+    'heading',
+    SCORE_TEXT.fontWeight,
+    SCORE_TEXT.fontPx,
+  )
 
   constructor(
     /** Returns the current count to display (evaluated each frame). */

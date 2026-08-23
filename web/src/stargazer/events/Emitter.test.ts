@@ -39,7 +39,7 @@ describe('Emitter', () => {
       e.on('greet', (s) => seen.push('other:' + s))
       e.emit('greet', 'first')
       e.emit('greet', 'second')
-      // Both handlers ran the first time; only `other` ran the second.
+      // Both handlers ran the first time. Only `other` ran the second.
       expect(seen).toEqual(['h:first', 'other:first', 'other:second'])
     })
 
@@ -80,7 +80,7 @@ describe('Emitter', () => {
       e.off('ping', h)
       // Emit again with no handlers, should not touch the (now-empty) scratch.
       e.emit('ping', undefined)
-      // Drop the strong ref; the emitter's scratch array should not hold it.
+      // Drop the strong ref. The emitter's scratch array should not hold it.
       ref = null
       // Note: we can't force GC in Vitest, but this at least exercises the
       // clear-on-finally path without exploding.

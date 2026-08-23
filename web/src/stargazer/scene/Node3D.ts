@@ -8,11 +8,9 @@ import type { TweenOptions } from '../anim/Animator'
 import { combineAbortSignals, ignoreAbort } from '../anim/abortSignal'
 
 /**
- * Targets for {@link Node3D.tween}. Position and scale interpolate linearly;
- * rotation interpolates by quaternion slerp; alpha interpolates linearly. Omit
- * a field to leave it fixed.
- *
- * @category Scene
+ * Targets for {@link Node3D.tween}. Position and scale interpolate linearly,
+ * rotation interpolates by quaternion slerp, and alpha interpolates linearly.
+ * Omit a field to leave it fixed.
  */
 export interface Node3DTweenTo {
   position?: Readonly<Vec3>
@@ -26,17 +24,17 @@ export interface Node3DTweenTo {
  * quaternion, scale), a parent, children, and optional {@link Behavior}s. It is
  * the 3D counterpart of {@link Node2D} and shares all non-spatial machinery
  * (behaviors, lifecycle, abort, wait/loop) through {@link Node}. Place a node by
- * mutating its `transform`; nest nodes with {@link Node.add} so children inherit
+ * mutating its `transform`, nest nodes with {@link Node.add} so children inherit
  * the parent's world transform.
  *
- * 3D nodes live under a {@link World3D} root, separate from the 2D {@link Scene}.
- * A drawable 3D node (e.g. a mesh) subclasses this and the 3D render pass draws
- * it; a plain `Node3D` is a transform-only group.
+ * 3D nodes live in the same {@link SceneTree} as 2D content, bucketed by `kind`
+ * into the depth-tested 3D pass. A drawable 3D node (e.g. a mesh) subclasses
+ * this and the 3D render pass draws it. A plain `Node3D` is a transform-only
+ * group.
  *
- * @category Scene
  * @example
  *   const pivot = new Node3D()
- *   world3d.add(pivot)
+ *   scene.root.add(pivot)
  *   pivot.transform.setPosition(0, 1, -5)
  *   await pivot.tween(
  *     { rotation: quatFromAxisAngle(quat(), 0, 1, 0, Math.PI) },
@@ -65,9 +63,9 @@ export class Node3D extends Node {
 
   /**
    * Nearest ancestor that is also a `Node3D`, skipping any 2D or group nodes in
-   * between; `null` if none. World composition uses this, so a `Node3D` nested
-   * under a 2D or group parent behaves as a top-level 3D node (its world equals
-   * its local).
+   * between, or `null` if none. World composition uses this, so a `Node3D`
+   * nested under a 2D or group parent behaves as a top-level 3D node (its world
+   * equals its local).
    */
   get spatialParent(): Node3D | null {
     let p = this.parent
@@ -102,7 +100,7 @@ export class Node3D extends Node {
     }
   }
 
-  /** World matrix, synced first. Read-only; treat the returned matrix as const. */
+  /** World matrix, synced first. Read-only, treat the returned matrix as const. */
   get worldMatrix(): Mat4 {
     this.ensureWorldTransform()
     return this.transform.world

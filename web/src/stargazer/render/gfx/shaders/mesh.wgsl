@@ -41,7 +41,7 @@ struct FlatObject {
 @group(0) @binding(18) var u_aoSamp: sampler;
 
 // AO factor at this fragment (1 = unoccluded). Off → 1. `fragPos` is the
-// fragment builtin position (screen pixels); the flip matches the AO texture's
+// fragment builtin position (screen pixels). The flip matches the AO texture's
 // per-backend row order.
 fn sampleSSAO(fragPos: vec4<f32>) -> f32 {
   if (frame.aoParams.x < 0.5) {
@@ -131,8 +131,8 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   if (lit > 0.5 && debugMode < 0.5) {
     let n = normalize(in.normal);
     let ndl = max(dot(n, -normalize(frame.lightDir.xyz)), 0.0);
-    // AO scales the ambient (indirect) term; `aoDirect` optionally folds it into
-    // the direct light too (stylized — off at strength 0).
+    // AO scales the ambient (indirect) term. `aoDirect` optionally folds it into
+    // the direct light too (stylized, off at strength 0).
     let ssao = sampleSSAO(in.pos);
     let aoDirect = mix(1.0, ssao, frame.aoParams2.x);
     shaded = base * (frame.ambient.xyz * ssao + frame.lightColor.xyz * ndl * aoDirect);

@@ -8,8 +8,6 @@ import type { ScreenProjection, Projectionness } from './Camera3D'
  * consume. Lets a plain `Camera3D` helper, a `CameraNode3D`, or a debug
  * fly-camera stand in interchangeably (the 3D analogue of
  * {@link CameraView2D}).
- *
- * @category Camera
  */
 export interface CameraView3D {
   /** View matrix (world → camera). */

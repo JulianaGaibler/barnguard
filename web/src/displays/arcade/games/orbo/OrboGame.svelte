@@ -34,8 +34,8 @@
 
   let session = $state<GameSession | null>(null)
   let loadError = $state<string | null>(null)
-  // The main screen shows when idle; playing shows the field; paused overlays
-  // the pause menu. (Round-end is a pure canvas animation — no screen here.)
+  // The main screen shows when idle, playing shows the field, paused overlays
+  // the pause menu. (Round-end is a pure canvas animation, no screen here.)
   let showSplash = $state(true)
   let paused = $state(false)
   // Live pause-swipe progress (0..1) for drag feedback before it commits.
@@ -80,7 +80,7 @@
     const px = host.engine.renderer.pixelSize
     const view = gameVisibleRect(px.w, px.h)
 
-    // A UI-only node at the game region's visible-rect top-left; the overlays
+    // A UI-only node at the game region's visible-rect top-left. The overlays
     // attach to it and cover the whole visible area, so the menus fill the
     // window and ride the camera through pans. `domAnchor` keeps it flush.
     const uiAnchor = new Node2D('orbo-ui-anchor')
@@ -97,12 +97,13 @@
     gameRect = view
 
     // Keep the overlay fitted as the window resizes. The field reflows on the
-    // next entry; mid-match field reflow is a separate step.
+    // next entry. Mid-match field reflow is a separate step.
     const offResize = host.engine.events.on('resize', (e) => {
       const v = gameVisibleRect(e.pixel.w, e.pixel.h)
       uiAnchor.transform.x = v.x
       uiAnchor.transform.y = v.y
       gameRect = v
+      s?.resize(v)
     })
 
     const bounds = {
@@ -111,7 +112,7 @@
       width: view.width - FIELD_PADDING * 2,
       height: view.height - FIELD_PADDING * 2,
     }
-    startGame(host, bounds)
+    startGame(host, bounds, view)
       .then((sess) => {
         if (disposed) {
           sess.destroy()
@@ -167,7 +168,7 @@
     session?.resume()
   }
   function quit(): void {
-    // Quitting from the pause menu is a plain return — no winner bump.
+    // Quitting from the pause menu is a plain return, no winner bump.
     bumpTeam = null
     session?.reset()
   }
@@ -176,8 +177,8 @@
 <!--
   Every overlay is pinned to the game region through one `domAnchor` wrapper, so
   the whole surface rides the arcade camera: a pan slides it off screen and
-  `cull` hides it there, replacing the old fade handshake. Errors stay outside
-  the wrapper so a failure surfaces even mid-transition.
+  `cull` hides it there. Errors stay outside the wrapper so a failure surfaces
+  even mid-transition.
 -->
 <div class="orbo">
   {#if anchor}
@@ -237,15 +238,15 @@
 </div>
 
 <style lang="sass">
-  // Overlay layer above the shared arcade canvas. Transparent + click-through;
-  // only the interactive overlays capture pointer events.
+  // Overlay layer above the shared arcade canvas. Transparent + click-through.
+  // Only the interactive overlays capture pointer events.
   .orbo
     position: absolute
     inset: 0
     pointer-events: none
 
   // The engine positions this over the game region (via `domAnchor`), sized in
-  // world units and scaled by the camera; the overlays inside fill it. Stays
+  // world units and scaled by the camera. The overlays inside fill it. Stays
   // click-through so only their own buttons capture pointer events.
   .orbo__ui
     pointer-events: none

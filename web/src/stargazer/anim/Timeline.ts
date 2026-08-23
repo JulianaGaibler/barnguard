@@ -3,23 +3,21 @@ import { abortError } from './abortSignal'
 /**
  * One step in a {@link Timeline}: a function returning a Promise that resolves
  * when the step is done. It receives the signal passed to {@link Timeline.run}
- * (if any), so a step can scope its own tween/wait to it — `(s) =>
- * node.tween(to, { duration, signal: s })` — without closing over an outer
+ * (if any), so a step can scope its own tween/wait to it, as in `(s) =>
+ * node.tween(to, { duration, signal: s })`, without closing over an outer
  * variable. Ignore the argument for steps that are already node-scoped.
- *
- * @category Animation
  */
 export type TimelineStep = (signal?: AbortSignal) => Promise<void>
 
 /**
  * Fluent builder for a sequence of async steps. Each `add(step)` runs after the
- * previous one resolves; `parallel(...steps)` runs a batch concurrently within
+ * previous one resolves. `parallel(...steps)` runs a batch concurrently within
  * a single sequenced position.
  *
  * `run(signal)` checks the signal between steps and forwards it into each step.
  * Pair it with an {@link AbortScope}: `timeline.run(scope.signal)` cancels the
- * whole sequence when the scope's epoch ends — steps that thread the signal
- * into their tweens abort mid-step, and the between-steps check stops the rest.
+ * whole sequence when the scope's epoch ends. Steps that thread the signal into
+ * their tweens abort mid-step, and the between-steps check stops the rest.
  * Node-scoped steps (`node.tween(...)`) already abort on node destroy
  * regardless.
  *
@@ -28,7 +26,6 @@ export type TimelineStep = (signal?: AbortSignal) => Promise<void>
  * return `void`). A step's tween may still carry a `key` for a self-cancelling
  * restart.
  *
- * @category Animation
  * @example
  *   await node
  *     .timeline()

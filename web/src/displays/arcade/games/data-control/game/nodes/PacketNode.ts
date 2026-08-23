@@ -1,6 +1,9 @@
-import { Path2DNode, type Rect } from '@src/stargazer'
-import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
-import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessellationRegistry'
+import {
+  Path2DNode,
+  registerPathTessellation,
+  tessellateContours,
+  type Rect,
+} from '@src/stargazer'
 import { TUNING } from '../data/tuning'
 
 const HEX_STROKE_DEFAULT = '#01CA05'

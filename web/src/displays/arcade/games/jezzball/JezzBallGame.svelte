@@ -2,8 +2,10 @@
   import { onMount } from 'svelte'
   import { Node2D, domAnchor, type Rect } from '@src/stargazer'
   import {
+    boothCornerInset,
     coverView,
     gameVisibleRect,
+    worldPerCssPx,
     REGION_WIDTH,
     REGION_HEIGHT,
   } from '../../world'
@@ -18,16 +20,17 @@
   } from './game/layout'
   import type { Bounds, TextSegment } from './game/types'
   import { BackdropNode } from './game/nodes/BackdropNode'
-  import { ChromeNode } from './game/nodes/ChromeNode'
+  import { ChromeNode, CHROME_TOP_ROW_END_PX } from './game/nodes/ChromeNode'
   import { HeartsNode } from './game/nodes/HeartsNode'
   import { BadgeNode } from './game/nodes/BadgeNode'
   import { ProgressNode } from './game/nodes/ProgressNode'
+  import { TimeBonusNode } from './game/nodes/TimeBonusNode'
   import { CountdownNode } from './game/nodes/CountdownNode'
   import { WaitingNode } from './game/nodes/WaitingNode'
   import { VersusScoreNode } from './game/nodes/VersusScoreNode'
   import { PauseButtonNode } from './game/nodes/PauseButtonNode'
   import { ACCENT_SOLO, ACCENT_VS, COLORS, GRID, RULES } from './game/tuning'
-  import type { GameMode } from './game/types'
+  import type { GameMode, PlayerId } from './game/types'
   import { JEZZBALL_STRINGS as S } from './strings'
   import HowToPlay from '../../tutorial/HowToPlay.svelte'
   import { JEZZBALL_TUTORIAL } from './tutorial'
@@ -49,12 +52,22 @@
   let overTitle = $state<TextSegment[]>([])
   let overScore = $state<TextSegment[]>([])
   let overLeaderboardScore = $state<number | undefined>(undefined)
-  // Set when a 2p match ends; drives the two-player leaderboard-entry overlay.
+  // Set when a 2p match ends. Drives the two-player leaderboard-entry overlay.
   let versusResult = $state<{
     winner: 0 | 1 | 2
     pointsA: number
     pointsB: number
   } | null>(null)
+
+  /**
+   * Versus matches each player has taken this visit, and whose tally moved
+   * last. Shown under the title on the menu between matches.
+   *
+   * Not persisted: it belongs to the two people at the booth and starts over
+   * for the next pair, which component state gives for free.
+   */
+  let matchWins = $state({ a: 0, b: 0 })
+  let bumpPlayer = $state<PlayerId | null>(null)
 
   interface Hud {
     lives: number
@@ -84,7 +97,7 @@
 
   /**
    * Stashed by the `gameOver`/`matchOver` handlers below (with `durationMs`
-   * already fixed at that moment, not later — the player may linger on the
+   * already fixed at that moment, not later, since the player may linger on the
    * game-over screen entering a name). The record can only be finalized once
    * `GameOver` knows whether a name was saved, so the actual server call waits
    * for its `onFinalize`.
@@ -163,7 +176,7 @@
 
   // --- Non-reactive runtime state. Everything below drives canvas nodes
   // directly (no DOM to react through), so plain fields + imperative updates
-  // replace what used to be `$state`/`$derived` chains.
+  // stand in for `$state`/`$derived` chains.
   let mode: GameMode['kind'] | null = null
   let hudA: Hud = newHud()
   let hudB: Hud = newHud()
@@ -183,6 +196,10 @@
   // Persistent HUD node, created once in `onMount` and live for the whole
   // component (shown/hidden rather than rebuilt).
   let pauseButtonNode: PauseButtonNode | null = null
+  /** Canvas CSS size, for converting fixed on-screen sizes to world units. */
+  let cssSize = { w: REGION_WIDTH, h: REGION_HEIGHT }
+  /** World depth of the booth's top-corner gesture boxes, refreshed on resize. */
+  let cornerInset = 0
 
   // Board content (backdrop + every session's HUD) lives under this node, so
   // it always paints under `chromeLayer` (pause button, frame chrome) below
@@ -199,12 +216,45 @@
   let scoreA: VersusScoreNode | null = null
   let scoreB: VersusScoreNode | null = null
   let progressNode: ProgressNode | null = null
+  // Live time-bonus meters, one per board. Solo uses `timeBonusA` alone.
+  let timeBonusA: TimeBonusNode | null = null
+  let timeBonusB: TimeBonusNode | null = null
   let countdownA: CountdownNode | null = null
   let countdownB: CountdownNode | null = null
   let waitingNode: WaitingNode | null = null
   // Versus: an "out" chip shown over whichever board's player has been
   // eliminated, until the survivor is out too and the match-over overlay opens.
   let eliminatedNode: WaitingNode | null = null
+
+  /**
+   * Put the pause toggle somewhere it is not sitting on a board.
+   *
+   * Solo takes the right edge: the board is a centred square with a margin, so
+   * the strip beside it is free, and solo's own HUD keeps the hearts centred
+   * and the badges out in the side margins. Versus cannot use it, because
+   * player two's hearts are already there, so it goes in the central gap
+   * between the two boards, above the level badge.
+   *
+   * Both spots are clear of the arcade's return-to-launcher gesture, which only
+   * arms across the middle third of the top edge. Versus is also clear of the
+   * booth's corner gesture, being nowhere near a corner.
+   */
+  function placePause(btn: PauseButtonNode, view: Rect): void {
+    if (mode === '2p') {
+      btn.transform.x = view.x + view.width * 0.5 - PauseButtonNode.size / 2
+      btn.transform.y = view.y + view.height * 0.16
+      return
+    }
+    // Right edge, below both things that would otherwise take the tap: the
+    // decorative corner marks, which are drawn over anything in the corner, and
+    // the booth's corner gesture, which swallows the event before the scene
+    // sees it. The marks are sized in CSS px and so have to be converted, or
+    // this tracks them only at the region's design size.
+    const marksEnd = CHROME_TOP_ROW_END_PX * worldPerCssPx(cssSize.w, cssSize.h)
+    const margin = marksEnd * 0.5
+    btn.transform.x = view.x + view.width - margin - PauseButtonNode.size
+    btn.transform.y = view.y + Math.max(marksEnd, cornerInset) + margin
+  }
 
   /** Reposition/resize the solo HUD from the current `gameRect`/`soloBoard`. */
   function layoutSolo(): void {
@@ -236,6 +286,11 @@
     progressNode.setWidth(Math.min(gameRect.width * 0.4, 544))
     progressNode.transform.x = gameRect.x + gameRect.width / 2
     progressNode.transform.y = gameRect.y + gameRect.height * 0.965
+    if (timeBonusA) {
+      timeBonusA.setWidth(badgeSize * 0.86)
+      timeBonusA.transform.x = margin.rightCenterX
+      timeBonusA.transform.y = midY + badgeSize / 2 + 34
+    }
     countdownA.transform.x = boardCenter.x
     countdownA.transform.y = boardCenter.y
   }
@@ -275,6 +330,21 @@
     scoreA.transform.y = gameRect.y + gameRect.height * 0.04 + 36
     scoreB.transform.x = vsCenter.x + vsGap / 2 + 12
     scoreB.transform.y = scoreA.transform.y
+    // Under each player's PTS readout, which is left-aligned on `scoreA`/
+    // `scoreB` while the meter centres on its own transform.
+    // Wide enough for the caption plus a four-digit value at any board gap.
+    const meterW = Math.min(Math.max(vsGap * 0.9, 150), 200)
+    const meterY = scoreA.transform.y + 62
+    if (timeBonusA) {
+      timeBonusA.setWidth(meterW)
+      timeBonusA.transform.x = scoreA.transform.x + meterW / 2
+      timeBonusA.transform.y = meterY
+    }
+    if (timeBonusB) {
+      timeBonusB.setWidth(meterW)
+      timeBonusB.transform.x = scoreB.transform.x + meterW / 2
+      timeBonusB.transform.y = meterY
+    }
     badgeLvl.setSize(badgeSize)
     badgeLvl.transform.x = vsCenter.x - badgeSize / 2
     badgeLvl.transform.y = vsCenter.y - badgeSize / 2
@@ -323,7 +393,7 @@
     heartsB.setLives(hudB.lives)
     scoreA.setValue(hudA.points)
     scoreB.setValue(hudB.points)
-    // Levels move in lockstep until one player is out; then the lone survivor
+    // Levels move in lockstep until one player is out. Then the lone survivor
     // advances past the frozen (dead) board, so show the active, higher level.
     const lvl = Math.max(hudA.level, hudB.level)
     badgeLvl.setValue(pad(lvl), lvl)
@@ -335,8 +405,8 @@
       hudB.state === 'countdown' ? countLabel(hudB.countdown) : null,
     )
 
-    // "Waiting for other player" only makes sense while BOTH are still in it —
-    // a sole survivor advancing past an eliminated opponent isn't waiting.
+    // "Waiting for other player" only makes sense while BOTH are still in it.
+    // A sole survivor advancing past an eliminated opponent isn't waiting.
     const waitingSide =
       hudA.state === 'cleared' && hudB.state !== 'cleared' && !outB
         ? 1
@@ -400,6 +470,8 @@
     scoreA = null
     scoreB = null
     progressNode = null
+    timeBonusA = null
+    timeBonusB = null
     countdownA = null
     countdownB = null
     waitingNode = null
@@ -436,7 +508,7 @@
       GRID.rows,
       ACCENT_SOLO,
     )
-    // The session adds its board straight to the scene root; reparent it
+    // The session adds its board straight to the scene root. Reparent it
     // under `contentLayer` (behind the HUD layer added next) so the field/
     // wall/ball nodes never paint over the countdown or other HUD overlays.
     contentLayer?.add(s.board.root)
@@ -469,8 +541,20 @@
       target: RULES.targetPct,
       width: 1,
     })
+    timeBonusA = new TimeBonusNode({
+      value: () => s.pendingTimeBonus,
+      label: S.timeBonus,
+      width: 1,
+    })
     countdownA = new CountdownNode()
-    for (const n of [heartsA, badgeLvl, badgePts, progressNode, countdownA])
+    for (const n of [
+      heartsA,
+      badgeLvl,
+      badgePts,
+      progressNode,
+      timeBonusA,
+      countdownA,
+    ])
       layer.add(n)
     layoutSolo()
 
@@ -489,7 +573,11 @@
     input = new InputController(host, [s.board])
     gameStartMs = performance.now()
     s.start()
-    if (pauseButtonNode) pauseButtonNode.visible = true
+    if (pauseButtonNode) {
+      // `mode` is only known now, and it decides where the button belongs.
+      placePause(pauseButtonNode, gameRect)
+      pauseButtonNode.visible = true
+    }
     screen = 'game'
   }
 
@@ -536,6 +624,18 @@
       target: RULES.targetPct,
       width: 1,
     })
+    timeBonusA = new TimeBonusNode({
+      value: () => m.a.pendingTimeBonus,
+      label: S.timeBonus,
+      width: 1,
+      color: ACCENT_VS[1].primary,
+    })
+    timeBonusB = new TimeBonusNode({
+      value: () => m.b.pendingTimeBonus,
+      label: S.timeBonus,
+      width: 1,
+      color: ACCENT_VS[2].primary,
+    })
     countdownA = new CountdownNode()
     countdownB = new CountdownNode()
     waitingNode = new WaitingNode(S.waitHeadline, S.waiting)
@@ -547,6 +647,8 @@
       scoreB,
       badgeLvl,
       progressNode,
+      timeBonusA,
+      timeBonusB,
       countdownA,
       countdownB,
       waitingNode,
@@ -575,13 +677,27 @@
     })
     // Both players are out: open the two-player leaderboard-entry overlay.
     m.events.on('matchOver', (r) => {
-      versusResult = { winner: r.winner, pointsA: r.pointsA, pointsB: r.pointsB }
+      versusResult = {
+        winner: r.winner,
+        pointsA: r.pointsA,
+        pointsB: r.pointsB,
+      }
+      // A tie credits neither side, and clears the pulse so nothing flashes.
+      matchWins = {
+        a: matchWins.a + (r.winner === 1 ? 1 : 0),
+        b: matchWins.b + (r.winner === 2 ? 1 : 0),
+      }
+      bumpPlayer = r.winner === 0 ? null : r.winner
       if (pauseButtonNode) pauseButtonNode.visible = false
     })
     syncVersus()
     gameStartMs = performance.now()
     m.start()
-    if (pauseButtonNode) pauseButtonNode.visible = true
+    if (pauseButtonNode) {
+      // `mode` is only known now, and it decides where the button belongs.
+      placePause(pauseButtonNode, gameRect)
+      pauseButtonNode.visible = true
+    }
     screen = 'game'
   }
 
@@ -618,6 +734,8 @@
   onMount(() => {
     const px = host.engine.renderer.pixelSize
     const view = gameVisibleRect(px.w, px.h)
+    cssSize = { ...host.engine.renderer.cssSize }
+    cornerInset = boothCornerInset(cssSize.w, cssSize.h)
 
     const uiAnchor = new Node2D('jezzball-ui-anchor')
     uiAnchor.transform.x = view.x
@@ -634,7 +752,7 @@
 
     // Board content: the backdrop plus every session's HUD (added later, as
     // sessions start/restart). A dedicated container so it's always a single,
-    // earlier sibling of `chromeLayer` below — painter order follows scene
+    // earlier sibling of `chromeLayer` below. Painter order follows scene
     // order, so this guarantees the chrome/pause button stay on top no matter
     // when a session (re)builds its HUD, rather than depending on which
     // happened to get added to the scene first.
@@ -649,28 +767,30 @@
     const chromeLayer = new Node2D('jb-chrome')
     host.engine.tree.root.add(chromeLayer)
 
-    // The pause toggle starts hidden — the component always mounts on the
+    // The pause toggle starts hidden. The component always mounts on the
     // splash screen, not mid-game.
     const pauseBtn = new PauseButtonNode(pause)
-    if (mode === '1p') pauseBtn.transform.x = view.x + view.width * 0.96 - 38.4
-    else pauseBtn.transform.x = view.x + view.width * 0.5 - 24.2
-    pauseBtn.transform.y = view.y + view.height * 0.16
+    placePause(pauseBtn, view)
     pauseBtn.visible = false
-    chromeLayer.add(pauseBtn)
-    pauseButtonNode = pauseBtn
-
     const chrome = new ChromeNode(view)
     chromeLayer.add(chrome)
+
+    // After the chrome: within a layer, paint order is tree order, and the hit
+    // walk runs back to front. Added first, the decorations covered this and
+    // swallowed the tap.
+    chromeLayer.add(pauseBtn)
+    pauseButtonNode = pauseBtn
 
     const offResize = host.engine.events.on('resize', (e) => {
       const v = gameVisibleRect(e.pixel.w, e.pixel.h)
       uiAnchor.transform.x = v.x
       uiAnchor.transform.y = v.y
       gameRect = v
+      cssSize = { w: e.css.w, h: e.css.h }
+      cornerInset = boothCornerInset(e.css.w, e.css.h)
       bd.setRect(v)
       chrome.setRect(v)
-      pauseBtn.transform.x = v.x + v.width * 0.96 - 38.4
-      pauseBtn.transform.y = v.y + v.height * 0.16
+      placePause(pauseBtn, v)
       if (mode === '1p') layoutSolo()
       else if (mode === '2p') layoutVersus()
     })
@@ -703,6 +823,8 @@
           {onExit}
           onHowToPlay={demoStage ? () => (showTutorial = true) : undefined}
           onOpenLeaderboard={() => (showLeaderboard = true)}
+          {matchWins}
+          {bumpPlayer}
         />
       {/if}
 
@@ -756,7 +878,7 @@
     position: absolute
     inset: 0
     pointer-events: none
-    font-family: system-ui, sans-serif
+    font-family: var(--font-text)
 
   .jb__ui
     pointer-events: none

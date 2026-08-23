@@ -1,10 +1,6 @@
 import { Node3D } from '../scene/Node3D'
 
-/**
- * Shared options for the punctual light nodes.
- *
- * @category Scene
- */
+/** Shared options for the punctual light nodes. */
 export interface Light3DOptions {
   /** Linear RGB color in `0..1`. Default white. */
   color?: [number, number, number]
@@ -24,7 +20,7 @@ export interface Light3DOptions {
    */
   shadowNormalBias?: number
   /**
-   * Shadow strength `0..1`; `1` is fully dark, lower lifts the shadow. Default
+   * Shadow strength `0..1`. `1` is fully dark, lower lifts the shadow. Default
    * `1`.
    */
   shadowOpacity?: number
@@ -35,10 +31,8 @@ export interface Light3DOptions {
  * {@link PointLight3D}, {@link SpotLight3D}). A light is transform-driven: the 3D
  * renderer reads its world position and its local −Z axis (in world space) each
  * frame, so a light parented to a moving node tracks it. Add lights to the
- * scene tree like any node; a scene with no light nodes falls back to the
+ * scene tree like any node. A scene with no light nodes falls back to the
  * renderer's default directional light.
- *
- * @category Scene
  */
 export abstract class Light3D extends Node3D {
   /** Linear RGB color in `0..1`. */
@@ -67,9 +61,8 @@ export abstract class Light3D extends Node3D {
 
 /**
  * A light infinitely far away, casting parallel rays along the node's local −Z
- * axis (in world space). Position is irrelevant; only orientation matters.
+ * axis (in world space). Position is irrelevant, only orientation matters.
  *
- * @category Scene
  * @example
  *   const sun = new DirectionalLight3D({
  *     color: [1, 0.96, 0.9],
@@ -81,7 +74,7 @@ export abstract class Light3D extends Node3D {
 export class DirectionalLight3D extends Light3D {
   /**
    * Caps the shadow map's world extent. `0` (default) auto-fits the map to the
-   * shadow casters' bounds — tight and sharp for a compact scene, but a large
+   * shadow casters' bounds, tight and sharp for a compact scene, but a large
    * ground plane spreads the map thin. Set a positive value to hold resolution
    * on the near scene and let distant geometry fall outside the shadowed
    * region.
@@ -101,14 +94,12 @@ export class DirectionalLight3D extends Light3D {
 
 /**
  * A point light radiating from the node's world position with inverse-square
- * falloff. `range` optionally windows the falloff to zero at that distance; `0`
+ * falloff. `range` optionally windows the falloff to zero at that distance. `0`
  * (default) leaves it unbounded.
- *
- * @category Scene
  */
 export class PointLight3D extends Light3D {
   /**
-   * Falloff cutoff distance in world units; `0` = unbounded (inverse-square
+   * Falloff cutoff distance in world units. `0` = unbounded (inverse-square
    * only).
    */
   range: number
@@ -123,11 +114,9 @@ export class PointLight3D extends Light3D {
  * A spot light at the node's world position, aimed along its local −Z axis,
  * with a cone that is full-bright inside `innerConeAngle` and falls off to dark
  * at `outerConeAngle` (both in radians, half-angles from the axis).
- *
- * @category Scene
  */
 export class SpotLight3D extends Light3D {
-  /** Falloff cutoff distance in world units; `0` = unbounded. */
+  /** Falloff cutoff distance in world units. `0` = unbounded. */
   range: number
   /** Inner cone half-angle in radians (full brightness within). */
   innerConeAngle: number

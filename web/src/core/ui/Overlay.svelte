@@ -29,8 +29,8 @@
 </div>
 
 <style lang="sass">
-  // Full-screen layer. Non-modal by default (click-through); a scrim makes it a
-  // modal that dims and captures input.
+  // Full-screen layer. Non-modal by default (click-through), a scrim makes it
+  // a modal that dims and captures input.
   .overlay
     position: absolute
     inset: 0

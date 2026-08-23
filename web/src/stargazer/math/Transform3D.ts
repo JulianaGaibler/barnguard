@@ -14,14 +14,13 @@ import type { Quat } from './Quat'
  * in place is allowed, but the transform can't observe that, so call
  * {@link Transform3D.markDirty} (or go through {@link Transform3D.setPosition}
  * /{@link Transform3D.setRotation}/{@link Transform3D.setScale}) after an
- * in-place edit. `local` is the composed matrix rebuilt lazily from the fields;
+ * in-place edit. `local` is the composed matrix rebuilt lazily from the fields.
  * `world` is `local` pre-multiplied by the parent chain, filled by the scene
  * walk. Treat both matrices as read-only.
  *
  * Composition order (applied to a point right-to-left): scale → rotate →
  * translate. Matches {@link mat4Compose} and glTF's TRS convention.
  *
- * @category Math
  * @example
  *   const t = new Transform3D()
  *   t.setPosition(0, 1, -5)

@@ -107,7 +107,7 @@
       background-color: var(--color-action-primary-active)
 
   // Elevated white/surface pill (e.g. "Return to Launcher"). Overrides the base
-  // hover so it stays light (no dark overlay); a touch UI presses, not hovers.
+  // hover so it stays light (no dark overlay), since a touch UI presses, not hovers.
   .btn.surface
     background-color: var(--color-surface-card)
     border-color: transparent
@@ -123,8 +123,8 @@
   .btn.ghost
     border-color: transparent
 
-  // Outlined in the PRIMARY action color (not the separate `secondary` token)
-  // — for pairing with a `primary` button as two shades of the same color.
+  // Outlined in the PRIMARY action color (not the separate `secondary` token),
+  // for pairing with a `primary` button as two shades of the same color.
   .btn.outline
     background-color: transparent
     border-color: var(--color-action-primary)

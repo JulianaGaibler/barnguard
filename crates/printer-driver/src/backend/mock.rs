@@ -177,7 +177,7 @@ impl PrinterBackend for MockBackend {
         let stem = format!("label-{seq:04}-{}", now_ms());
         let jpg_path = self.out_dir.join(format!("{stem}.jpg"));
         let json_path = self.out_dir.join(format!("{stem}.json"));
-        // Small, synchronous writes; fine for a dev mock.
+        // Small, synchronous writes. Fine for a dev mock.
         if let Err(e) = std::fs::write(&jpg_path, jpeg) {
             return Err(PrinterError::Io(e));
         }

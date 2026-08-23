@@ -1,36 +1,35 @@
+// Sprite cache for particle rendering. Each (color, style) pair bakes one tile,
+// cached indefinitely. Palettes are small enough that eviction never pays off.
+
+import { withAlpha } from '../render/gfx/parseColor'
+
 /**
- * Sprite cache for particle rendering. Each (color, style) pair produces one
- * pre-rendered tile, cached indefinitely (palette sizes are small).
- *
- * Three built-in styles:
+ * Which tile a particle draws. Every style bakes to a square tile that the
+ * emitter scales by the particle's `size`, so all five cost the same per
+ * particle.
  *
  * - `'gradient'`, soft radial fade from opaque center to transparent edge. Pair
  *   with `blend: 'lighter'` (default) for classic additive bloom, or with
  *   `blend: 'source-over'` for softer non-bloomed glow.
- * - `'disc'` , solid color with a 1-px anti-aliased edge. Pair with `blend:
+ * - `'disc'`, solid color with a 1-px anti-aliased edge. Pair with `blend:
  *   'source-over'` for sharp, non-bloomed particles (small projectiles, sparks,
  *   confetti). Additive blends (`'lighter'`) still bloom brightly on overlap
  *   even with `'disc'`.
- * - `'hexagon'` , solid filled hexagon, flat-topped (vertex-up), centered on the
+ * - `'hexagon'`, solid filled hexagon, flat-topped (vertex-up), centered on the
  *   sprite. Sized to ~85% of the tile for a small AA safety margin. Pair with
- *   `blend: 'source-over'` for a crisp small-sprite look; additive blends still
+ *   `blend: 'source-over'` for a crisp small-sprite look, additive blends still
  *   bloom on overlap.
- * - `'square'` , solid filled square, centered on the sprite at ~85% of the tile
+ * - `'square'`, solid filled square, centered on the sprite at ~85% of the tile
  *   (same AA margin as the hexagon). Pair with `blend: 'source-over'` for crisp
  *   square particles (debris, data-style trails).
- * - `'triangle'` , solid filled equilateral triangle, apex-up, same ~85% AA
- *   margin. Baked at a single fixed orientation — pair with a config's
+ * - `'triangle'`, solid filled equilateral triangle, apex-up, same ~85% AA
+ *   margin. Baked at a single fixed orientation, pair with a config's
  *   `spinRadPerSec` to have it tumble at draw time rather than needing multiple
  *   baked poses. Pair with `blend: 'source-over'` for crisp debris. Line/shard
- *   particles (anisotropic, length ≠ width) aren't supported here — `size` is
- *   one scalar driving a square-aspect tile; use `VectorParticleNode` for
+ *   particles (anisotropic, length ≠ width) aren't supported here, `size` is
+ *   one scalar driving a square-aspect tile, use `VectorParticleNode` for
  *   shapes that need an independent width and length.
- *
- * @category Particles
  */
-
-import { withAlpha } from '../render/gfx/parseColor'
-
 export type ParticleSpriteStyle =
   'gradient' | 'disc' | 'hexagon' | 'square' | 'triangle'
 
@@ -40,8 +39,6 @@ const spriteCache = new Map<string, HTMLCanvasElement>()
 /**
  * Return the cached sprite tile for a `(color, style)` pair, rendering and
  * caching it on first use. See {@link ParticleSpriteStyle} for the styles.
- *
- * @category Particles
  */
 export function getParticleSprite(
   color: string,
@@ -95,7 +92,7 @@ export function getParticleSprite(
   if (style === 'triangle') {
     // Solid filled equilateral triangle, apex-up, centered on the sprite.
     // Circumradius ~85% of the half-size (same AA margin as the hexagon/
-    // square). A single fixed orientation is enough — draw-time rotation
+    // square). A single fixed orientation is enough, draw-time rotation
     // (`spinRadPerSec`) does the tumbling.
     const r = mid * 0.85
     ctx.fillStyle = color
@@ -136,7 +133,7 @@ export function getParticleSprite(
 /**
  * Mark a canvas as an atlasable particle sprite so the WebGL2 `TextureManager`
  * can pack it into the shared 1024×1024 atlas on first draw. The property is a
- * plain boolean; the marker name lives in `TextureManager` to keep the two
+ * plain boolean. The marker name lives in `TextureManager` to keep the two
  * halves of the contract in one place.
  */
 function tagAsParticleAtlasCandidate(canvas: HTMLCanvasElement): void {
@@ -144,11 +141,7 @@ function tagAsParticleAtlasCandidate(canvas: HTMLCanvasElement): void {
     true
 }
 
-/**
- * For tests + tear-down; the engine itself doesn't need to touch this.
- *
- * @category Particles
- */
+/** For tests and tear-down. The engine itself doesn't need to touch this. */
 export function clearParticleSpriteCache(): void {
   spriteCache.clear()
 }

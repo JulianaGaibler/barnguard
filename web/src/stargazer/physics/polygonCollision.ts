@@ -139,7 +139,7 @@ const CLIP_P1 = vec2()
 
 /**
  * Polygon vs polygon SAT. Writes the manifold with `a → b` normal. `outFlip`
- * has no meaning here; caller supplies a, b in the collide() order.
+ * has no meaning here. The caller supplies a, b in the collide() order.
  */
 function collidePolyPoly(a: WorldPoly, b: WorldPoly, m: Manifold): boolean {
   const sepA = findMaxSeparation(a, b)
@@ -191,7 +191,7 @@ function collidePolyPoly(a: WorldPoly, b: WorldPoly, m: Manifold): boolean {
 
   // Keep points below the reference face (penetrating).
   const refFaceDist = refNormal.x * rv1.x + refNormal.y * rv1.y
-  // Normal points a → b. For ref = a it's the outward ref normal; for ref = b
+  // Normal points a → b. For ref = a it's the outward ref normal. For ref = b
   // (flip) it must be negated so it still reads a → b.
   const nx = flipNormal ? -refNormal.x : refNormal.x
   const ny = flipNormal ? -refNormal.y : refNormal.y

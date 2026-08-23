@@ -9,9 +9,9 @@ import { DEFAULT_LABEL_URL } from '@src/stores/daemonConfig'
 import { en } from './i18n/en'
 
 /**
- * Minimal 2D-context stub. Records `fillText` calls; every other method the
- * renderer uses is a no-op — we're checking that the RIGHT strings land at
- * text-drawing time, not that the paint pipeline behaves like a real canvas.
+ * Minimal 2D-context stub. Records `fillText` calls. Every other method the
+ * renderer uses is a no-op, because we're checking that the RIGHT strings land
+ * at text-drawing time, not that the paint pipeline behaves like a real canvas.
  * Image / gradient / masking calls just need to not throw.
  */
 function stubCtx(): { ctx: CanvasRenderingContext2D; texts: string[] } {

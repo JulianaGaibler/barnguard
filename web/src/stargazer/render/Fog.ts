@@ -1,17 +1,33 @@
+/** Fog falloff model. See {@link Fog}. */
+export type FogMode = 'exp' | 'linear'
+
+/** Construction overrides for {@link Fog}. */
+export interface FogOptions {
+  enabled?: boolean
+  mode?: FogMode
+  /** Display-space (gamma) rgb in `0..1`. */
+  color?: [number, number, number]
+  /** `exp` model: falloff rate. Larger fades sooner. Clamped `>= 0`. */
+  density?: number
+  /** `linear` model: distance where fog begins. Clamped `>= 0`. */
+  start?: number
+  /** `linear` model: distance of full fog. Clamped `> start`. */
+  end?: number
+}
+
 /**
- * Live distance-fog settings for the 3D pass. One instance lives on the
- * {@link Engine} (`engine.fog`); the renderer reads it each frame, so changes
- * take effect immediately. Fog blends every 3D surface's color toward
- * {@link Fog.color} by how far it sits from the camera — a cheap way to fade
- * distant geometry into a horizon, cue depth, or hide the far clip plane.
+ * Live distance-fog settings for the 3D pass. One instance lives on the engine,
+ * as `engine.fog`. The renderer reads it each frame, so changes take effect
+ * immediately. Fog blends every 3D surface's color toward {@link Fog.color} by
+ * how far it sits from the camera, a cheap way to fade distant geometry into a
+ * horizon, cue depth, or hide the far clip plane.
  *
  * Two falloff models: `exp` (`1 - exp(-density·dist)`) never fully saturates,
- * so nothing hard-clips at a set distance; `linear` ramps from clear at
+ * so nothing hard-clips at a set distance. `linear` ramps from clear at
  * {@link Fog.start} to solid at {@link Fog.end}, which is easier to art-direct
  * for a bounded scene. The fog color is a display-space (gamma) RGB triple in
  * `0..1`, applied after tone-mapping so it reads as the literal color you set.
  *
- * @category Render
  * @example
  *   engine.fog.enabled = true
  *   engine.fog.color = [0.6, 0.7, 0.85]
@@ -22,26 +38,8 @@
  *   engine.fog.start = 8 // clear up close
  *   engine.fog.end = 40 // solid fog beyond this
  */
-
-/** Fog falloff model. See {@link Fog}. */
-export type FogMode = 'exp' | 'linear'
-
-/** Construction overrides for {@link Fog}. */
-export interface FogOptions {
-  enabled?: boolean
-  mode?: FogMode
-  /** Display-space (gamma) rgb in `0..1`. */
-  color?: [number, number, number]
-  /** `exp` model: falloff rate; larger fades sooner. Clamped `>= 0`. */
-  density?: number
-  /** `linear` model: distance where fog begins. Clamped `>= 0`. */
-  start?: number
-  /** `linear` model: distance of full fog. Clamped `> start`. */
-  end?: number
-}
-
 export class Fog {
-  /** Master switch; when false the renderer skips fog entirely. */
+  /** Master switch. When false the renderer skips fog entirely. */
   enabled = false
   /** Falloff model, `exp` or `linear`. */
   mode: FogMode = 'exp'

@@ -26,12 +26,12 @@ export interface StallwaechterDetails {
   reason: GameEndReason
   escapeHeadingRad?: number
   /**
-   * Snapshotted server-side; true iff the score was the overall best when
+   * Snapshotted server-side. True if the score was the overall best when
    * recorded.
    */
   wasOverallHigh: boolean
   /**
-   * Snapshotted server-side; true iff the score was the best for its state when
+   * Snapshotted server-side. True if the score was the best for its state when
    * recorded.
    */
   wasStateHigh: boolean
@@ -56,7 +56,7 @@ export interface StallwaechterHighScores {
 
 /**
  * `GameRecord` from the core client (envelope + open bag) narrowed to the
- * Stallwächter shape. Use only on records known to carry the display tag —
+ * Stallwächter shape. Use only on records known to carry the display tag,
  * typically inside overlays, label rendering, or the manifest boundary.
  */
 export function asStallwaechter(record: GameRecord): StallwaechterGameRecord {

@@ -109,7 +109,7 @@ const LOC_NORMAL = 1
 const LOC_UV = 2
 const LOC_TANGENT = 3
 
-/** Fixed size of the PBR shader's light array; excess lights are dropped. */
+/** Fixed size of the PBR shader's light array. Excess lights are dropped. */
 const MAX_LIGHTS = 8
 /** Depth-array layers / `u_shadowMat[]` size (matches the PBR shader). */
 const MAX_SHADOW_LAYERS = 4
@@ -125,12 +125,12 @@ const SHADOW_CAM_BYTES = 64
 const CUBE_CAM_BYTES = 96
 const SHADOW_OBJECT_BYTES = 64
 // AO G-buffer prepass blocks: frame = view-projection + view (two mat4) +
-// near/far (vec4); object = model (one mat4). The view matrix + near/far turn
+// near/far (vec4), object = model (one mat4). The view matrix + near/far turn
 // window depth into the linear view depth the prepass writes.
 const GBUFFER_FRAME_BYTES = 144
 const GBUFFER_OBJECT_BYTES = 64
 
-// Texture units (globally unique with the UBO bindings; the WebGL2 backend
+// Texture units (globally unique with the UBO bindings, the WebGL2 backend
 // flattens bind groups to these numbers). Flat `u_texture` shares unit 0 with
 // the PBR material base slot but they never coexist in one draw.
 const U_TEX = 0
@@ -152,7 +152,7 @@ interface ShadowLink {
  *
  * `Stage` owns one instance and calls {@link MeshRenderer.render} once per frame
  * inside the main render pass, and {@link MeshRenderer.renderShadows} as a
- * depth-only pre-pass. Pipelines pre-warm asynchronously; `Stage` gates the 3D
+ * depth-only pre-pass. Pipelines pre-warm asynchronously. `Stage` gates the 3D
  * pass on {@link MeshRenderer.ready}.
  */
 export class MeshRenderer {
@@ -276,7 +276,7 @@ export class MeshRenderer {
     this.#offRestore = device.onContextRestored(() => this.#onContextRestored())
   }
 
-  /** Whether the pipelines are warm; `Stage` skips the 3D pass until then. */
+  /** Whether the pipelines are warm. `Stage` skips the 3D pass until then. */
   get ready(): boolean {
     return this.#ready
   }
@@ -588,7 +588,7 @@ export class MeshRenderer {
     })
     if (seq !== this.#warmupSeq) return
     // AO G-buffer prepass: single-sample RGBA8 packing view normal (RG) + 16-bit
-    // linear depth (BA). No blend; it overwrites every covered pixel.
+    // linear depth (BA). No blend, it overwrites every covered pixel.
     this.#gbufferPipeline = await device.createPipeline({
       shader: this.#gbufferShader,
       vertexLayout: [this.#posLayout(), this.#normalLayout()],
@@ -664,7 +664,7 @@ export class MeshRenderer {
 
   /**
    * Draw every visible, ready node under `root`, viewed through `camera`. Runs
-   * inside the stage's main render pass; each pipeline bakes its own depth/cull
+   * inside the stage's main render pass. Each pipeline bakes its own depth/cull
    * state, so no device state is set imperatively.
    */
   /**
@@ -928,7 +928,7 @@ export class MeshRenderer {
 
   /**
    * Draw one caster into the current shadow pass. `camOff` is the caller's
-   * per-pass slice offset into the shadow-camera ring (group 0); the caster's
+   * per-pass slice offset into the shadow-camera ring (group 0). The caster's
    * model matrix takes its own slice in the object ring (group 1).
    */
   #drawShadowCaster(caster: MeshNode, cube: boolean, camOff: number): void {
@@ -961,11 +961,11 @@ export class MeshRenderer {
 
   /**
    * Ambient-occlusion G-buffer prepass: draw opaque, AO-receiving geometry into
-   * `target` — the view-space normal (octahedral in RG) to the color
-   * attachment, depth to the sampleable depth attachment. Runs single-sample
-   * before the main pass; the AO pass reads both to estimate occlusion.
-   * Transparent meshes are skipped (they write no depth), matching the
-   * shadow-caster set. No-op until pipelines warm.
+   * `target`, writing the view-space normal (octahedral in RG) to the color
+   * attachment, and depth to the sampleable depth attachment. Runs
+   * single-sample before the main pass. The AO pass reads both to estimate
+   * occlusion. Transparent meshes are skipped (they write no depth), matching
+   * the shadow-caster set. No-op until pipelines warm.
    */
   renderGBuffer(camera: CameraView3D, root: Node, target: RenderTarget): void {
     if (!this.#ready) return
@@ -996,7 +996,7 @@ export class MeshRenderer {
         target,
         loadOp: 'clear',
         // (0.5, 0.5) octahedral-decodes to +Z. The cleared background normal is
-        // arbitrary — the AO pass ignores far-depth texels.
+        // arbitrary, since the AO pass ignores far-depth texels.
         clearColor: [0.5, 0.5, 0, 1],
       },
       depth: {
@@ -1186,8 +1186,9 @@ export class MeshRenderer {
     sf.set(this.#shadowMats, 0) // u_shadowMat[4] @0..63
     sf[64] = 1 / this.#quality.shadowMapSize // u_shadowMeta.x
     sf[65] = this.#quality.shadowSoftness // u_shadowMeta.y
-    // u_shadowMeta.z = 1 when the light projection keeps depth in [0,1]; .w = 1
-    // when the shadow map is stored top-down (both true on WebGPU).
+    // u_shadowMeta.z is 1 when the light projection keeps depth in [0,1].
+    // u_shadowMeta.w is 1 when the shadow map is stored top-down (both true on
+    // WebGPU).
     sf[66] = device.ndc.clipDepth === 'zero-to-one' ? 1 : 0
     sf[67] = device.ndc.textureTopDown ? 1 : 0
     device.updateUniformBuffer(this.#shadowFrameUbo, sf)
@@ -1243,8 +1244,8 @@ export class MeshRenderer {
   #writeLights(lights: Light3D[]): void {
     const F = this.#lightsF
     const I = this.#lightsI
-    // Layout (words): count @0 (ivec4); color[] @4; pos[] @36; dir[] @68;
-    // cone[] @100; shadow[] @132 (each array is 8 × 4 words = 32 words).
+    // Layout (words): count @0 (ivec4), color[] @4, pos[] @36, dir[] @68,
+    // cone[] @100, shadow[] @132 (each array is 8 × 4 words = 32 words).
     const COLOR = 4
     const POS = COLOR + MAX_LIGHTS * 4
     const DIR = POS + MAX_LIGHTS * 4
@@ -1597,7 +1598,7 @@ export class MeshRenderer {
     device.updateIndexBufferSubData(ibo, 0, geom.indices)
 
     // UV + tangent are always allocated (zero-filled when absent) so one vertex
-    // layout serves every mesh; the shader gates their use by flags.
+    // layout serves every mesh. The shader gates their use by flags.
     const uvSrc = geom.uvs ?? new Float32Array(vertCount * 2)
     const uvBuf = device.createVertexBuffer(uvSrc.byteLength)
     device.updateBufferSubData(uvBuf, 0, uvSrc)

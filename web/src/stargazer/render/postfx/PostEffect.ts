@@ -1,12 +1,10 @@
 /**
- * Per-frame context handed to a {@link PostPass}'s {@link PostPass.bind}
+ * Per-frame context handed to a {@link PostPass}'s {@link PostPass.writeParams}
  * callback. Sizes are the device-pixel dimensions of the target the pass draws
  * into (the full frame for the built-in effects). `texelW`/`texelH` are their
  * reciprocals, ready for neighbor-sampling offsets. `time` accumulates seconds
  * across the pipeline's life for animated effects. `dt` is the current frame's
  * delta.
- *
- * @category Render
  */
 export interface PostPassContext {
   width: number
@@ -57,8 +55,6 @@ export function postShader(
  * params. The pipeline provides the fullscreen triangle, binds the input
  * texture to `u_tex` (sampler unit 0), and binds the params block the pass
  * writes each frame.
- *
- * @category Render
  */
 export interface PostPass {
   /** WGSL-first shader sources (WGSL + generated GLSL + reflection). */
@@ -79,14 +75,12 @@ export interface PostPass {
  * {@link PostPass}es and an enable flag. Add instances to a
  * {@link PostProcessPipeline} (`stage.postProcess` / `engine.postProcess`).
  * Parameters are plain public fields on the concrete effect, read fresh each
- * frame in each pass's {@link PostPass.bind}, so they can be tweaked or animated
- * live. Effects run in insertion order, each reading the previous one's
- * output.
+ * frame in each pass's {@link PostPass.writeParams}, so they can be tweaked or
+ * animated live. Effects run in insertion order, each reading the previous
+ * one's output.
  *
  * The engine ships {@link ChromaticAberration}, {@link Vignette}, and
  * {@link VignetteBlur}. Implement this interface for a custom effect.
- *
- * @category Render
  */
 export interface PostEffect {
   /** When false the pipeline skips the effect (and its passes) entirely. */

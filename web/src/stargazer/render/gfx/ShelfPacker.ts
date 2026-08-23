@@ -1,6 +1,6 @@
 /**
  * Shelf packer for a 2D atlas page with variably-sized entries (the label
- * atlas). Rows ("shelves") are opened top-to-bottom; each shelf has a fixed
+ * atlas). Rows ("shelves") are opened top-to-bottom, each shelf has a fixed
  * bucketed height and packs entries left-to-right. Freed spans join a per-shelf
  * free list so an evicted label's slot is reusable by any later label that fits
  * the shelf height and is no wider than the span.
@@ -10,8 +10,8 @@
  * lands on an identically-sized slot, and near-height labels share shelves,
  * which keeps freed spans reusable instead of each height opening its own row.
  *
- * The packer only tracks rectangles; the caller owns the pixels (a backing
- * canvas + GL texture) and the mapping from an entry to its placement.
+ * The packer only tracks rectangles. The caller owns the pixels (a backing
+ * canvas plus its texture) and the mapping from an entry to its placement.
  */
 
 /** A packed rectangle's top-left corner, in page pixels. */
@@ -29,7 +29,7 @@ interface FreeSpan {
 interface Shelf {
   /** Top edge of the shelf in page pixels. */
   y: number
-  /** Bucketed shelf height in page pixels; entries must be no taller. */
+  /** Bucketed shelf height in page pixels, entries must be no taller. */
   height: number
   /** Next unused x at the shelf's right end. */
   cursorX: number
@@ -47,7 +47,7 @@ export class ShelfPacker {
   /**
    * @param width Page width in pixels.
    * @param height Page height in pixels.
-   * @param bucket Height-bucket granularity in pixels; shelf heights round up
+   * @param bucket Height-bucket granularity in pixels. Shelf heights round up
    *   to a multiple of this. Smaller values waste less vertical space per shelf
    *   but open more shelves (less cross-label span reuse).
    */
@@ -55,6 +55,30 @@ export class ShelfPacker {
     this.#width = width
     this.#height = height
     this.#bucket = Math.max(1, Math.floor(bucket))
+  }
+
+  /**
+   * Page pixels consumed by open shelves.
+   *
+   * A shelf is never retired, so this only grows until `reset`. Reading it
+   * against the page height is how fragmentation becomes visible: a page can
+   * refuse a box while mostly blank, because the space is spread across shelves
+   * of the wrong height.
+   */
+  get usedHeight(): number {
+    return this.#usedHeight
+  }
+
+  /** Open shelves. Many shelves against little used width means many heights. */
+  get shelfCount(): number {
+    return this.#shelves.length
+  }
+
+  /** Freed interior spans across all shelves, a direct fragmentation count. */
+  get freeSpanCount(): number {
+    let n = 0
+    for (const shelf of this.#shelves) n += shelf.free.length
+    return n
   }
 
   /**
@@ -108,7 +132,7 @@ export class ShelfPacker {
   /**
    * Return the span `[x, x + w)` at row `y` to the free list. A span flush
    * against the shelf's right end pulls the cursor back (and absorbs any free
-   * spans now adjacent to it); an interior span is inserted and coalesced with
+   * spans now adjacent to it). An interior span is inserted and coalesced with
    * its neighbors. A `(x, y, w)` that names no live shelf is ignored.
    */
   free(x: number, y: number, w: number): void {

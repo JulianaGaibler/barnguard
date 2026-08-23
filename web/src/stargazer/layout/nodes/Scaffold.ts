@@ -1,9 +1,8 @@
 /**
- * {@link Scaffold}: the classic page frame — an optional header, a content area
+ * {@link Scaffold}: the classic page frame, an optional header, a content area
  * that takes the space left over, and an optional footer, stacked vertically.
  *
  * @module
- * @category Layout
  */
 import { type BoxConstraints, type Size } from '../constraints'
 import { LayoutNode, type MeasurableNode } from '../LayoutNode'
@@ -13,7 +12,7 @@ import { Column, Expanded } from './Flex'
 export interface ScaffoldOptions {
   /** Fixed-height bar at the top. Optional. */
   header?: MeasurableNode
-  /** The main area; takes all height left after the header and footer. */
+  /** The main area. Takes all height left after the header and footer. */
   content: MeasurableNode
   /** Fixed-height bar at the bottom. Optional. */
   footer?: MeasurableNode
@@ -23,12 +22,11 @@ export interface ScaffoldOptions {
 
 /**
  * A vertical page frame with named slots: `header`, `content`, `footer`. The
- * header and footer size to their content; the content area is wrapped in an
+ * header and footer size to their content. The content area is wrapped in an
  * {@link Expanded} so it fills the height between them. Give the scaffold a
  * bounded height (a {@link LayoutRoot} does this) so the content has room to
  * expand into.
  *
- * @category Layout
  * @example
  *   const root = new LayoutRoot()
  *   root.setContent(

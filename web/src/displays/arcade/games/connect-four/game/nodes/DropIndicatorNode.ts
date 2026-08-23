@@ -3,7 +3,7 @@ import { Node2D, type Gfx2D } from '@src/stargazer'
 /**
  * A small horizontal capsule above the board that marks the active drop column.
  * The session moves it over the hovered column and tints it the current
- * player's color; it's hidden when no column is being chosen. Drawn centered on
+ * player's color. It's hidden when no column is being chosen. Drawn centered on
  * the node's origin.
  */
 export class DropIndicatorNode extends Node2D {

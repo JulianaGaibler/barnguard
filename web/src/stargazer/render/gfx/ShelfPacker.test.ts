@@ -75,3 +75,38 @@ describe('ShelfPacker', () => {
     expect(p.pack(10, 10)).toEqual({ x: 0, y: 0 })
   })
 })
+
+describe('ShelfPacker occupancy', () => {
+  it('reports nothing used before anything is packed', () => {
+    const p = new ShelfPacker(100, 100)
+    expect(p.usedHeight).toBe(0)
+    expect(p.shelfCount).toBe(0)
+    expect(p.freeSpanCount).toBe(0)
+  })
+
+  it('opens one shelf per height bucket, not per entry', () => {
+    const p = new ShelfPacker(100, 100, 4)
+    p.pack(10, 10)
+    p.pack(10, 10)
+    expect(p.shelfCount).toBe(1)
+    p.pack(10, 30)
+    expect(p.shelfCount).toBe(2)
+  })
+
+  it('counts a freed interior span, which is the fragmentation signal', () => {
+    const p = new ShelfPacker(100, 100, 4)
+    const a = p.pack(10, 10)!
+    p.pack(10, 10)
+    p.free(a.x, a.y, 10)
+    expect(p.freeSpanCount).toBe(1)
+  })
+
+  it('keeps used height after a free, since a shelf is never retired', () => {
+    const p = new ShelfPacker(100, 100, 4)
+    const a = p.pack(10, 10)!
+    const before = p.usedHeight
+    expect(before).toBeGreaterThan(0)
+    p.free(a.x, a.y, 10)
+    expect(p.usedHeight).toBe(before)
+  })
+})

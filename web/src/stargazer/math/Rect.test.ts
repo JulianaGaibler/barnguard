@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   rect,
+  rectInflate,
   rectPointAt,
   rectPercentOf,
   rectMargins,
@@ -48,7 +49,7 @@ describe('rectMargins', () => {
   })
 
   it('clamps a band to zero when inner reaches that edge', () => {
-    // Inner flush against the left, top, and right; only a bottom gap remains.
+    // Inner flush against the left, top, and right. Only a bottom gap remains.
     const flush = rectMargins(container, rect(0, 0, 100, 40))
     expect(flush.left.width).toBe(0)
     expect(flush.right.width).toBe(0)
@@ -98,5 +99,30 @@ describe('clampRectToBounds', () => {
         y: 10,
       },
     )
+  })
+})
+
+describe('rectInflate', () => {
+  it('grows on every side', () => {
+    expect(rectInflate(rect(), rect(10, 20, 30, 40), 5)).toEqual(
+      rect(5, 15, 40, 50),
+    )
+  })
+
+  it('shrinks on a negative amount', () => {
+    expect(rectInflate(rect(), rect(10, 20, 30, 40), -5)).toEqual(
+      rect(15, 25, 20, 30),
+    )
+  })
+
+  it('stops at zero rather than turning inside out', () => {
+    const r = rectInflate(rect(), rect(10, 20, 30, 40), -100)
+    expect(r.width).toBe(0)
+    expect(r.height).toBe(0)
+  })
+
+  it('writes into dst and returns it', () => {
+    const dst = rect()
+    expect(rectInflate(dst, rect(0, 0, 10, 10), 1)).toBe(dst)
   })
 })

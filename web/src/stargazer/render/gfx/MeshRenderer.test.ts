@@ -97,7 +97,7 @@ describe('MeshRenderer', () => {
     renderer.render(camera, world.root)
     const buffersAfterFirst = device.buffers.length
     renderer.render(camera, world.root)
-    // No new vertex buffers on the second frame — the mesh is cached.
+    // No new vertex buffers on the second frame, because the mesh is cached.
     expect(device.buffers.length).toBe(buffersAfterFirst)
   })
 
@@ -110,7 +110,7 @@ describe('MeshRenderer', () => {
 
   it('re-warms color pipelines at the new sample count on retarget', async () => {
     const { device, renderer } = await setup()
-    // Only the mesh color pipelines follow the main target's sample count; the
+    // Only the mesh color pipelines follow the main target's sample count. The
     // single-sample G-buffer/shadow pipelines render to their own targets and
     // are unaffected by retarget, so scope the assertion to `mesh-*`.
     const colorPipes = () =>
@@ -124,7 +124,7 @@ describe('MeshRenderer', () => {
     await untilReady(renderer)
 
     // The pipelines drawn after re-warm bake the new count. (Older 1-sample
-    // handles remain recorded on the mock; the map now points at the 4-sample
+    // handles remain recorded on the mock, but the map now points at the 4-sample
     // ones, so the latest color pipeline created carries samples 4.)
     const latest = colorPipes().at(-1)
     expect(latest?.desc.samples).toBe(4)

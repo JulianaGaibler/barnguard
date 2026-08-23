@@ -1,9 +1,8 @@
 /**
- * A row of heart-slot icons — the engine port of
- * `Hearts.svelte`/`Heart.svelte`. Every heart is a stroked outline, never
- * filled (the original SVG is `fill="none"` too): a lit heart uses the player's
- * color at a thicker stroke, an empty slot uses a muted ink tint at a thinner
- * one.
+ * A row of heart-slot icons, the engine port of `Hearts.svelte`/`Heart.svelte`.
+ * Every heart is a stroked outline, never filled (the original SVG is
+ * `fill="none"` too): a lit heart uses the player's color at a thicker stroke,
+ * an empty slot uses a muted ink tint at a thinner one.
  */
 import {
   Node2D,
@@ -18,7 +17,7 @@ const HEART = Array.from(
 )[0]
 const VIEWBOX = 24 // heart.svg's viewBox is 0 0 24 24
 const GAP_PX = 5.6 // 0.35rem
-const EMPTY_COLOR = 'rgba(39, 39, 39, 0.32)'
+const EMPTY_COLOR = 'rgb(167, 167, 167)'
 
 export type HeartsAlign = 'left' | 'right' | 'center'
 

@@ -4,11 +4,13 @@
 
 <header class="topbar" aria-hidden="true">
   {#if $theme}
-    <img
-      class="topbar__logo topbar__logo--primary"
-      src={$theme.assets.topBarPrimary}
-      alt=""
-    />
+    {#if $theme.assets.topBarPrimary}
+      <img
+        class="topbar__logo topbar__logo--primary"
+        src={$theme.assets.topBarPrimary}
+        alt=""
+      />
+    {/if}
     {#if $theme.assets.topBarSecondary}
       <img
         class="topbar__logo topbar__logo--secondary"

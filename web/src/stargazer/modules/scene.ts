@@ -4,13 +4,12 @@
  * coexist, rooted at `tree.root`. Each node carries a transform, children, and
  * optional {@link Behavior}s. Position nodes through their transform, nest them
  * with `.add`, and attach game logic as behaviors. {@link walkTree} visits the
- * tree in draw order; render passes bucket by `node.kind`.
+ * tree in draw order. Render passes bucket by `node.kind`.
  *
  * The drawable primitives (ShapeNode, TextNode, MeshNode, …) live in the nodes
  * module.
  *
  * @module scene
- * @category Scene
  */
 export { Node } from '../scene/Node'
 export type { NodeOwner, NodeEvents, NodeKind } from '../scene/Node'
@@ -23,6 +22,10 @@ export type { Node3DTweenTo } from '../scene/Node3D'
 export { Behavior } from '../scene/Behavior'
 export type { BehaviorCtor } from '../scene/Behavior'
 export { PointerBehavior } from '../scene/PointerBehavior'
+export { ButtonBehavior } from '../scene/ButtonBehavior'
+export type { ButtonOptions } from '../scene/ButtonBehavior'
+export { DraggableBehavior } from '../scene/DraggableBehavior'
+export type { DraggableOptions } from '../scene/DraggableBehavior'
 export { walkTree } from '../scene/traverse'
 export { hitTestCircle } from '../scene/hitTest'
 export { raycastWorld3D, raycastMesh, makeRay } from '../scene/raycast3d'

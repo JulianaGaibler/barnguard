@@ -74,20 +74,20 @@ async fn main() {
         std::env::set_var("PRINTER_DAEMON_DATA_DIR", p);
     }
 
-    let result: Result<(), Box<dyn std::error::Error>> =
-        match cli.command.unwrap_or(Command::Serve) {
-            Command::Serve => printer_daemon::run().await,
-            Command::Config => printer_daemon::cli::show_config(),
-            Command::Where => printer_daemon::cli::show_where(),
-            Command::Games { action } => match action {
-                GamesAction::List {
-                    limit,
-                    offset,
-                    json,
-                } => printer_daemon::cli::list_games(limit, offset, json),
-                GamesAction::HighScores { json } => printer_daemon::cli::high_scores(json),
-            },
-        };
+    let result: Result<(), Box<dyn std::error::Error>> = match cli.command.unwrap_or(Command::Serve)
+    {
+        Command::Serve => printer_daemon::run().await,
+        Command::Config => printer_daemon::cli::show_config(),
+        Command::Where => printer_daemon::cli::show_where(),
+        Command::Games { action } => match action {
+            GamesAction::List {
+                limit,
+                offset,
+                json,
+            } => printer_daemon::cli::list_games(limit, offset, json),
+            GamesAction::HighScores { json } => printer_daemon::cli::high_scores(json),
+        },
+    };
 
     if let Err(e) = result {
         eprintln!("barnguard-server: {e}");

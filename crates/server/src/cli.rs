@@ -1,6 +1,7 @@
 //! CLI subcommands invoked by `main.rs`. Each function reads config + the
 //! relevant JSON store, prints to stdout, and returns. No HTTP server, no
-//! tokio runtime required. Kept synchronous — these are one-shot inspections.
+//! tokio runtime required. Kept synchronous because these are one-shot
+//! inspections.
 
 use crate::config::Config;
 use crate::store::load_games;
@@ -28,10 +29,7 @@ pub fn show_config() -> Result<(), Box<dyn Error>> {
     println!("[print]");
     println!("  mode = {:?}", cfg.print.mode);
     println!("  cut_mode = {:?}", cfg.print.cut_mode);
-    println!(
-        "  img = {}x{}",
-        cfg.print.img_width, cfg.print.img_height
-    );
+    println!("  img = {}x{}", cfg.print.img_width, cfg.print.img_height);
     println!();
     println!("[mock]");
     println!("  out_dir = {:?}", cfg.mock.out_dir);
@@ -51,7 +49,7 @@ pub fn show_where() -> Result<(), Box<dyn Error>> {
         if config_path.exists() {
             "found"
         } else {
-            "absent — using defaults"
+            "absent, using defaults"
         }
     );
     println!("data-dir: {}", cfg.data_dir.display());
@@ -155,7 +153,7 @@ pub fn high_scores(json: bool) -> Result<(), Box<dyn Error>> {
 
 fn format_ts(ts_ms: u64) -> String {
     // Cheap + dependency-free: emit a Unix ms timestamp. Operators can pipe
-    // through `date -r $(( ts / 1000 ))` if they want it formatted; keeps
+    // through `date -r $(( ts / 1000 ))` if they want it formatted. Keeps
     // chrono out of the dep tree.
     format!("ts={ts_ms}")
 }

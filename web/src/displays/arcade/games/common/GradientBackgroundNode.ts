@@ -21,7 +21,7 @@ export interface GradientBackgroundOptions {
  * the launcher-to-game camera pan and stays mounted through it, so a fill that
  * tracked the live view would paint over the launcher mid-pan. A rect anchored
  * to the game region scrolls into frame with the game instead. Pass the
- * region's visible rect so it covers the viewport at any aspect; call
+ * region's visible rect so it covers the viewport at any aspect. Call
  * {@link setRect} to refit it.
  */
 export class GradientBackgroundNode extends Node2D {
@@ -35,7 +35,7 @@ export class GradientBackgroundNode extends Node2D {
     this.#topLeft = opts.topLeft
     this.#bottomRight = opts.bottomRight
     this.setRect(opts.rect)
-    // Dynamic so it draws in the same pass as the shared sky; the game subtree
+    // Dynamic so it draws in the same pass as the shared sky. The game subtree
     // is added after the sky, so this paints over it within the game view.
     this.renderLayer = 'dynamic'
   }

@@ -1,7 +1,7 @@
-// Ambient-occlusion bilateral blur — compute path (WebGPU). Mirrors
-// `ao_blur.wgsl`; keep in sync. Separable (run horizontally then vertically),
-// each tap weighted by a spatial Gaussian and a depth term from the packed
-// G-buffer depth. shader-gen skips this file (compute-only).
+// Ambient-occlusion bilateral blur, compute path (WebGPU). Mirrors
+// `ao_blur.wgsl`, so keep the two in sync. Separable (run horizontally then
+// vertically), each tap weighted by a spatial Gaussian and a depth term from
+// the packed G-buffer depth. shader-gen skips this file (compute-only).
 //
 // Bindings: u_ao (sampled) at 0, u_gbuf (sampled) at 1, u_out (storage) at 2,
 // Params at 6.

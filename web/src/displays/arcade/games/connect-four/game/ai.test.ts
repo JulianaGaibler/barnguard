@@ -19,14 +19,14 @@ function build(columns: number[][], turn: Player): Board {
 
 describe('connect four AI', () => {
   it('takes an immediate win', () => {
-    // Player 1 (to move) has three across on the bottom row; col 3 wins.
+    // Player 1 (to move) has three across on the bottom row, so col 3 wins.
     const b = build([[1], [1], [1]], 1)
     expect(chooseColumn(b, 'medium')).toBe(3)
   })
 
   it('blocks the opponent immediate win', () => {
-    // Player 2 threatens 0-1-2-3 on the bottom row; player 1 (to move, no win of
-    // its own) must play column 3.
+    // Player 2 threatens 0-1-2-3 on the bottom row, so player 1 (to move, no win
+    // of its own) must play column 3.
     const b = build([[2], [2], [2]], 1)
     expect(chooseColumn(b, 'hard')).toBe(3)
   })

@@ -8,13 +8,9 @@ import type { Vec2 } from '../math/Vec2'
 import type { Body } from './Body'
 import type { Collider } from './Collider'
 
-/**
- * How a body participates in the simulation.
- *
- * @category Physics
- */
+/** How a body participates in the simulation. */
 export const BodyType = {
-  /** Never moves; infinite mass. Walls and static geometry. */
+  /** Never moves and has infinite mass. Walls and static geometry. */
   Static: 0,
   /** Fully simulated: integrated, collided, and resolved. */
   Dynamic: 1,
@@ -30,21 +26,17 @@ export type BodyType = (typeof BodyType)[keyof typeof BodyType]
 /**
  * Bounce and friction for a collider. Any field left undefined falls back to
  * the owning body's value.
- *
- * @category Physics
  */
 export interface Material {
   /** Bounciness in `[0, 1]`: 0 is a dead stop, 1 conserves normal speed. */
   restitution?: number
-  /** Coulomb friction coefficient; 0 is frictionless. */
+  /** Coulomb friction coefficient, 0 is frictionless. */
   friction?: number
 }
 
 /**
  * One contact point in a {@link Manifold}: a world-space position and the
  * penetration depth measured along the manifold normal.
- *
- * @category Physics
  */
 export interface Contact {
   point: Vec2
@@ -55,8 +47,6 @@ export interface Contact {
  * The result of a narrow-phase test between two colliders that overlap. The
  * normal points from `a` toward `b`. Manifolds are pooled and reused across
  * steps, so do not retain one past the step that produced it.
- *
- * @category Physics
  */
 export interface Manifold {
   a: Body
@@ -76,11 +66,7 @@ export interface Manifold {
   isSensor: boolean
 }
 
-/**
- * A ray/query hit against a collider.
- *
- * @category Physics
- */
+/** A ray/query hit against a collider. */
 export interface RaycastHit {
   body: Body
   collider: Collider
@@ -92,11 +78,7 @@ export interface RaycastHit {
   distance: number
 }
 
-/**
- * The result of a kinematic move that was blocked by a contact.
- *
- * @category Physics
- */
+/** The result of a kinematic move that was blocked by a contact. */
 export interface KinematicHit {
   body: Body
   collider: Collider
@@ -110,8 +92,6 @@ export interface KinematicHit {
 /**
  * Events emitted by a physics world. Payloads are pooled, so read what you need
  * inside the handler rather than retaining the object.
- *
- * @category Physics
  */
 export interface PhysicsEvents {
   /** Two solid colliders started touching this step. */

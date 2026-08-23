@@ -1,7 +1,7 @@
 /**
  * Convex-polygon geometry helpers for the physics narrow-phase and mass
  * properties. Vertices are plain {@link Vec2} arrays in a shape's local space,
- * wound counter-clockwise. These are internal helpers; the physics module
+ * wound counter-clockwise. These are internal helpers. The physics module
  * consumes them via {@link polygonShape}.
  */
 

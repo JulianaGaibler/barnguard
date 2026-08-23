@@ -1,6 +1,6 @@
 /**
  * Binds a {@link Body} to a {@link Node2D}'s transform. The engine steps the
- * body's world once per fixed tick; this behavior mirrors the body's position
+ * body's world once per fixed tick. This behavior mirrors the body's position
  * and rotation onto the node each frame, interpolating between fixed steps so
  * rendering stays smooth at any display rate.
  */
@@ -12,11 +12,7 @@ import { Body, type BodyDef } from './Body'
 import type { PhysicsWorld } from './PhysicsWorld'
 import { PhysicsWorldBehavior } from './PhysicsWorldBehavior'
 
-/**
- * Options for {@link RigidBodyBehavior}.
- *
- * @category Physics
- */
+/** Options for {@link RigidBodyBehavior}. */
 export interface RigidBodyBehaviorOptions {
   /**
    * World to register the body in. When omitted, resolution walks from the node
@@ -43,7 +39,7 @@ export interface RigidBodyBehaviorOptions {
    * Whether this behavior owns the body's world membership. Default `true`: it
    * adds the body on scene-ready and removes it on detach. Set `false` (with an
    * explicit `body`) for the case where the game adds/removes bodies itself and
-   * only wants the transform mirror — the behavior then skips world resolution
+   * only wants the transform mirror. The behavior then skips world resolution
    * entirely and just syncs.
    */
   manageBody?: boolean
@@ -52,7 +48,6 @@ export interface RigidBodyBehaviorOptions {
 /**
  * Attach physics to a scene node.
  *
- * @category Physics
  * @example
  *   const node = new Node2D('crate')
  *   node.transform.x = 100

@@ -20,7 +20,7 @@
     class: cls = '',
   }: Props = $props()
 
-  // Snapshot `durationMs` at mount; the tween store's default duration
+  // Snapshot `durationMs` at mount, since the tween store's default duration
   // is only read at creation. Wrapping the read in an IIFE tells Svelte
   // we intentionally captured the initial value (the compiler warns on
   // direct prop reads at the module-scope of a component).

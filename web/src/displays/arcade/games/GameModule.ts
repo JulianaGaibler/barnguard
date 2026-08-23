@@ -1,6 +1,6 @@
 import type { Component } from 'svelte'
 import type { EngineHost } from '@src/stargazer'
-import type { ThemePalette } from '@src/core/theme'
+import type { ThemeFonts, ThemePalette } from '@src/core/theme'
 import type { LabelRenderContext, PreviewLabelContext } from '@src/core/display'
 import type { GameRecord } from '@src/core/game-log/gameLogClient'
 import type { DemoStageController } from '../tutorial/types'
@@ -12,8 +12,11 @@ export interface GameMeta {
   id: string
   title: string
   description: string
-  /** Player-count blurb, e.g. "2-4" or "1". */
-  players: string
+  /**
+   * Every player count the game actually runs at, ascending. A set rather than
+   * a range, because Orbo plays at 2 or 4 and never at 3.
+   */
+  playerCounts: readonly number[]
   /** Solid thumbnail color, shown behind/instead of `thumbImage`. */
   thumbColor: string
   /** Thumbnail artwork shown on the launcher card, cropped to cover. */
@@ -25,10 +28,23 @@ export interface GameMeta {
    */
   themeTokens?: ThemePalette
   /**
+   * Optional per-game font-role overrides, the `--font-*` counterpart to
+   * `themeTokens`. Scoped to the game's container (see `fontScope`), which
+   * covers its DOM overlays.
+   *
+   * The game's canvas nodes must resolve their fonts from the SAME constant
+   * this points at, via `resolveFonts`/`fontFor` — the engine canvas sits
+   * outside the scoped container and cannot read the custom properties back.
+   * One constant, both surfaces, no drift.
+   */
+  fontTokens?: ThemeFonts
+  /**
    * Whether this game submits to and shows `displays/arcade/leaderboard`, keyed
    * by `id`.
    */
   supportsLeaderboard?: boolean
+  /** Whether a human can play this against the machine. */
+  supportsAi?: boolean
 }
 
 /** Props the arcade passes to every game component. */
@@ -38,24 +54,24 @@ export interface GameProps {
   /**
    * Return to the arcade launcher. Games own their own return affordance (e.g.
    * a "Return to Launcher" button on a home screen) and call this to hand
-   * control back; the arcade pans to the launcher and unmounts the game. The
+   * control back. The arcade pans to the launcher and unmounts the game. The
    * arcade-wide swipe-down escape hatch calls the same path.
    *
    * A game pins its overlays to the game region with the `domAnchor` action so
-   * they ride the camera on that pan (see the HTML overlays guide); no fade
+   * they ride the camera on that pan (see the HTML overlays guide). No fade
    * handshake is needed.
    */
   onExit: () => void
   /**
    * Shared, pre-warmed demo stage powering the "How to play" tutorial. `null`
-   * if the stage couldn't be created (e.g. no WebGL2); games hide the tutorial
+   * if the stage couldn't be created (e.g. no WebGL2). Games hide the tutorial
    * affordance in that case.
    */
   demoStage: DemoStageController | null
   /**
    * A lease over the arcade's shared camera, scoped to the game region. Most
-   * games ignore it (they render at `camera.home()`); a game that zooms into
-   * its region — framing sub-rects — drives it and the arcade reclaims it on
+   * games ignore it (they render at `camera.home()`). A game that zooms into
+   * its region, framing sub-rects, drives it and the arcade reclaims it on
    * exit. See {@link ArcadeCamera}.
    */
   camera: ArcadeCamera
@@ -63,7 +79,7 @@ export interface GameProps {
 
 /**
  * A game the arcade can launch. `component` is mounted into the GAME region
- * when the player taps Play; it receives {@link GameProps} and builds its own
+ * when the player taps Play. It receives {@link GameProps} and builds its own
  * scene subtree + overlays, tearing them down on unmount.
  */
 export interface GameModule {
@@ -73,7 +89,7 @@ export interface GameModule {
    * Render a finished game's record to a printable JPEG label. Each game owns
    * its own label design (Jezzball's badge won't look like Connect Four's), so
    * this lives per-game rather than once for the whole arcade display. Omit
-   * entirely if this game doesn't print — the arcade display's
+   * entirely if this game doesn't print. The arcade display's
    * `formatGameRecord` gates the attendant "Games" panel's Print button on
    * whether this is present, and dispatches here by `record.gameId` when it
    * is.

@@ -26,7 +26,6 @@ function warnIfHighFrequency(key: PropertyKey): void {
  * `initial` and updates on every emission. Attaches on first subscriber,
  * detaches on last.
  *
- * @category Svelte
  * @example
  *   const score = emitterStore(session.events, 'score', 0) // {$score} in markup
  */
@@ -45,8 +44,6 @@ export function emitterStore<M, K extends keyof M>(
  * Convenience variant for "the payload of the most recent event, or `null`
  * before any has fired". Handy when the store powers a modal that appears on
  * the first event and disappears when the caller resets to `null`.
- *
- * @category Svelte
  */
 export function latestEventStore<M, K extends keyof M>(
   emitter: Emitter<M>,

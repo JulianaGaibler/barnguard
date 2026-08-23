@@ -1,19 +1,19 @@
 import { Node2D } from '../scene/Node2D'
 import type { Camera } from '../camera/Camera'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
-import { measureText } from '../render/gfx/rasterizeLabel'
+import {
+  fontMetrics,
+  measureText,
+  type FontMetrics,
+} from '../render/gfx/rasterizeLabel'
 import { BoxConstraints, type Size } from '../layout/constraints'
 import { alignOffset, type Align1D } from '../layout/align'
 import type { Measurable } from '../layout/LayoutNode'
 
-/**
- * Constructor options for {@link TextNode}.
- *
- * @category Nodes
- */
+/** Constructor options for {@link TextNode}. */
 export interface TextNodeOptions {
   id?: string
-  /** The string to draw. Split on `\n` into separate lines; no word-wrap. */
+  /** The string to draw. Split on `\n` into separate lines, with no word-wrap. */
   text: string
   /** Anchor X in local space. Default `0`. */
   x?: number
@@ -32,7 +32,7 @@ export interface TextNodeOptions {
   fontSize?: number
   /**
    * `'screen'` (default) keeps the text a constant on-screen size (like
-   * `ShapeNode`'s screen-space stroke); `'world'` makes it scale with the
+   * `ShapeNode`'s screen-space stroke). `'world'` makes it scale with the
    * camera. Screen-space text is also the always-free path on the GPU backend
    * (constant device resolution ⇒ one cached texture, no zoom churn).
    */
@@ -65,21 +65,34 @@ function baselineAxis(baseline: CanvasTextBaseline): Align1D {
 }
 
 /**
- * Draws text through {@link Gfx2D.fillText}, one call per `\n`-delimited line —
- * no word-wrap; use HTML for long-form copy. The node's transform positions and
- * rotates the label in world space (rotation is free on the GPU backend);
- * `fontSize` + `sizeSpace` control on-screen size the same way `ShapeNode`
- * handles `lineWidth` + `strokeSpace`. Every option is a plain public field, so
- * reassigning `text` or `color` shows on the next frame.
+ * A block of `n` lines spans `n - 1` gaps plus one line box. Counting `n *
+ * lineHeight` adds a phantom line of trailing leading, which pushes an anchored
+ * block up by that much.
+ */
+function blockHeight(
+  lineCount: number,
+  lineHeightPx: number,
+  fm: FontMetrics,
+): number {
+  if (lineCount <= 0) return 0
+  return (lineCount - 1) * lineHeightPx + fm.ascent + fm.descent
+}
+
+/**
+ * Draws text through {@link Gfx2D.fillText}, one call per `\n`-delimited line.
+ * There is no word-wrap, use HTML for long-form copy. The node's transform
+ * positions and rotates the label in world space (rotation is free on the GPU
+ * backend). `fontSize` + `sizeSpace` control on-screen size the same way
+ * `ShapeNode` handles `lineWidth` + `strokeSpace`. Every option is a plain
+ * public field, so reassigning `text` or `color` shows on the next frame.
  *
  * Also implements {@link Measurable}, so a `TextNode` can be placed directly
  * inside a layout container (`Box`, `Row`, `Column`, `Stack`, `Align`,
- * `Center`, ...) — the container measures its natural size and arranges it
+ * `Center`, ...). The container measures its natural size and arranges it
  * within the box it's given, honoring `align`/`baseline` as the anchor point
  * within that box. Outside a layout tree, `align`/`baseline` anchor `(x, y)`
- * exactly as before.
+ * directly.
  *
- * @category Nodes
  * @example
  *   const label = new TextNode({
  *     text: 'Score: 0',
@@ -98,6 +111,8 @@ function baselineAxis(baseline: CanvasTextBaseline): Align1D {
  *   new TextNode({ text: 'Game\nOver', align: 'center', baseline: 'middle' })
  */
 export class TextNode extends Node2D implements Measurable {
+  // Live mirrors of TextNodeOptions, documented there. Assigning any of them
+  // shows on the next frame, no invalidation call needed.
   text: string
   x: number
   y: number
@@ -127,9 +142,20 @@ export class TextNode extends Node2D implements Measurable {
     this.lineHeight = opts.lineHeight ?? 1.2
   }
 
-  /** The CSS `font` shorthand for the given effective pixel size. */
+  /**
+   * The CSS `font` shorthand for the given effective pixel size.
+   *
+   * The size is quantised because the font string is part of the label cache
+   * key. A screen-space size is the camera scale divided into the requested
+   * one, so it arrives as something like `16.0000031px` and drifts every frame,
+   * which would miss the cache on every draw and re-shape the string. The step
+   * is relative, so it stays imperceptible at any size, and the raster
+   * resolution is carried by the scale bucket rather than by this.
+   */
   fontString(px: number): string {
-    return `${this.fontWeight} ${px}px ${this.fontFamily}`
+    const q = Math.max(1e-3, px)
+    const step = 10 ** Math.floor(Math.log10(q) - 3)
+    return `${this.fontWeight} ${Math.round(q / step) * step}px ${this.fontFamily}`
   }
 
   override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
@@ -152,19 +178,20 @@ export class TextNode extends Node2D implements Measurable {
       return
     }
 
-    // Multi-line: every line is drawn with baseline 'top' at a fixed line
-    // spacing, and the whole block is anchored on (x, y) per `baseline`
-    // ('alphabetic'/'hanging' collapse to the block's top — a single per-line
-    // baseline can't mean much once there's more than one line).
-    const lineHeightPx = px * this.lineHeight
-    const totalHeight = lineHeightPx * lines.length
+    // Multi-line: the block is anchored on (x, y) per `baseline`, and each line
+    // sits on its own alphabetic baseline inside it ('alphabetic'/'hanging'
+    // collapse to the block's top, since one per-line baseline can't mean much
+    // once there is more than one line).
+    const fm = fontMetrics(font)
+    const lineHeightPx = fm.lineHeight * this.lineHeight
+    const totalHeight = blockHeight(lines.length, lineHeightPx, fm)
     const blockTop =
       this.y - alignOffset(baselineAxis(this.baseline), totalHeight)
     for (let i = 0; i < lines.length; i++) {
-      gfx.fillText(lines[i], this.x, blockTop + i * lineHeightPx, {
+      gfx.fillText(lines[i], this.x, blockTop + fm.ascent + i * lineHeightPx, {
         font,
         align: this.align,
-        baseline: 'top',
+        baseline: 'alphabetic',
         color: this.color,
       })
     }
@@ -186,7 +213,8 @@ export class TextNode extends Node2D implements Measurable {
         }).localW,
       )
     }
-    const h = px * this.lineHeight * lines.length
+    const fm = fontMetrics(font)
+    const h = blockHeight(lines.length, fm.lineHeight * this.lineHeight, fm)
     this.measuredSize.w = constraints.constrainW(w)
     this.measuredSize.h = constraints.constrainH(h)
     return this.measuredSize

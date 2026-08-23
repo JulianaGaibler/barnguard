@@ -16,6 +16,7 @@ import { lerp, lerpAngle } from '../math/scalar'
 import { BodyType } from '../physics/types'
 import type { Body } from '../physics/Body'
 import type { PhysicsWorld } from '../physics/PhysicsWorld'
+import { debugFont } from './debugFont'
 
 /** Which physics layers the overlay draws. All off by default. */
 export interface PhysicsOverlayFlags {
@@ -151,10 +152,10 @@ function labelWithHalo(
   y: number,
   color: string,
 ): void {
-  // 11px monospace advance is ~6.6px; no measureText on Gfx2D, so approximate.
+  // 11px monospace advance is ~6.6px. No measureText on Gfx2D, so approximate.
   const w = text.length * 6.6
   gfx.fillRect(x - 2, y - 10, w + 4, 14, 'rgba(0, 0, 0, 0.65)')
-  gfx.fillText(text, x, y, { font: '11px monospace', color })
+  gfx.fillText(text, x, y, { font: debugFont(11), color })
 }
 
 /**
@@ -323,8 +324,8 @@ function drawContacts(gfx: Gfx2D, ctx: Ctx, world: PhysicsWorld): void {
       const p = m.points[ci].point
       const s = toScreen(ctx, p.x, p.y)
       gfx.fillCircle(s.x, s.y, CONTACT_DOT_PX, COLOR_CONTACT)
-      // Normal is a screen-space direction (rotation-only from space is fine
-      // for the small fixed-length arrow); use it directly.
+      // Normal is a screen-space direction. Rotation-only from space is fine
+      // for the small fixed-length arrow, so it's used directly.
       gfx.strokeLine(
         s.x,
         s.y,

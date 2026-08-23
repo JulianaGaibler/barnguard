@@ -3,7 +3,7 @@ import type { LanguageCode, Messages } from './types'
 
 /**
  * Locales the active display has registered. Written once by `main.ts` right
- * after the manifest resolves; components read via the derived `t` store.
+ * after the manifest resolves. Components read via the derived `t` store.
  * `null` before any registration means the app hasn't finished booting yet.
  */
 const displayLocales = writable<Record<LanguageCode, Messages> | null>(null)
@@ -19,9 +19,9 @@ export interface DisplayLanguage {
 export const supportedLanguages = writable<DisplayLanguage[]>([])
 
 /**
- * The active UI language. In-memory only — reloads reset to the display's
+ * The active UI language. In-memory only, reloads reset to the display's
  * default. The booth typically runs a long-lived session so this rarely resets
- * in practice; an attendant can flip it via BoothMenu or the corner language
+ * in practice. An attendant can flip it via BoothMenu or the corner language
  * toggle.
  */
 export const locale = writable<LanguageCode>('')
@@ -33,7 +33,7 @@ export const setLocale = (next: LanguageCode): void => {
 
 /**
  * Publish the active display's locale bundles + set the initial language.
- * Called by `main.ts` after `applyTheme`. Idempotent; a hot-swap between
+ * Called by `main.ts` after `applyTheme`. Idempotent. A hot-swap between
  * displays is allowed in principle (nothing today does it).
  */
 export function registerDisplayLocales(
@@ -58,8 +58,8 @@ export function registerDisplayLocales(
 
 /**
  * The active message tree. Components read localized strings from this store,
- * e.g. `$t.game.startButton` — never inline text. Returns `null` before the
- * display has registered its locales; components should render conditionally on
+ * e.g. `$t.game.startButton`, never inline text. Returns `null` before the
+ * display has registered its locales. Components should render conditionally on
  * boot but in practice `main.ts` finishes registration before mount.
  */
 export const t: Readable<Messages> = derived(
@@ -67,7 +67,7 @@ export const t: Readable<Messages> = derived(
   ([$locale, $map]) => {
     if (!$map) {
       throw new Error(
-        'i18n t was read before a display registered its locales — boot order bug?',
+        'i18n t was read before a display registered its locales. Boot order bug?',
       )
     }
     const bundle = $map[$locale]

@@ -1,26 +1,20 @@
 /**
  * A 4×4 matrix stored column-major in a `Float32Array(16)`, matching WebGL's
  * `uniformMatrix4fv(..., false, m)` layout so a `Mat4` uploads without a
- * transpose. Element `(row, col)` lives at index `col * 4 + row`; translation
+ * transpose. Element `(row, col)` lives at index `col * 4 + row`. Translation
  * sits in `m[12] m[13] m[14]`.
  *
  * Like the `vec3*` helpers, the `mat4*` functions take a destination `dst`
  * first, write into it, and return it, so per-frame math need not allocate.
  * Functions that read every input element before writing are safe when `dst`
  * aliases an input.
- *
- * @category Math
  */
 export type Mat4 = Float32Array
 
 import type { Vec3 } from './Vec3'
 import type { Quat } from './Quat'
 
-/**
- * Create a new identity matrix.
- *
- * @category Math
- */
+/** Create a new identity matrix. */
 export function mat4(): Mat4 {
   const m = new Float32Array(16)
   m[0] = 1
@@ -30,11 +24,7 @@ export function mat4(): Mat4 {
   return m
 }
 
-/**
- * Reset `dst` to the identity matrix.
- *
- * @category Math
- */
+/** Reset `dst` to the identity matrix. */
 export function mat4Identity(dst: Mat4): Mat4 {
   dst[0] = 1
   dst[1] = 0
@@ -55,11 +45,7 @@ export function mat4Identity(dst: Mat4): Mat4 {
   return dst
 }
 
-/**
- * Copy `src` into `dst`.
- *
- * @category Math
- */
+/** Copy `src` into `dst`. */
 export function mat4Copy(dst: Mat4, src: Readonly<Mat4>): Mat4 {
   dst.set(src)
   return dst
@@ -68,8 +54,6 @@ export function mat4Copy(dst: Mat4, src: Readonly<Mat4>): Mat4 {
 /**
  * Matrix product `dst = a × b` (column-major, so a point is transformed by `a`
  * after `b`). Reads both inputs into locals, so `dst` may alias `a` or `b`.
- *
- * @category Math
  */
 export function mat4Multiply(
   dst: Mat4,
@@ -110,8 +94,6 @@ export function mat4Multiply(
  * Inverse of `src`, `dst = inv(src)`. Reads into locals, so `dst` may alias
  * `src`. Returns `false` and leaves `dst` an identity matrix when `src` is
  * singular (zero determinant).
- *
- * @category Math
  */
 export function mat4Invert(dst: Mat4, src: Readonly<Mat4>): boolean {
   const a00 = src[0]
@@ -173,22 +155,19 @@ export function mat4Invert(dst: Mat4, src: Readonly<Mat4>): boolean {
 
 /**
  * Depth-clip convention for a projection. `'neg-one-to-one'` maps clip-space
- * `z` into `[-1, 1]` (WebGL's NDC depth range); `'zero-to-one'` into `[0, 1]`
- * (WebGPU's). The backend picks it (a WebGPU projection must land depth in `[0,
- * 1]` or near geometry is clipped), so the camera reads it from the device.
- *
- * @category Math
+ * `z` into `[-1, 1]` (WebGL's NDC depth range), and `'zero-to-one'` into `[0,
+ * 1]` (WebGPU's). The backend picks it (a WebGPU projection must land depth in
+ * `[0, 1]` or near geometry is clipped), so the camera reads it from the
+ * device.
  */
 export type ClipDepth = 'neg-one-to-one' | 'zero-to-one'
 
 /**
  * Right-handed perspective projection with a symmetric frustum. `fovY` is the
- * vertical field of view in radians; `aspect` is width / height. `far` may be
- * `Infinity` for an infinite far plane. `clipDepth` selects the NDC depth range
- * (default `'neg-one-to-one'`, WebGL); only the `z` row differs between the
- * two.
- *
- * @category Math
+ * vertical field of view in radians, and `aspect` is width / height. `far` may
+ * be `Infinity` for an infinite far plane. `clipDepth` selects the NDC depth
+ * range (default `'neg-one-to-one'`, WebGL). Only the `z` row differs between
+ * the two.
  */
 export function mat4Perspective(
   dst: Mat4,
@@ -228,10 +207,8 @@ export function mat4Perspective(
 /**
  * Right-handed orthographic projection mapping the box `[left, right] ×
  * [bottom, top] × [near, far]` (camera space) into clip space. `clipDepth`
- * selects the NDC depth range (default `'neg-one-to-one'`, WebGL); only the `z`
+ * selects the NDC depth range (default `'neg-one-to-one'`, WebGL). Only the `z`
  * row differs.
- *
- * @category Math
  */
 export function mat4Ortho(
   dst: Mat4,
@@ -269,8 +246,6 @@ export function mat4Ortho(
 /**
  * Right-handed view matrix that places the camera at `eye` looking at `center`
  * with the given `up`. Degenerate inputs (eye at center) yield the identity.
- *
- * @category Math
  */
 export function mat4LookAt(
   dst: Mat4,
@@ -331,8 +306,6 @@ export function mat4LookAt(
  * per-axis scale, applied to a point as translate × rotate × scale (scale
  * first). `q` need not be normalized, but a non-unit quaternion bakes an extra
  * scale into the rotation.
- *
- * @category Math
  */
 export function mat4Compose(
   dst: Mat4,
@@ -383,8 +356,6 @@ export function mat4Compose(
  * Transform the point `(x, y, z)` (implicit `w = 1`) by `m` with a perspective
  * divide, into `dst`. Use for projecting a world point through a view-proj
  * matrix. A zero `w` is treated as `1` to avoid `NaN`.
- *
- * @category Math
  */
 export function mat4TransformPoint(
   dst: Vec3,
@@ -403,10 +374,8 @@ export function mat4TransformPoint(
 }
 
 /**
- * Transform the direction `(x, y, z)` (implicit `w = 0`) by `m`, into `dst` —
- * the translation column is ignored and there is no perspective divide.
- *
- * @category Math
+ * Transform the direction `(x, y, z)` (implicit `w = 0`) by `m`, into `dst`.
+ * The translation column is ignored and there is no perspective divide.
  */
 export function mat4TransformDir(
   dst: Vec3,

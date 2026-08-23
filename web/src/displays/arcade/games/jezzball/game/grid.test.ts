@@ -33,12 +33,12 @@ describe('jezzball grid', () => {
 
   it('captures only the ball-free side after a divider', () => {
     const g = createGrid(11, 10)
-    // Vertical wall at col 5 splits the board; a ball sits on the left side.
+    // Vertical wall at col 5 splits the board, and a ball sits on the left side.
     wallColumn(g, 5)
     const ball: CellRef = { col: 2, row: 4 }
     const filled = captureEmptyRegions(g, [ball])
 
-    // Right side (cols 6..10) × 10 rows = 50 cells captured; left stays open.
+    // Right side (cols 6..10) × 10 rows = 50 cells captured. Left stays open.
     expect(filled).toHaveLength(50)
     expect(cellAt(g, 8, 4)).toBe(CELL_FILLED)
     expect(cellAt(g, 2, 4)).toBe(CELL_OPEN)
@@ -49,7 +49,7 @@ describe('jezzball grid', () => {
   it('captures both sides when the ball is walled off elsewhere', () => {
     const g = createGrid(11, 10)
     wallColumn(g, 5)
-    // Ball on neither side (its cell is inside the wall column — treated as
+    // Ball on neither side (its cell is inside the wall column, treated as
     // occupying no open region), so both open regions are ball-free.
     const filled = captureEmptyRegions(g, [{ col: 5, row: 0 }])
     // Left (cols 0..4 = 50) + right (cols 6..10 = 50) = 100 open cells.
@@ -73,7 +73,7 @@ describe('jezzball grid', () => {
     expect(takenPct(g)).toBeCloseTo(10, 5) // the wall still counts
   })
 
-  it('is idempotent — a second pass with the same ball changes nothing', () => {
+  it('is idempotent: a second pass with the same ball changes nothing', () => {
     const g = createGrid(11, 10)
     wallColumn(g, 5)
     const ball: CellRef = { col: 2, row: 4 }
@@ -100,7 +100,7 @@ describe('jezzball grid', () => {
     for (let c = 6; c <= 10; c++) g.cells[4 * g.cols + c] = CELL_WALL
 
     // Build the rest from column 2: A owns [0..2], B grows right until it hits
-    // the existing wall — owning [3..5], i.e. right up to the survivor's edge.
+    // the existing wall, owning [3..5], i.e. right up to the survivor's edge.
     const s = wallSpans(g, 'horizontal', { col: 2, row: 4 })
     expect(s.a).toEqual([0, 2])
     expect(s.b).toEqual([3, 5])
@@ -122,7 +122,7 @@ describe('jezzball grid', () => {
     markWall(g, 0, 1)
     markWall(g, 1, 1)
     const filled = captureEmptyRegions(g, [{ col: 0, row: 0 }])
-    // The pocket stays open (has the ball); the large region is ball-free and
+    // The pocket stays open (has the ball). The large region is ball-free and
     // fills.
     expect(cellAt(g, 0, 0)).toBe(CELL_OPEN)
     expect(filled.length).toBeGreaterThan(0)

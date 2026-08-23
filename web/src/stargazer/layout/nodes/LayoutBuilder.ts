@@ -6,7 +6,6 @@
  * overlay) inside a {@link LayoutRoot} without making every node measurable.
  *
  * @module
- * @category Layout
  */
 import { BoxConstraints, type Size } from '../constraints'
 import { LayoutNode } from '../LayoutNode'
@@ -19,11 +18,7 @@ import { rect, type Rect } from '../../math/Rect'
  */
 const DEV_WARN_UNCONSTRAINED = true
 
-/**
- * Options for {@link LayoutBuilder}.
- *
- * @category Layout
- */
+/** Options for {@link LayoutBuilder}. */
 export interface LayoutBuilderOptions {
   /**
    * Called on every layout pass with the builder's resolved rect in world
@@ -33,12 +28,12 @@ export interface LayoutBuilderOptions {
    */
   onLayout?: (rect: Readonly<Rect>) => void
   /**
-   * Fixed width; omit to fill a bounded (tight) width or measure to 0 when
+   * Fixed width. Omit to fill a bounded (tight) width or measure to 0 when
    * loose.
    */
   width?: number
   /**
-   * Fixed height; omit to fill a bounded (tight) height or measure to 0 when
+   * Fixed height. Omit to fill a bounded (tight) height or measure to 0 when
    * loose.
    */
   height?: number
@@ -62,7 +57,6 @@ export interface LayoutBuilderOptions {
  * direct content of a {@link LayoutRoot} it fills the bounds (the root measures
  * tight).
  *
- * @category Layout
  * @example
  *   // A board that lays itself out from the rect the layout gives it:
  *   const slot = new LayoutBuilder({ onLayout: (r) => board.fit(r) })
@@ -102,7 +96,7 @@ export class LayoutBuilder extends LayoutNode {
     this.transform.x = x
     this.transform.y = y
     this.debugBounds = { x: 0, y: 0, width: w, height: h }
-    // arrange coords are parent-local; localToWorld recomposes the ancestor
+    // arrange coords are parent-local. localToWorld recomposes the ancestor
     // chain on demand, so the world rect is correct here even though transform
     // propagation runs later in the frame.
     this.localToWorld(0, 0, this.#tl)

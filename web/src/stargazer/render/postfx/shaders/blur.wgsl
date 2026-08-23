@@ -8,7 +8,7 @@
 // keeps the premultiplied color valid.
 //
 // Shared fullscreen vertex (see vignette.wgsl). Bindings: u_tex at unit 0,
-// Params at POST_PARAMS_UBO_BINDING (6), a_pos at location 0.
+// Params at POST_PARAMS_UBO_BINDING (6), a_pos at location 0, a_uv at location 1.
 
 // Normalized 5-tap Gaussian: 0.375 + 2·0.25 + 2·0.0625 = 1.0 (no brightening).
 const W0: f32 = 0.375;
@@ -30,9 +30,12 @@ struct VOut {
 };
 
 @vertex
-fn vs_main(@location(0) a_pos: vec2<f32>) -> VOut {
+fn vs_main(
+  @location(0) a_pos: vec2<f32>,
+  @location(1) a_uv: vec2<f32>,
+) -> VOut {
   var out: VOut;
-  out.uv = a_pos * 0.5 + vec2<f32>(0.5);
+  out.uv = a_uv;
   out.pos = vec4<f32>(a_pos, 0.0, 1.0);
   return out;
 }

@@ -22,6 +22,16 @@
      */
     open?: boolean
     /**
+     * Fired whenever the sheet opens or closes, including when it closes
+     * itself. Lets a caller own the open state outright rather than binding,
+     * which is what a screen with two fields and one shared keyboard needs: a
+     * single "which field has focus" value cannot be two-way bound to two
+     * separate booleans.
+     */
+    onOpenChange?: (open: boolean) => void
+    /** Names what is being typed, e.g. "Player 1" on a two-player screen. */
+    caption?: string
+    /**
      * Set false to drive `open` entirely from outside and skip the default
      * input button.
      */
@@ -34,12 +44,19 @@
     closeLabel = 'Close keyboard',
     onSubmit,
     open = $bindable(false),
+    onOpenChange,
+    caption,
     showTrigger = true,
   }: Props = $props()
 
+  function setOpen(next: boolean): void {
+    open = next
+    onOpenChange?.(next)
+  }
+
   function submit(): void {
     onSubmit?.()
-    open = false
+    setOpen(false)
   }
 
   // Slides by the sheet's own rendered height rather than a fixed distance,
@@ -62,7 +79,7 @@
     type="button"
     class="kbfield__input"
     class:open
-    onclick={() => (open = true)}
+    onclick={() => setOpen(true)}
   >
     <span class="kbfield__value"
       >{value ? value.toUpperCase() : placeholder}</span
@@ -76,7 +93,8 @@
       bind:value
       {maxLength}
       onSubmit={submit}
-      onClose={() => (open = false)}
+      onClose={() => setOpen(false)}
+      {caption}
       {closeLabel}
     />
   </div>
@@ -106,7 +124,7 @@
     letter-spacing: 0.3em
     color: var(--color-text)
 
-  // The keyboard sizes itself (fixed-size square keys); this just centers it
+  // The keyboard sizes itself (fixed-size square keys). This just centers it
   // rather than forcing a width, so it can never overflow its own content.
   .kbfield__sheet
     position: absolute

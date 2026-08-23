@@ -8,7 +8,7 @@
 
   /**
    * `<hr>` separator between options. Chromium 119+ / Safari 17.5+ / Firefox
-   * 122+ render this as a native divider inside the picker; older browsers
+   * 122+ render this as a native divider inside the picker. Older browsers
    * ignore it, so option order still reads correctly.
    */
   export interface DebugSelectDivider {

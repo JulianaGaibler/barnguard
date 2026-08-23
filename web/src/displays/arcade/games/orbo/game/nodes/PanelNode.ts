@@ -55,7 +55,7 @@ export class PanelNode extends Node2D {
       return
     }
     // Revealing: fill clipped to the rounded mask, clamped to a center window
-    // that grows outward — a horizontal curtain with rounded corners.
+    // that grows outward, a horizontal curtain with rounded corners.
     const cx = this.#px + this.#pw / 2
     const halfW = (this.#pw / 2) * frac
     gfx.save()

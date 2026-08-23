@@ -6,7 +6,7 @@
  * The world is deterministic given the same initial state and `dt`: bodies are
  * iterated in a stable order, contact pairs are keyed canonically, and nothing
  * reads the clock or a random source. Determinism holds for the same build on
- * the same machine; JS float results can differ across CPUs and engines, so
+ * the same machine. JS float results can differ across CPUs and engines, so
  * this is not lockstep-multiplayer determinism.
  */
 
@@ -27,10 +27,8 @@ import { vec2, type Vec2 } from '../math/Vec2'
 import { registerPolygonCollision } from './polygonCollision'
 
 /**
- * Tuning for a {@link PhysicsWorld}. Every field has a default; pass only what
+ * Tuning for a {@link PhysicsWorld}. Every field has a default. Pass only what
  * you want to change.
- *
- * @category Physics
  */
 export interface PhysicsWorldConfig {
   /**
@@ -70,10 +68,9 @@ export interface PhysicsWorldConfig {
 }
 
 /**
- * A {@link PhysicsWorldConfig} with every field resolved to its effective value.
- * Read it from {@link PhysicsWorld.config}.
- *
- * @category Physics
+ * A {@link PhysicsWorldConfig} with every field resolved to its effective value,
+ * so nothing is optional. Read it from {@link PhysicsWorld.config}.
+ * {@link PhysicsWorldConfig} documents what each field means.
  */
 export interface ResolvedPhysicsConfig {
   gravity: { x: number; y: number }
@@ -93,7 +90,7 @@ export interface ResolvedPhysicsConfig {
 /** Approach speed above which a moving body wakes a sleeping one it hits. */
 const WAKE_APPROACH_SPEED = 0.1
 /**
- * Body-index stride for canonical pair keys; supports up to this many live
+ * Body-index stride for canonical pair keys. Supports up to this many live
  * bodies.
  */
 const PAIR_STRIDE = 1 << 20
@@ -114,7 +111,6 @@ interface SensorRecord {
 /**
  * A 2D rigid-body physics world.
  *
- * @category Physics
  * @example
  *   const world = new PhysicsWorld({ gravity: { x: 0, y: 900 } })
  *   const floor = world.createBody({
@@ -227,7 +223,7 @@ export class PhysicsWorld {
 
   /**
    * Number of solid contact manifolds produced by the last {@link step}. Useful
-   * for debug visualization; sensor overlaps are not counted here.
+   * for debug visualization. Sensor overlaps are not counted here.
    */
   get contactCount(): number {
     return this.#_solidCount
@@ -261,7 +257,7 @@ export class PhysicsWorld {
 
   /**
    * Once the world holds more than the threshold and still uses the default
-   * brute-force index, migrate to a spatial hash. One-way; a custom broad-phase
+   * brute-force index, migrate to a spatial hash. One-way. A custom broad-phase
    * opts out.
    */
   #maybeUpgradeBroadPhase(): void {
@@ -325,18 +321,18 @@ export class PhysicsWorld {
    * Advance the simulation by `dt` seconds. Call once per fixed tick. This is
    * the only method that mutates simulation state.
    *
-   * In order: integrate forces into velocities (semi-implicit Euler), apply
-   * exponential damping (`linearDamping^(dt*60)`), clamp to `maxLinearSpeed`,
-   * and start the sleep timer for slow bodies; integrate velocities into
-   * positions and rotations; refresh the broad-phase and gather candidate
-   * pairs; build a contact manifold per overlapping pair (SAT for polygons,
-   * closest-feature for circles); run `velocityIterations` sequential-impulse
-   * passes with restitution and Coulomb friction; run `positionIterations`
-   * positional-correction passes, leaving `positionalSlop` uncorrected so
-   * resting stacks don't jitter; sleep bodies that stayed slow past
-   * `sleepTime`; diff this step's overlaps against last step's and emit
-   * enter/exit events; resolve `waitForSettle` promises if the world is at
-   * rest.
+   * Each call, in order, integrates forces into velocities (semi-implicit
+   * Euler), applies exponential damping (`linearDamping^(dt*60)`), clamps to
+   * `maxLinearSpeed`, and starts the sleep timer for slow bodies. It then
+   * integrates velocities into positions and rotations, refreshes the
+   * broad-phase, and gathers candidate pairs. It builds a contact manifold per
+   * overlapping pair (SAT for polygons, closest-feature for circles), runs
+   * `velocityIterations` sequential-impulse passes with restitution and Coulomb
+   * friction, and runs `positionIterations` positional-correction passes,
+   * leaving `positionalSlop` uncorrected so resting stacks don't jitter.
+   * Finally it sleeps bodies that stayed slow past `sleepTime`, diffs this
+   * step's overlaps against last step's to emit enter/exit events, and resolves
+   * `waitForSettle` promises if the world is at rest.
    *
    * Reads no clock and no random source, and iterates bodies in a stable order,
    * so the same initial state and `dt` reproduce the same result on the same
@@ -509,8 +505,8 @@ export class PhysicsWorld {
         }
         // Both immovable: nothing to solve.
         if (a.invMass === 0 && b.invMass === 0) continue
-        // Waking: a resting contact with a sleeper is not solved (no perturb);
-        // a real approach wakes the sleeper and solves.
+        // Waking: a resting contact with a sleeper is not solved (no perturb).
+        // A real approach wakes the sleeper and solves.
         if (a.sleeping || b.sleeping) {
           const vn = this.#approachSpeed(m)
           if (vn > -WAKE_APPROACH_SPEED) continue
@@ -543,7 +539,7 @@ export class PhysicsWorld {
   }
 
   #updateSleep(_dt: number): void {
-    // Sleep timing is handled inside integrate; nothing else needed here yet.
+    // Sleep timing is handled inside integrate. Nothing else needed here yet.
   }
 
   #diffAndEmit(): void {
@@ -732,7 +728,7 @@ export class PhysicsWorld {
         if (cb.sensor) continue
         const m = this.#pool.next()
         if (collide(ca, cb, m)) {
-          // normal points body → other; move body opposite.
+          // normal points body → other. Move body opposite.
           body.position.x -= m.normal.x * m.penetration
           body.position.y -= m.normal.y * m.penetration
           body._aabbDirty = true
@@ -969,7 +965,7 @@ export class PhysicsWorld {
 
   /**
    * Move `body` by `(dx, dy)`, sliding along the first blocking surface instead
-   * of stopping. Velocity is unchanged; drive it from your own movement code.
+   * of stopping. Velocity is unchanged. Drive it from your own movement code.
    */
   moveAndSlide(body: Body, dx: number, dy: number): void {
     const hit = this.moveAndCollide(body, dx, dy, SCRATCH_KHIT)
@@ -1031,7 +1027,7 @@ export class PhysicsWorld {
       ) {
         continue
       }
-      // AABB pass; for circles refine by radius.
+      // AABB pass. For circles refine by radius.
       if (c.shape.kind === 'circle') {
         const cx = SCRATCH_AABB.x + SCRATCH_AABB.width * 0.5
         const cy = SCRATCH_AABB.y + SCRATCH_AABB.height * 0.5

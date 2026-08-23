@@ -5,6 +5,18 @@ precision highp int;
 
 struct Frame {
     mat3x3 proj;
+    float targetH;
+    float fragYFlip;
+};
+struct Clip {
+    float kind;
+    float cx;
+    float cy;
+    float r;
+    float halfW;
+    float halfH;
+    float rrRadius;
+    float clipPad;
 };
 struct ModelColor {
     mat3x3 model;
@@ -18,6 +30,11 @@ layout(std140) uniform Frame_block_0Vertex { Frame _group_0_binding_0_vs; };
 layout(std140) uniform ModelColor_block_1Vertex { ModelColor _group_1_binding_3_vs; };
 
 layout(location = 0) in vec2 _p2vs_location0;
+
+float clipRoundBox(vec2 p, vec2 b, float rad) {
+    vec2 q = ((abs(p) - b) + vec2(rad));
+    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
+}
 
 void main() {
     vec2 a_pos = _p2vs_location0;

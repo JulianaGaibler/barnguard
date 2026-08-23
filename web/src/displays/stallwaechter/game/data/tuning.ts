@@ -343,9 +343,8 @@ export const TUNING = {
     /**
      * Grace between collision and the game-over card sliding in. Session flips
      * to `'gameOver'` immediately (spawning + physics halt) but the outward
-     * event fires only after this so the player sees the impact flash + debris
-     *
-     * - Shockwave settle first.
+     * event fires only after this so the player sees the impact flash, debris,
+     * and shockwave settle first.
      */
     endScreenGraceSec: 3,
     /** Delay between adjacency layers in the shockwave pulse. */

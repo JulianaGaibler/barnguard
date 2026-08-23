@@ -2,8 +2,8 @@
  * In-engine tutorial demos for Connect Four, built on the shared demo stage.
  * Both reuse the real game nodes (`BoardNode`, `DiscNode`), the board model,
  * `DiscNode.drop`, and the shared `playWinHighlight` celebration, laid out to
- * the stage's fixed viewport. They skip the session/AI/pointer input entirely —
- * a demo builds a subtree and drops scripted discs directly.
+ * the stage's fixed viewport. They skip the session/AI/pointer input entirely.
+ * A demo builds a subtree and drops scripted discs directly.
  */
 import {
   Node2D,
@@ -62,7 +62,7 @@ function buildScene(stage: Stage): Scene {
   const root = new Node2D('cf-demo')
   const discLayer = new Node2D('cf-demo-discs')
   const winLayer = new Node2D('cf-demo-wins')
-  // Discs behind the board so its holes frame them; win bursts on top.
+  // Discs behind the board so its holes frame them. Win bursts on top.
   root.add(discLayer)
   root.add(new BoardNode(layout))
   root.add(winLayer)
@@ -132,7 +132,7 @@ function placeNonWinning(board: Board): Placement | null {
 
 /**
  * "Take turns placing discs": alternating players drop into random columns,
- * stacking on top of each other, with no win — just the falling + stacking
+ * stacking on top of each other, with no win, just the falling and stacking
  * mechanic. Clears and reshuffles each cycle.
  */
 export function buildConnectFourStackDemo(
@@ -182,12 +182,12 @@ export function buildConnectFourWinDemo(
   const scene = buildScene(stage)
   const { root, discLayer, winLayer, layout, discRadius, abort } = scene
 
-  // Minimal diagonal win for Team L (blue): the "/" run (0,0)-(1,1)-(2,2)-(3,3).
-  // Red fills the staircase of supports beneath it; one throwaway red disc
-  // (col 4) fixes turn parity so blue plays the completing disc last. 11 moves —
-  // the fewest a diagonal allows under strict alternation.
+  // Minimal diagonal win for Team L (blue): the "/" run (0,0), (1,1), (2,2), (3,3).
+  // Red fills the staircase of supports beneath it. One throwaway red disc
+  // (col 4) fixes turn parity so blue plays the completing disc last. 11 moves
+  // is the fewest a diagonal allows under strict alternation.
   const sequence = [0, 1, 1, 2, 3, 2, 3, 3, 2, 4, 3]
-  // Pre-place the first two thirds instantly; only the finish drops in, so the
+  // Pre-place the first two thirds instantly. Only the finish drops in, so the
   // loop reaches the win fast.
   const PREFILL = Math.floor((sequence.length * 2) / 3)
 

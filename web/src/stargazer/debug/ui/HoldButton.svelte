@@ -20,7 +20,7 @@
 
   let active = $state(false)
   // Pointer IDs currently pressing this button. Multiple fingers on the same
-  // button must not release the press until the *last* lifts; different buttons
+  // button must not release the press until the *last* lifts. Different buttons
   // track their own IDs, so two fingers on Up + Right pan diagonally.
   const activePointers = new SvelteSet<number>()
   // Whether the window-level release listeners are attached (only while held).
@@ -47,7 +47,7 @@
 
   function down(e: PointerEvent): void {
     if (disabled) return
-    // Prevent the synthetic mouse/focus follow-up; keyboard focus must never
+    // Prevent the synthetic mouse/focus follow-up. Keyboard focus must never
     // land on a pad button (WASD/QE must reach DebugController).
     e.preventDefault()
     activePointers.add(e.pointerId)

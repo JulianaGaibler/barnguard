@@ -1,9 +1,10 @@
-// Screen-space ambient occlusion — compute path (WebGPU). Mirrors the math in
-// `ao_gtao.wgsl` (the fragment off-ramp); keep in sync. Reads the G-buffer's
-// stored view normal (octahedral, RG) + 16-bit linear view depth (BA) with
-// textureLoad (point sampling — the packed bytes must not be bilinear-filtered),
-// reconstructs view-space position, and writes the scalar AO to a storage
-// texture. shader-gen skips this file — naga's GLSL backend has no compute stage.
+// Screen-space ambient occlusion, compute path (WebGPU). Mirrors the math in
+// `ao_gtao.wgsl` (the fragment off-ramp), so keep the two in sync. Reads the
+// G-buffer's stored view normal (octahedral, RG) + 16-bit linear view depth (BA)
+// with textureLoad (point sampling, because the packed bytes must not be
+// bilinear-filtered), reconstructs view-space position, and writes the scalar AO
+// to a storage texture. shader-gen skips this file, because naga's GLSL backend
+// has no compute stage.
 //
 // Bindings: u_gbuf (sampled) at 0, u_out (storage) at 1, Params at 6.
 
@@ -54,7 +55,7 @@ fn viewPos(uv: vec2<f32>, lin: f32) -> vec3<f32> {
   return a + t * (b - a);
 }
 
-// Interleaved gradient noise (Jimenez) — a low-discrepancy screen-space dither
+// Interleaved gradient noise (Jimenez), a low-discrepancy screen-space dither
 // that the bilateral blur cleans up far better than white noise.
 fn hash(p: vec2<f32>) -> f32 {
   return fract(52.9829189 * fract(dot(p, vec2<f32>(0.06711056, 0.00583715))));

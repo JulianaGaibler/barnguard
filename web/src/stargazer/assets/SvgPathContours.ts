@@ -16,10 +16,10 @@ import type { GeometryHandle } from '../render/gfx/GeometryHandle'
 import { tokenizeSvgPath } from './SvgPathMap'
 
 // Cap subdivision depth so pathological curves don't hang. ~13 levels
-// covers a 4K screen at 0.5-px tolerance; 16 gives comfortable margin.
+// covers a 4K screen at 0.5-px tolerance, 16 gives comfortable margin.
 const MAX_SUBDIV_DEPTH = 16
 
-// --- Live Bézier flatteners -------------------------------------------------
+// Live Bézier flatteners
 
 /**
  * Flatten a quadratic Bézier. `(x0,y0)` MUST already be at
@@ -80,7 +80,7 @@ function subdivideQuad(
 
 /**
  * Flatten a cubic Bézier. Same contract as `flattenQuadratic`, the start point
- * is assumed already present; only intermediate + end points are appended.
+ * is assumed already present. Only intermediate and end points are appended.
  */
 export function flattenCubic(
   x0: number,
@@ -174,12 +174,12 @@ function subdivideCubic(
   return cursor
 }
 
-// --- Path-string flattener --------------------------------------------------
+// Path-string flattener
 
 /**
  * Flatten an SVG `d` string into an array of contours. Each contour is a
  * `Float32Array` of interleaved `[x0,y0,x1,y1,…]` points. Closing `Z` emits the
- * closing segment; a fresh `M` starts a new contour.
+ * closing segment, and a fresh `M` starts a new contour.
  *
  * Handles M/L/H/V/C/S/Q/T/A/Z (matches `computePathBounds`'s command set). `A`
  * (arc) is flattened as a straight line to the endpoint, no dynamic SVG in the
@@ -188,7 +188,7 @@ function subdivideCubic(
 export function flattenSvgPath(d: string, tol: number): Float32Array[] {
   const tokens = tokenizeSvgPath(d)
   const contours: Float32Array[] = []
-  // Growable buffer for the current contour; sealed on Z or new M.
+  // Growable buffer for the current contour, sealed on Z or new M.
   let buf = new Float32Array(64)
   let cursor = 0
   let cx = 0
@@ -356,7 +356,7 @@ export function flattenSvgPath(d: string, tol: number): Float32Array[] {
         break
       }
       case 'A': {
-        // Skip params; treat arc as a line to endpoint (no dynamic node
+        // Skip params, treat arc as a line to endpoint (no dynamic node
         // uses arcs, this keeps the tessellator safe on unexpected input).
         num()
         num()
@@ -392,7 +392,7 @@ export function flattenSvgPath(d: string, tol: number): Float32Array[] {
   return contours
 }
 
-// --- Triangulation ----------------------------------------------------------
+// Triangulation
 
 /**
  * Triangulate contours via earcut. Each contour is an independent outer

@@ -21,9 +21,9 @@
     entry: LeaderboardEntry
   }
 
-  // The leaderboard is scoped per arcade game, not per kiosk display — a
+  // The leaderboard is scoped per arcade game, not per kiosk display. A
   // display can list several ids here (see `DisplayManifest.leaderboardIds`).
-  // Rank stays per-game (each list is fetched and numbered independently);
+  // Rank stays per-game (each list is fetched and numbered independently), and
   // `entry.display` carries the game id for the row label.
   let rows = $state<Row[]>([])
   let loading = $state(false)
@@ -45,8 +45,8 @@
       .finally(() => (loading = false))
   }
 
-  // Refetch whenever the panel opens or the active display changes — no live
-  // push for the leaderboard (see `leaderboardClient.ts`), so this is the
+  // Refetch whenever the panel opens or the active display changes. There's no
+  // live push for the leaderboard (see `leaderboardClient.ts`), so this is the
   // only trigger.
   $effect(() => {
     if ($leaderboardPanelVisible) refresh()
@@ -105,7 +105,7 @@
 </DraggableWindow>
 
 <style lang="sass">
-  // Row internals; container chrome (list, item, empty-state, buttons) comes
+  // Row internals. Container chrome (list, item, empty-state, buttons) comes
   // from debug-ui.sass, same as GamesPanel.
   .lb-line
     display: flex

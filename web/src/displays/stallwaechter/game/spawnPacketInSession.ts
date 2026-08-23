@@ -4,12 +4,12 @@ import {
   Path2DNode,
   easings,
   ignoreAbort,
+  registerPathTessellation,
+  tessellateContours,
   withAlpha,
   type EngineHost,
   type Vec2,
 } from '@src/stargazer'
-import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
-import { registerPathTessellation } from '@src/stargazer/render/gfx/PathTessellationRegistry'
 import { PacketNode } from './nodes/PacketNode'
 import { PacketMotionTrailNode } from './nodes/PacketMotionTrailNode'
 import { PacketSpawnConvergeNode } from './nodes/PacketSpawnConvergeNode'
@@ -41,14 +41,14 @@ export interface SpawnPacketOpts {
    * `false` disables auto-acceleration to `travelSpeed`. The packet sits at v=0
    * until the player draws a path, then follows the path exactly, and settles
    * back to v=0 whenever the path is fully consumed. Used by the tutorial
-   * mini-stage; main game leaves this `true`.
+   * mini-stage, main game leaves this `true`.
    */
   autonomousDrift?: boolean
   /**
    * Fires when the packet's scene-graph `destroy` event runs, the helper uses
    * this internally to pair-destroy the motion trail + hex emitter, and the
    * caller can hook it to remove the packet from an `activePackets` array (main
-   * game does; tutorial doesn't need to).
+   * game does, tutorial doesn't need to).
    */
   onDestroy?: (packet: PacketNode) => void
 }
@@ -64,7 +64,7 @@ export interface SpawnPacketOpts {
  * dynamics tweak the main game gets carries over to the tutorial
  * automatically.
  *
- * The packet is added to `packetLayer` synchronously; the caller may push it
+ * The packet is added to `packetLayer` synchronously, the caller may push it
  * onto whatever active-packet list they keep. The returned reference stays
  * valid until its own `destroy` fires, subscribe via `onDestroy` for
  * bookkeeping.
@@ -94,7 +94,7 @@ export function spawnPacketInSession(
   // aligns with the velocity vector).
   packet.transform.rotation = headingRad + Math.PI / 2
   // Start invisible, the convergent-particle emitter carries the visual
-  // for the pre-grow phase; the hex only materialises once the grow tween
+  // for the pre-grow phase. The hex only materialises once the grow tween
   // kicks in `preGrowDelaySec` later.
   packet.transform.scaleX = 0
   packet.transform.scaleY = 0
@@ -122,7 +122,7 @@ export function spawnPacketInSession(
       speedWorld: hexCfg.speedWorld,
       spreadRad: hexCfg.spreadRad,
       // emitDirectionRad is set per-frame in PacketBehavior so the
-      // wake fires opposite the current velocity; seed with 0 so the
+      // wake fires opposite the current velocity. Seed with 0 so the
       // config is valid until the first physics tick.
       emitDirectionRad: 0,
       palette: [hexCfg.color],
@@ -142,7 +142,7 @@ export function spawnPacketInSession(
 
   // Continuous convergent-particle emitter that plays alongside the grow-in
   // tween. Auto-destroys once emission ends and every live particle
-  // finishes its own lifetime; no cleanup wiring needed.
+  // finishes its own lifetime, no cleanup wiring needed.
   const spawnBurstCfg = TUNING.packet.spawnBurst
   const convergeNode = new PacketSpawnConvergeNode({
     center: worldPos,

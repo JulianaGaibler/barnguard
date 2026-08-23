@@ -22,10 +22,10 @@
   gap: 6px
   width: 260px
   box-sizing: border-box
-  // Slim + dark scrollbar. Firefox honours `scrollbar-width` / `-color`;
-  // WebKit uses the pseudo-elements below. Track is near-black so it
-  // recedes against the panel's dark chrome; thumb is a soft grey with
-  // an accent-blue hover for feedback.
+  // Slim + dark scrollbar. Firefox honours `scrollbar-width` / `-color`,
+  // while WebKit uses the pseudo-elements below. Track is near-black so it
+  // recedes against the panel's dark chrome, and the thumb is a soft grey
+  // with an accent-blue hover for feedback.
   scrollbar-width: thin
   scrollbar-color: rgba(255, 255, 255, 0.22) rgba(0, 0, 0, 0.5)
 
@@ -217,7 +217,7 @@
   button.debug-btn
     // Sized for finger taps on the 4K booth kiosk. The debug HUD is also
     // used with a mouse on dev laptops, but the extra padding doesn't hurt
-    // there — better than maintaining two separate "touch" and "dev" scales.
+    // there, and it's better than maintaining two separate "touch" and "dev" scales.
     padding: 8px 14px
     background: rgba(255, 255, 255, 0.1)
     border: 1px solid rgba(255, 255, 255, 0.3)
@@ -252,8 +252,8 @@
     font-style: italic
 
   // Bounded scrolling list. Used for queues, recent-activity feeds, and log
-  // views inside a DebugSection — anything whose row count varies at runtime
-  // but where we don't want the panel to grow or shrink dramatically. The
+  // views inside a DebugSection, for anything whose row count varies at
+  // runtime but where we don't want the panel to grow or shrink dramatically. The
   // min/max are close together on purpose: the visual footprint stays
   // stable, and once you exceed max the list scrolls inside itself instead
   // of pushing everything below it around.
@@ -286,7 +286,7 @@
       background: rgba(255, 255, 255, 0.18)
       border-radius: 3px
 
-    // Vertically center the placeholder when the list is empty; keeps the
+    // Vertically center the placeholder when the list is empty. Keeps the
     // fixed min-height from looking like accidental whitespace.
     > .empty-state:only-child
       margin: auto

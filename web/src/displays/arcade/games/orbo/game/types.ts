@@ -14,8 +14,8 @@ export type OrbSize = 'SMALL' | 'MEDIUM' | 'LARGE'
 export type GameMode = '1v1' | '2v2'
 
 /**
- * The physics body for an orb now lives in `Orb` (a stargazer `Body` subclass);
- * see `./Orb`. This module keeps only the dependency-free value types.
+ * The physics body for an orb lives in `Orb` (a stargazer `Body` subclass). See
+ * `./Orb`. This module keeps only the dependency-free value types.
  */
 
 /** An orb waiting in a player's queue (no physics state yet). */

@@ -21,8 +21,6 @@ const SPEED_WHEEL_STEP = 1.15
  * yaw plane, Q/E rise and fall on world Y, and the arrow keys look around. Its
  * projection mirrors the game camera's each step, so it matches the current
  * ortho<->perspective blend.
- *
- * @category Debug
  */
 export class DebugCamera3D extends Camera3D {
   readonly #held = new Set<string>()
@@ -164,7 +162,7 @@ export class DebugCamera3D extends Camera3D {
       (this.#sprint ? SPRINT_MULTIPLIER : 1)
     const sinY = Math.sin(this.#yaw)
     const cosY = Math.cos(this.#yaw)
-    // Forward/right on the horizontal (yaw) plane; camera looks down -z.
+    // Forward/right on the horizontal (yaw) plane. Camera looks down -z.
     const fwd = { x: -sinY, z: -cosY }
     const right = { x: cosY, z: -sinY }
     let mx = 0

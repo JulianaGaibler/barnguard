@@ -3,17 +3,12 @@
  * such box inside the offered space and aligning it within.
  *
  * @module
- * @category Layout
  */
 import { BoxConstraints, type Size } from '../constraints'
 import { LayoutNode, type MeasurableNode } from '../LayoutNode'
 import { alignOffset, type Align1D } from '../align'
 
-/**
- * Options for {@link AspectRatio}.
- *
- * @category Layout
- */
+/** Options for {@link AspectRatio}. */
 export interface AspectRatioOptions {
   /** Width divided by height. 1 is a square. */
   ratio: number
@@ -36,7 +31,6 @@ export interface AspectRatioOptions {
  * is recomputed from the size actually granted in `arrange`, so nothing is
  * carried between the two calls.
  *
- * @category Layout
  * @example
  *   new AspectRatio({ ratio: 1, child: board })
  */
@@ -84,7 +78,7 @@ export class AspectRatio extends LayoutNode {
     this.#child.arrange(cx, cy, box.w, box.h)
   }
 
-  // Largest box of `ratio` fitting within `maxW`×`maxH`; the bounded axis wins.
+  // Largest box of `ratio` fitting within `maxW`×`maxH`. The bounded axis wins.
   // Writes into the reused `#box` so a layout pass allocates nothing.
   #ratioBox(maxW: number, maxH: number): Size {
     let w = Number.isFinite(maxW) ? maxW : maxH * this.ratio

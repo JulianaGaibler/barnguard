@@ -2,15 +2,19 @@
  * All tunable knobs for JezzBall in one place: palette, grid, physics feel,
  * level pacing, scoring weights, gesture thresholds, and animation timings.
  * Geometry is expressed in fractions where possible so the board scales to the
- * arcade bounds; absolute values are world units unless noted.
+ * arcade bounds. Absolute values are world units unless noted.
  */
+import { withAlpha } from '@src/stargazer'
 import type { PlayerId } from './types'
 
-/** Grid resolution. Square by default; both configurable. */
+/** Grid resolution. Square by default. Both configurable. */
 export const GRID = {
   cols: 20,
   rows: 20,
 } as const
+
+/** The single dark ink: border frame, text, decorations, the ball. */
+const INK = '#272727'
 
 /**
  * Palette. Monochrome base with a single accent in one-player, and per-player
@@ -20,18 +24,17 @@ export const GRID = {
 export const COLORS = {
   /** Page background behind everything. */
   background: '#DEDEDE',
-  /** The single dark ink: border frame, text, decorations, the ball. */
-  ink: '#272727',
+  ink: INK,
   /** Playfield background (near-white). */
   field: '#F2F2F2',
   /** Thin grid line over the field. */
-  gridLine: 'rgba(39, 39, 39, 0.09)',
+  gridLine: withAlpha(INK, 0.09),
   /** Captured-region overlay (darker gray, grid still reads through). */
-  captured: 'rgba(39, 39, 39, 0.26)',
+  captured: withAlpha(INK, 0.26),
   /** White, used in the accent mix (heart fills, progress track). */
   white: '#FFFFFF',
   /** Empty heart / inactive slot. */
-  slotEmpty: 'rgba(39, 39, 39, 0.22)',
+  slotEmpty: withAlpha(INK, 0.22),
 } as const
 
 /** One-player accent (primary wall side + progress bar / variant wall side). */
@@ -74,7 +77,7 @@ export const PHYSICS = {
 } as const
 
 /**
- * The smallest board side (world units) the invariant test evaluates against —
+ * The smallest board side (world units) the invariant test evaluates against,
  * roughly the one-player landscape board (region height minus frame/padding).
  * Real boards are usually larger, so this is the worst case for tunneling.
  */
@@ -101,8 +104,13 @@ export const SCORING = {
   timeBonusBase: 500,
   /** Time-bonus decay per second elapsed in the level. */
   timePenaltyPerSec: 5,
-  /** Points per remaining life (level clear, game over, MP survivor). */
-  lifeValue: 50,
+  /**
+   * Points per life held when a level clears. Small next to the other three
+   * components: lives accrue on their own via `livesPerLevel`, so a large value
+   * would pay mostly for the length of the run rather than for how it was
+   * played.
+   */
+  lifeValue: 10,
 } as const
 
 /** Two-finger gesture thresholds. */
@@ -113,8 +121,8 @@ export const GESTURE = {
   maxSpan: 380,
   /**
    * Half-width of the orientation acceptance band, in degrees. Fingers within
-   * this of horizontal → horizontal wall, within this of vertical → vertical
-   * wall; the ambiguous diagonal band between builds nothing.
+   * this of horizontal give a horizontal wall, within this of vertical give a
+   * vertical wall. The ambiguous diagonal band between builds nothing.
    */
   angleTolDeg: 28,
   /** Frames both fingers must persist before a wall spawns (debounce). */

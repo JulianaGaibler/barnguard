@@ -72,7 +72,7 @@ describe('mat4Compose', () => {
   })
 
   it('applies scale then rotation then translation', () => {
-    // 90° about +z maps (1,0,0) -> (0,1,0); scale 2 first, translate after.
+    // 90° about +z maps (1,0,0) -> (0,1,0). Scale 2 first, translate after.
     const q = quatFromAxisAngle(quat(), 0, 0, 1, HALF_PI)
     const m = mat4Compose(mat4(), vec3(5, 0, 0), q, vec3(2, 2, 2))
     const out = mat4TransformPoint(vec3(), m, 1, 0, 0)
@@ -125,7 +125,7 @@ describe('projection clip-depth conventions', () => {
   it('perspective zero-to-one leaves the xy projection identical to GL', () => {
     const gl = mat4Perspective(mat4(), HALF_PI, 1.5, 0.5, 100)
     const wgpu = mat4Perspective(mat4(), HALF_PI, 1.5, 0.5, 100, 'zero-to-one')
-    // Only the z row (indices 10, 14) differs; xy scale + w column match.
+    // Only the z row (indices 10, 14) differs. The xy scale + w column match.
     expect(wgpu[0]).toBeCloseTo(gl[0], 6)
     expect(wgpu[5]).toBeCloseTo(gl[5], 6)
     expect(wgpu[11]).toBeCloseTo(gl[11], 6)

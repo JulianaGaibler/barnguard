@@ -6,8 +6,6 @@ import { WebGPUDevice } from './webgpu/WebGPUDevice'
  * Which backend to use. `'auto'` prefers WebGPU where it works and falls back
  * to WebGL2. `'webgpu'`/`'webgl2'` force one (forcing WebGPU throws if it is
  * unavailable rather than falling back).
- *
- * @category Render
  */
 export type BackendPreference = 'auto' | 'webgpu' | 'webgl2'
 
@@ -83,8 +81,6 @@ async function probeWebGPU(): Promise<boolean> {
  * backend is chosen the canvas is committed to it (context type is permanent),
  * so a mid-session WebGPU loss is handled by remounting on a fresh canvas, not
  * here.
- *
- * @category Render
  */
 export async function selectGfxDevice(
   canvas: HTMLCanvasElement,

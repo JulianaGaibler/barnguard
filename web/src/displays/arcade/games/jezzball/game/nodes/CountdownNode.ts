@@ -1,12 +1,12 @@
 /**
- * The big countdown digit/GO text — engine port of the `.count` overlay, fading
+ * The big countdown digit/GO text, engine port of the `.count` overlay, fading
  * in/out over 120ms exactly like the original `transition:fade`.
  */
 import { Node2D, type Gfx2D } from '@src/stargazer'
 import { COLORS } from '../tuning'
+import { headingFont } from '../../fonts'
 
 const FADE_SEC = 0.12
-const FONT_FAMILY = 'system-ui, sans-serif'
 
 export class CountdownNode extends Node2D {
   #label = ''
@@ -18,7 +18,7 @@ export class CountdownNode extends Node2D {
     this.transform.alpha = 0
   }
 
-  /** Set the label; `null` (or empty) hides (fades out) the node. */
+  /** Set the label. `null` (or empty) hides (fades out) the node. */
   setLabel(label: string | null): void {
     if (label) this.#label = label
     const shown = !!label
@@ -30,7 +30,7 @@ export class CountdownNode extends Node2D {
   override draw(gfx: Gfx2D): void {
     if (this.transform.alpha <= 0) return
     gfx.fillText(this.#label, 0, 0, {
-      font: `900 144px ${FONT_FAMILY}`,
+      font: headingFont(900, 144),
       align: 'center',
       baseline: 'middle',
       color: COLORS.ink,

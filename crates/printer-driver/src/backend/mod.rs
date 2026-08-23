@@ -19,7 +19,7 @@ pub use tcp::{TcpBackend, TcpTimeouts};
 /// hide connect/close behind each call.
 #[async_trait]
 pub trait PrinterBackend: Send {
-    /// Ensure a usable connection. Idempotent; a no-op for the mock.
+    /// Ensure a usable connection. Idempotent, and a no-op for the mock.
     async fn connect(&mut self) -> Result<(), PrinterError>;
 
     /// Read `/config.xml` (tape width, model, serial, …).
@@ -30,8 +30,8 @@ pub trait PrinterBackend: Send {
 
     /// Send the `<print>` command + JPEG bytes and await both acks. Returns
     /// `Ok` once the printer reports "print data received". MUST NOT close the
-    /// connection. Closing triggers the cut prematurely; the caller owns
-    /// that step via [`close_for_cut`].
+    /// connection. Closing triggers the cut prematurely. The caller owns that
+    /// step via [`close_for_cut`].
     async fn send_print(&mut self, jpeg: &[u8], opts: &PrintOpts) -> Result<(), PrinterError>;
 
     /// Close the connection to trigger the physical cut.

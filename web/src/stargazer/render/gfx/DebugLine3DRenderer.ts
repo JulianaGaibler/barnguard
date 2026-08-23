@@ -33,9 +33,9 @@ const LOC_COLOR = 1
  * 3D camera. `Stage` owns one instance and drives it each frame while a 3D
  * debug overlay is on: `begin()`, push gizmos, then `flush(viewProj)`.
  *
- * Two groups: **occluded** lines depth-test against the scene; **overlay**
+ * Two groups: **occluded** lines depth-test against the scene, **overlay**
  * lines ignore depth. Each maps to a `line-list` pipeline variant differing
- * only in depth-test; neither writes depth, so gizmos never corrupt the mesh
+ * only in depth-test. Neither writes depth, so gizmos never corrupt the mesh
  * buffer.
  */
 export class DebugLine3DRenderer {
@@ -74,7 +74,7 @@ export class DebugLine3DRenderer {
     this.#offRestore = device.onContextRestored(() => this.#createResources())
   }
 
-  /** Whether the pipelines are warm; `flush` no-ops until then. */
+  /** Whether the pipelines are warm. `flush` no-ops until then. */
   get ready(): boolean {
     return this.#ready
   }
@@ -118,7 +118,7 @@ export class DebugLine3DRenderer {
   /**
    * Re-point the pipelines at a new target color format / sample count and
    * re-warm. `Stage` calls this after a live MSAA swap so the baked sample
-   * count matches the resized target. No-op when unchanged; `ready` drops until
+   * count matches the resized target. No-op when unchanged. `ready` drops until
    * the async re-warm finishes, so `flush` skips the pass in the meantime.
    */
   retarget(targetColor: { format: ColorFormat; samples: number }): void {

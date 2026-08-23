@@ -3,7 +3,6 @@
  * {@link BoxConstraints} a parent hands each child while laying out.
  *
  * @module
- * @category Layout
  */
 
 /**
@@ -13,8 +12,6 @@
  * into it during `measure`, so a layout pass allocates nothing. Because the
  * object is reused, copy `w`/`h` into locals if you need to keep a value across
  * another `measure` call.
- *
- * @category Layout
  */
 export interface Size {
   w: number
@@ -24,8 +21,6 @@ export interface Size {
 /**
  * Per-edge spacing in world units, used for padding and alignment insets. Build
  * one with {@link edgeInsets} rather than the object literal.
- *
- * @category Layout
  */
 export interface EdgeInsets {
   left: number
@@ -41,7 +36,6 @@ export interface EdgeInsets {
  * - `edgeInsets(8, 24)` uses 8 for top/bottom, 24 for left/right.
  * - `edgeInsets(4, 8, 12, 16)` sets top, right, bottom, left in that order.
  *
- * @category Layout
  * @example
  *   new Padding({ insets: edgeInsets(24), child: label })
  */
@@ -60,23 +54,22 @@ export function edgeInsets(
  * The minimum and maximum width and height a parent allows a child, passed into
  * {@link Measurable.measure}. The child must return a {@link Size} within these
  * bounds. `maxW`/`maxH` may be `Infinity` for an unbounded axis (for example
- * the scroll direction of a list); a child measured on an unbounded axis must
+ * the scroll direction of a list). A child measured on an unbounded axis must
  * size to its own content and must never read `maxW`/`maxH` there.
  *
- * @category Layout
+ * @remarks
+ *   Instances are mutable and are meant to be reused across a layout pass rather
+ *   than allocated per node, so the pass does not churn the GC. A container
+ *   builds each child's constraints by mutating a scratch instance it owns
+ *   ({@link BoxConstraints.set} / {@link BoxConstraints.tight} /
+ *   {@link BoxConstraints.loose} / {@link BoxConstraints.deflate}) and must not
+ *   retain the constraints object it received, since its own parent will
+ *   overwrite it for the next sibling.
  * @example
  *   // Give a child a fixed 200×80 box, then measure it.
  *   const c = new BoxConstraints()
  *   BoxConstraints.tight(200, 80, c)
  *   const size = child.measure(c)
- *
- *   Instances are mutable and are meant to be reused across a layout pass rather
- *   than allocated per node, so the pass does not churn the GC. A container builds
- *   each child's constraints by mutating a scratch instance it owns
- *   ({@link BoxConstraints.set} / {@link BoxConstraints.tight} /
- *   {@link BoxConstraints.loose} / {@link BoxConstraints.deflate}) and must not
- *   retain the constraints object it received, since its own parent will overwrite
- *   it for the next sibling.
  */
 export class BoxConstraints {
   minW = 0
@@ -128,7 +121,7 @@ export class BoxConstraints {
   /**
    * Shrink the available space by `insets` (for a padding container), writing
    * the reduced constraints into `out` and returning it. Bounded maxima drop by
-   * the inset totals (floored at 0); an unbounded axis stays unbounded.
+   * the inset totals (floored at 0). An unbounded axis stays unbounded.
    */
   deflate(insets: EdgeInsets, out: BoxConstraints): BoxConstraints {
     const h = insets.left + insets.right

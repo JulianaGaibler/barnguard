@@ -1,7 +1,7 @@
 /**
- * Horizontal field geometry + zone tests. The reference board was vertical (4
- * bands stacked top→bottom); this is the same model rotated to landscape, so
- * the four bands run left→right across the width:
+ * Horizontal field geometry + zone tests. The reference board was vertical
+ * (four bands stacked top to bottom). This is the same model rotated to
+ * landscape, so the four bands run left to right across the width:
  *
  *     | leftStrip 15% | leftCenter 35% | rightCenter 35% | rightStrip 15% |
  *        Team L launch      Team R's          Team L's          Team R launch
@@ -11,8 +11,8 @@
  *   `rightCenter`. Team R (`team 1`) launches from `rightStrip`, scores in
  *   `leftCenter`.
  * - A launch strip "returns" a settled orb to the team that owns it: `leftStrip`
- *   → Team L, `rightStrip` → Team R. So overshooting into the enemy strip is
- *   captured by them; rolling back into your own strip returns to you.
+ *   to Team L, `rightStrip` to Team R. So overshooting into the enemy strip is
+ *   captured by them, and rolling back into your own strip returns to you.
  */
 import { THROW_ZONE_FRACTION } from './tuning'
 import type { Orb } from './Orb'

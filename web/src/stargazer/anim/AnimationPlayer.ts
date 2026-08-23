@@ -1,29 +1,25 @@
 import { Node3D } from '../scene/Node3D'
 import { applyAnimation, type AnimationClip } from './AnimationClip'
 
-/**
- * Options for an {@link AnimationPlayer}.
- *
- * @category Animation
- */
+/** Options for an {@link AnimationPlayer}. */
 export interface AnimationPlayerOptions {
   /** Start playing immediately. Default `true`. */
   autoplay?: boolean
   /** Loop at the clip's end. Default `true`. */
   loop?: boolean
-  /** Playback rate (1 = real time; negative plays backward). Default `1`. */
+  /** Playback rate (1 = real time, negative plays backward). Default `1`. */
   speed?: number
 }
 
 /**
  * Plays an {@link AnimationClip} by sampling it each engine update and writing
  * the result into the clip's target node transforms. It's a {@link Node3D}, so
- * `loadGltf` attaches one under the model root and it ticks with the tree; its
- * own transform is unused. Because it writes through the transform setters, the
- * dirty-flag cascade fires and the update runs before the frame's world-matrix
- * pass, so animated nodes render in their new pose the same frame.
+ * `loadGltf` attaches one under the model root and it ticks with the tree, but
+ * its own transform is unused. Because it writes through the transform setters,
+ * the dirty-flag cascade fires and the update runs before the frame's
+ * world-matrix pass, so animated nodes render in their new pose the same
+ * frame.
  *
- * @category Animation
  * @example
  *   const model = await loadGltf('/robot.glb') // auto-plays its clip
  *   engine.tree.add(model)

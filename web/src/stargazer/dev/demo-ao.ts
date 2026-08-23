@@ -10,15 +10,15 @@ import type { DemoFn } from './types'
 // works and its absence is obvious when it doesn't. Everything is the same matte
 // off-white so shading reads as pure occlusion, lit by one soft overhead sun so
 // concave areas are ambient-dominated (where AO lives).
-//   - a room corner (floor + two walls) — the inside seams should darken
-//   - a big block wedged into the corner — deep contact darkening on every seam
-//   - a stack of two boxes — a dark band where they meet
-//   - boxes with shrinking gaps — AO deepens as the gap closes
-//   - a lone box on open floor — a soft contact shadow at its base only
-//   - a box floating above open floor — a soft AO disc on the floor DIRECTLY
+//   - a room corner (floor + two walls): the inside seams should darken
+//   - a big block wedged into the corner: deep contact darkening on every seam
+//   - a stack of two boxes: a dark band where they meet
+//   - boxes with shrinking gaps: AO deepens as the gap closes
+//   - a lone box on open floor: only a soft contact shadow at its base
+//   - a box floating above open floor: a soft AO disc on the floor DIRECTLY
 //     BELOW it. This is the Y-flip check: run `?gfx=webgpu` and confirm the disc
 //     sits under the box (not offset above/to the side). A mirrored AO buffer on
-//     one backend puts it on the wrong side — invert the generate-flip if so.
+//     one backend puts it on the wrong side, invert the generate-flip if so.
 // Toggle AO in the debug HUD (Rendering → 3D → Ambient occlusion) to A/B it, and
 // crank intensity/radius there. Force the backend with `?gfx=webgpu`.
 
@@ -58,8 +58,8 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       y: number,
       z: number,
     ): void => {
-      // PBR (matte white) so the directional light below actually drives it —
-      // flat meshes ignore scene lights and use a fixed full-strength fallback,
+      // PBR (matte white) so the directional light below actually drives it.
+      // Flat meshes ignore scene lights and use a fixed full-strength fallback,
       // which would wash out the ambient term AO modulates.
       const n = new MeshNode(createBoxGeometry(1), {
         lit: true,
@@ -82,7 +82,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     // Big block wedged into the corner: seams with floor + both walls.
     box(3, 3, 3, 5.3, 1.5, -5.3)
 
-    // Stack of two unit boxes — a dark contact band where they meet.
+    // Stack of two unit boxes, a dark contact band where they meet.
     box(1, 1, 1, 2, 0.5, -5)
     box(1, 1, 1, 2, 1.5, -5)
 
@@ -96,7 +96,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     box(1.2, 1.2, 1.2, -3, 0.6, 1)
 
     // Floating box (0.3-unit gap to the floor, within the AO radius): the Y-flip
-    // check. Correct AO draws a soft disc on the floor directly beneath it; a
+    // check. Correct AO draws a soft disc on the floor directly beneath it. A
     // mirrored buffer offsets it. On open floor so nothing else darkens the patch.
     box(1.2, 1.2, 1.2, 1, 0.9, 1)
 
@@ -111,8 +111,8 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     camera.makeCurrent()
 
     // A steep key light: tops catch it, but the vertical faces, contacts, and
-    // the corner interior are lit almost entirely by ambient — which AO
-    // modulates — so the darkening reads strongly against the lit tops.
+    // the corner interior are lit almost entirely by ambient, which AO
+    // modulates, so the darkening reads strongly against the lit tops.
     const sun = new DirectionalLight3D({
       color: [1, 0.98, 0.95],
       intensity: 2.4,
@@ -124,7 +124,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     root.add(sun)
   })
 
-  // Strong AO by default so the effect is unmistakable; tune it live in the HUD.
+  // Strong AO by default so the effect is unmistakable, tune it live in the HUD.
   const ao = host.engine.ambientOcclusion
   ao.enabled = true
   ao.preset = 'high'

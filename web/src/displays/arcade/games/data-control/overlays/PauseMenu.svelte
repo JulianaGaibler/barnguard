@@ -1,6 +1,6 @@
 <!--
-  Pause menu — the one modal in the game. Built from the shared `Surface` +
-  `Button`; colour comes from the theme. Resume returns to play; Quit ends the
+  Pause menu, the one modal in the game. Built from the shared `Surface` +
+  `Button`. Colour comes from the theme. Resume returns to play, Quit ends the
   run and returns to the Data Control menu.
 -->
 <script lang="ts">

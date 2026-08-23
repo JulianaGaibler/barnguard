@@ -113,7 +113,7 @@ export class RingStream {
     this.pendingVerts[slot] += vertCount
   }
 
-  /** Reserve one instance record; return the word offset. */
+  /** Reserve one instance record and return the word offset. */
   reserveInstance(slot: number): number {
     const cur = this.pendingWords[slot]
     const wordsNeeded = this.recordStride / 4

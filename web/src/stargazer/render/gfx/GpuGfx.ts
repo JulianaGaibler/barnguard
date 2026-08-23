@@ -1,20 +1,23 @@
 /**
  * `Gfx2D` implementation that batches draws through a `GfxDevice`.
  *
- * Flush conditions: program change, texture bind, blend mode, ring-slot
- * overflow, explicit `flush()` at a layer boundary, `endFrame`. Alpha, color,
- * and transform changes fold into per-vertex data and never flush.
+ * Batch-break conditions: program change, texture bind, blend mode, analytic
+ * clip change, ring-slot overflow, an explicit `flush()` at a layer boundary,
+ * and `endFrame`. Alpha, color, and transform fold into the per-vertex or
+ * per-instance record and never break a batch.
  *
  * Coordinator: this class holds the `Gfx2D` public surface and the frame
- * lifecycle. Each draw program (coloredTri, texturedQuad, stroke, shape,
- * gradientRadial, maskedGradient, textQuad) lives in `./programs/*.ts` and owns
- * its shader, VAO, ring-buffered stream, and flush. Shared batch state
- * (transform/state stacks, the active-batch key, the texture manager) lives on
- * `GpuBatchContext`, so a program module never needs a `GpuGfx` reference.
+ * lifecycle. Each draw program (coloredTri, stroke, shape, gradientRadial,
+ * maskedGradient, textQuad) lives in `./programs/*.ts` and owns its shader,
+ * vertex layout, ring-buffered stream, and pipeline variants. Shared batch
+ * state (transform/state stacks, the active-batch key, the texture manager)
+ * lives on `GpuBatchContext`, so a program module never needs a `GpuGfx`
+ * reference.
  */
 
 import type {
   Gfx2D,
+  GfxClipShape,
   GfxGradientStop,
   GfxStrokeStyle,
   GfxTextStyle,
@@ -41,7 +44,6 @@ import {
 } from './GpuBatchContext'
 import type { GpuProgram } from './GpuProgram'
 import { ColoredTriProgram } from './programs/coloredTri'
-import { TexturedQuadProgram } from './programs/texturedQuad'
 import { StrokeProgram } from './programs/stroke'
 import { resolveRadii, type RoundRectRadii } from './roundRectRadii'
 import { GradientRadialProgram } from './programs/gradientRadial'
@@ -50,7 +52,19 @@ import { TextQuadProgram } from './programs/textQuad'
 import { ShapeProgram } from './programs/shape'
 import { SHAPE_TEX_ATLAS, SHAPE_TEX_LABEL } from './batchLayout'
 
+/**
+ * The scale-independent half of a label's cache key. `TextureManager` appends
+ * the scale bucket. Newline separators cannot collide: labels are single-line,
+ * so the text has none, and font/align/baseline/color never do.
+ */
+function labelBaseKey(text: string, style: LabelStyle): string {
+  return `${text}\n${style.font}\n${style.align}\n${style.baseline}\n${style.color}\n`
+}
+
 export type { DebugRenderMode, GpuGfxStats }
+
+/** Warn once when a clip is set under a transform its shape can't represent. */
+let warnedClipTransform = false
 
 /**
  * Counters for `Gfx2D` calls that hit a no-op path (e.g. `strokePath2D` on a
@@ -85,7 +99,6 @@ export class GpuGfx implements Gfx2D {
   readonly #ctx: GpuBatchContext
 
   readonly #coloredTri = new ColoredTriProgram()
-  readonly #texturedQuad = new TexturedQuadProgram()
   readonly #stroke = new StrokeProgram()
   readonly #gradientRadial = new GradientRadialProgram()
   readonly #maskedGradient = new MaskedGradientProgram()
@@ -132,9 +145,20 @@ export class GpuGfx implements Gfx2D {
   /**
    * Whether the offscreen target carries a depth attachment for the 3D pass.
    * Allocated once via {@link GpuGfx.enableDepth} and kept across resize and
-   * context restore; a pure-2D stage never sets it.
+   * context restore. A pure-2D stage never sets it.
    */
   #depthEnabled = false
+  /**
+   * Whether the offscreen target carries stencil bits, which the deduplicated
+   * translucent-stroke path needs.
+   *
+   * Fixed at construction, unlike {@link GpuGfx.enableDepth}. A pipeline bakes
+   * its depth-stencil format, so flipping this later would invalidate every 2D
+   * pipeline and force a re-warm mid-session. It is also mutually exclusive
+   * with depth (see `RenderTargetOpts.stencil`), so a stage that turns on 3D
+   * loses it and translucent strokes fall back to the plain path.
+   */
+  #stencilEnabled: boolean
   /**
    * Whether `endFrame` blits the target to the canvas. `false` for an offscreen
    * surface whose color texture is sampled elsewhere (a `Viewport2DNode`'s 2D
@@ -143,37 +167,37 @@ export class GpuGfx implements Gfx2D {
   #present: boolean
   /**
    * Single-sample resolve target, allocated only when the main target is MSAA.
-   * The main pass resolves into it on `endRenderPass`; `present` blits it to
+   * The main pass resolves into it on `endRenderPass`. `present` blits it to
    * the canvas (single-sample, so scaling is allowed) and a post-process pass
    * or a `Viewport2DNode` samples it.
    */
   #resolveTarget: RenderTarget | null = null
   /**
    * Whether pipelines have finished their async pre-warm. The stage skips
-   * rendering until this is true (WebGL2 resolves within a microtask; WebGPU
+   * rendering until this is true (WebGL2 resolves within a microtask, WebGPU
    * takes longer).
    */
   #ready = false
   #warmupSeq = 0
-  /** Resolves when the current warm-up completes; awaited by tests. */
+  /** Resolves when the current warm-up completes, awaited by tests. */
   #warmupPromise: Promise<void> = Promise.resolve()
 
   constructor(
     canvas: HTMLCanvasElement,
     device: GfxDevice,
-    opts: { samples?: number; present?: boolean } = {},
+    opts: { samples?: number; present?: boolean; stencil?: boolean } = {},
   ) {
     this.#canvas = canvas
     this.#device = device
     this.#samples = opts.samples ?? 4
     this.#present = opts.present ?? true
+    this.#stencilEnabled = opts.stencil ?? false
     this.#targetWidth = canvas.width || 1
     this.#targetHeight = canvas.height || 1
     this.#target = null as unknown as RenderTarget
     this.#textureManager = null as unknown as TextureManager
     this.#ctx = new GpuBatchContext(device, this.stats)
     this.#ctx.registerProgram(this.#coloredTri)
-    this.#ctx.registerProgram(this.#texturedQuad)
     this.#ctx.registerProgram(this.#stroke)
     this.#ctx.registerProgram(this.#shape)
     this.#ctx.registerProgram(this.#gradientRadial)
@@ -186,7 +210,6 @@ export class GpuGfx implements Gfx2D {
   get #programs(): GpuProgram[] {
     return [
       this.#coloredTri,
-      this.#texturedQuad,
       this.#stroke,
       this.#shape,
       this.#gradientRadial,
@@ -227,7 +250,7 @@ export class GpuGfx implements Gfx2D {
       filter: 'nearest',
       wrap: 'clamp',
     })
-    // Shared per-frame projection UBO + its bind group; every 2D pipeline's
+    // Shared per-frame projection UBO and its bind group. Every 2D pipeline's
     // group 0 reads it.
     this.#ctx.initFrameUbo()
 
@@ -238,12 +261,14 @@ export class GpuGfx implements Gfx2D {
       height: this.#targetHeight,
       samples: this.#samples,
       depth: this.#depthEnabled,
+      stencil: this.#stencilEnabled,
     })
     this.stats.msaaSamples = this.#target.samples
     this.#ctx.targetColor = {
       format: this.#target.colorSpace,
       samples: this.#target.samples,
     }
+    this.#ctx.targetHasStencil = this.#target.hasStencil
     this.#ensureResolveTarget()
 
     if (this.#textureManager) {
@@ -258,9 +283,10 @@ export class GpuGfx implements Gfx2D {
 
   /**
    * Create every program's pipeline variants for the current target color
-   * format + sample count. Async (WebGPU compiles pipelines asynchronously);
-   * `#ready` gates rendering until it resolves. A `#warmupSeq` guard drops a
-   * stale warm-up if the target changed again mid-flight (MSAA swap, resize).
+   * format + sample count. Async, since WebGPU compiles pipelines
+   * asynchronously. `#ready` gates rendering until it resolves. A `#warmupSeq`
+   * guard drops a stale warm-up if the target changed again mid-flight (MSAA
+   * swap, resize).
    */
   async #warmupPipelines(): Promise<void> {
     this.#ready = false
@@ -269,6 +295,7 @@ export class GpuGfx implements Gfx2D {
       format: this.#target.colorSpace,
       samples: this.#target.samples,
     }
+    this.#ctx.targetHasStencil = this.#target.hasStencil
     for (const p of this.#programs) {
       await p.warmup(this.#device, this.#ctx)
       if (seq !== this.#warmupSeq) return
@@ -278,7 +305,7 @@ export class GpuGfx implements Gfx2D {
 
   /**
    * Allocate (or reallocate) the single-sample resolve target when the main
-   * target is MSAA; drop it when it isn't. Matches the main target's size +
+   * target is MSAA. Drops it when it isn't. Matches the main target's size +
    * color space so the MSAA resolve blit is format- and bounds-compatible.
    */
   #ensureResolveTarget(): void {
@@ -311,6 +338,14 @@ export class GpuGfx implements Gfx2D {
    */
   get textureInspector(): TextureInspector {
     return this.#textureManager
+  }
+
+  /**
+   * Drop every cached label raster, so the next frame re-rasterizes text. Used
+   * after a webfont arrives late. See `TextureManager.clearLabelCache`.
+   */
+  clearLabelCache(): void {
+    this.#textureManager.clearLabelCache()
   }
 
   /** The backend device, for the 3D pass to draw through the same frame/target. */
@@ -348,9 +383,14 @@ export class GpuGfx implements Gfx2D {
       depth: true,
     })
     this.stats.msaaSamples = this.#target.samples
+    this.#ctx.targetHasStencil = false
     this.#ensureResolveTarget()
     // Color format + sample count are unchanged (only a depth attachment was
-    // added), so the 2D pipelines stay valid — no re-warm needed.
+    // added), so the 2D pipelines stay valid and no re-warm is needed.
+    //
+    // Depth and stencil cannot share a target here, so a stage that turns on 3D
+    // gives up stencil. The stroke path gates on `targetHasStencil` and falls
+    // back to plain overlapping draws, so that needs no re-warm either.
   }
 
   // --- frame lifecycle ------------------------------------------------------
@@ -385,7 +425,7 @@ export class GpuGfx implements Gfx2D {
     this.#updateProjection(this.#targetWidth, this.#targetHeight)
     this.#ctx.stateStack.resetBase()
     this.#ctx.txStack.setBase(1, 0, 0, 1, 0, 0)
-    // Parse the CSS clear once; fully-transparent under `transparent: true`.
+    // Parse the CSS clear once. Fully transparent under `transparent: true`.
     const clear: readonly [number, number, number, number] = opts.transparent
       ? [0, 0, 0, 0]
       : rgbaTuple(parseColor(opts.clearColor))
@@ -407,13 +447,18 @@ export class GpuGfx implements Gfx2D {
             loadOp: 'clear',
           }
         : undefined,
+      // Zeroed once per frame. Every stencil group resets its own bits after
+      // drawing, so nothing carries from one stroke to the next within a frame.
+      stencil: this.#target.hasStencil
+        ? { target: this.#target, loadOp: 'clear', clearValue: 0 }
+        : undefined,
     })
     this.#ctx.curBlend = 'source-over'
   }
 
   /**
    * Layer boundary (Stage calls this between drawLayer calls). Under
-   * record/submit this only records the pending batch as a draw-run; the GPU
+   * record/submit this only records the pending batch as a draw-run. The GPU
    * work is deferred to `submitFrame` in `endFrame`. Doesn't advance the slot.
    */
   flush(): void {
@@ -423,7 +468,7 @@ export class GpuGfx implements Gfx2D {
   /**
    * End of frame: record the last pending run, upload each stream once, replay
    * the command list, then blit the FBO to the canvas. If the context was lost
-   * mid-frame, skip it all; `beginFrame` resets state next frame.
+   * mid-frame, skip it all. `beginFrame` resets state next frame.
    */
   endFrame(): void {
     if (this.#device.isContextLost()) {
@@ -453,7 +498,7 @@ export class GpuGfx implements Gfx2D {
   /**
    * Color texture backing this surface's target, for sampling elsewhere (a
    * non-presenting offscreen surface). `null` when the target is a multisample
-   * renderbuffer (`samples > 1`), which cannot be sampled; use `samples: 1`.
+   * renderbuffer (`samples > 1`), which cannot be sampled. Use `samples: 1`.
    */
   get colorTexture(): Texture | null {
     // The present source is always single-sample (the resolve target under
@@ -464,8 +509,8 @@ export class GpuGfx implements Gfx2D {
   /**
    * The resolved, sampleable target a post-process pipeline reads (after
    * `setPresent(false)` + `endFrame` have submitted + resolved the frame).
-   * Under MSAA this is the single-sample resolve target; otherwise the target
-   * itself.
+   * Under MSAA this is the single-sample resolve target. Otherwise it is the
+   * target itself.
    */
   get target(): RenderTarget {
     return this.#presentSource
@@ -479,16 +524,15 @@ export class GpuGfx implements Gfx2D {
   /**
    * Toggle whether `endFrame` blits the target to the canvas. A `Stage` sets
    * this false for the frames a post-process pipeline will present instead, and
-   * true again when no effects are active. Pure state flag; touches no GL.
+   * true again when no effects are active. Pure state flag, touches no GL.
    */
   setPresent(present: boolean): void {
     this.#present = present
   }
 
   /**
-   * Resize the internal render target. Idempotent. Deliberately does NOT
-   * invalidate the static-map bake, the reprojection matrix in
-   * `computeStaticReprojection` handles a stale bake at the old size.
+   * Resize the offscreen render target and its resolve target. Idempotent, so a
+   * `ResizeObserver` can call it on every observation.
    */
   setInternalSize(pixelW: number, pixelH: number): void {
     if (pixelW === this.#targetWidth && pixelH === this.#targetHeight) return
@@ -559,7 +603,7 @@ export class GpuGfx implements Gfx2D {
   // --- Gfx2D: alpha + blend ------------------------------------------------
 
   setAlpha(alpha: number): void {
-    // Absolute (matches Canvas globalAlpha; see Gfx2D docstring).
+    // Absolute, matching Canvas globalAlpha (see Gfx2D docstring).
     this.#ctx.stateStack.setAlpha(alpha)
   }
 
@@ -573,6 +617,73 @@ export class GpuGfx implements Gfx2D {
     // `flush` when the effective mask differs from the batch's baked-in
     // mask, matches how blend + texture flips force a flush.
     this.#ctx.stateStack.setClipMask(mask)
+  }
+
+  /**
+   * The geometric mean of the transform's two axis scales, which is the
+   * rotation-safe reading: exactly the scale factor when uniform, and the
+   * area-preserving average when not.
+   */
+  deviceScale(): number {
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const s = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
+    return s > 0 ? s : 1
+  }
+
+  snapSize(v: number): number {
+    const s = this.deviceScale()
+    if (!(s > 0) || !Number.isFinite(v)) return v
+    return Math.max(1, Math.round(v * s)) / s
+  }
+
+  setClip(shape: GfxClipShape | null): void {
+    if (!shape) {
+      this.#ctx.stateStack.setClip(null)
+      return
+    }
+    // Resolve local → device px through the current transform, like fillCircle.
+    // The snapshot is taken now, so later transform changes don't move the clip.
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
+    const rotatedOrSkewed = Math.abs(t.b) > 1e-4 || Math.abs(t.c) > 1e-4
+    const nonUniform = Math.abs(Math.abs(t.a) - Math.abs(t.d)) > 1e-3
+    if (shape.kind === 'circle') {
+      if (nonUniform && !warnedClipTransform) {
+        warnedClipTransform = true
+        console.warn(
+          'GpuGfx.setClip: non-uniform scale approximates a circle clip as one averaged radius.',
+        )
+      }
+      this.#ctx.stateStack.setClip({
+        kind: 1,
+        cx: t.a * shape.cx + t.c * shape.cy + t.e,
+        cy: t.b * shape.cx + t.d * shape.cy + t.f,
+        r: shape.r * scale,
+        halfW: 0,
+        halfH: 0,
+        rrRadius: 0,
+      })
+    } else {
+      if ((rotatedOrSkewed || nonUniform) && !warnedClipTransform) {
+        warnedClipTransform = true
+        console.warn(
+          'GpuGfx.setClip: a rounded-rect clip assumes an axis-aligned transform; rotation/skew/non-uniform scale is unsupported.',
+        )
+      }
+      const midX = shape.x + shape.w / 2
+      const midY = shape.y + shape.h / 2
+      this.#ctx.stateStack.setClip({
+        kind: 2,
+        cx: t.a * midX + t.c * midY + t.e,
+        cy: t.b * midX + t.d * midY + t.f,
+        r: 0,
+        halfW: (shape.w / 2) * Math.abs(t.a),
+        halfH: (shape.h / 2) * Math.abs(t.d),
+        rrRadius: shape.radius * scale,
+      })
+    }
   }
 
   /**
@@ -610,6 +721,7 @@ export class GpuGfx implements Gfx2D {
       height: this.#targetHeight,
       samples: this.#samples,
       depth: this.#depthEnabled,
+      stencil: this.#stencilEnabled,
     })
     this.stats.msaaSamples = this.#target.samples
     this.#ensureResolveTarget()
@@ -714,9 +826,11 @@ export class GpuGfx implements Gfx2D {
       return
     }
     // Retained geometry GPU-transforms a once-uploaded static buffer, saving
-    // the per-vertex CPU transform. The retained shader carries neither the clip
-    // sampler nor the debug recolor, so an active clip mask or a non-normal
-    // debug mode falls back to the streamed path (identical pixels either way).
+    // the per-vertex CPU transform. The retained shader carries neither the
+    // bitmap clip mask's sampler nor the debug recolor, so those two fall back
+    // to the streamed path (identical pixels either way). The analytic clip is
+    // not one of them: the retained shader reads the same group-0 clip block,
+    // so `setClip` composes without giving up the fast path.
     if (
       geo.retained &&
       this.#ctx.stateStack.getClipMask() === null &&
@@ -888,7 +1002,31 @@ export class GpuGfx implements Gfx2D {
     y1: number,
     style: GfxStrokeStyle,
   ): void {
+    // Flattening turns one curve into many collinear segments, so a translucent
+    // quadratic beads at every one of them. Segment count is not known until
+    // the flattener runs, and a curve always has more than one.
+    if (!this.#strokeNeedsStencil(style, 2)) {
+      this.#stroke.quadratic(this.#ctx, x0, y0, cx, cy, x1, y1, style)
+      return
+    }
+    this.#ctx.beginStencilGroup()
     this.#stroke.quadratic(this.#ctx, x0, y0, cx, cy, x1, y1, style)
+    this.#ctx.endStencilGroup()
+  }
+
+  /**
+   * Whether a stroke of `segments` segments needs the deduplicating stencil
+   * path.
+   *
+   * Only translucent strokes can bead: an opaque one composites to the same
+   * result however many times it covers a pixel, so it stays on the plain,
+   * fully batched path. A single segment has no interior join and so cannot
+   * overlap itself either.
+   */
+  #strokeNeedsStencil(style: GfxStrokeStyle, segments: number): boolean {
+    if (segments < 2 || !this.#target.hasStencil) return false
+    const alpha = this.#ctx.stateStack.getAlpha() * parseColor(style.color).a
+    return alpha < 1
   }
 
   strokePolyline(
@@ -896,7 +1034,16 @@ export class GpuGfx implements Gfx2D {
     count: number,
     style: GfxStrokeStyle,
   ): void {
+    // A closed polyline joins back to its first point, so it has one more
+    // segment than an open one.
+    const segments = style.closed === true ? count : count - 1
+    if (!this.#strokeNeedsStencil(style, segments)) {
+      this.#stroke.polyline(this.#ctx, pts, count, style)
+      return
+    }
+    this.#ctx.beginStencilGroup()
     this.#stroke.polyline(this.#ctx, pts, count, style)
+    this.#ctx.endStencilGroup()
   }
 
   strokePath2D(path: Path2D, style: GfxStrokeStyle): void {
@@ -909,6 +1056,17 @@ export class GpuGfx implements Gfx2D {
       this.unimplemented.strokePath2D++
       return
     }
+    // Total across every contour, counted first: the whole path is one stroke
+    // and so one stencil group, and a path holding a single segment needs no
+    // group at all.
+    let segments = 0
+    for (let i = 0; i < contours.length; i++) {
+      const count = contours[i].length / 2
+      if (count < 2) continue
+      segments += getContourClosed(path, i) ? count : count - 1
+    }
+    const stencil = this.#strokeNeedsStencil(style, segments)
+    if (stencil) this.#ctx.beginStencilGroup()
     for (let i = 0; i < contours.length; i++) {
       const c = contours[i]
       const count = c.length / 2
@@ -917,6 +1075,7 @@ export class GpuGfx implements Gfx2D {
       const perContourStyle: GfxStrokeStyle = { ...style, closed }
       this.#stroke.polyline(this.#ctx, c, count, perContourStyle)
     }
+    if (stencil) this.#ctx.endStencilGroup()
   }
 
   // --- Gfx2D: images -------------------------------------------------------
@@ -933,7 +1092,7 @@ export class GpuGfx implements Gfx2D {
     const entry = this.#textureManager.getOrCreateEntry(img)
     if (entry === null) return
     // Discriminate atlas entry vs standalone Texture. Atlas entries carry
-    // a `srcRect` field; standalone Textures don't.
+    // a `srcRect` field, standalone Textures don't.
     let tex: Texture
     let u0: number, v0: number, u1: number, v1: number
     if ('srcRect' in entry) {
@@ -952,7 +1111,7 @@ export class GpuGfx implements Gfx2D {
     }
     // Full affine (shares the shape/textQuad layout): the unit square [0,1]²
     // maps to device px via mCol0·u + mCol1·v + translate, so rotation/skew are
-    // free — no axis-aligned rejection.
+    // free, with no axis-aligned rejection.
     const col0x = t.a * dw
     const col0y = t.b * dw
     const col1x = t.c * dh
@@ -960,7 +1119,7 @@ export class GpuGfx implements Gfx2D {
     let tx = t.a * dx + t.c * dy + t.e
     let ty = t.b * dx + t.d * dy + t.f
     // Subpixel-snap only when axis-aligned (matches fillText): land 1:1 texels
-    // on whole device pixels so blits don't smear; skip when rotated/skewed.
+    // on whole device pixels so blits don't smear. Skip when rotated/skewed.
     if (Math.abs(t.b) < 1e-6 && Math.abs(t.c) < 1e-6) {
       tx = Math.round(tx)
       ty = Math.round(ty)
@@ -1011,12 +1170,32 @@ export class GpuGfx implements Gfx2D {
 
   // --- Gfx2D: text ---------------------------------------------------------
 
+  warmText(text: string, style: GfxTextStyle = {}): void {
+    if (text.length === 0) return
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const deviceScale = Math.max(Math.hypot(t.a, t.b), Math.hypot(t.c, t.d))
+    if (!(deviceScale > 0)) return
+    const resolved: LabelStyle = {
+      font: style.font ?? DEFAULT_LABEL_FONT,
+      align: style.align ?? 'left',
+      baseline: style.baseline ?? 'alphabetic',
+      color: style.color ?? '#000',
+    }
+    this.#textureManager.ensureLabelTexture(
+      labelBaseKey(text, resolved),
+      text,
+      resolved,
+      deviceScale,
+    )
+  }
+
   fillText(text: string, x: number, y: number, style: GfxTextStyle = {}): void {
     if (text.length === 0) return
     this.#ctx.txStack.read(this.#ctx.txOut)
     const t = this.#ctx.txOut
     // Net local→device scale, independent of rotation (columns of the linear
-    // part). Drives how sharply the label is rasterized; rotation is free.
+    // part). Drives how sharply the label is rasterized. Rotation is free.
     const deviceScale = Math.max(Math.hypot(t.a, t.b), Math.hypot(t.c, t.d))
     if (!(deviceScale > 0)) return
 
@@ -1026,12 +1205,8 @@ export class GpuGfx implements Gfx2D {
       baseline: style.baseline ?? 'alphabetic',
       color: style.color ?? '#000',
     }
-    // Cache key: scale-independent style. TextureManager appends the scale
-    // bucket. Newline separators are collision-free: labels are single-line, so
-    // the text can't contain one, and font/align/baseline/color never do.
-    const baseKey = `${text}\n${resolved.font}\n${resolved.align}\n${resolved.baseline}\n${resolved.color}\n`
     const label = this.#textureManager.ensureLabelTexture(
-      baseKey,
+      labelBaseKey(text, resolved),
       text,
       resolved,
       deviceScale,
@@ -1059,7 +1234,7 @@ export class GpuGfx implements Gfx2D {
       ty = Math.round(ty)
     }
 
-    // Tint = white × alpha (premultiplied). Baked glyph color is preserved;
+    // Tint = white × alpha (premultiplied). Baked glyph color is preserved,
     // this only applies the current alpha (and keeps emoji multi-color).
     const alpha = this.#ctx.stateStack.getAlpha()
     const a = Math.max(0, Math.min(255, Math.round(alpha * 255)))
@@ -1069,7 +1244,7 @@ export class GpuGfx implements Gfx2D {
     // page, or the whole texture ([0,0,1,1]) for an oversized dedicated label.
     const sr = label.srcRect
     // Shape routing: only page-backed labels (the shared label page bound at the
-    // shape's fixed label unit) can go through it; an oversized label has its own
+    // shape's fixed label unit) can go through it. An oversized label has its own
     // texture, so it stays on the textQuad program.
     if (label.tex === this.#textureManager.getLabelPageTexture()) {
       this.#shape.textured(
@@ -1115,7 +1290,7 @@ export class GpuGfx implements Gfx2D {
    * Install a tessellation for a given `Path2D` so subsequent `fillPath2D(path,
    * …)` and `strokePath2D(path, …)` calls resolve against a cached
    * triangulation / contour set. Delegates to the process-wide
-   * `PathTessellationRegistry`; nodes and asset loaders can also register there
+   * `PathTessellationRegistry`. Nodes and asset loaders can also register there
    * directly.
    */
   registerTessellation(

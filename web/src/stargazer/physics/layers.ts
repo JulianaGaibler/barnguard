@@ -3,8 +3,6 @@
  * in one or more layers (`layer` bitmask) and scans one or more layers for
  * contacts (`mask` bitmask). Two colliders interact only when each is in a
  * layer the other scans, so filtering is symmetric.
- *
- * @category Physics
  */
 
 /** Default layer a body occupies when none is given: bit 0. */
@@ -17,7 +15,6 @@ export const LAYER_ALL = 0xffffffff
  * Whether two objects should be tested for collision, given their layers and
  * masks. True when each object is in a layer the other scans.
  *
- * @category Physics
  * @example
  *   const PLAYER = 1 << 0
  *   const ENEMY = 1 << 1

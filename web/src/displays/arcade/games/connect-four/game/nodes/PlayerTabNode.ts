@@ -1,4 +1,6 @@
 import { Node2D, type Gfx2D } from '@src/stargazer'
+import { FAMILIES, fontFor, fontWith } from '@src/core/theme'
+import { CONNECT_FOUR_FONTS } from '../../fonts'
 import { TAB } from '../tuning'
 
 export type PlayerTabState = 'active' | 'inactive' | 'won' | 'lost'
@@ -9,7 +11,7 @@ export interface PlayerTabOptions {
   height: number
   /** Which corner is rounded: the top-right (bookmark look). */
   roundedCorner: 'tl' | 'tr'
-  /** The player's color (card fill when not won; label color when won). */
+  /** The player's color (card fill when not won, label color when won). */
   color: string
   /** "p.1" / "p.2". */
   label: string
@@ -24,14 +26,14 @@ export interface PlayerTabOptions {
  * move. On a win the winner's card flips to white with the player color as
  * text, grows a folded (dog-ear) bottom-right corner, and its sublabel reads
  * "won". The session owns two of these (left/right) and calls {@link setState}
- * on turn and round-over events; it toggles `visible` for the menu vs play.
+ * on turn and round-over events. It toggles `visible` for the menu vs play.
  *
  * Everything (card, labels, pill) is drawn in this node's own `draw`, so
  * `visible = false` hides the whole tab atomically. (The renderer draws from a
  * flat per-layer list and checks `visible` per node, so child nodes would keep
  * drawing even with the parent hidden.) The card is composed from `fillRect` +
  * `fillCircle` (its fill is opaque, so the overlaps don't darken) rather than a
- * `Path2D` — the GPU `fillPath2D` only renders pre-registered tessellations, so
+ * `Path2D`. The GPU `fillPath2D` only renders pre-registered tessellations, so
  * a runtime path draws nothing. Sizes are world units so the tab scales with
  * the board.
  */
@@ -73,8 +75,15 @@ export class PlayerTabNode extends Node2D {
     this.#yourTurn = opts.yourTurn
     this.#wonLabel = opts.won
     this.#subColor = opts.color
-    this.#mainFont = `700 ${opts.height * 0.42}px ${TAB.labelFont}`
-    this.#subFont = `700 ${opts.height * 0.13}px ${TAB.subFont}`
+    // The "p.N" label is body-weight sans; the "your turn" / "won" sublabel is
+    // monospace for the technical feel the board chrome is going for.
+    this.#mainFont = fontFor(
+      CONNECT_FOUR_FONTS,
+      'text',
+      700,
+      opts.height * 0.42,
+    )
+    this.#subFont = fontWith(FAMILIES.azeretMono, 700, opts.height * 0.13)
     this.#subCX = opts.width / 2
     this.#subCY = opts.height + opts.height * 0.22
     this.#pillH = opts.height * 0.24

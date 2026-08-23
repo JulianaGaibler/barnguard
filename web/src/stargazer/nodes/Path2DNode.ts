@@ -6,16 +6,10 @@ import type { Gfx2D } from '../render/gfx/Gfx2D'
 /**
  * Hit-testing strategy for a {@link Path2DNode}. See the `hitMode` field on
  * {@link Path2DNodeOptions} for what each value tests.
- *
- * @category Nodes
  */
 export type Path2DHitMode = 'none' | 'fill' | 'stroke' | 'circle'
 
-/**
- * Constructor options for {@link Path2DNode}.
- *
- * @category Nodes
- */
+/** Constructor options for {@link Path2DNode}. */
 export interface Path2DNodeOptions {
   id?: string
   /** The path to draw, in the node's local coord frame. */
@@ -33,11 +27,11 @@ export interface Path2DNodeOptions {
    */
   strokeSpace?: 'screen' | 'world'
   /**
-   * Hit-testing strategy (world coords → boolean): 'none', never a hit
-   * (default) 'fill', `ctx.isPointInPath` (exact interior test) 'stroke',
-   * `ctx.isPointInStroke` (exact edge test) 'circle', `worldX²+worldY² ≤
-   * (hitRadiusWorld + touchSlopWorld)²` (cheap; good for round targets and
-   * UI-scale hitboxes)
+   * Hit-testing strategy (world coords → boolean). `'none'` never hits
+   * (default). `'fill'` uses `ctx.isPointInPath` (exact interior test).
+   * `'stroke'` uses `ctx.isPointInStroke` (exact edge test). `'circle'` tests
+   * `worldX²+worldY² ≤ (hitRadiusWorld + touchSlopWorld)²`, cheap and good for
+   * round targets and UI-scale hitboxes.
    */
   hitMode?: Path2DHitMode
   /** For 'circle' hit-mode. World units. */
@@ -52,7 +46,7 @@ export interface Path2DNodeOptions {
 /**
  * Draws a `Path2D` (filled and/or stroked) and hit-tests points against it.
  * Build the path by hand, or get one from `parseSvgPaths` for SVG artwork. A
- * path needs a registered tessellation before it renders; `parseSvgPaths`
+ * path needs a registered tessellation before it renders. `parseSvgPaths`
  * registers one for each path it returns, so paths from there draw with no
  * extra setup. A path with no tessellation is skipped and counted in the debug
  * HUD.
@@ -63,9 +57,22 @@ export interface Path2DNodeOptions {
  * a shared scratch context. See `hitMode` on {@link Path2DNodeOptions} for the
  * strategies.
  *
- * @category Nodes
+ * @example
+ *   const { paths } = parseSvgPaths(mapSvg)
+ *   for (const [id, entry] of paths) {
+ *     const region = new Path2DNode({
+ *       id,
+ *       path: entry.path,
+ *       fill: '#354a6e',
+ *       stroke: '#fdf6e3',
+ *       hitMode: 'fill',
+ *       debugBounds: entry.bounds,
+ *     })
+ *     scene.root.add(region)
+ *   }
  */
 export class Path2DNode extends Node2D {
+  // Live mirrors of Path2DNodeOptions, documented there.
   path: Path2D
   fill: string | null
   stroke: string | null
@@ -106,7 +113,7 @@ export class Path2DNode extends Node2D {
     if (this.hitMode === 'none') return false
 
     // Transform world → local via the inverse of node.world (2D affine).
-    // Uses (a, b, c, d, e, f); determinant guards against a degenerate node.
+    // Uses (a, b, c, d, e, f). Determinant guards against a degenerate node.
     const w = this.transform.world
     const det = w.a * w.d - w.b * w.c
     if (det === 0) return false

@@ -39,6 +39,10 @@ export type { RenderLayer, PointerHandlers } from './scene/Node2D'
 export { Behavior } from './scene/Behavior'
 export type { BehaviorCtor } from './scene/Behavior'
 export { PointerBehavior } from './scene/PointerBehavior'
+export { ButtonBehavior } from './scene/ButtonBehavior'
+export type { ButtonOptions } from './scene/ButtonBehavior'
+export { DraggableBehavior } from './scene/DraggableBehavior'
+export type { DraggableOptions } from './scene/DraggableBehavior'
 export { walkTree } from './scene/traverse'
 export { hitTestCircle } from './scene/hitTest'
 export { raycastWorld3D, raycastMesh, makeRay } from './scene/raycast3d'
@@ -73,14 +77,15 @@ export {
   rectContains,
   rectIntersects,
   rectUnion,
+  rectInflate,
   rectPointAt,
   rectPercentOf,
   rectMargins,
   clampRectToBounds,
 } from './math/Rect'
-// `MatrixPool` was previously exported here but is not consumed by the engine
-// or any downstream game code, kept as an internal helper in `math/matrix.ts`
-// so its tests still resolve; not part of the public API.
+// `MatrixPool` is an internal helper in `math/matrix.ts`, not part of the
+// public API. It has no consumers outside its own tests, which import it
+// directly.
 export {
   copyMatrix2D,
   multiplyMatrix2D,
@@ -118,7 +123,7 @@ export {
 } from './math/Quat'
 export type { Ray } from './math/Ray'
 export { ray, rayAt } from './math/Ray'
-export type { Mat4 } from './math/Mat4'
+export type { Mat4, ClipDepth } from './math/Mat4'
 export {
   mat4,
   mat4Identity,
@@ -141,12 +146,10 @@ export type { Easing } from './math/easings'
 /**
  * Easing functions for tweens, e.g. `easings.inOutCubic`. Each is an
  * {@link Easing}.
- *
- * @category Math
  */
 export * as easings from './math/easings'
 
-// camera — cameras are scene-tree nodes; `Camera`/`Camera3D` are internal
+// camera. Cameras are scene-tree nodes, `Camera`/`Camera3D` are internal
 // view-math helpers the nodes own and are not exported.
 export { CameraNode2D } from './camera/CameraNode2D'
 export { CameraNode3D } from './camera/CameraNode3D'
@@ -176,11 +179,19 @@ export {
 export type { RenderQualityOptions } from './render/RenderQuality'
 export { Fog } from './render/Fog'
 export type { FogOptions, FogMode } from './render/Fog'
+export type { GfxBackend, ColorFormat } from './render/gfx/GfxDevice'
+export { selectGfxDevice } from './render/gfx/selectBackend'
+export type {
+  BackendPreference,
+  BackendSelection,
+} from './render/gfx/selectBackend'
 export { PostProcessPipeline } from './render/postfx/PostProcessPipeline'
+export { postShader } from './render/postfx/PostEffect'
 export type {
   PostEffect,
   PostPass,
   PostPassContext,
+  PostShaderSource,
 } from './render/postfx/PostEffect'
 export { ChromaticAberration } from './render/postfx/effects/ChromaticAberration'
 export type { ChromaticAberrationOptions } from './render/postfx/effects/ChromaticAberration'
@@ -193,6 +204,7 @@ export type { AoPreset } from './render/gfx/ao/AmbientOcclusion'
 export type {
   Gfx2D,
   GfxBlend,
+  GfxClipShape,
   GfxStrokeStyle,
   GfxTextStyle,
   GfxGradientStop,
@@ -203,7 +215,7 @@ export type { GeometryHandle } from './render/gfx/GeometryHandle'
 export { parseColor, mixColor, withAlpha } from './render/gfx/parseColor'
 export type { RGBA } from './render/gfx/parseColor'
 
-// debug (dev-only surface; production code sees `host.debug === null`)
+// debug (dev-only surface, production code sees `host.debug === null`)
 export { DebugController } from './debug/DebugController'
 export type {
   DebugEvents,
@@ -258,17 +270,42 @@ export {
 export type { Light3DOptions } from './nodes/Light3D'
 export { Viewport2DNode } from './nodes/Viewport2DNode'
 export type { Viewport2DOptions } from './nodes/Viewport2DNode'
-export { measureText } from './render/gfx/rasterizeLabel'
-export type { LabelStyle, LabelMetrics } from './render/gfx/rasterizeLabel'
+export {
+  clearFontMetricsCache,
+  fontMetrics,
+  measureText,
+} from './render/gfx/rasterizeLabel'
+export { clearTextLayoutCaches } from './render/gfx/textLayout'
+export type {
+  FontMetrics,
+  LabelStyle,
+  LabelMetrics,
+} from './render/gfx/rasterizeLabel'
 export {
   ellipsize,
   fitFontSize,
+  fitRichTextBlock,
   fitTextBlock,
+  richText,
+  textAdvance,
+  textMetrics,
   textWidth,
+  wrapRichText,
   wrapText,
   wrapTextInfo,
 } from './render/gfx/textLayout'
-export type { TextBlock } from './render/gfx/textLayout'
+export type {
+  InlineBox,
+  RichBlock,
+  RichBoxRun,
+  RichLine,
+  RichRun,
+  RichTextRun,
+  TextBlock,
+  TextMeasure,
+  TextRun,
+  TextSpan,
+} from './render/gfx/textLayout'
 
 // layout (opt-in constraints-based box layout)
 export { BoxConstraints, edgeInsets } from './layout/constraints'
@@ -352,11 +389,29 @@ export type { ParticleSpriteStyle } from './particles/draw'
 // assets
 export { AssetLoader } from './assets/AssetLoader'
 export { parseSvgPaths, computePathBounds } from './assets/SvgPathMap'
+export {
+  flattenCubic,
+  flattenQuadratic,
+  flattenSvgPath,
+  tessellateContours,
+} from './assets/SvgPathContours'
+export {
+  getPathContours,
+  registerPathTessellation,
+  releasePathTessellation,
+} from './render/gfx/PathTessellationRegistry'
 export type {
   SvgPathMap,
   SvgPathEntry,
   ParseSvgPathsOptions,
 } from './assets/SvgPathMap'
+export {
+  rasterizeSvg,
+  svgViewBoxSize,
+  sizeSvgSource,
+  isBlankRaster,
+} from './assets/rasterizeSvg'
+export type { RasterizeSvgOptions } from './assets/rasterizeSvg'
 export { buildBitmapMask } from './assets/BitmapMask'
 export type { BitmapMask, BitmapMaskOptions } from './assets/BitmapMask'
 export { loadGltf, parseGltf } from './assets/gltf'

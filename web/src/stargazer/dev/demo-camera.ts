@@ -38,18 +38,13 @@ async function loadAssets(): Promise<DemoAssets> {
 }
 
 /**
- * M8 demo. Shape map on the `'static'` layer + camera tween on click +
- * shockwave via `renderLayer` promotion.
+ * Camera demo. A shape map on the `'static'` layer, a camera tween on click,
+ * and a shockwave driven by `renderLayer` promotion.
  *
- * - The map is drawn every frame the camera is stable via a cheap `drawImage`
- *   blit from the offscreen bake canvas. Verify by watching "Static bakes/s: 0"
- *   in the debug HUD (Scene section).
- * - Click a shape → camera tweens to the upper- or lower-half viewport over ~500
- *   ms; during the tween the cache is skipped and the static layer is drawn
- *   fresh each frame. Bakes/s temporarily jumps to 0 → stays 0 (fresh draws
- *   don't bake) → 1 exactly on the settle frame.
- * - Press `P` while hovering a shape to pulse its alpha (promote → tween 1→0.7→1
- *   → demote). HUD shows exactly `Static bakes total` +2 for the whole pulse.
+ * - Click a shape and the camera tweens to the upper or lower half viewport over
+ *   roughly 500 ms.
+ * - Press `P` while hovering a shape to pulse its alpha, promoting it to
+ *   `'above-static'` for the tween so it animates clear of the map.
  * - Press `Escape` to return to the full view.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
@@ -91,9 +86,8 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
         hitMode: 'fill',
         debugBounds: entry.bounds,
       })
-      // Explicit static (inherited from parent implicitly wouldn't invalidate
-      // on individual state promotion, we need each state node to own its
-      // own renderLayer so its setter triggers `scene.invalidateStatic()`).
+      // `renderLayer` is per node, not inherited from the parent group, so
+      // each state sets its own to be promoted individually by the pulse.
       node.renderLayer = 'static'
       mapGroup.add(node)
       stateNodes.set(id, node)
@@ -180,7 +174,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     if (!hit) return
     const c = stateCenters.get(hit)
     if (!c) return
-    // Below-midpoint states → lower-half crop; else upper-half.
+    // Below-midpoint states crop to the lower half, others to the upper half.
     const targetView = c.y > FULL_VIEW.height / 2 ? LOWER_HALF : UPPER_HALF
     void zoomTo(targetView)
   }
@@ -193,7 +187,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     activePulses.add(id)
     const originalFill = node.fill
     node.fill = COLOR_PULSE
-    node.renderLayer = 'above-static' // triggers 1 static re-bake without this state
+    node.renderLayer = 'above-static'
     try {
       await node.tween({ alpha: 0.55 }, { duration: 0.18, easing: outBack })
       await node.tween({ alpha: 1 }, { duration: 0.32, easing: inOutQuad })
@@ -201,7 +195,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       ignoreAbort(err)
     } finally {
       node.fill = originalFill
-      node.renderLayer = 'static' // triggers 1 static re-bake with this state back
+      node.renderLayer = 'static'
       activePulses.delete(id)
     }
   }

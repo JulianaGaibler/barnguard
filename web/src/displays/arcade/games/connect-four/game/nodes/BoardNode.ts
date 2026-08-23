@@ -6,8 +6,8 @@ import { BOARD } from '../tuning'
 /**
  * The Connect Four board: a light translucent panel with a single rounded
  * corner (top-right), a subtly darker "well" per slot, and a faint X behind
- * each slot. Drawn straight from primitives — the panel as one rounded-rect SDF
- * quad, wells as circles, X's as line pairs — so there's no bitmap to bake and
+ * each slot. Drawn straight from primitives, the panel as one rounded-rect SDF
+ * quad, wells as circles, X's as line pairs, so there's no bitmap to bake and
  * no flip quirk, and the whole node fades cleanly with `transform.alpha` on
  * reveal/return. Discs render on a layer IN FRONT, so a dropped chip sits over
  * its well (a ring of well shows around it) and covers the slot's X.

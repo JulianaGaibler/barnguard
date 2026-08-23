@@ -13,6 +13,7 @@
     REGION_WIDTH,
     REGION_HEIGHT,
   } from '../../world'
+  import { BLACK, GREEN } from './palette'
   import type { GameProps } from '../GameModule'
   import { recordArcadeGame } from '../../game-log'
   import {
@@ -27,6 +28,7 @@
   import { DATA_CONTROL_STRINGS as t } from './strings'
   import { DATA_CONTROL_TUTORIAL } from './tutorial'
   import SplashScreen from './overlays/SplashScreen.svelte'
+  import PauseIcon from '@src/displays/arcade/PauseIcon.svelte'
   import PauseMenu from './overlays/PauseMenu.svelte'
   import GameOver from './overlays/GameOver.svelte'
   import StateConfirmCard from './overlays/StateConfirmCard.svelte'
@@ -173,7 +175,7 @@
     // arcade sky can never leak in when the camera zooms into a state (the
     // framing overshoots above the map for headroom, which a fixed
     // region-sized rect fails to cover). Its bottom is pinned to the game
-    // region so it still scrolls away — never blacking out the launcher —
+    // region so it still scrolls away, never blacking out the launcher,
     // during the arcade's launcher<->game pan. `'static'` draws it above the
     // shared sky but below the map/preview.
     const backdrop = new BackdropNode({
@@ -189,8 +191,8 @@
     // zoom instead of leaving a bare strip.
     const grid = new BackgroundGridNode({
       cell: 96,
-      // The green accent mixed well toward black — a subtle green field grid.
-      color: mixColor('#01CA05', '#050505', 0.68),
+      // The green accent mixed well toward black, a subtle green field grid.
+      color: mixColor(GREEN, BLACK, 0.68),
       regionBottom: REGION_HEIGHT,
     })
     host.engine.tree.root.add(grid)
@@ -252,7 +254,9 @@
        zooms into a state. -->
   <div class="dc__screen">
     {#if screen === 'game' && !showOver && !paused}
-      <button class="dc__pause" onclick={pause} aria-label={t.paused}>‖</button>
+      <button class="dc__pause" onclick={pause} aria-label={t.paused}>
+        <PauseIcon size="2rem" />
+      </button>
     {/if}
 
     {#if roundActive && !showOver}
@@ -309,7 +313,7 @@
     position: absolute
     inset: 0
     pointer-events: none
-    font-family: system-ui, sans-serif
+    font-family: var(--font-text)
 
   .dc__anchored
     pointer-events: none
@@ -321,7 +325,10 @@
 
   .dc__pause
     position: absolute
-    inset-block-start: var(--space-32)
+    // Below the booth's top-corner gesture, which swallows corner taps at
+    // capture phase, so a button inside one never gets a click. This overlay
+    // spans the viewport, so the gesture's CSS-pixel box applies directly.
+    inset-block-start: calc(var(--booth-corner-size, 96px) + var(--space-16))
     inset-inline-end: var(--space-32)
     width: 4rem
     height: 4rem
@@ -330,8 +337,8 @@
     background: var(--color-surface-card)
     color: var(--color-text)
     box-shadow: var(--color-shadow-card)
-    font-size: 1.5rem
-    line-height: 1
+    display: grid
+    place-items: center
     cursor: pointer
     pointer-events: auto
 

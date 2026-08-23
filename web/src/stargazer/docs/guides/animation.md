@@ -25,7 +25,7 @@ await engine.animate(node, { alpha: 0 }, { duration: 0.3 })
 
 `engine.tween` and `engine.wait` are direct pass-throughs to `engine.animation.tween` and `engine.animation.wait`. `engine.animate` combines `node.abortSignal` with the caller's `opts.signal` via `combineAbortSignals` and disposes the combined listener on completion.
 
-For node-scoped operations, prefer the methods on the node; they auto-scope to `node.abortSignal`:
+For node-scoped operations, prefer the methods on the node. They auto-scope to `node.abortSignal`:
 
 ```ts
 await node.tween(
@@ -37,7 +37,7 @@ await node.wait(0.5)
 
 Non-number properties in `to` are silently ignored at runtime. TypeScript accepts `Partial<T>` for the `to` argument.
 
-`tween` animates the node's own `transform`; `tweenTo(target, to, opts)` animates numeric fields on any object (a `{ frac: 0 }` reveal knob, a physics body's position, a custom `{ width }` used by a `draw`), while still scoping to the node's signal. Reach for `tweenTo` whenever the thing you're animating isn't a transform property.
+`tween` animates the node's own `transform`. `tweenTo(target, to, opts)` animates numeric fields on any object (a `{ frac: 0 }` reveal knob, a physics body's position, a custom `{ width }` used by a `draw`), while still scoping to the node's signal. Reach for `tweenTo` whenever the thing you're animating isn't a transform property.
 
 ## Fire-and-forget: play / playTo
 
@@ -76,11 +76,11 @@ function startMatch(): void {
 }
 ```
 
-Capture `scope.reset()`'s return value at the top of the sequence and thread it into the inner tweens/waits (`{ signal }`). When the next `reset()` fires, those awaits reject with `AbortError`, the async function unwinds on its own, and the single `.catch(ignoreAbort)` at the boundary keeps it quiet — no per-await guard, no per-tween catch. `reset()` opens a new epoch; `abort()` cancels without opening one; `dispose()` cancels and retires the scope.
+Capture `scope.reset()`'s return value at the top of the sequence and thread it into the inner tweens/waits (`{ signal }`). When the next `reset()` fires, those awaits reject with `AbortError`, the async function unwinds on its own, and the single `.catch(ignoreAbort)` at the boundary keeps it quiet, with no per-await guard and no per-tween catch. `reset()` opens a new epoch, `abort()` cancels without opening one, and `dispose()` cancels and retires the scope.
 
 ## Timeline
 
-`Timeline` chains steps sequentially, with `parallel(...)` batches for concurrent steps. It's for linear choreography — a fixed sequence of tweens. Branching control flow, loops, and state changes between steps read better as a plain `async` function with `scope.signal` threaded through (see below).
+`Timeline` chains steps sequentially, with `parallel(...)` batches for concurrent steps. It's for linear choreography: a fixed sequence of tweens. Branching control flow, loops, and state changes between steps read better as a plain `async` function with `scope.signal` threaded through (see below).
 
 ```ts
 import { Timeline } from '@src/stargazer'
@@ -105,7 +105,7 @@ await new Timeline()
   .run(scope.signal)
 ```
 
-Steps are `(signal?) => Promise<void>`. `run(signal)` checks the signal between steps and forwards it into each step, so a step can scope its tween to it (`{ signal: s }`) — cancelling `run`'s signal aborts the running step too. Steps that are already node-scoped can ignore the argument. Use `node.tween` / `node.tweenTo` for steps (they return the Promise `Timeline` awaits); the fire-and-forget `node.play` / `node.playTo` return `void` and aren't valid steps.
+Steps are `(signal?) => Promise<void>`. `run(signal)` checks the signal between steps and forwards it into each step, so a step can scope its tween to it (`{ signal: s }`), and cancelling `run`'s signal aborts the running step too. Steps that are already node-scoped can ignore the argument. Use `node.tween` / `node.tweenTo` for steps (they return the Promise `Timeline` awaits). The fire-and-forget `node.play` / `node.playTo` return `void` and aren't valid steps.
 
 ## Easings
 
@@ -122,7 +122,7 @@ easings.outBack
 easings.outElastic
 ```
 
-Any function of type `(t: number) => number` where `t ∈ [0, 1]` works; write your own if the built-ins don't fit.
+Any function of type `(t: number) => number` where `t ∈ [0, 1]` works. Write your own if the built-ins don't fit.
 
 ## Abort contract
 
@@ -146,7 +146,7 @@ await node.tween({ alpha: 0 }, { duration: 0.3 }).catch(ignoreAbort)
 
 ## Combining signals
 
-`combineAbortSignals(...signals)` returns `{ signal, dispose }`. The combined signal aborts when any source aborts; `dispose()` removes the listeners it installed on the sources. Call `dispose()` in a `.finally(...)` when your operation completes:
+`combineAbortSignals(...signals)` returns `{ signal, dispose }`. The combined signal aborts when any source aborts. `dispose()` removes the listeners it installed on the sources. Call `dispose()` in a `.finally(...)` when your operation completes:
 
 ```ts
 import { combineAbortSignals } from '@src/stargazer'
@@ -165,7 +165,7 @@ Sources that are already aborted at call time propagate immediately and skip lis
 
 ## Overlap warning
 
-When two tweens run on the same target with an overlapping key set, both continue to their configured duration; the later one wins on each tick because it iterates last. In dev, the Animator logs a `console.warn` the first time it sees an overlap:
+When two tweens run on the same target with an overlapping key set, both continue to their configured duration. The later one wins on each tick because it iterates last. In dev, the Animator logs a `console.warn` the first time it sees an overlap:
 
 ```
 [stargazer] overlapping tween on the same target key 'x'.
@@ -176,4 +176,4 @@ Pass an `AbortController` to the first tween and abort it before starting the se
 
 ## What happens on engine destroy
 
-`Engine.destroy()` calls `animation.cancelAll()` before it tears down the scene. Every outstanding tween and wait rejects with AbortError; abort listeners are removed. Then the scene root is destroyed, which cascades AbortErrors through node-scoped promises. Any `.catch(ignoreAbort)` you've written keeps quiet; anything without is your problem to surface.
+`Engine.destroy()` calls `animation.cancelAll()` before it tears down the scene. Every outstanding tween and wait rejects with AbortError, and abort listeners are removed. Then the scene root is destroyed, which cascades AbortErrors through node-scoped promises. Any `.catch(ignoreAbort)` you've written keeps quiet. Anything without is your problem to surface.

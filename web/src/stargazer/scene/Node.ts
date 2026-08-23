@@ -11,31 +11,7 @@ import {
 import { AbortScope } from '../anim/AbortScope'
 import { Timeline } from '../anim/Timeline'
 
-/**
- * Non-spatial scene-tree base shared by the 2D {@link Node2D} and 3D
- * {@link Node3D} branches. It owns everything that has no coordinate system:
- * tree structure (parent/children), attached {@link Behavior}s, the abort +
- * event lifecycle, per-frame/fixed-step update hooks, the world-dirty flag, and
- * the async tween/wait/loop helpers. Each spatial branch adds its own
- * transform, world composition, and draw path on top.
- *
- * `Node` is not generic: `parent`, `children`, and `add(...)` are typed as the
- * base `Node`, so one tree can hold both 2D ({@link Node2D}) and 3D
- * ({@link Node3D}) nodes, mirroring Godot's single-tree model. A node's
- * dimension is its {@link Node.kind} (`'group' | '2d' | '3d'`); the consumers
- * that care (render passes, hit-testing) filter on it. Each spatial branch
- * composes its world transform from the nearest same-`kind` ancestor, so
- * cross-kind nesting is allowed and simply doesn't inherit a transform.
- *
- * Engine access flows through the owner: the async helpers reach
- * `owner.engine`. A node not yet attached to an owner has no engine, so those
- * helpers reject.
- *
- * Game code uses {@link Node2D} / {@link Node3D}; this class is not instantiated
- * directly.
- *
- * @category Scene
- */
+/** Whatever owns a node tree, giving its nodes a route to the engine. */
 export interface NodeOwner {
   /** The engine the owned tree animates through, or `null` when standalone. */
   readonly engine: Engine | null
@@ -43,29 +19,21 @@ export interface NodeOwner {
 
 /**
  * A node's dimension. `'group'` is a transform-less logical/grouping node (the
- * tree root); `'2d'` is a {@link Node2D}; `'3d'` is a {@link Node3D}. Hot walks
- * branch on this cheap field instead of `instanceof`.
- *
- * @category Scene
+ * tree root), `'2d'` is a {@link Node2D}, and `'3d'` is a {@link Node3D}. Hot
+ * walks branch on this cheap field instead of `instanceof`.
  */
 export type NodeKind = 'group' | '2d' | '3d'
 
-/**
- * Events emitted by a node. `destroy` fires once when the node is destroyed.
- *
- * @category Scene
- */
+/** Events emitted by a node. `destroy` fires once when the node is destroyed. */
 export interface NodeEvents {
   destroy: void
 }
 
 /**
  * Pointer callbacks for {@link Node.bindPointer} (and reused by
- * {@link PointerBehavior}). Shared by 2D and 3D nodes; the input system
+ * {@link PointerBehavior}). Shared by 2D and 3D nodes: the input system
  * hit-tests the 2D scene (bounds) or the 3D world (ray) and dispatches to the
  * node that captured the pointer.
- *
- * @category Input
  */
 export interface PointerHandlers {
   down?: (e: PointerEvent2D) => void
@@ -88,13 +56,39 @@ function generateId(prefix = 'node'): string {
   return `${prefix}-${nextNodeId++}`
 }
 
+/**
+ * Everything a scene node has that is not a coordinate system: children,
+ * {@link Behavior}s, events, the abort lifecycle, update hooks, and the async
+ * tween/wait/loop helpers. {@link Node2D} and {@link Node3D} add the transform
+ * and the draw path, and game code builds trees out of those. Reach for `Node`
+ * as a type when a helper accepts either dimension.
+ *
+ * @remarks
+ *   One tree holds both dimensions: `parent`, `children`, and `add` are typed as
+ *   `Node`, and {@link Node.kind} tells the render passes and hit-testing which
+ *   branch a node belongs to. Each branch composes its world transform from the
+ *   nearest ancestor of the same `kind`, so nesting a `Node2D` under a `Node3D`
+ *   is legal and simply inherits no transform.
+ *
+ *   The async helpers reach the engine through {@link Node.owner}, so they reject
+ *   on a node that is not yet in a tree.
+ * @example
+ *   // Works on a Node2D or a Node3D.
+ *   function retire(node: Node): void {
+ *     node.events.on('destroy', () => console.log(node.id, 'gone'))
+ *     const spin = node.getBehavior(SpinBehavior)
+ *     if (spin) node.removeBehavior(spin)
+ *     // Aborts the node's signal, so its pending tweens reject and clean up.
+ *     node.destroy()
+ *   }
+ */
 export abstract class Node {
   /**
    * Stable unique id. Auto-generated (`node-N`) unless passed to the
    * constructor.
    */
   readonly id: string
-  /** This node's dimension; see {@link NodeKind}. Fixed per subclass. */
+  /** This node's dimension, see {@link NodeKind}. Fixed per subclass. */
   abstract readonly kind: NodeKind
   /**
    * Parent node, or `null` when detached / at a tree root. Set by
@@ -102,7 +96,12 @@ export abstract class Node {
    */
   parent: Node | null = null
 
-  /** When false, the node and its subtree are skipped by the render walk. */
+  /**
+   * When false, this node is skipped by the render walk. It does NOT cascade in
+   * the 2D canvas walk: a hidden parent still lets its children draw, so hide
+   * each node you mean to hide. Only the DOM overlay sync compounds visibility
+   * down the tree.
+   */
   visible = true
   /**
    * When true, the node takes part in pointer hit-testing (2D bounds test for
@@ -112,8 +111,8 @@ export abstract class Node {
 
   /**
    * Engine-managed node (e.g. a stage's default camera), not game content.
-   * Intrinsic nodes are skipped by every content scan — painter order,
-   * hit-testing, `SceneTree.has3D`, the debug node tree — and survive
+   * Intrinsic nodes are skipped by every content scan (painter order,
+   * hit-testing, `SceneTree.has3D`, the debug node tree) and survive
    * {@link Node.destroyChildren}, so a scene wipe leaves them intact. Set by the
    * engine, not app code.
    */
@@ -131,7 +130,7 @@ export abstract class Node {
   /**
    * Cached "does this node or any behavior implement
    * `onUpdate`/`onFixedStep`?". The engine's update walk skips no-work nodes.
-   * Kept in sync by the constructor and `addBehavior`/`removeBehavior`; a
+   * Kept in sync by the constructor and `addBehavior`/`removeBehavior`. A
    * subclass that mutates `this.onUpdate` at runtime calls
    * {@link Node._recomputeHasWork}.
    */
@@ -146,7 +145,7 @@ export abstract class Node {
 
   /**
    * Recompute the update/fixed-step work flags from scratch. Runs on
-   * `addBehavior`/`removeBehavior`; also for a subclass that swaps
+   * `addBehavior`/`removeBehavior`, also for a subclass that swaps
    * `this.onUpdate` at runtime.
    */
   _recomputeHasWork(): void {
@@ -163,15 +162,22 @@ export abstract class Node {
     this._hasFixedStepWork = fixed
   }
 
+  /** Direct children in add order, which is also painter order. */
   get children(): readonly Node[] {
     return this._children
   }
   get behaviors(): readonly Behavior<Node>[] {
     return this._behaviors
   }
+  /**
+   * Aborted by {@link Node.destroy}. The node's own tween and wait helpers are
+   * already scoped to it. Pass it to your own async work so a destroyed node
+   * cannot leave a promise pending.
+   */
   get abortSignal(): AbortSignal {
     return this.#abortController.signal
   }
+  /** Whether the world transform needs recomposing before the next draw. */
   get worldDirty(): boolean {
     return this.#_worldDirty
   }
@@ -347,6 +353,7 @@ export abstract class Node {
     return this
   }
 
+  /** The first attached behavior of type `ctor`, or `null`. */
   getBehavior<B extends Behavior<Node>>(ctor: BehaviorCtor<B>): B | null {
     for (const b of this._behaviors) {
       if (b instanceof ctor) return b
@@ -354,6 +361,7 @@ export abstract class Node {
     return null
   }
 
+  /** Every attached behavior of type `ctor`, in attach order. */
   getBehaviors<B extends Behavior<Node>>(ctor: BehaviorCtor<B>): readonly B[] {
     const out: B[] = []
     for (const b of this._behaviors) {
@@ -380,14 +388,20 @@ export abstract class Node {
    * leaves it (DOM `setPointerCapture`).
    */
   onPointerDown?(p: PointerEvent2D): void
+  /** See {@link Node.onPointerDown}. Fires while the pointer is held. */
   onPointerMove?(p: PointerEvent2D): void
+  /** See {@link Node.onPointerDown}. Fires when the pointer is released. */
   onPointerUp?(p: PointerEvent2D): void
+  /**
+   * See {@link Node.onPointerDown}. Fires when the gesture is interrupted, which
+   * includes destroying the node that holds the capture.
+   */
   onPointerCancel?(p: PointerEvent2D): void
 
   /**
    * Bind pointer handlers atomically. Returns an `unbind()` that clears exactly
    * the handlers assigned. `hitEnabled` defaults to `true` when `down` is
-   * present; opt out with `hitEnabled: false` for stage-level listeners. Set
+   * present, opt out with `hitEnabled: false` for stage-level listeners. Set
    * `singlePointer` to track only the first press and ignore concurrent
    * pointers.
    */
@@ -444,6 +458,11 @@ export abstract class Node {
 
   // --- lifecycle -------------------------------------------------------------
 
+  /**
+   * Destroy this node and its whole subtree. Aborts {@link Node.abortSignal}
+   * before recursing, so pending tweens and waits reject with `AbortError`
+   * rather than running against a dead node. Idempotent.
+   */
   destroy(): void {
     if (this.#_destroyed) return
     this.#_destroyed = true
@@ -529,7 +548,7 @@ export abstract class Node {
 
   /**
    * Destroy this node when `p` settles. `AbortError` is silent (the destroy is
-   * the cleanup); other rejections log via `console.warn` then still destroy.
+   * the cleanup), other rejections log via `console.warn` then still destroy.
    */
   autoDestroy(p: Promise<void>): Promise<void> {
     return p
@@ -547,10 +566,10 @@ export abstract class Node {
   }
 
   /**
-   * Run `body` in a loop while the node is alive. Aborts are swallowed; other
+   * Run `body` in a loop while the node is alive. Aborts are swallowed, other
    * errors log and terminate the loop. `body` receives `{node, signal,
-   * iteration, nextFrame()}`; `nextFrame()` resolves after the current frame
-   * renders. Fire-and-forget; the first invocation defers a microtask so
+   * iteration, nextFrame()}`, and `nextFrame()` resolves after the current
+   * frame renders. Fire-and-forget: the first invocation defers a microtask so
    * callers inside `Behavior.onAttach` can rely on attachment.
    */
   loop(
@@ -599,7 +618,7 @@ export abstract class Node {
   }
 
   /**
-   * Async delay scoped to this node; rejects with `AbortError` if the node is
+   * Async delay scoped to this node, rejects with `AbortError` if the node is
    * destroyed while waiting. `extraSignal` (if provided) combines with the node
    * signal.
    */

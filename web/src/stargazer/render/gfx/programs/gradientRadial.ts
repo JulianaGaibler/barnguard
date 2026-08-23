@@ -1,5 +1,5 @@
 // Radial-gradient program: `Gfx2D.fillCircleRadialGradient`. The gradient LUT
-// lookup lives on `GpuGfx` (needs `TextureManager`); this program owns the
+// lookup lives on `GpuGfx` (needs `TextureManager`). This program owns the
 // shader/VAO/stream plumbing and the buffer write. The LUT is bound as
 // `ctx.curTexture` (this program has no second texture, unlike `maskedGradient`).
 
@@ -102,7 +102,7 @@ export class GradientRadialProgram implements GpuProgram {
 
   /**
    * Begin (or continue) the `gradientRadial` batch for `lut` and reserve one
-   * instance record; returns the word offset, or `-1` on overflow.
+   * instance record. Returns the word offset, or `-1` on overflow.
    */
   beginInstance(ctx: GpuBatchContext, lut: Texture): number {
     ctx.beginBatch('gradientRadial', { texture: lut })

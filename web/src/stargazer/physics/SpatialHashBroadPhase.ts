@@ -1,6 +1,6 @@
 /**
  * Uniform-grid spatial hash broad-phase. Each body's fat AABB is mapped to the
- * grid cells it covers; candidate pairs come from bodies sharing a cell. Fast
+ * grid cells it covers. Candidate pairs come from bodies sharing a cell. Fast
  * when bodies are roughly one size. For wildly mixed scales a dynamic AABB tree
  * would do better, and the {@link BroadPhase} interface leaves room to swap one
  * in without touching the step pipeline.
@@ -12,19 +12,15 @@ import type { Body } from './Body'
 import type { BroadPhase, PairCallback } from './BroadPhase'
 
 // Numeric cell key that is collision-free for cell indices in
-// [-CELL_OFFSET, CELL_OFFSET); coordinates outside that range wrap and merely
+// [-CELL_OFFSET, CELL_OFFSET). Coordinates outside that range wrap and merely
 // produce extra candidate pairs, never missed ones.
 const CELL_OFFSET = 1 << 15
 const CELL_STRIDE = 1 << 16
 const PAIR_STRIDE = 1 << 20
 
-/**
- * A uniform spatial hash over the world's bodies.
- *
- * @category Physics
- */
+/** A uniform spatial hash over the world's bodies. */
 export class SpatialHashBroadPhase implements BroadPhase {
-  /** Fat-AABB margin applied on update; set by the world. */
+  /** Fat-AABB margin applied on update, set by the world. */
   margin = 0
   readonly cellSize: number
   readonly #invCellSize: number

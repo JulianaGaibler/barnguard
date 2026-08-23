@@ -32,7 +32,7 @@ function makeManifold(): Manifold {
 }
 
 /**
- * A fixed-growth pool of {@link Manifold} objects. `begin()` resets the cursor;
+ * A fixed-growth pool of {@link Manifold} objects. `begin()` resets the cursor.
  * `next()` hands out a reused manifold. Grows by one when exhausted.
  */
 export class ManifoldPool {
@@ -141,7 +141,7 @@ function collideCircleCircle(a: Collider, b: Collider, m: Manifold): boolean {
 
 /**
  * Circle (`circleCol`) vs axis-aligned box (`boxCol`). Computes the normal from
- * circle toward box; `flip` negates it so the result reads `a → b` when the box
+ * circle toward box. `flip` negates it so the result reads `a → b` when the box
  * was `a`.
  */
 function collideCircleAABB(
@@ -166,7 +166,7 @@ function collideCircleAABB(
   let closestY: number
   if (inside) {
     // Center inside (or on the face of) the box: push out the nearest face.
-    // The overlap to clear along each axis is `half - |offset|`; the smaller
+    // The overlap to clear along each axis is `half - |offset|`. The smaller
     // one is the exit direction. Normal points circle → box along that axis.
     const ox = box.halfW - Math.abs(dx)
     const oy = box.halfH - Math.abs(dy)

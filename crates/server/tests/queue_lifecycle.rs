@@ -241,7 +241,7 @@ async fn worker_reports_unreachable_and_recovers() {
     .expect("expected an unreachable status");
     assert!(down.unreachable_since_ms.is_some());
 
-    // Printer comes back; a manual reconnect nudge recovers it immediately.
+    // Printer comes back. A manual reconnect nudge recovers it immediately.
     controls.set_unreachable(false);
     controller.request_reconnect();
     tokio::time::timeout(Duration::from_secs(5), async {

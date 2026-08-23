@@ -8,11 +8,15 @@
  * - {@link buildWallDemo}: two finger dots pop in and place a two-way wall.
  * - {@link buildCaptureDemo}: a wall seals off a region, which floods in.
  * - {@link buildDestroyDemo}: three balls repeatedly break a growing wall.
+ *
+ * {@link buildScoreDemo} has no field at all: a scorecard for one cleared stage,
+ * tallied through the real scoring functions.
  */
 import {
   Behavior,
   ShapeNode,
   Node2D,
+  TextNode,
   easings,
   type Stage,
 } from '@src/stargazer'
@@ -29,14 +33,28 @@ import { planWallPlacement, type WallSegment } from './board'
 import { GridFieldNode } from './nodes/GridFieldNode'
 import { WallSegmentNode } from './nodes/WallNode'
 import { BurstNode } from './nodes/BurstNode'
-import { CELL_OPEN, type Bounds, type CellRef, type Orientation } from './types'
-import { ACCENT_SOLO, COLORS, PHYSICS, ballRadiusWorld } from './tuning'
+import {
+  eliminationPoints,
+  fillBonus,
+  makeBreakdown,
+  timeBonus,
+} from './scoring'
+import {
+  CELL_OPEN,
+  type Bounds,
+  type CellRef,
+  type Orientation,
+  type ScoreBreakdown,
+} from './types'
+import { ACCENT_SOLO, COLORS, GRID, PHYSICS, ballRadiusWorld } from './tuning'
+import { JEZZBALL_STRINGS } from '../strings'
+import { JEZZBALL_FONTS } from '../fonts'
 
 const COLS = 10
 const ROWS = 10
 const BOARD = { x: 220, y: 95, width: 560, height: 560 }
 /**
- * Demo-only wall growth speed — slower than `PHYSICS.wallGrowSpeed` so the
+ * Demo-only wall growth speed, slower than `PHYSICS.wallGrowSpeed` so the
  * mechanic is easy to follow on a small looping card.
  */
 const GROW_SPEED = 520
@@ -351,7 +369,7 @@ export const buildWallDemo: DemoBuilder = (stage) => {
 // --- 2. Claim space: a wall seals off a region, which floods in. ---
 //
 // A single slow ball patrols the left (open) side, confined there for the
-// whole loop, so only the ball-free right side ever gets captured — making
+// whole loop, so only the ball-free right side ever gets captured, making
 // the "no ball inside" half of the rule visible, not just the flood-in.
 
 type CapturePhase = 'grow' | 'hold' | 'gap'
@@ -473,7 +491,7 @@ const DESTROY_BALL_STARTS: readonly BallSpawn[] = [
 
 /**
  * This demo's own (much slower) wall growth speed. A wall this size takes ~1.5s
- * to fully grow at this pace — long enough that three balls bouncing the full
+ * to fully grow at this pace, long enough that three balls bouncing the full
  * board width almost always cross the growing column before it solidifies, so
  * the break reads as a near-sure thing rather than a fluke.
  */
@@ -481,9 +499,9 @@ const DESTROY_GROW_SPEED = 190
 
 /**
  * Minimum distance (world units) a ball must clear from the seed column before
- * the next attempt spawns — otherwise a ball loitering right on the seed would
+ * the next attempt spawns. Otherwise a ball loitering right on the seed would
  * break each new wall within its first frame or two, reading as constant sparks
- * rather than a clean grow → break → pause → regrow cycle.
+ * rather than a clean grow, break, pause, regrow cycle.
  */
 const RESPAWN_CLEARANCE = 90
 
@@ -499,8 +517,8 @@ class DestroyLoop extends Behavior {
   #segments: WallSegment[] = []
   /**
    * Segments that finished growing unbroken, held for teardown at the next
-   * attempt — this demo is about the break, so an uninterrupted wall doesn't
-   * get to linger once a fresh attempt starts.
+   * attempt. This demo is about the break, so an uninterrupted wall doesn't get
+   * to linger once a fresh attempt starts.
    */
   #solidNodes: WallSegmentNode[] = []
 
@@ -610,6 +628,223 @@ export const buildDestroyDemo: DemoBuilder = (stage) => {
   return {
     destroy() {
       if (!d.root.isDestroyed) d.root.destroy()
+    },
+  }
+}
+
+// --- 4. Scoring: a cleared stage tallies itself up, line by line. ---
+
+/**
+ * The cleared stage the tally scores. Every figure on the card comes out of the
+ * game's own scoring functions, so the card cannot drift from `SCORING`.
+ */
+const TALLY_SAMPLE = { capturedPct: 82, elapsedSec: 38, lives: 5 } as const
+
+// Tally geometry, in the demo viewport's world units.
+const TALLY_LEFT = 200
+const TALLY_RIGHT = 800
+const TALLY_TOP = 180
+const TALLY_ROW_H = 88
+const TALLY_RULE_GAP = 52
+const TALLY_TOTAL_GAP = 78
+const TALLY_RULE_H = 3
+const TALLY_LABEL_PX = 36
+const TALLY_VALUE_PX = 46
+const TALLY_TOTAL_LABEL_PX = 44
+const TALLY_TOTAL_VALUE_PX = 66
+/** How far right of its resting position a row starts. */
+const TALLY_SLIDE = 44
+
+// Tally timeline (seconds).
+const TALLY_LEAD = 0.35
+const TALLY_STAGGER = 0.55
+const TALLY_REVEAL = 0.45
+/** Pause between the last component row and the total landing. */
+const TALLY_TOTAL_DELAY = 0.35
+
+/** Score the sample stage. Its cell count is `capturedPct` of the full grid. */
+function tallyBreakdown(): ScoreBreakdown {
+  const cells = Math.round(
+    GRID.cols * GRID.rows * (TALLY_SAMPLE.capturedPct / 100),
+  )
+  return makeBreakdown(
+    eliminationPoints(cells),
+    fillBonus(TALLY_SAMPLE.capturedPct),
+    timeBonus(TALLY_SAMPLE.elapsedSec),
+    TALLY_SAMPLE.lives,
+  )
+}
+
+/**
+ * One line of the tally: a label and a right-aligned figure in one group, so a
+ * single transform slides both. Alpha does not cascade through the 2D render
+ * walk, so the reveal sets it on each text node separately.
+ */
+interface TallyRow {
+  group: Node2D
+  label: TextNode
+  value: TextNode
+  /** Figure the row counts up to. */
+  points: number
+  /** `'+'` on the component rows, empty on the total. */
+  prefix: string
+  /** Seconds into the timeline at which this row starts revealing. */
+  start: number
+}
+
+interface TallyRowSpec {
+  text: string
+  points: number
+  prefix: string
+  y: number
+  labelPx: number
+  valuePx: number
+  valueColor: string
+  start: number
+}
+
+function buildTallyRow(parent: Node2D, spec: TallyRowSpec): TallyRow {
+  const group = new Node2D('jb-tally-row')
+  group.transform.x = TALLY_SLIDE
+  const label = new TextNode({
+    text: spec.text,
+    x: TALLY_LEFT,
+    y: spec.y,
+    fontFamily: JEZZBALL_FONTS.text,
+    fontWeight: 700,
+    fontSize: spec.labelPx,
+    sizeSpace: 'world',
+    color: COLORS.ink,
+    align: 'left',
+    baseline: 'middle',
+  })
+  const value = new TextNode({
+    text: '',
+    x: TALLY_RIGHT,
+    y: spec.y,
+    fontFamily: JEZZBALL_FONTS.text,
+    fontWeight: 900,
+    fontSize: spec.valuePx,
+    sizeSpace: 'world',
+    color: spec.valueColor,
+    align: 'right',
+    baseline: 'middle',
+  })
+  label.transform.alpha = 0
+  value.transform.alpha = 0
+  group.add(label)
+  group.add(value)
+  parent.add(group)
+  return {
+    group,
+    label,
+    value,
+    points: spec.points,
+    prefix: spec.prefix,
+    start: spec.start,
+  }
+}
+
+/**
+ * Slides each row in and counts its figure up, then holds the finished tally
+ * for as long as the card is open. The reveal plays once.
+ */
+class TallyReveal extends Behavior {
+  readonly #rows: readonly TallyRow[]
+  readonly #rule: ShapeNode
+  /** The rule reveals on the total row's schedule. */
+  readonly #ruleStart: number
+  /** Time by which every row has finished revealing. */
+  readonly #settleAt: number
+  #t = 0
+  #settled = false
+
+  constructor(rows: readonly TallyRow[], rule: ShapeNode) {
+    super()
+    this.#rows = rows
+    this.#rule = rule
+    this.#ruleStart = rows[rows.length - 1].start
+    this.#settleAt = this.#ruleStart + TALLY_REVEAL
+  }
+
+  override onUpdate(dt: number): void {
+    if (this.#settled) return
+    this.#t += dt
+    for (const row of this.#rows) {
+      const p = easings.outCubic(this.#progressAt(row.start))
+      row.group.transform.x = TALLY_SLIDE * (1 - p)
+      row.label.transform.alpha = p
+      row.value.transform.alpha = p
+      row.value.text = `${row.prefix}${Math.round(row.points * p)}`
+    }
+    this.#rule.transform.alpha = this.#progressAt(this.#ruleStart)
+    this.#settled = this.#t >= this.#settleAt
+  }
+
+  /** Reveal progress in `[0, 1]` for a row starting at `start`. */
+  #progressAt(start: number): number {
+    return Math.max(0, Math.min(1, (this.#t - start) / TALLY_REVEAL))
+  }
+}
+
+export const buildScoreDemo: DemoBuilder = (stage) => {
+  const S = JEZZBALL_STRINGS.tutorial.scoreRows
+  const b = tallyBreakdown()
+  const components: readonly (readonly [string, number])[] = [
+    [S.cells, b.elimination],
+    [S.fill, b.fillBonus],
+    [S.time, b.timeBonus],
+    [S.lives, b.livesBonus],
+  ]
+
+  const root = new Node2D('jezzball-demo-score')
+  const rows = components.map(([text, points], i) =>
+    buildTallyRow(root, {
+      text,
+      points,
+      prefix: '+',
+      y: TALLY_TOP + i * TALLY_ROW_H,
+      labelPx: TALLY_LABEL_PX,
+      valuePx: TALLY_VALUE_PX,
+      valueColor: COLORS.ink,
+      start: TALLY_LEAD + i * TALLY_STAGGER,
+    }),
+  )
+
+  const ruleY =
+    TALLY_TOP + (components.length - 1) * TALLY_ROW_H + TALLY_RULE_GAP
+  const rule = new ShapeNode({
+    geometry: {
+      kind: 'rect',
+      width: TALLY_RIGHT - TALLY_LEFT,
+      height: TALLY_RULE_H,
+      centered: false,
+    },
+    fill: COLORS.captured,
+  })
+  rule.transform.x = TALLY_LEFT
+  rule.transform.y = ruleY
+  rule.transform.alpha = 0
+  root.add(rule)
+
+  rows.push(
+    buildTallyRow(root, {
+      text: S.total,
+      points: b.total,
+      prefix: '',
+      y: ruleY + TALLY_TOTAL_GAP,
+      labelPx: TALLY_TOTAL_LABEL_PX,
+      valuePx: TALLY_TOTAL_VALUE_PX,
+      valueColor: ACCENT_SOLO.primary,
+      start: TALLY_LEAD + components.length * TALLY_STAGGER + TALLY_TOTAL_DELAY,
+    }),
+  )
+
+  stage.tree.root.add(root)
+  root.addBehavior(new TallyReveal(rows, rule))
+  return {
+    destroy() {
+      if (!root.isDestroyed) root.destroy()
     },
   }
 }

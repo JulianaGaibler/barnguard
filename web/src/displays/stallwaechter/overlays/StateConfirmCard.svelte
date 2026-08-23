@@ -23,7 +23,7 @@
 
   // Refetched every time this card mounts (or `stateId` changes) so the
   // numbers reflect any recent attendant-side deletes / wipes without the
-  // player having to reload. Same-origin fetch; typically <10 ms.
+  // player having to reload. Same-origin fetch, typically <10 ms.
   let highScores = $state<HighScores>({
     display: 'stallwaechter',
     overall: 0,
@@ -142,8 +142,7 @@
   .confirm-card--tutorial
     flex: 0 0 auto
     width: 300px
-    // Tutorial canvas fills the card edge-to-edge; the padding + inner
-    // dark box the placeholder used have been removed.
+    // Tutorial canvas fills the card edge-to-edge, with no inner padding.
     padding: 0
     overflow: hidden
     background: var(--color-surface-inverse)
@@ -154,12 +153,12 @@
     flex: 1 1 auto
     gap: tint.$size-24
     border-radius: tint.$size-16 tint.$size-48 tint.$size-48 tint.$size-16
-    // Wave sits inside as an absolutely-positioned decor `<img>`; clip so
+    // Wave sits inside as an absolutely-positioned decor `<img>`, clipped so
     // its right edge disappears behind the rounded corner.
     position: relative
     overflow: hidden
     // Override the base card's centered `align-items` so the body can
-    // stretch to full height; required for state-top / scores-bottom
+    // stretch to full height, required for state-top / scores-bottom
     // vertical distribution below.
     align-items: stretch
 
@@ -176,7 +175,7 @@
   .confirm-card__state-photo
     // Fills the main card behind everything else, `cover`-sized so the
     // landscape crops cleanly at any card size. Opacity fades 0 → 0.5
-    // over 2 s via the `state-photo-fade-in` animation below;
+    // over 2 s via the `state-photo-fade-in` animation below.
     // `{#key stateId}` in the template forces a remount on state change
     // so the animation replays for the next photo.
     position: absolute
@@ -200,7 +199,7 @@
     display: block
     width: 100%
     height: 100%
-    // Kiosk hygiene; Stage sets this too, defensive against a canvas that
+    // Kiosk hygiene, Stage sets this too, defensive against a canvas that
     // paints before the stargazer's touch-action rules apply.
     touch-action: none
     user-select: none
@@ -224,7 +223,7 @@
     @include tint.type-class(title-1)
     margin: 0
     line-height: 1.05
-    // Match the score numbers; the whole "who/what" heading reads in
+    // Match the score numbers, the whole "who/what" heading reads in
     // the extended headline face for a coherent block.
     font-family: tint.$mozilla-headline-extended
     font-weight: 700
@@ -256,7 +255,7 @@
     // Pinned to the top-right corner of the main card, 16 px inset from
     // both edges. Paints above the wave (later in DOM order among
     // positioned elements) and above the body (which is `position:
-    // relative` but earlier in DOM); no explicit z-index needed.
+    // relative` but earlier in DOM), so no explicit z-index is needed.
     position: absolute
     inset-block-start: var(--space-16)
     inset-inline-end: var(--space-16)

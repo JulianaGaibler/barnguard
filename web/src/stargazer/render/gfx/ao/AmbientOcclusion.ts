@@ -49,7 +49,7 @@ const FULLSCREEN_TRI = new Float32Array([-1, -1, 3, -1, -1, 3])
 const BLUR_DEPTH_SIGMA = 0.02
 
 // Bind-group binding numbers (a texture's companion sampler is at binding + 16).
-const B_TEX = 0 // generate: G-buffer;  blur: AO input
+const B_TEX = 0 // generate: G-buffer.  blur: AO input
 const B_GBUF = 1 // blur: G-buffer (for depth)
 const B_STORAGE = 1 // generate compute output
 const B_BLUR_STORAGE = 2 // blur compute output
@@ -66,11 +66,9 @@ const BLUR_PARAMS_BYTES = 32
  * ambient light.
  *
  * Generate + blur run as compute dispatches on WebGPU and fullscreen fragment
- * passes on WebGL2, chosen by `device.supportsCompute`; both share the
+ * passes on WebGL2, chosen by `device.supportsCompute`. Both share the
  * horizon-scan and blur math. Targets allocate on first enable and resize with
  * the stage.
- *
- * @category Render
  */
 export class AmbientOcclusion {
   readonly #device: GfxDevice
@@ -143,9 +141,8 @@ export class AmbientOcclusion {
   }
 
   /**
-   * Occlusion strength. Reads the preset's value unless overridden; the debug
-   * HUD sets it to tune live. Setting resets to the preset when passed the
-   * preset's own value is not required — any number sticks until changed.
+   * Occlusion strength. Reads the preset's value unless overridden. The debug
+   * HUD sets it to tune live, and any number sticks until changed.
    */
   get intensity(): number {
     return this.#intensityOverride ?? PRESETS[this.#preset].intensity
@@ -164,9 +161,10 @@ export class AmbientOcclusion {
 
   /**
    * How much AO also darkens the DIFFUSE direct light, in `[0,1]`. `0` is
-   * physically correct (AO only touches the flat ambient term); higher values
-   * are a stylized/baked-AO look that makes contact darkening read on directly
-   * lit surfaces too. Never affects specular. The mesh shaders read it.
+   * physically correct (AO only touches the flat ambient term), while higher
+   * values are a stylized/baked-AO look that makes contact darkening read on
+   * directly lit surfaces too. Never affects specular. The mesh shaders read
+   * it.
    */
   get directStrength(): number {
     return this.#directStrength
@@ -348,7 +346,6 @@ export class AmbientOcclusion {
   }
 
   #runFragment(): void {
-    const device = this.#device
     const [rt0, rt1] = this.#aoRt!
     // generate → rt0
     this.#fragPass(this.#genFragPipeline!, this.#genBind!, rt0)
@@ -489,8 +486,8 @@ export class AmbientOcclusion {
     s[26] = camera.far
     s[27] = zeroToOne ? 0 : -1
     // proj: ndc-z of far plane (1), projection[0][0], projection[1][1], flipY.
-    // proj[0][0]/[1][1] give the screen radius per axis (FOV + aspect); flipY is
-    // set for top-down textures so the reconstructed NDC y matches the sample.
+    // proj[0][0]/[1][1] give the screen radius per axis (FOV + aspect). flipY
+    // is set for top-down textures so the reconstructed NDC y matches the sample.
     const proj = camera.projection as unknown as Float32Array
     s[28] = 1
     s[29] = proj[0]

@@ -1,27 +1,28 @@
-// Screen-space ambient occlusion — fragment path (WebGL2, and any backend
+// Screen-space ambient occlusion, fragment path (WebGL2, and any backend
 // without compute). Reads the G-buffer's stored view normal (octahedral, RG)
 // and 16-bit LINEAR view depth (BA), reconstructs view-space position along the
 // pixel's view ray (near→far, exact for ortho + perspective), and estimates
 // occlusion with a hemisphere-obscurance sum. Output is a scalar AO in `[0,1]`.
 //
-// The compute path (`ao_gtao.compute.wgsl`) mirrors this math; keep in sync.
+// The compute path (`ao_gtao.compute.wgsl`) mirrors this math, so keep in sync.
 //
 // The G-buffer packs a 16-bit depth and an octahedral normal into RGBA8, so it
-// MUST be point-sampled — bilinear filtering would interpolate the packed bytes
+// MUST be point-sampled, because bilinear filtering would interpolate the packed
+// bytes
 // and scramble both. Reads therefore use textureLoad (integer texels).
 //
 // Bindings: u_gbuf at unit 0, Params at 6, a_pos at location 0.
 
 struct Params {
   invProj: mat4x4<f32>,
-  // x,y = resolution px; z,w = texel size (1/res).
+  // x,y = resolution px. z,w = texel size (1/res).
   resTexel: vec4<f32>,
-  // x = radius (view units); y = intensity; z = angle bias (sin of the min
-  // elevation counted as occlusion); w = slices.
+  // x = radius (view units), y = intensity, z = angle bias (sin of the min
+  // elevation counted as occlusion), w = slices.
   radiusIntBias: vec4<f32>,
-  // x = steps; y = near; z = far; w = ndc-z of the near plane.
+  // x = steps, y = near, z = far, w = ndc-z of the near plane.
   stepsNearFar: vec4<f32>,
-  // x = ndc-z of the far plane; y = projection[0][0]; z = projection[1][1];
+  // x = ndc-z of the far plane, y = projection[0][0], z = projection[1][1],
   // w = flipY (1 → uv.y=0 is the top of NDC, for top-down textures).
   proj: vec4<f32>,
 };
@@ -60,7 +61,8 @@ fn loadG(uv: vec2<f32>) -> vec4<f32> {
   return textureLoad(u_gbuf, c, 0);
 }
 
-// UV → NDC xy. NDC y points up; a top-down texture (uv.y=0 at the top) flips it.
+// UV → NDC xy. NDC y points up, and a top-down texture (uv.y=0 at the top) flips
+// it.
 fn ndcXY(uv: vec2<f32>) -> vec2<f32> {
   let x = uv.x * 2.0 - 1.0;
   let y = select(uv.y * 2.0 - 1.0, 1.0 - uv.y * 2.0, params.proj.w > 0.5);
@@ -81,7 +83,7 @@ fn viewPos(uv: vec2<f32>, lin: f32) -> vec3<f32> {
   return a + t * (b - a);
 }
 
-// Interleaved gradient noise (Jimenez) — a low-discrepancy screen-space dither
+// Interleaved gradient noise (Jimenez), a low-discrepancy screen-space dither
 // that the bilateral blur cleans up far better than white noise.
 fn hash(p: vec2<f32>) -> f32 {
   return fract(52.9829189 * fract(dot(p, vec2<f32>(0.06711056, 0.00583715))));
@@ -129,7 +131,7 @@ fn computeAO(uv: vec2<f32>) -> f32 {
       if (dist < 1e-4 || dist > radius) {
         continue;
       }
-      // Elevation above the tangent plane; the angle bias rejects near-coplanar
+      // Elevation above the tangent plane. The angle bias rejects near-coplanar
       // neighbours (self-occlusion) proportionally, at any distance.
       let ndotv = dot(N, dv) / dist;
       if (ndotv <= bias) {

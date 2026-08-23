@@ -1,10 +1,10 @@
 /**
  * Pure scoring math for JezzBall. Four tracked components:
  *
- * 1. Grid elimination — points per captured cell, accrued during play.
- * 2. Fill bonus — for capturing beyond the target percentage, at level clear.
- * 3. Time bonus — for finishing a level quickly, at level clear.
- * 4. Lives bonus — for lives still held, applied to the final total.
+ * 1. Grid elimination: points per captured cell, accrued during play.
+ * 2. Fill bonus: for capturing beyond the target percentage, at level clear.
+ * 3. Time bonus: for finishing a level quickly, at level clear.
+ * 4. Lives bonus: for lives carried into the clear, at level clear.
  */
 import { RULES, SCORING } from './tuning'
 import type { ScoreBreakdown } from './types'
@@ -29,12 +29,12 @@ export function timeBonus(elapsedSec: number): number {
   )
 }
 
-/** Bonus for lives still held. */
+/** Bonus for the lives a board still holds when its level clears. */
 export function livesBonus(lives: number): number {
   return Math.max(0, lives) * SCORING.lifeValue
 }
 
-/** Assemble a full breakdown (with lives folded into the total). */
+/** Assemble a full breakdown of one cleared level. */
 export function makeBreakdown(
   elimination: number,
   fill: number,

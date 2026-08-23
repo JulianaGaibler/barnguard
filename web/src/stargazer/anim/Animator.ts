@@ -1,11 +1,7 @@
 import { linear, type Easing } from '../math/easings'
 import { abortError } from './abortSignal'
 
-/**
- * Options for {@link Animator.tween} and node-level tween helpers.
- *
- * @category Animation
- */
+/** Options for {@link Animator.tween} and node-level tween helpers. */
 export interface TweenOptions {
   /** Total duration in seconds. Zero-duration tweens complete on the next tick. */
   duration: number
@@ -19,8 +15,9 @@ export interface TweenOptions {
    */
   signal?: AbortSignal
   /**
-   * Called every tick after the target's properties are updated. Useful for
-   * knock-on effects (invalidating a static cache, marking a node dirty).
+   * Called every tick after the target's properties are updated, for knock-on
+   * work the tween itself cannot do, such as recomputing a derived value or
+   * marking a node dirty.
    */
   onUpdate?: () => void
   /**
@@ -72,8 +69,6 @@ const DEV_WARN_OVERLAP = true
  * tween's lifetime to a node or the engine: `Node2D.tween`, `Node2D.wait`,
  * `Camera.animateTo`, `Engine.tween`. Call {@link Animator.tween} directly only
  * for an ad-hoc target with your own abort signal.
- *
- * @category Animation
  */
 export class Animator {
   readonly #active = new Set<AnimationRecord>()

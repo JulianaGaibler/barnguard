@@ -14,7 +14,10 @@ import { TUNING } from '../data/tuning'
 export interface EndpointResumeHooks {
   isPlaying(): boolean
   epicenter(): EpicenterNode | null
-  /** Arcade-world pointer coord → map-local space; see `PathDrawSessionHooks`. */
+  /**
+   * Arcade-world pointer coord mapped to map-local space. See
+   * `PathDrawSessionHooks`.
+   */
   worldToMap(x: number, y: number): Vec2
 }
 

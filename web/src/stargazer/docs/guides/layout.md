@@ -39,7 +39,7 @@ new LayoutRoot({ bounds: () => myRegionRect })
 
 ## Row and Column
 
-`Row` lays children out left to right, `Column` top to bottom. Inflexible children take their natural size; `gap` spaces them; `mainAxisAlign` distributes the leftover space along the main axis and `crossAxisAlign` places each child on the other axis.
+`Row` lays children out left to right, `Column` top to bottom. Inflexible children take their natural size, `gap` spaces them, `mainAxisAlign` distributes the leftover space along the main axis, and `crossAxisAlign` places each child on the other axis.
 
 ```ts
 new Row({
@@ -51,7 +51,7 @@ new Row({
 
 `mainAxisAlign` is one of `start`, `center`, `end`, `spaceBetween`, `spaceAround`, `spaceEvenly`. `crossAxisAlign` is `start`, `center`, `end`, or `stretch`.
 
-To make a child grow, wrap it in `Expanded`; several expanded children split the leftover space by their `flex` weight. `Spacer` is flexible empty space, handy for pushing siblings apart.
+To make a child grow, wrap it in `Expanded`. Several expanded children split the leftover space by their `flex` weight. `Spacer` is flexible empty space, handy for pushing siblings apart.
 
 ```ts
 new Row({
@@ -74,7 +74,7 @@ new Row({
 
 ## Boxes and spacing
 
-`Box` is a single-child container with an optional fixed size and padding; it stretches its child to fill the padded interior. `SizedBox` and `Padding` are the common shortcuts.
+`Box` is a single-child container with an optional fixed size and padding. It stretches its child to fill the padded interior. `SizedBox` and `Padding` are the common shortcuts.
 
 ```ts
 new Box({ width: 480, padding: edgeInsets(24), child: content })
@@ -86,7 +86,7 @@ new Padding({ insets: edgeInsets(8, 16), child: label }) // 8 vertical, 16 horiz
 
 ## Placing a child in a larger area
 
-`Align` fills the space its parent offers and places one child within it; `Center` is the centered shorthand.
+`Align` fills the space its parent offers and places one child within it. `Center` is the centered shorthand.
 
 ```ts
 new Center({ child: board })
@@ -130,7 +130,7 @@ new Row({
 })
 ```
 
-To make a custom node layout-aware, implement `Measurable`, a preallocated `measuredSize`, a `measure(constraints)` that returns it, and an `arrange(x, y, w, h)` that sets `transform.x`/`transform.y`. Extending `LayoutNode` gives you the `measuredSize` field and `markLayoutDirty()` for free; see its API reference for a worked example.
+To make a custom node layout-aware, implement `Measurable`, a preallocated `measuredSize`, a `measure(constraints)` that returns it, and an `arrange(x, y, w, h)` that sets `transform.x`/`transform.y`. Extending `LayoutNode` gives you the `measuredSize` field and `markLayoutDirty()` for free. See its API reference for a worked example.
 
 ## Opting out: freeform content in a layout
 
@@ -147,7 +147,7 @@ root.setContent(
 )
 ```
 
-A `LayoutBuilder` sizes like a flex child: it fills a tight box (what a `LayoutRoot`, `AspectRatio`, or `Expanded` hands it) and otherwise measures to the minimum, which is 0 under a loose box. A bare builder on the main axis of a `Row` or `Column` therefore collapses to nothing; wrap it in `Expanded`, `AspectRatio`, or `SizedBox` to give it size. `board.fit` decides what to do with the rect: fit once, or reflow on resize. A game mid-match might store the rect for later and skip an expensive rebuild until the next round.
+A `LayoutBuilder` sizes like a flex child: it fills a tight box (what a `LayoutRoot`, `AspectRatio`, or `Expanded` hands it) and otherwise measures to the minimum, which is 0 under a loose box. A bare builder on the main axis of a `Row` or `Column` therefore collapses to nothing. Wrap it in `Expanded`, `AspectRatio`, or `SizedBox` to give it size. `board.fit` decides what to do with the rect: fit once, or reflow on resize. A game mid-match might store the rect for later and skip an expensive rebuild until the next round.
 
 ## Updating a layout
 
@@ -173,11 +173,11 @@ await card.tween({ scaleX: 1.1, scaleY: 1.1 }, { duration: 0.15 })
 
 ## Limits
 
-- Bounded axes and flex. A `Row`/`Column` with an `Expanded` or `Spacer` child needs a bounded size on its main axis so there is space to divide. A flex child under an unbounded axis throws a named error rather than growing forever; give the container a size (a `LayoutRoot` always does).
+- Bounded axes and flex. A `Row`/`Column` with an `Expanded` or `Spacer` child needs a bounded size on its main axis so there is space to divide. A flex child under an unbounded axis throws a named error rather than growing forever. Give the container a size (a `LayoutRoot` always does).
 - Text. Layout does not measure text, so it cannot size a label to its content. Wrap the label in a `SizedBox` with an explicit size, or place it manually.
-- One measure pass. Sizing comes from the constraints plus content in a single pass; intrinsic sizing (a column that sizes to its widest label) is not supported.
+- One measure pass. Sizing comes from the constraints plus content in a single pass. Intrinsic sizing (a column that sizes to its widest label) is not supported.
 - No scrolling or clipping. Content that overflows its box is not clipped.
-- A `LayoutBuilder` reports a rect but does not size to whatever content reads it. Freeform content placed from that rect lives outside the root's subtree, so a `LayoutRoot` will not invalidate its static bake; if it draws on the static layer, call `scene.invalidateStatic()` yourself when the rect changes.
+- A `LayoutBuilder` reports a rect but does not size to whatever content reads it. Content placed from that rect lives outside the root's subtree, so nothing keeps the two in step but your `onLayout` callback.
 
 ## Where to go next
 

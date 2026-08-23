@@ -6,7 +6,6 @@
  * control, or {@link createTicker} for a standalone frame loop.
  *
  * @module engine
- * @category Engine
  */
 export { createEngineHost } from '../engine/EngineHost'
 export type {

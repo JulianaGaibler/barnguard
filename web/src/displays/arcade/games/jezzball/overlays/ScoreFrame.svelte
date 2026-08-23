@@ -22,8 +22,8 @@
 </div>
 
 <style lang="sass">
-  // Square sits top-aligned and narrower; the circle is wider, bottom-aligned,
-  // and starts lower than the square's top — so it bulges past the square's
+  // Square sits top-aligned and narrower. The circle is wider, bottom-aligned,
+  // and starts lower than the square's top, so it bulges past the square's
   // sides and bottom without reaching above it. Not concentric, unlike the
   // in-game HUD badges this motif is based on.
   .frame
@@ -51,7 +51,7 @@
     border-radius: 50%
     border: 2px solid var(--color-border)
 
-  // Content sizes to its own width rather than the frame's — the display-size
+  // Content sizes to its own width rather than the frame's. The display-size
   // score number regularly renders wider than the decorative shapes, and
   // should overflow them rather than get clipped or wrap.
   .frame__content

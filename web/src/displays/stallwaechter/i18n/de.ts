@@ -1,7 +1,7 @@
 import type { StallwaechterMessages } from './types'
 import { coreDe } from '@src/i18n/coreLocales'
 
-/** German strings — the primary language of the Stallwächter booth. */
+/** German strings, the primary language of the Stallwächter booth. */
 export const de: StallwaechterMessages = {
   ...coreDe,
   app: {

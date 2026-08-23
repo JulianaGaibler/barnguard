@@ -33,7 +33,7 @@ export interface PathDrawSessionHooks {
   handleLayerAdd(node: EndpointHandleNode): void
   /**
    * The session provides this so `PacketBehavior.steerAlongTrail` picks up
-   * points the drag has queued. The trail stays bound across pointerup; a
+   * points the drag has queued. The trail stays bound across pointerup. A
    * subsequent drag on the same packet clears the same node in place.
    */
   bindTrailToPacket(packet: PacketNode, trail: PathTrailNode): void
@@ -42,7 +42,7 @@ export interface PathDrawSessionHooks {
 /**
  * Multi-touch drag on a packet body, draws a `PathTrailNode` that the packet's
  * `PacketBehavior` will follow. Guards against two fingers on the same packet
- * via `activePointerId`, only the first `pointerdown` starts a drag; subsequent
+ * via `activePointerId`, only the first `pointerdown` starts a drag. Subsequent
  * pointers are ignored until the tracked pointer releases.
  */
 export class PathDrawBehavior extends PointerBehavior {
@@ -93,7 +93,7 @@ export class PathDrawBehavior extends PointerBehavior {
     // resume handle too so it doesn't sit atop a cleared trail.
     this.#destroyHandle()
     // No point is pushed on touchdown, the trail is a QUEUE of guidance
-    // points; the packet's own current position isn't part of it. Only the
+    // points. The packet's own current position isn't part of it. Only the
     // finger's motion generates points. This keeps the packet from snapping
     // to the touchdown location on drag start.
     this.#beginTrail()
@@ -102,7 +102,7 @@ export class PathDrawBehavior extends PointerBehavior {
   /**
    * Two-phase scale pop, 1 → `scaleTo` then back to 1, that fires on every
    * touchdown so the player gets an immediate visual "heard you" before their
-   * finger starts producing samples. Runs on the packet's transform;
+   * finger starts producing samples. Runs on the packet's transform.
    * `PacketBehavior::steerAlongTrail` doesn't touch scale so the tween never
    * fights physics. Rapid re-taps stack tweens, the animator will handle it
    * (later tween wins on shared props).
@@ -216,7 +216,7 @@ export class PathDrawBehavior extends PointerBehavior {
     const trail = this.#trail
     this.#trail = null
     // The trail stays BOUND to the packet across pointerup. PacketBehavior
-    // continues consuming any remaining points; a fresh tap on the packet
+    // continues consuming any remaining points. A fresh tap on the packet
     // clears + reuses the node via `beginTrail`. If the drag never reached
     // the epicenter, spawn a resume handle at the trail's tip so the
     // player can pick up and continue.
@@ -231,7 +231,7 @@ export class PathDrawBehavior extends PointerBehavior {
 
   #spawnHandle(x: number, y: number): void {
     // Reuse an existing handle if one is still alive, happens when a
-    // partial drag lands after a previous partial drag; we just move
+    // partial drag lands after a previous partial drag. This just moves
     // the same node to the new tip rather than churning through
     // create/destroy pairs on every release.
     if (this.#handle && !this.#handle.isDestroyed) {

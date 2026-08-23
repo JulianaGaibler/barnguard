@@ -53,9 +53,9 @@
   // Timestamp of the most recent open. The close button ignores clicks that
   // land within CLOSE_COOLDOWN_MS of open so a stray double-tap (e.g. the
   // corner-tap gesture that opened the booth menu, or a fast toggle from a
-  // parent window) can't immediately close what it just opened. Kept
-  // invisible to the operator — no disabled styling or countdown; the
-  // window simply behaves as if the first tap didn't happen.
+  // parent window) can't immediately close what it just opened. There is no
+  // disabled styling or countdown, the window simply behaves as if the first
+  // tap didn't happen.
   const CLOSE_COOLDOWN_MS = 250
   let openedAtMs = 0
 
@@ -63,11 +63,11 @@
     if (visible) openedAtMs = performance.now()
   })
 
-  // Local reset — clears both the persisted position and the in-memory
-  // copy so the next reactive tick re-seeds from `side` / `spawnedBy`. Also
-  // invoked by the registry when a parent window re-anchors (cascade
-  // reset), so a stale "printer at old-booth-position" doesn't survive
-  // moving the booth menu to the other side.
+  // Clears both the persisted position and the in-memory copy so the next
+  // reactive tick re-seeds from `side` / `spawnedBy`. Also invoked by the
+  // registry when a parent window re-anchors (cascade reset), so a stale
+  // "printer at old-booth-position" doesn't survive moving the booth menu to
+  // the other side.
   function resetPosition(): void {
     localStorage.removeItem(storageId)
     position = null
@@ -75,9 +75,9 @@
 
   // Reset saved position when the caller explicitly re-anchors us to a new
   // side (e.g. booth menu double-tapped from the opposite corner). Also
-  // resets any child windows that declared us as their `spawnedBy` — their
-  // previously-seeded positions were relative to our OLD anchor, so
-  // they'd otherwise stay where they were, disconnected from us.
+  // resets any child windows that declared us as their `spawnedBy`, since
+  // their previously-seeded positions were relative to our old anchor and
+  // would otherwise stay put, disconnected from us.
   // Non-reactive `prevSide` avoids re-triggering this effect on its own.
   let prevSide: 'left' | 'right' | undefined
   $effect(() => {
@@ -175,9 +175,9 @@
     // Swallow taps that arrive too soon after open. See CLOSE_COOLDOWN_MS.
     if (performance.now() - openedAtMs < CLOSE_COOLDOWN_MS) return
     resetPosition()
-    // Deliberately do NOT reset children here — closing the parent doesn't
+    // Deliberately does not reset children here. Closing the parent doesn't
     // move it, so a child spawned next to it is still in the right place
-    // relative to where the parent WILL reappear. Also: at this point the
+    // relative to where the parent will reappear. Also, at this point the
     // parent's panel element is about to unmount, so `placeNextTo` would
     // fail to measure it and the child would fall back to its default CSS
     // anchor (jumping across the screen). The cascade only fires on

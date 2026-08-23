@@ -4,7 +4,7 @@ import type { DepthTarget } from './GfxDevice'
 
 // The shadow pass uses depth-array/cube targets, depth-only render passes, and
 // comparison-sampler bind-group entries. happy-dom has no WebGL2 context, so
-// these assert the seam through the mock; real depth/compare behavior is a
+// these assert the seam through the mock. Real depth/compare behavior is a
 // browser-only check.
 
 describe('GfxDevice shadow targets', () => {

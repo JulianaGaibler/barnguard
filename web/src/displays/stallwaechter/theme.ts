@@ -36,6 +36,9 @@ export const stallwaechterTheme: Theme = {
     actionSecondaryDisabled: 'rgba(28, 28, 28, 0.35)',
 
     inputBg: '#f2f0e9',
+    // Navy backdrop the gradient wave (see `decor/Wave.svelte`) sits on.
+    appBackdrop:
+      'linear-gradient(299deg, #243b67 19.93%, #223663 75.96%), #263860',
     shadowCard:
       '0 0.3125rem 2.5rem #0000001a, inset 0 0.125rem 0 -0.0625rem #ffffff80',
     gradientResult:

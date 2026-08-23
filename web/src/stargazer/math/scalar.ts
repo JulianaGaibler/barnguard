@@ -1,8 +1,4 @@
-/**
- * Small scalar helpers shared across the engine and game code.
- *
- * @category Math
- */
+/** Small scalar helpers shared across the engine and game code. */
 
 /** Clamp `v` to the inclusive range `[lo, hi]`. */
 export function clamp(v: number, lo: number, hi: number): number {

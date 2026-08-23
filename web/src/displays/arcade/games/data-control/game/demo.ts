@@ -1,7 +1,7 @@
 /**
  * Non-interactive tutorial demos for Data Control, built on the shared demo
- * stage. They reuse the real game scene the confirm-card mini-stage used — a
- * pulsing epicenter with a packet that routes into it — but script the routing
+ * stage. They reuse the real game scene the confirm-card mini-stage used, a
+ * pulsing epicenter with a packet that routes into it, but script the routing
  * instead of taking pointer input, so each card animates on its own.
  *
  * Packets come from the SAME factory the live game and the menu preview use
@@ -79,7 +79,7 @@ function makeEpicenter(s: DemoScene): EpicenterNode {
 
 /**
  * Card: an epicenter plus a packet that auto-routes into it and respawns.
- * Reuses the live packet stack via `spawnPacketInSession`; the "drawn" path is
+ * Reuses the live packet stack via `spawnPacketInSession`. The "drawn" path is
  * scripted here as a pre-bound trail rather than a drag.
  */
 export function buildRouteDemo(stage: Stage, host: EngineHost): DemoHandle {

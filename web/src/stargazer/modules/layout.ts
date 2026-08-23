@@ -32,7 +32,7 @@
  * ```
  *
  * Containers extend {@link LayoutNode}, which supplies the `measuredSize` field
- * and `markLayoutDirty`. Leaves implement {@link Measurable} directly;
+ * and `markLayoutDirty`. Leaves implement {@link Measurable} directly.
  * `ShapeNode` does, so a shape drops into a `Row` or `Column` without a
  * wrapper.
  *
@@ -78,8 +78,8 @@
  * overwrites it.
  *
  * Everything is in world units. Root constraints are the visible world rect
- * (`Camera.visibleWorldRect`), not CSS pixels; the camera's aspect fit applies
- * on top.
+ * (`Camera.visibleWorldRect`), not CSS pixels, and the camera's aspect fit
+ * applies on top.
  *
  * Moving a static node stays correct. `arrange` moves nodes through their
  * transforms, which does not invalidate the static layer on its own, so the
@@ -92,7 +92,7 @@
  * ## Adding a container
  *
  * Extend {@link LayoutNode} and implement the two methods. `measure` reads the
- * incoming constraints, sizes each child, and returns its own `measuredSize`;
+ * incoming constraints, sizes each child, and returns its own `measuredSize`.
  * `arrange` sets its position, records its box in `debugBounds`, and arranges
  * each child in local space.
  *
@@ -123,11 +123,10 @@
  * ## Limitations
  *
  * Sizing is a single pass, so there is no intrinsic sizing (a container that
- * sizes to its widest child). Text is not measured; wrap a label in a
+ * sizes to its widest child). Text is not measured, so wrap a label in a
  * {@link SizedBox}. There is no clipping or scrolling.
  *
  * @module layout
- * @category Layout
  */
 export { BoxConstraints, edgeInsets } from '../layout/constraints'
 export type { Size, EdgeInsets } from '../layout/constraints'

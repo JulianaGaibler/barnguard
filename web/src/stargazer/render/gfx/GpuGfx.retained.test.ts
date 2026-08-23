@@ -69,7 +69,7 @@ describe('GpuGfx retained fillPath2D', () => {
     // Frames 2 and 3: no re-upload, still one drawElements each (device.reset
     // clears the per-frame logs but not the created-buffer lists).
     await frame(gfx, device, () => gfx.fillPath2D(path, '#ff8040'))
-    expect(device.indexUploads.length).toBe(0) // reset cleared the log; no new upload
+    expect(device.indexUploads.length).toBe(0) // reset cleared the log, so there is no new upload
     expect(device.draws.filter((d) => d.kind === 'elements').length).toBe(1)
 
     await frame(gfx, device, () => gfx.fillPath2D(path, '#ff8040'))

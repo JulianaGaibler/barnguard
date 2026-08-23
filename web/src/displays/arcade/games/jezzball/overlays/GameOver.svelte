@@ -7,15 +7,15 @@
   import type { TextSegment } from '../game/types'
 
   interface Props {
-    /** 2p match-result title (winner/tie). Unused for solo — pass `[]`. */
+    /** 2p match-result title (winner/tie). Unused for solo, pass `[]`. */
     title: TextSegment[]
-    /** 2p match-result score. Unused for solo — pass `[]`. */
+    /** 2p match-result score. Unused for solo, pass `[]`. */
     score: TextSegment[]
     /** Solo run's score, to try against the leaderboard. Omit for 2p. */
     leaderboardScore?: number
     onPlayAgain: () => void
     onMenu: () => void
-    /** Passed straight through to `GameOverPanel` — see its own doc comment. */
+    /** Passed straight through to `GameOverPanel`. See its own doc comment. */
     onFinalize?: (name: string) => void
   }
   const {

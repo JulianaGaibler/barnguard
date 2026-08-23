@@ -54,10 +54,10 @@ describe('GpuGfx batching, fillRect', () => {
   })
 
   it('fillPath2D on an un-registered path ticks the counter without breaking the batch', async () => {
-    // Phase 2 implemented every Gfx2D method that has a registered path or
-    // real primitive. The last "stub" case that survives is fillPath2D /
-    // strokePath2D on a Path2D whose tessellation was never registered.    // e.g. tests that hand in a raw `new Path2D()`. Those still no-op via
-    // `unimplemented.fillPath2D++`, so a coloredTri batch continues.
+    // fillPath2D and strokePath2D are the only Gfx2D calls that can reach a
+    // no-op path: a Path2D whose tessellation was never registered, such as a
+    // raw `new Path2D()`. They tick `unimplemented.fillPath2D` and leave the
+    // open coloredTri batch alone.
     const { gfx, device } = makeGpuGfx()
     await baseFrame(gfx, device)
     gfx.fillRect(0, 0, 5, 5, '#ff0000')
@@ -127,7 +127,7 @@ describe('GpuGfx Phase 3, stats reflect real GL state changes', () => {
     await baseFrame(gfx, device)
     for (let i = 0; i < 100; i++) gfx.fillRect(i, 0, 5, 5, '#f00')
     gfx.endFrame()
-    // 100 fills, one colored-tri program bind — not one per fill.
+    // 100 fills, one colored-tri program bind, not one per fill.
     expect(gfx.stats.programSwitches).toBe(1)
     expect(gfx.stats.drawCalls).toBe(1)
   })
@@ -245,7 +245,7 @@ describe('GpuGfx batching, drawImage / static blit', () => {
     // The rotated affine reaches the buffer: col0 = (a·dw, b·dw) = (cos45·32,
     // sin45·32), so the off-axis column component is non-zero.
     const fv = new Float32Array(device.draws[0].bufferSnapshot as ArrayBuffer)
-    expect(fv[1]).toBeCloseTo(sin45 * 32) // col0.y — zero only when axis-aligned
+    expect(fv[1]).toBeCloseTo(sin45 * 32) // col0.y, zero only when axis-aligned
   })
 })
 
@@ -259,7 +259,7 @@ describe('GpuGfx frame lifecycle', () => {
   })
 
   it('flush at layer boundary preserves painter order', async () => {
-    // Same-program back-to-back layers would normally coalesce; an explicit
+    // Same-program back-to-back layers would normally coalesce. An explicit
     // flush() between them forces the layer-1 batch to draw before layer 2
     // starts appending. Stage relies on this to preserve painter order across
     // static / above-static / dynamic layers even when they use the same
@@ -293,7 +293,7 @@ beforeEach(() => {
 })
 
 // -----------------------------------------------------------------------------
-// Phase 2 tests, stroke, SDF, gradient, tessellation coverage.
+// Stroke, SDF, gradient, and tessellation coverage.
 // -----------------------------------------------------------------------------
 
 import * as SvgPathContours from '@src/stargazer/assets/SvgPathContours'
@@ -389,12 +389,12 @@ describe('GpuGfx Phase 2, stroke dashStart continuity', () => {
     expect(device.draws[0].kind).toBe('instancedRange')
     expect(device.draws[0].instanceCount).toBe(5)
     // Inspect the uploaded buffer: dashStart lives at offset 24 (bytes) of
-    // each 36-byte instance record (p0.xy + p1.xy + color = 20 bytes; then
+    // each 36-byte instance record (p0.xy + p1.xy + color = 20 bytes, then
     // width (f32) + dashStart (f32) at offset 24). Segments emit first, then
     // join discs, assert dashStart on the three segments.
     const snap = device.draws[0].bufferSnapshot!
     const view = new Float32Array(snap)
-    // Words per instance = 9; dashStart is word index 6 within each instance.
+    // Words per instance is 9, and dashStart is word index 6 within each instance.
     const inst0DashStart = view[0 * 9 + 6]
     const inst2DashStart = view[2 * 9 + 6]
     const inst4DashStart = view[4 * 9 + 6]
@@ -430,7 +430,7 @@ describe('GpuGfx Phase 2. Path2D tessellation cache', () => {
     }
     const spy = vi.spyOn(SvgPathContours, 'tessellateContours')
     const tess = SvgPathContours.tessellateContours([contour])
-    // The spy captures the one manual call above; drawing shouldn't
+    // The spy captures the one manual call above. Drawing shouldn't
     // trigger any additional calls because we register directly.
     const path = new Path2D()
     registerPathTessellation(path, tess, [contour])
@@ -547,8 +547,7 @@ describe('GpuGfx Phase 2. EpicenterNode-shape frame', () => {
     expect(device.draws[0].instanceCount).toBe(4)
   })
 
-  // Note: fillCircleRadialGradient is not covered by a mock-device test.  // its LUT construction goes through OffscreenCanvas.getContext('2d'),
-  // which returns null under happy-dom (no real 2D canvas). Visual parity
-  // for the epicenter pulse is covered by the manual browser diff at the
-  // Phase 2 verification step.
+  // fillCircleRadialGradient has no mock-device test: its LUT construction
+  // goes through OffscreenCanvas.getContext('2d'), which returns null under
+  // happy-dom. Verifying it needs a real browser.
 })

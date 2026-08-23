@@ -1,9 +1,9 @@
 /**
  * Test-only `GfxDevice` that records the command stream (pipelines, bind
- * groups, passes, draws, uploads) into in-memory lists. It emulates no GL state
- * — it hands back plausibly-shaped opaque handles and logs what was asked of
- * it, so program/renderer logic can be asserted without a real context. Handle
- * equality is by identity.
+ * groups, passes, draws, uploads) into in-memory lists. It emulates no GL
+ * state. It hands back plausibly-shaped opaque handles and logs what was asked
+ * of it, so program/renderer logic can be asserted without a real context.
+ * Handle equality is by identity.
  */
 
 import type {
@@ -34,12 +34,26 @@ import type {
   ShaderModuleDesc,
   ShadowArray,
   ShadowCube,
+  StencilState,
   Texture,
   Texture2DOpts,
   TextureUploadOpts,
   UBuffer,
   VBuffer,
 } from '../GfxDevice'
+import { getSourceHeight, getSourceWidth } from '../imageSource'
+
+/**
+ * The extent an upload covers, measured the same way both real backends measure
+ * it, so the mock cannot disagree with them about which texels a call wrote.
+ * Null means the caller passed no source, i.e. asked to reallocate.
+ */
+function sourceSize(
+  source: TexImageSource | null,
+): { w: number; h: number } | null {
+  if (source === null) return null
+  return { w: getSourceWidth(source), h: getSourceHeight(source) }
+}
 
 interface MockBuffer extends VBuffer {
   id: number
@@ -79,16 +93,20 @@ export interface DrawRecord {
   // --- derived (for test assertions) ---------------------------------------
   /**
    * Draw category derived from the call shape: `'elements'` (indexed),
-   * `'lines'` (line-list pipeline), `'instancedRange'` (an instanced program —
-   * more than one vertex buffer, i.e. a unit quad + an instance buffer), else
-   * `'arrays'`.
+   * `'lines'` (line-list pipeline), `'instancedRange'` (an instanced program,
+   * meaning more than one vertex buffer, a unit quad + an instance buffer),
+   * else `'arrays'`.
    */
   kind: 'arrays' | 'lines' | 'instancedRange' | 'elements'
   /** Element count: index count for indexed draws, else vertex count. */
   count: number
+  /** Stencil state the pipeline baked, so a test can tell the passes apart. */
+  stencil: StencilState | null
+  /** Whether the pipeline writes color. `false` marks a stencil reset pass. */
+  colorWrite: boolean
   /**
-   * Program identity (the pipeline's shader module; stable across blend
-   * variants).
+   * Program identity: the pipeline's shader module, stable across blend
+   * variants.
    */
   program: ShaderModule | null
   /** The pipeline's blend mode. */
@@ -112,6 +130,8 @@ export class MockGfxDevice implements GfxDevice {
   readonly bindGroups: BindGroup[] = []
   readonly buffers: VBuffer[] = []
   readonly textures: Texture[] = []
+  /** Textures passed to `deleteTexture`, for lifetime assertions. */
+  readonly deletedTextures: Texture[] = []
   readonly renderTargets: RenderTarget[] = []
   readonly shadowArrays: ShadowArray[] = []
   readonly shadowCubes: ShadowCube[] = []
@@ -345,6 +365,13 @@ export class MockGfxDevice implements GfxDevice {
 
   // --- textures -------------------------------------------------------------
 
+  /**
+   * Creation options, parallel to {@link textures}. Sampler state never reaches
+   * a draw record, so a test that a texture asked for a mip chain has nowhere
+   * else to look.
+   */
+  readonly textureOpts: Texture2DOpts[] = []
+
   createTexture2D(opts: Texture2DOpts): Texture {
     const t = {
       __gfxTexture: undefined as never,
@@ -352,32 +379,50 @@ export class MockGfxDevice implements GfxDevice {
       height: opts.height,
     }
     this.textures.push(t)
+    this.textureOpts.push({ ...opts })
     return t
   }
+  textureUploads: Array<{
+    tex: Texture
+    opts: TextureUploadOpts
+    /** Source extent, or null when the caller asked to reallocate. */
+    size: { w: number; h: number } | null
+  }> = []
   updateTexture2D(
-    _t: Texture,
-    _s: TexImageSource | null,
-    _o?: TextureUploadOpts,
+    tex: Texture,
+    source: TexImageSource | null,
+    opts: TextureUploadOpts = {},
   ): void {
-    /* noop */
+    this.textureUploads.push({ tex, opts, size: sourceSize(source) })
   }
   subImageUploads: Array<{
     tex: Texture
     x: number
     y: number
     opts: TextureUploadOpts
+    /**
+     * Source extent. Both backends derive the written region from the source,
+     * so this is the only way a test can tell which texels an upload covered.
+     */
+    size: { w: number; h: number } | null
   }> = []
   updateTextureSubImage2D(
     tex: Texture,
     xOffset: number,
     yOffset: number,
-    _source: TexImageSource,
+    source: TexImageSource,
     opts: TextureUploadOpts = {},
   ): void {
-    this.subImageUploads.push({ tex, x: xOffset, y: yOffset, opts })
+    this.subImageUploads.push({
+      tex,
+      x: xOffset,
+      y: yOffset,
+      opts,
+      size: sourceSize(source),
+    })
   }
-  deleteTexture(_t: Texture): void {
-    /* noop */
+  deleteTexture(t: Texture): void {
+    this.deletedTextures.push(t)
   }
 
   // --- render targets -------------------------------------------------------
@@ -399,6 +444,7 @@ export class MockGfxDevice implements GfxDevice {
               height: opts.height,
             }
           : undefined,
+      hasStencil: !!opts.stencil && !opts.depth,
       depthTex:
         opts.depth && opts.depthSampled
           ? {
@@ -501,6 +547,21 @@ export class MockGfxDevice implements GfxDevice {
       : undefined
     const pipeline = call.pipeline as MockPipeline
     const desc = pipeline.desc
+    // WebGPU rejects a draw whose pipeline declares a different depth-stencil
+    // format from the pass's attachment, and a pipeline that declares none at
+    // all counts as different. Enforced here so that mismatch surfaces as a
+    // test failure rather than as a blank canvas and an uncaptured device
+    // error in the browser.
+    if (this.#curPass) {
+      const passHasStencil = !!this.#curPass.desc.stencil
+      const pipelineHasStencil = !!desc.stencil
+      if (passHasStencil !== pipelineHasStencil) {
+        throw new Error(
+          `MockGfxDevice.draw: pass ${passHasStencil ? 'has' : 'has no'} stencil attachment but pipeline ` +
+            `${pipelineHasStencil ? 'declares' : 'declares no'} stencil state (label ${desc.label ?? '<none>'})`,
+        )
+      }
+    }
     this.cull = desc.cull
     this.depthTest = desc.depth?.test ?? false
     this.depthWrite = desc.depth?.write ?? true
@@ -539,12 +600,14 @@ export class MockGfxDevice implements GfxDevice {
       count: call.indexCount ?? call.vertexCount ?? 0,
       program: desc.shader ?? null,
       blend: desc.color?.blend ?? 'none',
+      stencil: desc.stencil ?? null,
+      colorWrite: desc.color?.write !== false,
       texture,
     })
     if (this.#curPass) this.#curPass.drawCount++
   }
 
-  /** Alias for {@link shaders} — tests refer to created programs. */
+  /** Alias for {@link shaders}, for tests that refer to created programs. */
   get programs(): ShaderModule[] {
     return this.shaders
   }
@@ -594,6 +657,7 @@ export class MockGfxDevice implements GfxDevice {
     this.uniformUploads.length = 0
     this.indexUploads.length = 0
     this.subImageUploads.length = 0
+    this.textureUploads.length = 0
     this.boundTargets.length = 0
     this.presents.length = 0
     this.deletedRenderTargets = 0

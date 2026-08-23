@@ -4,7 +4,7 @@ import { writable } from 'svelte/store'
  * Runtime UI-scale multiplier. The root font-size is `clamp(...) *
  * var(--ui-scale)` (see styles/global.sass) and every token is rem, so this one
  * knob scales the whole visitor DOM UI. It's tuned on the kiosk from the booth
- * menu and persisted per device; a blocking script in index.html applies the
+ * menu and persisted per device. A blocking script in index.html applies the
  * stored value before first paint (no flash of unscaled content).
  */
 const STORAGE_KEY = 'bg.uiScale'
@@ -47,7 +47,7 @@ export function startUiScale(): void {
     try {
       localStorage.setItem(STORAGE_KEY, String(v))
     } catch {
-      /* storage blocked; the value still applies for this session */
+      /* storage blocked, the value still applies for this session */
     }
   })
 }

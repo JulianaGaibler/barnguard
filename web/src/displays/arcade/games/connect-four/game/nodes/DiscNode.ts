@@ -4,7 +4,7 @@ import { ANIM } from '../tuning'
 /**
  * One placed disc. It lives on a layer in front of the board, so it sits over
  * its slot well (a ring of well shows around it) and covers the slot's faint X.
- * `radius` is fixed; the drop and the board close animate the node's transform
+ * `radius` is fixed. The drop and the board close animate the node's transform
  * (`y` for the fall, `scaleX`/`scaleY` for the shrink-away on close). The fill
  * color can change (a winning disc recolors to its glow shade).
  */

@@ -20,7 +20,7 @@ const WIN_PULSE_SCALE = 1.25
  * pulse it, then draw a connecting line on with a node mark per chip and a
  * square burst at every winning cell. Shared by the live session and the
  * tutorial demo so the celebration stays in sync. `shouldAbort` bails between
- * the pulse and the line/bursts — the session passes its move-generation guard,
+ * the pulse and the line/bursts. The session passes its move-generation guard,
  * the demo its destroy guard.
  */
 export async function playWinHighlight(opts: {

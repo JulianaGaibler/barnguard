@@ -218,7 +218,7 @@ export function patchElement(
   if (isComposite(sem.role)) el.dataset.a11yComposite = '1'
   else delete el.dataset.a11yComposite
 
-  // Focusability. Composite-child roving overrides tabindex afterwards; the
+  // Focusability. Composite-child roving overrides tabindex afterwards. The
   // baseline here makes an independent control a natural tab stop.
   if (isFocusable(sem)) {
     el.dataset.a11yFocusable = '1'

@@ -53,7 +53,7 @@ describe('polygon SAT narrow-phase', () => {
     const hit = collide(a.colliders[0], b.colliders[0], m)
     expect(hit).toBe(true)
     const mm = m as ReturnType<typeof makeManifold>
-    // Overlap of 5 along x; normal points a → b (+x).
+    // Overlap of 5 along x, and the normal points a → b (+x).
     expect(Math.abs(mm.normal.x)).toBeCloseTo(1, 3)
     expect(mm.normal.y).toBeCloseTo(0, 3)
     expect(mm.penetration).toBeCloseTo(5, 3)
@@ -118,7 +118,7 @@ describe('polygon dynamics', () => {
       colliders: [{ shape: boxPoly(10, 10) }],
     })
     for (let i = 0; i < 800; i++) world.step(DT)
-    // Floor top y=90; box half-height 10 → center rests near y=80.
+    // Floor top y=90, box half-height 10, so the center rests near y=80.
     expect(box.position.y).toBeGreaterThan(75)
     expect(box.position.y).toBeLessThan(85)
     // It should be roughly level (not tumbled).
@@ -141,7 +141,7 @@ describe('kinematic movement', () => {
     })
     const hit = world.moveAndCollide(mover, 100, 0)
     expect(hit).not.toBeNull()
-    // Wall left face at x=40; mover radius 5 → rests near x=35.
+    // Wall left face at x=40, mover radius 5, so it rests near x=35.
     expect(mover.position.x).toBeLessThan(40)
     expect(hit!.normal.x).toBeCloseTo(-1, 2)
   })
@@ -158,7 +158,7 @@ describe('kinematic movement', () => {
       position: { x: 0, y: 0 },
       colliders: [{ shape: circleShape(5) }],
     })
-    // Move diagonally into the wall; the x is blocked, the y should slide.
+    // Move diagonally into the wall. The x is blocked, the y should slide.
     world.moveAndSlide(mover, 100, 50)
     expect(mover.position.x).toBeLessThan(40)
     expect(mover.position.y).toBeGreaterThan(20)

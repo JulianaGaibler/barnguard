@@ -7,7 +7,7 @@
  * Async steps (reveal, drop, AI turn, win/draw, fold back) share one
  * {@link AbortScope}: `startMatch` / `reset` / `destroy` call `scope.reset()`
  * (or `dispose()`), which aborts whatever is in flight so the awaiting sequence
- * unwinds on its own — no generation-counter guards.
+ * unwinds on its own, with no generation-counter guards.
  */
 import {
   Node2D,
@@ -21,6 +21,7 @@ import {
   type EngineHost,
   type Rect,
 } from '@src/stargazer'
+import { FAMILIES } from '@src/core/theme'
 import {
   COLS,
   ROWS,
@@ -43,7 +44,6 @@ import { GradientBackgroundNode } from '../../common/GradientBackgroundNode'
 import { BoardNode } from './nodes/BoardNode'
 import { DiscNode } from './nodes/DiscNode'
 import { PreviewNode } from './nodes/PreviewNode'
-import { DropIndicatorNode } from './nodes/DropIndicatorNode'
 import { FrameNode } from './nodes/FrameNode'
 import { PlayerTabNode } from './nodes/PlayerTabNode'
 import {
@@ -51,7 +51,6 @@ import {
   BACKGROUND,
   BOARD,
   FRAME,
-  PILL,
   PLAYER_COLORS,
   TAB,
   TRAIL,
@@ -71,7 +70,7 @@ export interface GameEvents {
   matchStarted: { mode: GameMode }
   /** A new side is on the move (drives any turn HUD). */
   turnChanged: { player: Player }
-  /** The game ended (win or draw); the cumulative score is already updated. */
+  /** The game ended (win or draw). The cumulative score is already updated. */
   roundOver: RoundResult
   /** Returned to the idle main screen. */
   reset: void
@@ -99,9 +98,6 @@ export interface GameSession {
   destroy(): void
 }
 
-/** Column the drop pill rests over between drags (center). */
-const DEFAULT_PILL_COL = Math.floor(COLS / 2)
-
 export async function startGame(
   host: EngineHost,
   bounds: Bounds,
@@ -116,10 +112,10 @@ export async function startGame(
 
   // Scene, back to front: the game's own gray gradient, then the board (a light
   // panel of slot wells with a faint X behind each), then the discs ON TOP (so a
-  // chip covers its slot's X), the drop preview + column pill, the registration
+  // chip covers its slot's X), the drop preview, the registration
   // frame + technical labels, the two player tabs, and the win burst layer.
   // The board fades between hidden on the menu (the stylized preview stands in
-  // for it) and full opacity while playing; alpha is per drawing node (the
+  // for it) and full opacity while playing. Alpha is per drawing node (the
   // render walk doesn't cascade group alpha), so the front-of-board chrome is
   // toggled by `visible` on the play/menu transition instead.
   const MENU_ALPHA = 0
@@ -133,11 +129,6 @@ export async function startGame(
   const boardNode = new BoardNode(layout)
   boardNode.transform.alpha = MENU_ALPHA // hidden behind the menu
   const preview = new PreviewNode(discRadius)
-  const dropPill = new DropIndicatorNode(
-    cell * PILL.widthFrac,
-    cell * PILL.heightFrac,
-  )
-  dropPill.transform.y = layout.panelY - cell * PILL.yOffsetFrac
   const frame = new FrameNode(layout)
   const { leftTab, rightTab } = buildTabs()
   const labelTL = buildLabel(
@@ -156,7 +147,6 @@ export async function startGame(
   root.add(boardNode)
   root.add(discLayer)
   root.add(preview)
-  root.add(dropPill)
   root.add(frame)
   root.add(labelTL)
   root.add(labelBR)
@@ -173,7 +163,7 @@ export async function startGame(
   let mode: GameMode | null = null
   const matchScore: MatchScore = { teamL: 0, teamR: 0 }
   // One cancellation scope for the match/menu async sequences. `reset()` opens a
-  // new epoch and aborts the previous one; sequences pass its signal into their
+  // new epoch and aborts the previous one. Sequences pass its signal into their
   // tweens/waits so a supersede unwinds them.
   const scope = root.scope()
   let paused = false
@@ -220,7 +210,7 @@ export async function startGame(
   function buildLabel(text: string, x: number, y: number): TextNode {
     const label = new TextNode({
       text,
-      fontFamily: FRAME.labelFont,
+      fontFamily: FAMILIES.azeretMono,
       fontSize: FRAME.labelSizePx,
       sizeSpace: 'screen',
       color: FRAME.labelColor,
@@ -234,7 +224,6 @@ export async function startGame(
   }
 
   function setChromeVisible(visible: boolean): void {
-    dropPill.visible = visible
     frame.visible = visible
     labelTL.visible = visible
     labelBR.visible = visible
@@ -257,14 +246,8 @@ export async function startGame(
     rightTab.setState(winner === 2 ? 'won' : 'lost')
   }
 
-  function setPillColumn(col: number): void {
-    dropPill.transform.x = cellCenter(layout, col, ROWS - 1).x
-  }
-
   function focusTurn(player: Player): void {
     updateTabsForTurn(player)
-    dropPill.setColor(PLAYER_COLORS[player])
-    setPillColumn(DEFAULT_PILL_COL)
   }
 
   function clearBoard(): void {
@@ -296,8 +279,8 @@ export async function startGame(
     if (paused) resume()
     preview.visible = false
     setChromeVisible(false)
-    // Fade the board back to the dimmed menu backdrop; fade any discs out with
-    // it (alpha is per node, so each is tweened directly).
+    // Fade the board back to the dimmed menu backdrop, and fade any discs out
+    // with it (alpha is per node, so each is tweened directly).
     const discs = [...discByCell.values()].filter((disc) => !disc.isDestroyed)
     await Promise.all([
       boardNode.tween(
@@ -320,7 +303,7 @@ export async function startGame(
   // --- Turn flow ----------------------------------------------------------
 
   async function commitDrop(col: number): Promise<void> {
-    // External taps are gated by `inputLocked` at pointerDown; the AI calls this
+    // External taps are gated by `inputLocked` at pointerDown. The AI calls this
     // directly while locked, so don't re-check the lock here.
     const row = dropRow(board, col)
     if (row === null) return
@@ -335,7 +318,7 @@ export async function startGame(
     disc.transform.y = topEntryY(layout)
 
     // A short square trail lagging behind the falling chip. Lives in the disc
-    // layer (world space, an earlier sibling so it draws behind the chip); the
+    // layer (world space, an earlier sibling so it draws behind the chip). The
     // drop drives its origin each frame. Children of the disc would follow it
     // and leave no trail, so it's a sibling.
     const trail = new ParticleEmitterNode({
@@ -381,7 +364,6 @@ export async function startGame(
       return
     }
     if (isFull(board)) {
-      dropPill.visible = false
       updateTabsForWin(null)
       events.emit('roundOver', { winner: null, matchScore: { ...matchScore } })
       await host.engine.wait(ANIM.winHold * 0.5, signal)
@@ -414,7 +396,6 @@ export async function startGame(
   ): Promise<void> {
     if (player === 1) matchScore.teamL += 1
     else matchScore.teamR += 1
-    dropPill.visible = false
     updateTabsForWin(player)
     events.emit('roundOver', { winner: player, matchScore: { ...matchScore } })
 
@@ -448,7 +429,7 @@ export async function startGame(
     events.emit('resumed', undefined)
   }
 
-  // A tap inside the board drops in that column; a tap in the empty space
+  // A tap inside the board drops in that column. A tap in the empty space
   // outside the board opens the pause menu (discoverable, no gesture to learn).
   const insideBoard = (x: number, y: number): boolean =>
     x >= layout.panelX &&
@@ -470,7 +451,6 @@ export async function startGame(
       preview.transform.x = cellCenter(layout, col, ROWS - 1).x
       preview.transform.y = topEntryY(layout)
       preview.visible = true
-      setPillColumn(col)
     },
     move: (e) => {
       if (paused || inputLocked) return
@@ -480,7 +460,6 @@ export async function startGame(
       } else {
         preview.visible = true
         preview.transform.x = cellCenter(layout, col, ROWS - 1).x
-        setPillColumn(col)
       }
     },
     up: (e) => {

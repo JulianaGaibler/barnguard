@@ -21,8 +21,9 @@ pub enum PrinterError {
 }
 
 impl PrinterError {
-    /// Whether retrying the whole job might succeed. Media / not-ready errors
-    /// are terminal (retrying just spins); transport errors are retryable.
+    /// Whether retrying the whole job might succeed. Media and not-ready
+    /// errors are terminal because retrying just spins. Transport errors are
+    /// retryable.
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,

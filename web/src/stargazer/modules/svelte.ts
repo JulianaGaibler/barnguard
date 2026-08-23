@@ -1,7 +1,7 @@
 /**
  * Svelte bindings, the only part of stargazer that touches the DOM.
  * {@link mountEngine} is a `use:` action that builds an `EngineHost` from a
- * `<canvas>` and tears it down on unmount; {@link mountStage} attaches a
+ * `<canvas>` and tears it down on unmount. {@link mountStage} attaches a
  * secondary `Stage` to an existing engine. {@link domAnchor} pins an HTML
  * element to a scene node so it rides the camera (see the dom module).
  * {@link a11yRoot} hands an element to the accessibility tree as its mount point
@@ -9,7 +9,6 @@
  * Svelte store for the low-frequency events.
  *
  * @module svelte
- * @category Svelte
  */
 export { mountEngine } from '../svelte/mountEngine'
 export type { MountEngineActionParams } from '../svelte/mountEngine'

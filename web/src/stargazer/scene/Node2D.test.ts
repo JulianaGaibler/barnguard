@@ -194,7 +194,7 @@ describe('Node2D', () => {
       leftBranch.add(staticSubtreeRoot)
       root._verifyStaticCount()
       // Reparent from left branch to right branch, no explicit remove
-      // needed; add() detects the existing parent and detaches first.
+      // needed, because add() detects the existing parent and detaches first.
       rightBranch.add(staticSubtreeRoot)
       root._verifyStaticCount()
     })
@@ -526,7 +526,7 @@ describe('Node2D', () => {
           { deferAttach: false, name: 'test-loop' },
         )
         await Promise.resolve()
-        // Destroy mid-await; the nextFrame() wait rejects with AbortError.
+        // Destroy mid-await. The nextFrame() wait rejects with AbortError.
         node.destroy()
         animator.tick(0)
         await Promise.resolve()

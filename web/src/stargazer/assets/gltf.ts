@@ -37,8 +37,8 @@ import {
  * or a `.glb` (binary container), builds the tree, and decodes the material
  * images asynchronously. `parseGltf(json, buffers)` is the pure, synchronous
  * core: it builds the tree and attaches material texture descriptors (with the
- * images' _compressed_ bytes) but does no image decode or GPU work, so it's
- * used by tests and custom loaders; `loadGltf` wraps it with the
+ * images' _compressed_ bytes) but does no image decode or GPU work, so tests
+ * and custom loaders use it directly. `loadGltf` wraps it with the
  * `createImageBitmap` decode pass.
  *
  * Scope: mesh geometry (POSITION, NORMAL, TEXCOORD_0, TANGENT, `TRIANGLES`,
@@ -47,11 +47,10 @@ import {
  * base-color / metallic-roughness / normal / occlusion / emissive textures,
  * alpha mode, double-sidedness, and `KHR_materials_diffuse_transmission`.
  * Missing normals are computed (smooth). `KHR_materials_transmission` glass
- * degrades to a translucent blend (no refraction); skinning, morph targets,
+ * degrades to a translucent blend (no refraction). Skinning, morph targets,
  * animations, and IBL are not read here. The world is y-up right-handed,
  * matching glTF, so no axis conversion happens.
  *
- * @category Assets
  * @example
  *   const model = await loadGltf('/models/robot.glb')
  *   engine.tree.add(model)
@@ -84,7 +83,7 @@ interface GltfPunctualLight {
   type: 'directional' | 'point' | 'spot'
   color?: [number, number, number]
   intensity?: number
-  /** Falloff cutoff (point/spot); absent = infinite. */
+  /** Falloff cutoff (point/spot). Absent means infinite. */
   range?: number
   spot?: { innerConeAngle?: number; outerConeAngle?: number }
 }
@@ -190,7 +189,7 @@ interface GltfContext {
 const MIPMAP_MIN_FILTERS = new Set([9984, 9985, 9986, 9987])
 const WRAP_CLAMP = 33071 // CLAMP_TO_EDGE (default REPEAT = 10497)
 
-/** Material extensions we knowingly handle or degrade; others just warn. */
+/** Material extensions we knowingly handle or degrade. Others just warn. */
 const SUPPORTED_EXTENSIONS = new Set([
   'KHR_materials_diffuse_transmission',
   'KHR_materials_transmission', // degraded to a translucent blend (no refraction)
@@ -236,7 +235,7 @@ function resolveSampler(
     samplerIndex !== undefined ? doc.samplers?.[samplerIndex] : undefined
   const wrap: 'clamp' | 'repeat' =
     s?.wrapS === WRAP_CLAMP || s?.wrapT === WRAP_CLAMP ? 'clamp' : 'repeat'
-  // Absent min-filter ⇒ trilinear (mips); an explicit non-mip filter ⇒ no mips.
+  // Absent min-filter means trilinear (mips), an explicit non-mip filter means no mips.
   const mipmap =
     s?.minFilter === undefined ? true : MIPMAP_MIN_FILTERS.has(s.minFilter)
   return { wrap, mipmap }
@@ -261,7 +260,10 @@ function textureSlot(
   return { image, sampler, srgb }
 }
 
-/** Warn once per unsupported glTF extension; never throw (still load, degraded). */
+/**
+ * Warn once per unsupported glTF extension. Never throws, the model still
+ * loads, degraded.
+ */
 function warnUnsupportedExtensions(ctx: GltfContext): void {
   for (const ext of ctx.doc.extensionsUsed ?? []) {
     if (SUPPORTED_EXTENSIONS.has(ext) || ctx.warned.has(ext)) continue
@@ -277,10 +279,10 @@ function warnUnsupportedExtensions(ctx: GltfContext): void {
 
 /**
  * Map a glTF material to a {@link MeshMaterial}. glTF materials are
- * metallic-roughness PBR, so `pbr` is set; textures are sRGB for base-color and
+ * metallic-roughness PBR, so `pbr` is set. Textures are sRGB for base-color and
  * emissive, linear otherwise (metallic-roughness/normal/occlusion). Occlusion
- * often aliases the metallic-roughness image (packed ORM) — both are linear and
- * share one {@link TextureImage}, so the renderer uploads it once.
+ * often aliases the metallic-roughness image (packed ORM), and both are linear
+ * and share one {@link TextureImage}, so the renderer uploads it once.
  */
 function materialFor(
   ctx: GltfContext,
@@ -342,7 +344,7 @@ function materialFor(
     )
   }
   // KHR_materials_transmission (glass): no screen-space refraction yet, so fake
-  // a translucent blend — otherwise a default-white opaque glass renders as a
+  // a translucent blend. Otherwise a default-white opaque glass renders as a
   // solid slab hiding what's behind it. TODO(glass): real refraction pass.
   const tr = ext['KHR_materials_transmission'] as
     { transmissionFactor?: number } | undefined
@@ -427,8 +429,8 @@ function buildNode(ctx: GltfContext, index: number): Node3D {
       if (geom) node.add(new MeshNode(geom, materialFor(ctx, prim.material)))
     }
   }
-  // A KHR_lights_punctual light rides at the node's origin, aimed down its −Z;
-  // add it as a child so it inherits the node's world transform.
+  // A KHR_lights_punctual light rides at the node's origin, aimed down its −Z.
+  // Add it as a child so it inherits the node's world transform.
   const lightExt = gnode.extensions?.['KHR_lights_punctual'] as
     { light?: number } | undefined
   if (lightExt?.light !== undefined) {
@@ -560,8 +562,6 @@ function buildAnimations(ctx: GltfContext): AnimationClip[] {
  * the default scene's top-level nodes, plus an {@link AnimationPlayer} for the
  * first animation clip (auto-playing, looped) when the document has
  * animations.
- *
- * @category Assets
  */
 export function parseGltf(doc: GltfDoc, buffers: ArrayBuffer[]): Node3D {
   const ctx: GltfContext = {
@@ -699,8 +699,6 @@ async function resolveBuffers(
  * the result to the scene tree (`engine.tree.add(root)`). Supports `.glb` and
  * `.gltf` (external or data-URI buffers). Material images decode before it
  * resolves, so textures are ready on the first frame.
- *
- * @category Assets
  */
 export async function loadGltf(url: string): Promise<Node3D> {
   const res = await fetch(url)

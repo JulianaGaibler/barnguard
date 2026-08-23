@@ -32,7 +32,7 @@ function makeMask(): BitmapMask {
       // Dead zone at [140, 260], wider than a single cell so the
       // constructor's 5-sample corner test (centre + 4 corners at
       // ±cellHalf) can't accidentally admit the x=200 cell via a
-      // stray corner. Cells at x=0, 100, 300 stay; x=200 drops.
+      // stray corner. Cells at x=0, 100, 300 stay, and x=200 drops.
       const rx = Math.round(x)
       return rx < 140 || rx > 260
     },

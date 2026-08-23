@@ -54,7 +54,7 @@ with `inset: 0` sits centered on the node wherever the camera puts it:
 
 ```svelte
 <div use:domAnchor={{ engine, node, size: { width: 1920, height: 1080 } }}>
-  <!-- 1920×1080 before the transform; the engine scales it to the screen -->
+  <!-- 1920x1080 before the transform, the engine scales it to the screen -->
   <div class="menu">
     <h1>Paused</h1>
     <button onclick={resume}>Resume</button>
@@ -73,16 +73,16 @@ with `inset: 0` sits centered on the node wherever the camera puts it:
 
 Without `size`, only the origin is anchored and the element keeps its own CSS
 width and height. The node's transform and the camera still apply, so the
-element scales and rotates with the scene; it just isn't pinned to a specific
+element scales and rotates with the scene. It just isn't pinned to a specific
 world rect. This suits a label or badge tacked to a point in the world:
 
 ```ts
-engine.dom.attach(markerNode, badgeEl) // badgeEl sizes itself; origin tracks the node
+engine.dom.attach(markerNode, badgeEl) // badgeEl sizes itself, origin tracks the node
 ```
 
 Three more options: `syncVisibility` (default on) hides the element with
-`display:none` when the node or any ancestor is not visible; `syncOpacity`
-(default off) mirrors the node's compounded alpha onto the element; and `cull`
+`display:none` when the node or any ancestor is not visible, `syncOpacity`
+(default off) mirrors the node's compounded alpha onto the element, and `cull`
 (default off) hides the element once its rect leaves the canvas, so a panel can
 ride the camera off-screen and drop out of layout and hit-testing on its own.
 
@@ -136,7 +136,7 @@ reverse pan swaps them back.
 
 ## Where the element must live
 
-The engine writes only the element's transform; it does not move the element in
+The engine writes only the element's transform. It does not move the element in
 the DOM. Put it in a container that overlays the canvas exactly, with the same
 bounding rect. Any padding, border, or offset on that container shifts the
 element off the canvas, because the camera's offset is measured from the canvas
@@ -170,7 +170,7 @@ top of it:
 ## Things to watch
 
 - Layering follows the DOM, not the scene tree. Two anchored elements overlap by
-  their DOM order or CSS `z-index`; the depth of their nodes in the scene graph
+  their DOM order or CSS `z-index`. The depth of their nodes in the scene graph
   has no effect.
 - The overlay container is click-through so the canvas still receives pointer
   events. An interactive element sets `pointer-events: auto` on itself (or its

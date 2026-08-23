@@ -59,6 +59,7 @@ import {
   blendToGPU,
   colorFormatToGPU,
   compareFnToGPU,
+  stencilFaceToGPU,
   cullModeToGPU,
   frontFaceToGPU,
   indexTypeToGPU,
@@ -68,7 +69,12 @@ import {
 } from './conv'
 import { BlitPass, mipLevels } from './blitPass'
 import { pipelineKey } from '../pipelineKey'
-import { getSourceWidth, getSourceHeight } from '../imageSource'
+import {
+  getSourceWidth,
+  getSourceHeight,
+  resolveUploadFlipY,
+  packUploadRGBA,
+} from '../imageSource'
 
 // --- concrete backing structs (kept private, exposed as branded handles) ----
 
@@ -146,6 +152,7 @@ type WebGPURenderTarget = RenderTarget & {
   /** Multisample color texture, allocated only when `samples > 1`. */
   colorMs?: GPUTexture
   depthTex?: GPUTexture
+  stencilTex?: GPUTexture
   /** Depth allocated as a sampleable single-sample texture (G-buffer). */
   depthSampled?: boolean
   width: number
@@ -182,8 +189,8 @@ export class WebGPUDevice implements GfxDevice {
   readonly #comparisonSamplers = new Map<CompareFn, GPUSampler>()
   #nonFilteringSampler: GPUSampler | null = null
 
-  // Fullscreen-triangle blit (present) + mipmap generation. Built lazily; only
-  // needs the device + swapchain format, so it lives in its own helper.
+  // Fullscreen-triangle blit (present) + mipmap generation. Built lazily and
+  // needs only the device + swapchain format, so it lives in its own helper.
   readonly #blit: BlitPass
 
   readonly deviceStats: DeviceStats = {
@@ -258,7 +265,12 @@ export class WebGPUDevice implements GfxDevice {
     void device.lost.then((info) => {
       if (this.#destroying) return
       this.#lost = true
-      void info
+      // A WebGPU loss is terminal and there is no fallback, so the only trace
+      // it leaves is whatever is said here. Silence made a lost device
+      // indistinguishable from a rendering bug.
+      console.error(
+        `[stargazer] WebGPU device lost (${info.reason}): ${info.message}`,
+      )
       for (const cb of this.#lostCbs) cb()
     })
   }
@@ -352,6 +364,9 @@ export class WebGPUDevice implements GfxDevice {
       }
     }
 
+    // Depth and stencil are mutually exclusive here (see
+    // `RenderTargetOpts.stencil`), so the attachment format follows from which
+    // one the pipeline asked for and always matches its target's.
     if (desc.depth !== null) {
       const d = desc.depth
       descriptor.depthStencil = {
@@ -362,6 +377,20 @@ export class WebGPUDevice implements GfxDevice {
           : 'always',
         depthBias: d.biasConstant ?? 0,
         depthBiasSlopeScale: d.biasSlopeScale ?? 0,
+      }
+    } else if (desc.stencil) {
+      const st = desc.stencil
+      const back = st.back ?? st.front
+      // A stencil8 attachment has no depth aspect, so depth must be inert:
+      // writes off and an always-pass compare.
+      descriptor.depthStencil = {
+        format: 'stencil8',
+        depthWriteEnabled: false,
+        depthCompare: 'always',
+        stencilFront: stencilFaceToGPU(st.front),
+        stencilBack: stencilFaceToGPU(back),
+        stencilReadMask: st.readMask ?? 0xff,
+        stencilWriteMask: st.writeMask ?? 0xff,
       }
     }
 
@@ -408,8 +437,8 @@ export class WebGPUDevice implements GfxDevice {
     const gpuEntries: GPUBindGroupLayoutEntry[] = []
     // Every binding is visible to all stages a resource of its kind may be read
     // in: the layouts are small and this avoids tracking which stage each
-    // resource is used in. Storage textures are the exception — WebGPU forbids
-    // them in the vertex stage — so they take FRAGMENT | COMPUTE only.
+    // resource is used in. Storage textures are the exception. WebGPU forbids
+    // them in the vertex stage, so they take FRAGMENT | COMPUTE only.
     const vis =
       GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE
     for (const e of entries) {
@@ -523,8 +552,8 @@ export class WebGPUDevice implements GfxDevice {
           binding: e.binding,
           resource: tex.gpu.createView(),
         })
-        // A storage texture binds without a sampler; a sampled depth texture
-        // takes a non-filtering sampler; a regular texture its filtering one.
+        // A storage texture binds without a sampler. A sampled depth texture
+        // takes a non-filtering sampler, and a regular texture its filtering one.
         if (le.type === 'storage-texture-2d') {
           // no companion sampler
         } else if (le.type === 'texture-2d-depth') {
@@ -542,7 +571,11 @@ export class WebGPUDevice implements GfxDevice {
         } else {
           gpuEntries.push({
             binding: e.binding + 16,
-            resource: this.#filterSampler(tex.filter, tex.wrap),
+            resource: this.#filterSampler(
+              tex.filter,
+              tex.wrap,
+              tex.mipmap ? tex.anisotropy : 1,
+            ),
           })
         }
       } else if ('shadowArray' in res) {
@@ -580,11 +613,29 @@ export class WebGPUDevice implements GfxDevice {
     void _g
   }
 
+  /**
+   * A cached sampler for one combination of filter, wrap and anisotropy.
+   *
+   * Anisotropy belongs in the key, not just the descriptor. Samplers are shared
+   * across every texture that matches, so keying on filter and wrap alone would
+   * hand the first caller's anisotropy to everyone after it.
+   *
+   * WebGPU rejects `maxAnisotropy` above 1 unless all three filters are
+   * `'linear'`, and it means nothing without a mip chain, so both are enforced
+   * here rather than trusted from the caller. The cap of 16 is the highest any
+   * driver exposes, and an out-of-range request is a validation error on some
+   * backends.
+   */
   #filterSampler(
     filter: 'nearest' | 'linear',
     wrap: 'clamp' | 'repeat',
+    anisotropy = 1,
   ): GPUSampler {
-    const key = `${filter}/${wrap}`
+    const aniso =
+      filter === 'linear'
+        ? Math.min(16, Math.max(1, Math.floor(anisotropy)))
+        : 1
+    const key = `${filter}/${wrap}/${aniso}`
     let s = this.#filterSamplers.get(key)
     if (s) return s
     const addressMode: GPUAddressMode =
@@ -597,6 +648,7 @@ export class WebGPUDevice implements GfxDevice {
       addressModeU: addressMode,
       addressModeV: addressMode,
       addressModeW: addressMode,
+      maxAnisotropy: aniso,
     })
     this.#filterSamplers.set(key, s)
     return s
@@ -888,20 +940,10 @@ export class WebGPUDevice implements GfxDevice {
    * video, not `ImageData` (which WebGL2's `texImage2D` does), so an
    * `ImageData` goes through `writeTexture` as raw RGBA8 bytes, applying
    * `flipY` / `premultiply` on the CPU since `writeTexture` does neither.
+   *
+   * `flipY` comes from `resolveUploadFlipY` and is never inverted per backend.
+   * See that function for the shared contract and the regression it guards.
    */
-  /**
-   * The `flipY` an upload must use. The 2D pass samples textures with UVs that
-   * follow the render target's orientation, and WebGPU's texture V-origin is
-   * the opposite of WebGL2's, so a normal texture inverts the caller's `flipY`
-   * to sample the same way as WebGL2 (which applies `opts.flipY` directly via
-   * `UNPACK_FLIP_Y`). A mesh's object-space UVs are independent of the render
-   * target, so those upload with their `flipY` unchanged.
-   */
-  #uploadFlipY(opts: TextureUploadOpts): boolean {
-    if (opts.objectSpaceUV) return opts.flipY ?? false
-    return !(opts.flipY ?? false)
-  }
-
   #uploadImage(
     gpu: GPUTexture,
     x: number,
@@ -923,7 +965,7 @@ export class WebGPUDevice implements GfxDevice {
     }
     try {
       this.#device.queue.copyExternalImageToTexture(
-        { source, flipY: this.#uploadFlipY(opts) },
+        { source, flipY: resolveUploadFlipY(opts) },
         {
           texture: gpu,
           origin: [x, y, 0],
@@ -972,24 +1014,9 @@ export class WebGPUDevice implements GfxDevice {
   ): void {
     const w = img.width
     const h = img.height
-    const flip = this.#uploadFlipY(opts)
-    const premul = opts.premultiply ?? false
-    // Copy into a fresh, plainly-backed byte array (also applies flipY /
-    // premultiply, which writeTexture does not do itself).
-    const out = new Uint8Array(w * h * 4)
-    for (let row = 0; row < h; row++) {
-      const srcRow = flip ? h - 1 - row : row
-      for (let col = 0; col < w; col++) {
-        const si = (srcRow * w + col) * 4
-        const di = (row * w + col) * 4
-        const a = img.data[si + 3]
-        const s = premul ? a / 255 : 1
-        out[di] = Math.round(img.data[si] * s)
-        out[di + 1] = Math.round(img.data[si + 1] * s)
-        out[di + 2] = Math.round(img.data[si + 2] * s)
-        out[di + 3] = a
-      }
-    }
+    // writeTexture applies neither flipY nor premultiply, so bake both into a
+    // fresh, plainly-backed byte array CPU-side.
+    const out = packUploadRGBA(img, opts)
     this.#device.queue.writeTexture(
       { texture: gpu, origin: [x, y, 0] },
       out,
@@ -1022,6 +1049,7 @@ export class WebGPUDevice implements GfxDevice {
       samples,
       colorSpace,
       hasDepth: !!opts.depth,
+      hasStencil: !!opts.stencil && !opts.depth,
     } as WebGPURenderTarget
 
     if (samples > 1) {
@@ -1040,6 +1068,15 @@ export class WebGPUDevice implements GfxDevice {
         format,
         usage:
           GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+      })
+    }
+
+    if (opts.stencil && !opts.depth) {
+      rt.stencilTex = device.createTexture({
+        size: [width, height, 1],
+        format: 'stencil8',
+        sampleCount: samples,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
       })
     }
 
@@ -1097,6 +1134,15 @@ export class WebGPUDevice implements GfxDevice {
           (r.depthSampled ? GPUTextureUsage.TEXTURE_BINDING : 0),
       })
     }
+    if (r.stencilTex) {
+      r.stencilTex.destroy()
+      r.stencilTex = device.createTexture({
+        size: [w, h, 1],
+        format: 'stencil8',
+        sampleCount: r.samples,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+      })
+    }
     ;(r as { width: number }).width = w
     ;(r as { height: number }).height = h
   }
@@ -1106,6 +1152,7 @@ export class WebGPUDevice implements GfxDevice {
     r.color?.destroy()
     r.colorMs?.destroy()
     r.depthTex?.destroy()
+    r.stencilTex?.destroy()
   }
 
   colorTexture(rt: RenderTarget): Texture {
@@ -1138,7 +1185,7 @@ export class WebGPUDevice implements GfxDevice {
         'WebGPUDevice.depthTexture: target has no sampleable depth attachment (allocate with depthSampled: true)',
       )
     }
-    // Borrow the render target's depth texture; the target owns its lifetime.
+    // Borrow the render target's depth texture. The target owns its lifetime.
     return {
       __gfxTexture: undefined as never,
       gpu: r.depthTex,
@@ -1263,6 +1310,18 @@ export class WebGPUDevice implements GfxDevice {
         depthStoreOp: desc.depth.storeOp ?? 'store',
         depthClearValue: desc.depth.clearValue ?? 1.0,
       }
+    } else if (desc.stencil) {
+      // A stencil8 attachment carries no depth aspect, so WebGPU rejects the
+      // depth ops here rather than ignoring them.
+      const target = desc.stencil.target as WebGPURenderTarget
+      if (target.stencilTex) {
+        descriptor.depthStencilAttachment = {
+          view: target.stencilTex.createView(),
+          stencilLoadOp: desc.stencil.loadOp,
+          stencilStoreOp: desc.stencil.storeOp ?? 'store',
+          stencilClearValue: desc.stencil.clearValue ?? 0,
+        }
+      }
     }
 
     this.#pass = encoder.beginRenderPass(descriptor)
@@ -1333,6 +1392,14 @@ export class WebGPUDevice implements GfxDevice {
   }
 
   endFrame(): void {
+    this.#flush()
+  }
+
+  /**
+   * Submit whatever the frame encoder holds and close it. Safe to call at any
+   * point outside a render pass, and a no-op when nothing is recorded.
+   */
+  #flush(): void {
     if (!this.#encoder) return
     this.#device.queue.submit([this.#encoder.finish()])
     this.#encoder = null
@@ -1392,6 +1459,13 @@ export class WebGPUDevice implements GfxDevice {
         'WebGPUDevice.present: source is multisample (not sampleable); resolve it first',
       )
     }
+    // Submit anything still recorded before the blit reads it. The blit runs on
+    // its own encoder and submits immediately, so work left open in the frame
+    // encoder would be queued AFTER it and the blit would sample whatever the
+    // source held beforehand: the previous frame's contents, or uninitialised
+    // memory the first time a target is used. Post-processing made this
+    // visible, since its passes are recorded after the scene's own `endFrame`.
+    this.#flush()
     // Present runs outside the frame's render pass. The source is top-down,
     // matching the swapchain, so the blit does not V-flip.
     this.#blit.blit(

@@ -34,7 +34,7 @@ export const DATA_CONTROL_STRINGS = {
       'Data packets spawn across the country. Draw a path from a packet to steer it safely into the glowing capital to score.',
     avoidTitle: 'Keep control',
     avoidBody:
-      'Never let two packets collide, and never let one leave Germany. Either one ends the run — see how many you can land.',
+      'Never let two packets collide, and never let one leave Germany. Either one ends the run. See how many you can land.',
   },
   /** State names keyed by ISO code. */
   states: {

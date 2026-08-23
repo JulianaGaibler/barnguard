@@ -4,7 +4,7 @@ import { t as coreT } from '@src/i18n'
 import type { ArcadeMessages } from './types'
 import { en } from './en'
 
-/** The arcade ships English only — the language toggle stays hidden. */
+/** The arcade ships English only, the language toggle stays hidden. */
 export const arcadeLocales: LocaleBundle[] = [
   { language: 'en', label: 'English', messages: en },
 ]

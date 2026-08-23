@@ -1,6 +1,6 @@
 <!--
-  Pause menu — the one modal in the game. Built from the shared `Surface` +
-  `Button`; color comes from the theme. Resume returns to play; Quit ends the
+  Pause menu, the one modal in the game. Built from the shared `Surface` +
+  `Button`. Color comes from the theme. Resume returns to play, Quit ends the
   run and returns to the JezzBall menu.
 -->
 <script lang="ts">

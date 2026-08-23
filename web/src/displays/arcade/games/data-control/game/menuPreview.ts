@@ -2,7 +2,7 @@
  * Menu preview for Data Control: data packets drift down and up across the
  * right of the region at shallow angles. When two meet they explode into
  * decaying debris (the same loss-visual the live game uses), then fresh packets
- * feed in from the edges. Runs on the shared engine; torn down when the game
+ * feed in from the edges. Runs on the shared engine, torn down when the game
  * starts.
  *
  * Packets are spawned through the SAME factory the live game uses
@@ -32,10 +32,45 @@ const COLLIDE_DIST = PACKET_RADIUS * 1.9
 /** Vertical drift speed range (local units / sec). */
 const SPEED_MIN = 30
 const SPEED_MAX = 48
-/** Max heading tilt off vertical (radians) — shallow angles. */
+/** Max heading tilt off vertical, in radians. Keeps drift angles shallow. */
 const TILT_RAD = 0.32
 const TARGET_COUNT = 16
 const RESPAWN_DELAY_SEC = 0.22
+/**
+ * How far past the field a packet may sit, in local units.
+ *
+ * Spawning and culling both measure against this, so the band packets are
+ * staged in cannot end up wider than the band they are allowed to live in.
+ * These were two separate numbers once and had drifted apart by a factor of
+ * five, which culled most packets on the frame after they spawned: each one
+ * drew a single frame, grow tween and spawn burst included, somewhere well
+ * outside the region, and then vanished.
+ */
+const OFF_FIELD = PACKET_RADIUS * 2.5
+/**
+ * Packets seeded on the first frame, the rest dripping in behind them.
+ *
+ * The staging band is only a few packet widths deep, so seeding all of them at
+ * once puts the whole set on screen as one wave. Holding most of them back
+ * spreads the entry out instead, which is what the depth of the band used to do
+ * before it had to shrink to stay inside the region.
+ */
+const SEED_COUNT = 5
+
+/**
+ * How far this backdrop draws past its own cover rect, as a fraction of the
+ * height it is mapped onto.
+ *
+ * The staging band plus the spawn burst's ring, which is the outermost thing
+ * drawn: the ring is centred on the packet and converges inward, so at the
+ * moment of spawn it reaches further out than the packet itself does.
+ *
+ * The arcade holds both regions in one world, so this over-draw has to fit in
+ * the sky band between them. Checked against {@link PREVIEW_BLEED_BUDGET_FRAC}
+ * rather than left as an assumption.
+ */
+export const DC_PREVIEW_BLEED_FRAC =
+  (OFF_FIELD + TUNING.packet.spawnBurst.ringRadiusWorld) / LOCAL_H
 
 function rand(lo: number, hi: number): number {
   return lo + Math.random() * (hi - lo)
@@ -64,8 +99,10 @@ class PreviewSim extends Behavior {
     this.#w = localW
     this.#h = localH
     // Seed the field entirely from off-screen so no packet ever appears inside
-    // the viewport; the varied off-screen distances stagger their entry.
-    for (let i = 0; i < TARGET_COUNT; i++) this.#spawn()
+    // the viewport, and let the rest arrive on the same drip that feeds
+    // replacements, so the field fills rather than opening as one wave.
+    for (let i = 0; i < SEED_COUNT; i++) this.#spawn()
+    this.#pendingRespawns = TARGET_COUNT - SEED_COUNT
   }
 
   override onDetach(): void {
@@ -78,11 +115,12 @@ class PreviewSim extends Behavior {
     const fromTop = Math.random() < 0.5
     // Bias to the right of the region so packets clear the menu rail.
     const x = rand(this.#w * 0.4, this.#w * 0.95)
-    // Always start OFF-SCREEN (above the top or below the bottom), at a varied
-    // distance so packets drift in at staggered times.
+    // Always start OFF-SCREEN (above the top or below the bottom), inside the
+    // band the cull below allows, at a varied distance so packets drift in at
+    // staggered times.
     const y = fromTop
-      ? rand(-this.#h * 0.7, -PACKET_RADIUS * 1.5)
-      : rand(this.#h + PACKET_RADIUS * 1.5, this.#h * 1.7)
+      ? rand(-OFF_FIELD, -PACKET_RADIUS * 1.5)
+      : rand(this.#h + PACKET_RADIUS * 1.5, this.#h + OFF_FIELD)
     // Heading π/2 = straight down (y-down world), -π/2 = straight up.
     const heading =
       (fromTop ? Math.PI / 2 : -Math.PI / 2) + rand(-TILT_RAD, TILT_RAD)
@@ -103,7 +141,7 @@ class PreviewSim extends Behavior {
 
   override onUpdate(dt: number): void {
     if (this.#destroyed) return
-    const margin = PACKET_RADIUS * 4
+    const margin = OFF_FIELD
     // Cull packets that have drifted off the local field. Their `onDestroy`
     // above removes them from the set and queues a replacement.
     for (const p of this.#packets) {

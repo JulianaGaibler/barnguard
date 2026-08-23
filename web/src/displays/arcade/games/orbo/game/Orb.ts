@@ -2,12 +2,11 @@
  * One orb on the field: a stargazer {@link Body} plus the game fields orbo needs
  * (team, size, lifetime, home anchor). The flat `x`/`y`/`vx`/`vy` accessors
  * proxy the body's `position`/`velocity` so the game and node code read the
- * body as their source of truth, exactly as before the physics moved into the
- * engine.
+ * body as their source of truth.
  *
  * Ghost mode (`isBeingDragged`) clears the collision mask so a held orb passes
- * over resting orbs; releasing it restores the mask. Orbs never spin, so they
- * are `fixedRotation` with no contact friction — the arcade feel is pure
+ * over resting orbs. Releasing it restores the mask. Orbs never spin, so they
+ * are `fixedRotation` with no contact friction. The arcade feel is pure
  * restitution plus exponential damping.
  */
 import { Body, BodyType, LAYER_ALL, circleShape } from '@src/stargazer'

@@ -195,7 +195,7 @@ describe('ParticleEmitter', () => {
     expect(e.aliveCount).toBe(0)
 
     // Second cycle: burst again, then wait, in the same synchronous span
-    // (the documented contract — aliveCount is 1 here, not 0, so there's no
+    // (the documented contract: aliveCount is 1 here, not 0, so there's no
     // stale state to misread regardless of history).
     e.burst(1, 0, 0)
     let resolved = false

@@ -14,8 +14,41 @@
 
 struct Frame {
   proj: mat3x3<f32>,
+  targetH: f32,
+  fragYFlip: f32,
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
+
+struct Clip {
+  kind: f32,
+  cx: f32,
+  cy: f32,
+  r: f32,
+  halfW: f32,
+  halfH: f32,
+  rrRadius: f32,
+  clipPad: f32,
+};
+@group(0) @binding(8) var<uniform> clipShape: Clip;
+
+// Analytic clip coverage in device px. frame.fragYFlip corrects WebGL2's
+// bottom-up gl_FragCoord. Multiply the premultiplied fragment output by this.
+fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
+  let q = abs(p) - b + vec2<f32>(rad);
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
+}
+fn clipCoverage(fragPos: vec2<f32>) -> f32 {
+  if (clipShape.kind < 0.5) { return 1.0; }
+  let fy = select(fragPos.y, frame.targetH - fragPos.y, frame.fragYFlip > 0.5);
+  let p = vec2<f32>(fragPos.x, fy) - vec2<f32>(clipShape.cx, clipShape.cy);
+  var d: f32;
+  if (clipShape.kind < 1.5) {
+    d = length(p) - clipShape.r;
+  } else {
+    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
+  }
+  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
+}
 
 @group(1) @binding(0) var u_texAtlas: texture_2d<f32>;
 @group(1) @binding(16) var u_texAtlasSamp: sampler;
@@ -106,6 +139,13 @@ fn sdRoundBox(p: vec2<f32>, b: vec2<f32>, r: vec4<f32>) -> f32 {
 }
 
 // Analytic AA coverage from a signed distance via its screen-space gradient.
+//
+// The one edge idiom for 2D: round-rects, circles and the analytic clip in
+// `clipCoverage` all ramp through it. Drawing a disc with `fillCircle` and then
+// clipping content to the same circle with `setClip` is ordinary, and a cubic
+// `smoothstep` against this linear ramp would leave the two edges a fraction of
+// a pixel apart. Linear is also the correct box-filter coverage for a straight
+// edge.
 fn coverage(d: f32) -> f32 {
   return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
 }
@@ -120,27 +160,23 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let rrDist = sdRoundBox(in.local, in.halfExt, in.radii);
   let rrFillCoverage = coverage(rrDist);
   let rrStrokeCoverage = coverage(abs(rrDist) - in.strokeWidth * 0.5);
+  let circDelta = in.worldPos - in.center;
+  let circDist = length(circDelta) - in.radius;
+  let circFillCoverage = coverage(circDist);
+  let circStrokeCoverage = coverage(abs(circDist) - in.strokeWidth * 0.5);
 
   var outColor: vec4<f32>;
   if (in.shapeType == 1) {
-    // Circle SDF.
-    let delta = in.worldPos - in.center;
-    let dist = length(delta);
-    let fillAlpha = 1.0 - smoothstep(in.radius - 0.5, in.radius + 0.5, dist);
-    let fill = in.colorFill * fillAlpha;
+    // Circle SDF (distance + coverage precomputed above).
+    let fill = in.colorFill * circFillCoverage;
     var stroke = vec4<f32>(0.0);
     if (in.strokeWidth > 0.0) {
-      let strokeHalf = in.strokeWidth * 0.5;
-      let outer = in.radius + strokeHalf;
-      let inner = in.radius - strokeHalf;
-      let outerEdge = 1.0 - smoothstep(outer - 0.5, outer + 0.5, dist);
-      let innerEdge = smoothstep(inner - 0.5, inner + 0.5, dist);
-      var strokeAlpha = outerEdge * innerEdge;
+      var strokeAlpha = circStrokeCoverage;
       let dashPeriod = in.dash.y;
       if (dashPeriod > 0.0 && strokeAlpha > 0.0) {
         let dashStart = in.dash.x;
         let dashOnLen = dashPeriod * 0.5;
-        let angle = atan2(delta.y, delta.x);
+        let angle = atan2(circDelta.y, circDelta.x);
         let TWO_PI = 6.28318530718;
         let wrap = select(angle, angle + TWO_PI, angle < 0.0);
         let arcPos = wrap * in.radius;
@@ -171,5 +207,6 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let texel = select(labelTexel, atlasTexel, in.texIndex < 0.5);
     outColor = texel * in.tint;
   }
+  outColor *= clipCoverage(in.pos.xy);
   return outColor;
 }

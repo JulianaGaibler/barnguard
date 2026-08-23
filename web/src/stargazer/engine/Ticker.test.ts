@@ -57,10 +57,10 @@ describe('Ticker rawDt (true frame interval for FPS)', () => {
       return 1
     }) as typeof requestAnimationFrame
     globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame
-    // `start()` seeds #lastMs from performance.now(); pin it to 1000.
+    // `start()` seeds #lastMs from performance.now(), so pin it to 1000.
     vi.spyOn(performance, 'now').mockReturnValue(1000)
 
-    // Smoothing off so `dt` is deterministic; default maxDt = 1/30 s.
+    // Smoothing off so `dt` is deterministic. Default maxDt = 1/30 s.
     const t = createTicker({ smoothTimestep: false })
     t.start()
 
@@ -68,7 +68,7 @@ describe('Ticker rawDt (true frame interval for FPS)', () => {
     loop!(1100)
     expect(t.rawDt).toBeCloseTo(0.1, 5)
     expect(t.dt).toBeCloseTo(1 / 30, 5)
-    // 1 / dt would report 30 FPS (the clamp floor); 1 / rawDt reports the true 10.
+    // 1 / dt would report 30 FPS (the clamp floor). 1 / rawDt reports the true 10.
     expect(1 / t.rawDt).toBeCloseTo(10, 3)
 
     // A healthy 60 FPS frame: rawDt and dt agree (interval under the clamp).

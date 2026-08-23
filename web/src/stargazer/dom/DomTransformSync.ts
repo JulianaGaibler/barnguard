@@ -24,9 +24,9 @@ import { vec3, type Vec3 } from '../math/Vec3'
  * Shared CSS3D layer for `orient` anchors: a plain box positioned over the
  * canvas that oriented elements nest inside. Each element carries the camera's
  * full `viewProjection` baked into its own `matrix3d` (see {@link matrix3dCss}),
- * so the layer needs no CSS `perspective` of its own — the projection,
- * including the ortho<->perspective blend, lives entirely in the per-element
- * matrix and CSS performs the perspective divide from it.
+ * so the layer needs no CSS `perspective` of its own. The projection, including
+ * the ortho<->perspective blend, lives entirely in the per-element matrix and
+ * CSS performs the perspective divide from it.
  */
 interface Css3dLayer {
   container: HTMLElement
@@ -76,7 +76,10 @@ function setElementScaleMatrix(out: Mat4, pxPerUnit: number): Mat4 {
   return out
 }
 
-/** A 2D affine as the six CSS `matrix()` components. */
+/**
+ * A 2D affine as the six CSS `matrix()` components, in the same order the
+ * function takes them: `cssX = a·x + c·y + e`, `cssY = b·x + d·y + f`.
+ */
 export interface CssMatrix {
   a: number
   b: number
@@ -91,10 +94,9 @@ export interface CssMatrix {
  * `matrix(a,b,c,d,e,f)` that places a DOM element over the same region the
  * canvas draws the node. `screen` is the camera's full CSS-pixel world→screen
  * affine (`CameraView2D.getScreenAffine`), so a rotated / scaled / parented
- * camera projects correctly; the node's world affine carries its own rotation,
+ * camera projects correctly. The node's world affine carries its own rotation,
  * scale, and baked-in pivot. Writes into `out` (no allocation).
  *
- * @category DOM
  * @example
  *   const m = projectWorldToCss(
  *     camera.getScreenAffine(),
@@ -117,11 +119,7 @@ export function projectWorldToCss(
   return out
 }
 
-/**
- * Options for {@link DomTransformSync.attach}.
- *
- * @category DOM
- */
+/** Options for {@link DomTransformSync.attach}. */
 export interface DomAttachOptions {
   /**
    * World-space size of the node's rect. When set, the element's width/height
@@ -152,8 +150,6 @@ export interface DomAttachOptions {
 /**
  * Handle returned by {@link DomTransformSync.attach}. Keep it to change options
  * or to detach.
- *
- * @category DOM
  */
 export interface DomAttachment {
   readonly node: Node2D
@@ -166,7 +162,7 @@ export interface DomAttachment {
 
 const EPSILON = 1e-5
 
-// One scratch matrix reused across all attachments; syncing is synchronous, so
+// One scratch matrix reused across all attachments. Syncing is synchronous, so
 // there's no reentrancy.
 const scratch: CssMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
 const scratch3d: ScreenProjection = { x: 0, y: 0, behind: false }
@@ -181,8 +177,6 @@ const scratchEye: Vec3 = vec3()
 /**
  * Options for {@link DomTransformSync.attachWorld3d}, pinning an HTML element to
  * a {@link Node3D}.
- *
- * @category DOM
  */
 export interface Dom3DAttachOptions {
   /** Hide the element when the node (or an ancestor) is invisible. Default true. */
@@ -218,11 +212,7 @@ export interface Dom3DAttachOptions {
   backfaceCull?: boolean
 }
 
-/**
- * Handle returned by {@link DomTransformSync.attachWorld3d}.
- *
- * @category DOM
- */
+/** Handle returned by {@link DomTransformSync.attachWorld3d}. */
 export interface Dom3DAttachment {
   readonly node: Node3D
   readonly element: HTMLElement
@@ -237,7 +227,7 @@ class Attachment implements DomAttachment {
   readonly #onRemove: () => void
   readonly #last: CssMatrix = { a: NaN, b: NaN, c: NaN, d: NaN, e: NaN, f: NaN }
   // Starts hidden so the element never shows unpositioned for the frame between
-  // attach and the first sync; the first sync reveals it once placed.
+  // attach and the first sync. The first sync reveals it once placed.
   #lastVisible = false
   #lastOpacity = NaN
   #lastWidth = NaN
@@ -305,7 +295,7 @@ class Attachment implements DomAttachment {
         ? true
         : effectiveVisible(node)
     // No current camera, or a singular affine (canvas mid-resize / degenerate
-    // camera), means no valid mapping; hide rather than place the element wrongly.
+    // camera), means no valid mapping. Hide rather than place the element wrongly.
     let show = visible && cam !== null
     if (show && cam) {
       const screen = cam.getScreenAffine()
@@ -456,9 +446,9 @@ class Attachment3D implements Dom3DAttachment {
   /**
    * Matrix3d path: nest the element in the canvas-aligned layer and give it the
    * camera's full `viewProjection` baked into a single `matrix3d`, so it lands
-   * exactly where the WebGL pass would draw the same plane — in perspective,
+   * exactly where the WebGL pass would draw the same plane, in perspective,
    * orthographic, and every blend in between. CSS does the perspective divide
-   * from the baked matrix's w-row; at the orthographic end that row is
+   * from the baked matrix's w-row. At the orthographic end that row is
    * `(0,0,0,1)` so the projection is parallel, matching the meshes.
    */
   #syncOriented(engine: Engine, layer: Css3dLayer): void {
@@ -476,7 +466,7 @@ class Attachment3D implements Dom3DAttachment {
     const cssW = stage.renderer.cssSize.w
     const cssH = stage.renderer.cssSize.h
 
-    // No current 3D camera → nothing to project against; hide the element.
+    // No current 3D camera means nothing to project against. Hide the element.
     if (!cam) {
       if (this.#lastVisible !== false) {
         this.element.style.display = 'none'
@@ -540,7 +530,7 @@ class Attachment3D implements Dom3DAttachment {
     // comes from m[3], m[7], m[15]). Reset it to a clean unit z-axis. Under an
     // orthographic projection the baked column becomes near-singular and shears
     // into the screen plane, which makes Firefox drop the element's text
-    // (Chrome and Safari still render it); the reset is a no-op for the plane
+    // (Chrome and Safari still render it). The reset is a no-op for the plane
     // and keeps the matrix well-conditioned so the text renders everywhere.
     scratchT[8] = 0
     scratchT[9] = 0
@@ -617,10 +607,9 @@ class Attachment3D implements Dom3DAttachment {
 
 /**
  * Per-engine manager that syncs every attached DOM element once per frame.
- * Reachable as {@link Engine.dom}; you rarely construct it directly. Attach with
+ * Reachable as {@link Engine.dom}. You rarely construct it directly. Attach with
  * {@link DomTransformSync.attach} (or the `domAnchor` Svelte action).
  *
- * @category DOM
  * @example
  *   const handle = engine.dom.attach(node, panelEl, {
  *     size: { width: 480, height: 320 },
@@ -644,7 +633,7 @@ export class DomTransformSync {
 
   /**
    * Attach `element` to `node`. The element must live in a container that
-   * overlays the canvas exactly; this only writes its transform. Returns a
+   * overlays the canvas exactly. This only writes its transform. Returns a
    * handle for changing options or detaching. Detaches automatically if the
    * node is destroyed.
    */
@@ -751,7 +740,7 @@ function effectiveVisible3d(node: Node3D): boolean {
   return true
 }
 
-// Alpha compounds along the 2D (same-kind) chain only; a 3D ancestor has no 2D
+// Alpha compounds along the 2D (same-kind) chain only. A 3D ancestor has no 2D
 // alpha to contribute.
 function effectiveAlpha(node: Node2D): number {
   let alpha = 1

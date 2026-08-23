@@ -11,7 +11,7 @@ import type { DemoFn } from './types'
  * - **Burst**: on pointer-down, 500 particles from the tap point spray radially
  *   with strong damping, expand, slow, fade.
  * - **Spin burst**: fires alongside `burst`, showcasing `spinRadPerSec` +
- *   `scaleBy: 'speed'` + `minSpeedFrac` + the `'triangle'` sprite style —
+ *   `scaleBy: 'speed'` + `minSpeedFrac` + the `'triangle'` sprite style,
  *   tumbling triangles that shrink as they decelerate and vanish once settled.
  * - `?demo=particles&debug=hud` reports total alive particles in the "Scene"
  *   section, the perf gate is two 500-particle emitters + the trail staying

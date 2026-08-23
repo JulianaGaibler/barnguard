@@ -3,7 +3,6 @@
  * child order, each placed by the stack's alignment.
  *
  * @module
- * @category Layout
  */
 import type { Node2D } from '../../scene/Node2D'
 import { BoxConstraints, type Size } from '../constraints'
@@ -19,7 +18,7 @@ export interface StackOptions {
   /** Vertical placement of each child. Default `'start'`. */
   alignY?: Align1D
   /**
-   * `'loose'` (default) shrink-wraps the stack to its largest child; `'expand'`
+   * `'loose'` (default) shrink-wraps the stack to its largest child. `'expand'`
    * fills the space the parent offers on any bounded axis.
    */
   fit?: 'loose' | 'expand'
@@ -30,7 +29,6 @@ export interface StackOptions {
  * placed by `alignX` / `alignY` (a `'stretch'` axis fills the box). Use it for
  * badges over a thumbnail, a scrim over content, or any layered composition.
  *
- * @category Layout
  * @example
  *   new Stack({
  *     alignX: 'end',

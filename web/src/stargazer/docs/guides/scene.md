@@ -1,16 +1,19 @@
 # Scene graph
 
-A `SceneTree` belongs to a `Stage` and holds one tree of both 2D (`Node2D`) and 3D (`Node3D`) nodes, rooted at `tree.root`. The primary engine has one, and each `engine.attachStage(...)` returns a stage with its own. Everything below applies per stage: `engine.tree` is a shortcut for the primary; secondary stages get theirs via `stage.tree`. See [Stages](/guides/stages) for how to attach a second canvas.
+A `SceneTree` belongs to a `Stage` and holds one tree of both 2D (`Node2D`) and 3D (`Node3D`) nodes, rooted at `tree.root`. The primary engine has one, and each `engine.attachStage(...)` returns a stage with its own. Everything below applies per stage: `engine.tree` is a shortcut for the primary, and secondary stages get theirs via `stage.tree`. See [Stages](/guides/stages) for how to attach a second canvas.
 
 ## Node2D
 
 Everything in the scene is a `Node2D`: a transform, a parent, children, and optional behaviors. Use it directly as a transform-only container to group children. The drawable primitives extend it:
 
-- `ShapeNode`, a circle or rect with optional fill and stroke. Circles hit-test as circles; rects fall back to their bounding box.
+- `ShapeNode`, a circle or rect with optional fill and stroke. Circles hit-test as circles, and rects fall back to their bounding box.
 - `Path2DNode`, an arbitrary `Path2D` fill or stroke. It hit-tests via `isPointInPath`, or a bounding circle when `hitMode: 'circle'`.
 - `PolylineNode`, an append-only polyline backed by a `Float32Array`, with optional quadratic-Bézier smoothing.
 - `TextNode`, a run of text rasterized to a glyph texture. See its API reference for options.
-- `ParticleEmitterNode`. See [Particles](/guides/particles).
+- `ParticleEmitterNode` and `VectorParticleNode`. See [Particles](/guides/particles).
+
+None of these fits every case. To draw something else, subclass `Node2D` and
+override `draw`. See [Drawing](/guides/drawing).
 
 Composition happens through `parent.add(child)` and `parent.remove(child)`. The root is `scene.root`, and the engine adds the scene to itself, so `host.loadScene((scene, engine) => scene.root.add(...))` is enough.
 
@@ -47,7 +50,7 @@ node.transform.alpha = 0.5
 
 For animation, prefer `node.tween(...)` over per-frame mutation. See [Animation](/guides/animation).
 
-`node.transform.world` is a `DOMMatrix` filled in by the transform-propagation pass. Read it in a `draw` or `hitTest` override; don't write to it directly.
+`node.transform.world` is a `DOMMatrix` filled in by the transform-propagation pass. Read it in a `draw` or `hitTest` override, and don't write to it directly.
 
 ## Behavior
 
@@ -106,9 +109,9 @@ Override the optional `onPointerDetach()` for cleanup that should run after the 
 
 ## Async lifecycle scoped to nodes
 
-`destroy()` is idempotent: the first call marks the node destroyed and every later call returns immediately, so there's no need to guard it with `if (!node.isDestroyed) node.destroy()` — just call `destroy()`.
+`destroy()` is idempotent: the first call marks the node destroyed and every later call returns immediately, so there's no need to guard it with `if (!node.isDestroyed) node.destroy()`. Just call `destroy()`.
 
-Every `Node2D` has a private `AbortController`; `node.abortSignal` exposes it read-only. `node.destroy()`:
+Every `Node2D` has a private `AbortController`. `node.abortSignal` exposes it read-only. `node.destroy()`:
 
 1. Marks the node destroyed.
 2. Destroys every child first, bottom-up.
@@ -136,7 +139,7 @@ An `InputSystem` walks the scene back-to-front on `pointerdown` and finds the to
 Each concrete node type has its own hit test:
 
 - `ShapeNode`, a radius check for circles and a bounding-box check for rects, in local coords.
-- `Path2DNode`, driven by `hitMode: 'fill' | 'stroke' | 'circle' | 'none'`. `'fill'` and `'stroke'` transform the world point into local coords and call `isPointInPath` / `isPointInStroke`; `'circle'` is a radius check against `hitRadiusWorld`.
+- `Path2DNode`, driven by `hitMode: 'fill' | 'stroke' | 'circle' | 'none'`. `'fill'` and `'stroke'` transform the world point into local coords and call `isPointInPath` / `isPointInStroke`. `'circle'` is a radius check against `hitRadiusWorld`.
 - Base `Node2D`, the bounding box from `node.debugBounds` (or false when it's null).
 
 Override `hitTest` in a subclass if you need something else: world-space in, boolean out.
@@ -147,11 +150,11 @@ See [Input](/guides/input) for the rest of the pipeline.
 
 `node.renderLayer` picks one of three passes, drawn in this order every frame:
 
-- `'static'`. Use it for content that changes rarely, such as a background or map.
-- `'above-static'`. Drawn between the static and dynamic passes. The place for a static node that's temporarily animating.
+- `'static'`. Backgrounds, maps, anything that belongs under the action.
+- `'above-static'`. Drawn between the other two.
 - `'dynamic'` (default). Drawn on top.
 
-The three passes exist purely for draw order, not caching, GPU fill rate makes redrawing the static layer every frame trivial. Mutating a node on any layer, including `'static'`, is safe at any time; there's no bake to go stale.
+All three redraw every frame. The layers are draw order and nothing else, so mutating a node on any of them is safe at any time. The `'static'` name is historical: GPU fill rate makes redrawing a background every frame trivial, so nothing is cached and nothing can go stale.
 
 ### Z-order
 
@@ -178,7 +181,7 @@ const track = new Path2DNode({
 })
 ```
 
-The default (`strokeSpace: 'screen'`) mirrors how CSS `stroke-width` behaves under an SVG viewport transform. A node that overrides `draw` can reproduce it with `ctx.lineWidth = cssPx * camera.strokeSpaceScale()`. See [Camera](/guides/camera#stroke-space-scale) for the math.
+The default (`strokeSpace: 'screen'`) mirrors how CSS `stroke-width` behaves under an SVG viewport transform. A node that overrides `draw` does the same thing by hand, passing `width: cssPx * camera.strokeSpaceScale()` in its stroke style. See [Drawing](/guides/drawing#style-is-per-call) and [Camera](/guides/camera#stroke-space-scale).
 
 ## Scene lifecycle
 
@@ -186,6 +189,11 @@ The default (`strokeSpace: 'screen'`) mirrors how CSS `stroke-width` behaves und
 
 ```ts
 await host.loadScene((scene, engine) => {
+  const cam = new CameraNode2D()
+  cam.setViewport({ x: 0, y: 0, width: 1920, height: 1080 })
+  scene.root.add(cam)
+  cam.makeCurrent()
+
   const map = new Node2D('map')
   map.renderLayer = 'static'
   scene.root.add(map)
@@ -201,5 +209,7 @@ await host.loadScene((scene, engine) => {
   }
 })
 ```
+
+A scene builder adds its own camera, because `loadScene` destroys the previous root's children and cameras are children like anything else. See [Camera](/guides/camera).
 
 `host.destroy()` recursively destroys `scene.root`: every node's `abortSignal` fires, every pending tween rejects, every behavior detaches.

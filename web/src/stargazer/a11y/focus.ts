@@ -5,7 +5,7 @@
  * an in-place update never drops focus to `<body>`.
  *
  * Composite containers are marked `data-a11y-composite="1"` and focusable
- * proxies `data-a11y-focusable="1"` by the element patcher; every proxy carries
+ * proxies `data-a11y-focusable="1"` by the element patcher. Every proxy carries
  * its node id in `data-a11y-id`.
  */
 
@@ -57,8 +57,8 @@ function ownedFocusables(container: HTMLElement): HTMLElement[] {
 /**
  * Enforce roving `tabindex` on every composite in `content`: exactly one member
  * is a tab stop (`0`), the rest `-1`. Keeps the currently-focused member active
- * if focus is inside; otherwise the last-active one (tracked in `active` keyed
- * by the composite's node id); otherwise the first member.
+ * if focus is inside, otherwise the last-active one (tracked in `active` keyed
+ * by the composite's node id), otherwise the first member.
  */
 export function applyRoving(
   content: HTMLElement,

@@ -1,17 +1,15 @@
 import {
   AssetLoader,
   buildBitmapMask,
+  getPathContours,
   parseSvgPaths,
+  registerPathTessellation,
+  tessellateContours,
   type BitmapMask,
   type SvgPathEntry,
   type SvgPathMap,
   type Vec2,
 } from '@src/stargazer'
-import { tessellateContours } from '@src/stargazer/assets/SvgPathContours'
-import {
-  getPathContours,
-  registerPathTessellation,
-} from '@src/stargazer/render/gfx/PathTessellationRegistry'
 import statesSvgRaw from '../assets/de-states.svg?raw'
 import outlineSvgRaw from '../assets/de-outline.svg?raw'
 import citiesSvgRaw from '../assets/de-cities.svg?raw'
@@ -198,8 +196,8 @@ function mergeAllPaths(map: SvgPathMap): SvgPathEntry | null {
   for (const entry of map.paths.values()) {
     merged.addPath(entry.path)
     // Also merge tessellation data so the merged Path2D is renderable
-    // under GPU. Each source `entry.path` was tessellated by parseSvgPaths;
-    // we pool their contours + retriangulate the union.
+    // under GPU. Each source `entry.path` was tessellated by parseSvgPaths.
+    // This pools their contours and retriangulates the union.
     const partContours = getPathContours(entry.path)
     if (partContours) {
       for (const c of partContours) mergedContours.push(c)

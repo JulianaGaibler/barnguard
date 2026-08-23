@@ -20,7 +20,7 @@ const { move, score, nodes } = searchBestMove(game, state, { depth: 6 })
 
 ## Make and unmake, not clone
 
-The state is mutated in place and then restored, rather than copied at every node. A depth-7 Connect Four search visits tens of thousands of positions, and cloning a board at each would churn the garbage collector and stutter on weaker devices. `makeMove` and `unmakeMove` are called in strict last-in-first-out order as the search descends and unwinds, so the pair only needs to be an exact inverse; it never has to reconstruct arbitrary history. In Connect Four each is O(1): drop a piece and bump the column height, or clear that cell and drop the height back.
+The state is mutated in place and then restored, rather than copied at every node. A depth-7 Connect Four search visits tens of thousands of positions, and cloning a board at each would churn the garbage collector and stutter on weaker devices. `makeMove` and `unmakeMove` are called in strict last-in-first-out order as the search descends and unwinds, so the pair only needs to be an exact inverse. It never has to reconstruct arbitrary history. In Connect Four each is O(1): drop a piece and bump the column height, or clear that cell and drop the height back.
 
 ## The negamax sign convention
 

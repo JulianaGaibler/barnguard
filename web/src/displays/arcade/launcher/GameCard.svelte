@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '@src/displays/arcade/i18n'
+  import { formatPlayerCounts } from './playerCounts'
   import type { GameModule } from '@src/displays/arcade/games/GameModule'
   import LeaderboardIcon from '@src/displays/arcade/leaderboard/LeaderboardIcon.svelte'
   import { formatScore } from '@src/displays/arcade/leaderboard/formatScore'
@@ -8,16 +9,23 @@
   interface Props {
     game: GameModule
     onPlay: (game: GameModule) => void
+    /** Whether this is the day's pick, which the card marks on its thumbnail. */
+    gameOfTheDay?: boolean
     /**
      * `undefined`: not a leaderboard game. `null`: leaderboard game, no entry
      * (yet, or none). Populated: show it.
      */
     topEntry?: LeaderboardEntry | null
   }
-  const { game, onPlay, topEntry }: Props = $props()
+  const { game, onPlay, gameOfTheDay = false, topEntry }: Props = $props()
 
+  const playersText = $derived(
+    formatPlayerCounts(game.meta.playerCounts, $t.arcade.or),
+  )
   const playersLabel = $derived(
-    game.meta.players === '1' ? $t.arcade.player : $t.arcade.players,
+    game.meta.playerCounts.length === 1 && game.meta.playerCounts[0] === 1
+      ? $t.arcade.player
+      : $t.arcade.players,
   )
 </script>
 
@@ -25,6 +33,9 @@
   <div class="game-card__thumb" style="background:{game.meta.thumbColor}">
     {#if game.meta.thumbImage}
       <img class="game-card__thumb-img" src={game.meta.thumbImage} alt="" />
+    {/if}
+    {#if gameOfTheDay}
+      <span class="game-card__featured">{$t.arcade.gameOfTheDay}</span>
     {/if}
   </div>
   <div class="game-card__body">
@@ -36,7 +47,7 @@
           class:game-card__badge-frame--hidden={!topEntry}
         >
           <div class="game-card__badge">
-            <LeaderboardIcon size={14} filled gold />
+            <LeaderboardIcon size={14} gold />
             <span class="game-card__badge-name"
               >{topEntry ? topEntry.name.toUpperCase() : ''}</span
             >
@@ -50,7 +61,7 @@
     <p class="game-card__desc">{game.meta.description}</p>
     <div class="game-card__footer">
       <span class="game-card__players">
-        <strong>{game.meta.players}</strong>
+        <strong>{playersText}</strong>
         {playersLabel}
       </span>
       <button class="game-card__play" onclick={() => onPlay(game)}>
@@ -61,23 +72,23 @@
 </div>
 
 <style lang="sass">
-  // Thumb + body are two separate rounded, shadowed cards with an 8px gap.
-  // Outer corners keep the full radius; the facing (inner) corners are 8px.
   // Thumb + body are two separate rounded, shadowed cards with a small gap.
-  // Outer corners keep the full radius; the facing (inner) corners are tighter.
+  // Outer corners keep the full radius, the facing (inner) corners are tighter.
   .game-card
     display: flex
     flex-direction: column
     gap: var(--space-8)
     // Matches the `--launcher-card-w` set on the carousel root in
-    // `Launcher.svelte`, so the card's rendered width and the track's snap/
-    // centering math never drift apart.
+    // `Launcher.svelte`, so the card's rendered width and the track's snap
+    // math never drift apart.
     width: var(--launcher-card-w, 22rem)
     // Fills the launcher track's grid row (every card is stretched to the
     // same height there), so all cards in the carousel read as equal height.
     height: 100%
 
   .game-card__thumb
+    // Anchors the game-of-the-day badge, which sits over the artwork.
+    position: relative
     aspect-ratio: 16 / 11
     width: 100%
     overflow: hidden
@@ -90,7 +101,28 @@
     height: 100%
     object-fit: cover
 
+  // Inset far enough to sit inside the thumb's large top corner radius rather
+  // than against its curve. The accent fill separates it from the gold
+  // leaderboard badge below, which marks something a player earned rather than
+  // something the launcher chose.
+  .game-card__featured
+    position: absolute
+    inset-block-start: var(--space-16)
+    inset-inline-start: var(--space-16)
+    @include tint.type-class(ui-small-bold)
+    padding-block: var(--space-4)
+    padding-inline: var(--space-12)
+    border-radius: var(--radius-pill)
+    background: var(--color-accent)
+    color: var(--color-text-inverse)
+
   .game-card__body
+    // Positioned for the sake of paint order, not placement: the thumb above
+    // is positioned to anchor its badge, which would otherwise paint the thumb
+    // over the body and drop the thumb's shadow onto it. Two positioned
+    // siblings fall back to tree order, putting the body's shadow on the thumb
+    // as the stack of the two reads.
+    position: relative
     display: flex
     flex-direction: column
     gap: var(--space-12)

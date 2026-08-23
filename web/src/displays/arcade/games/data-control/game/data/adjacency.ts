@@ -8,8 +8,8 @@ import type { StateId } from './states'
  * Every entry is symmetric, if `A` lists `B`, `B` lists `A`. Verified by the
  * `adjacency.symmetry` Vitest.
  *
- * Berlin (BE) is fully surrounded by Brandenburg (BB); Bremen (HB) sits inside
- * Niedersachsen (NI); Saarland (SL) touches only Rheinland-Pfalz (RP), a couple
+ * Berlin (BE) is fully surrounded by Brandenburg (BB). Bremen (HB) sits inside
+ * Niedersachsen (NI). Saarland (SL) touches only Rheinland-Pfalz (RP), a couple
  * of degenerate cases worth double-checking against a real map when tweaking.
  */
 export const ADJACENCY: Record<StateId, readonly StateId[]> = {

@@ -23,23 +23,22 @@ import {
 
 /**
  * Optional accessibility layer for a canvas scene graph. Reached lazily as
- * `engine.a11y`; an engine that never touches it allocates nothing and adds no
+ * `engine.a11y`. An engine that never touches it allocates nothing and adds no
  * DOM, so kiosk/touchscreen apps pay nothing.
  *
  * Register a node with {@link AccessibilityTree.attach} and the subsystem
  * mirrors it into a hidden, screen-reader-readable HTML element inside an
  * app-provided mount ({@link AccessibilityTree.mount}). The mirror is rebuilt
  * only when something changes (a handle `update`, an attach/detach, or a node
- * destroy), not per frame. Real overlay HTML (menus, HUD) stays in its own DOM;
- * link a canvas node's proxy to it with `Semantics.links` rather than merging
+ * destroy), not per frame. Real overlay HTML (menus, HUD) stays in its own DOM.
+ * Link a canvas node's proxy to it with `Semantics.links` rather than merging
  * the two trees.
  *
  * The structural template is `DomTransformSync` (`engine.dom`): a frame
  * subscription, a registry with per-node destroy listeners, and a `dispose`.
- * Unlike that subsystem it does no per-frame work — screen readers ignore
+ * Unlike that subsystem it does no per-frame work. Screen readers ignore
  * position, so a static scene reconciles zero times.
  *
- * @category A11y
  * @example
  *   const board = engine.a11y.attach(boardNode, {
  *     role: 'grid',
@@ -227,7 +226,7 @@ export class AccessibilityTree {
         }
         return
       }
-      // Enter/Space activate a non-native widget; a real <button> fires its own
+      // Enter/Space activate a non-native widget. A real <button> fires its own
       // click, so skip it here to avoid a double activation.
       if ((e.key === 'Enter' || e.key === ' ') && !nativeActivates(proxy)) {
         if (entry.semantics.onActivate) {
@@ -256,7 +255,7 @@ export class AccessibilityTree {
 
     const focusId = focusedNodeId(mount)
 
-    // Patch attributes in place; replace only when a role change forces a new
+    // Patch attributes in place. Replace only when a role change forces a new
     // tag/role (element identity, and thus focus, survives everything else).
     for (const entry of this.#entries.values()) {
       if (!elementMatches(entry.element, entry.semantics)) {
@@ -279,7 +278,7 @@ export class AccessibilityTree {
 
   /**
    * Global pre-order index per registered node, so entries sort into reading
-   * order. Concatenates each involved scene's painter order (primary first); a
+   * order. Concatenates each involved scene's painter order (primary first). A
    * node's ancestors share its scene and precede it, keeping the reconciler's
    * ancestor-stack invariant.
    */

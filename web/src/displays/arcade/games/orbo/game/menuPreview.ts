@@ -2,8 +2,8 @@
  * Stylized in-engine menu preview for Orbo, built on the primary stage across
  * the game region while the menu is shown. A translucent "scoring zone" fills
  * the lower-right (a diagonal edge). Two white orbs rest outside the zone (one
- * parked far off that never moves); a heavier orb rolls in, touches only the
- * nearer one, and crosses the diagonal — gaining a faint outline once inside —
+ * parked far off that never moves). A heavier orb rolls in, touches only the
+ * nearer one, and crosses the diagonal, gaining a faint outline once inside,
  * using the real physics feel. Physics is confined to the right portion so orbs
  * never drift under the left menu rail. Everything works in view-local coords
  * so the zone and the orbs' ring-crossing share one space.
@@ -37,7 +37,7 @@ const START_DELAY_SEC = 0.5
 
 type InZone = (x: number, y: number) => boolean
 
-/** A filled convex polygon — the translucent scoring zone. */
+/** A filled convex polygon, the translucent scoring zone. */
 class PolyPanel extends Node2D {
   readonly #pts: Float32Array
   readonly #color: string
@@ -99,7 +99,7 @@ export function buildOrboMenuPreview(
   root.transform.x = view.x
   root.transform.y = view.y
 
-  // Scoring zone: the lower-right region past the diagonal A→B. `inZone` tests
+  // Scoring zone: the lower-right region past the diagonal A-B. `inZone` tests
   // which side of the line a point is on. (A/B fractions are feel knobs.)
   const ax = vw * 0.29
   const ay = vh
@@ -150,7 +150,7 @@ export function buildOrboMenuPreview(
   // …one waiting just outside the zone to be nudged…
   makeOrb(vw * 0.64, vh * 0.55, rMed, 2)
   // …and the heavier orb that rolls in, touches only that one, and carries on
-  // across the zone line — gaining its outline.
+  // across the zone line, gaining its outline.
   const third = makeOrb(vw * 0.58, vh * 0.18, rLarge, 4)
 
   host.engine

@@ -40,7 +40,7 @@ export async function fetchLeaderboard(
 }
 
 /**
- * Submit a score for `name` under `display`; returns the stored record (the
+ * Submit a score for `name` under `display`. Returns the stored record (the
  * server keeps the higher of the new and any prior score for that name).
  */
 export async function submitScore(

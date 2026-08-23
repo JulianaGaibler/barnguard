@@ -11,6 +11,7 @@ import {
 } from './game-log'
 import { stallwaechterTheme } from './theme'
 import GameScreen from './overlays/GameScreen.svelte'
+import Wave from './decor/Wave.svelte'
 import SelectedStatePreview from './attendant/SelectedStatePreview.svelte'
 import { stallwaechterLocales, STALLWAECHTER_DEFAULT_LANGUAGE } from './i18n'
 import { renderLabel, type LabelInput } from './label'
@@ -60,7 +61,8 @@ export const stallwaechter: DisplayManifest = {
   name: 'Stallwächter 2026',
   theme: stallwaechterTheme,
   root: GameScreen,
-  selectionPreview: SelectedStatePreview,
+  backdrop: Wave,
+  attendantPanel: SelectedStatePreview,
   locales: stallwaechterLocales,
   defaultLanguage: STALLWAECHTER_DEFAULT_LANGUAGE,
 
@@ -70,7 +72,7 @@ export const stallwaechter: DisplayManifest = {
   ): Promise<Blob> {
     const input = await recordToLabelInput(record)
     return renderLabel(input, {
-      // The manifest boundary types `messages` as the core shape; internally
+      // The manifest boundary types `messages` as the core shape. Internally
       // this display renders its own message keys and narrows here (the
       // active-display invariant guarantees the extra sections are present).
       messages: ctx.messages as unknown as StallwaechterMessages,
@@ -92,7 +94,7 @@ export const stallwaechter: DisplayManifest = {
       },
     }
     return renderLabel(input, {
-      // The manifest boundary types `messages` as the core shape; internally
+      // The manifest boundary types `messages` as the core shape. Internally
       // this display renders its own message keys and narrows here (the
       // active-display invariant guarantees the extra sections are present).
       messages: ctx.messages as unknown as StallwaechterMessages,

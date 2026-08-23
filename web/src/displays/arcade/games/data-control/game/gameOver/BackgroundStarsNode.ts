@@ -23,7 +23,7 @@ export interface BackgroundStarsOptions {
  * size, alpha)` at construction and draws each star as a tiny filled circle
  * every frame. Doesn't move, the camera moves past them.
  *
- * Uniform-random distribution inside a fixed extent; the escape scene's camera
+ * Uniform-random distribution inside a fixed extent. The escape scene's camera
  * drift over ~10 s never reaches the edge at 30 wu/s. If we ever make the
  * camera pan further, either bump `halfExtent` or add a "wrapping" mode that
  * regenerates stars ahead of the packet.
@@ -58,7 +58,7 @@ export class BackgroundStarsNode extends Node2D {
     const color = this.#color
     gfx.save()
     // One filled circle per star. At n = 400 this is ~400 fills/frame which
-    // the Canvas backend handles comfortably; the stars are tiny (< 1 wu) so
+    // the Canvas backend handles comfortably. The stars are tiny (< 1 wu) so
     // the fill cost is close to zero.
     for (let i = 0; i < n; i++) {
       const j = i * 4

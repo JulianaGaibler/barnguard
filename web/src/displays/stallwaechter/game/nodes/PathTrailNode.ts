@@ -32,7 +32,7 @@ export class PathTrailNode extends PolylineNode {
   constructor() {
     super({
       capacity: 256,
-      // Base color is fully opaque; per-segment alpha is applied via
+      // Base color is fully opaque, per-segment alpha is applied via
       // `ctx.globalAlpha` in `draw`.
       strokeStyle: '#fdf6e3',
       lineWidth: 1,
@@ -151,7 +151,7 @@ export class PathTrailNode extends PolylineNode {
     // Stroke width + dash in CSS px, scaled by `strokeSpaceScale` to stay
     // visually constant across zoom. World-space stroking bypasses this.
     const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
-    // Dashed pattern shared across every sub-segment; only alpha varies.
+    // Dashed pattern shared across every sub-segment, only alpha varies.
     const style = {
       color: this.strokeStyle,
       width: this.lineWidth * s,

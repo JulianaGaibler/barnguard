@@ -5,15 +5,19 @@
  *
  * Level advance is decoupled from level clear: on reaching the target the
  * session emits `cleared` and freezes the board. In solo play it then advances
- * itself after a hold; in versus a coordinator calls {@link advanceLevel} once
+ * itself after a hold. In versus a coordinator calls {@link advanceLevel} once
  * both boards are ready, keeping the two in lockstep.
  *
  * The countdown and auto-advance hold share one {@link AbortScope}: `reset()` /
  * `destroy()` abort it, and `#beginLevel` opens a fresh epoch per level so a
  * previous level's countdown can't resolve into the new one.
+ *
+ * Level time is accumulated in engine time by {@link LevelClock} rather than
+ * read off the wall clock, so a paused game does not burn down its time bonus.
  */
 import {
   AbortScope,
+  Behavior,
   createEmitter,
   ignoreAbort,
   type EngineHost,
@@ -27,9 +31,22 @@ import type { Bounds } from './types'
 export type SessionState =
   'idle' | 'countdown' | 'playing' | 'cleared' | 'gameOver'
 
+/**
+ * Accumulates engine-time seconds while its owning session is playing. Attached
+ * to the board root, so the engine's pause stops it along with the physics.
+ */
+class LevelClock extends Behavior {
+  elapsed = 0
+  running = false
+
+  override onUpdate(dt: number): void {
+    if (this.running) this.elapsed += dt
+  }
+}
+
 export interface BoardSessionEvents {
   stateChanged: SessionState
-  /** Seconds left in the count-in (down to 1); 0 means "go". */
+  /** Seconds left in the count-in (down to 1). 0 means "go". */
   countdown: number
   /** Captured percentage of the arena. */
   progress: number
@@ -59,7 +76,7 @@ export class BoardSession {
   #level: number = 1
   #lives: number = RULES.startLives
   #points: number = 0
-  #levelStartMs: number = 0
+  readonly #clock = new LevelClock()
   readonly #scope = new AbortScope()
 
   constructor(
@@ -76,6 +93,7 @@ export class BoardSession {
       onCapture: (pct, cells) => this.#onCapture(pct, cells),
       onWallDestroyed: (x, y) => this.#onWallLost(x, y),
     })
+    this.board.root.addBehavior(this.#clock)
   }
 
   get state(): SessionState {
@@ -90,8 +108,9 @@ export class BoardSession {
   get points(): number {
     return this.#points
   }
-  get finalPoints(): number {
-    return this.#points + livesBonus(this.#lives)
+  /** Time bonus the current level would pay if it cleared right now. */
+  get pendingTimeBonus(): number {
+    return timeBonus(this.#clock.elapsed)
   }
 
   /** Begin a fresh game from level 1. */
@@ -126,6 +145,7 @@ export class BoardSession {
   /** Return to idle (menu), cancelling any countdown and clearing the board. */
   reset(): void {
     this.#scope.abort()
+    this.#clock.running = false
     this.board.startLevel(0)
     this.#setState('idle')
   }
@@ -139,6 +159,8 @@ export class BoardSession {
 
   #beginLevel(): void {
     const signal = this.#scope.reset()
+    this.#clock.elapsed = 0
+    this.#clock.running = false
     const ballCount = RULES.startBalls + (this.#level - 1) * RULES.ballsPerLevel
     this.board.startLevel(ballCount)
     this.board.freeze()
@@ -158,7 +180,7 @@ export class BoardSession {
     if (signal.aborted) return
     this.events.emit('countdown', 0)
     this.board.unfreeze()
-    this.#levelStartMs = performance.now()
+    this.#clock.running = true
     this.#setState('playing')
   }
 
@@ -175,8 +197,9 @@ export class BoardSession {
   #clearLevel(pct: number): void {
     this.#setState('cleared')
     this.board.freeze()
-    const elapsed = (performance.now() - this.#levelStartMs) / 1000
-    this.#points += fillBonus(pct) + timeBonus(elapsed)
+    this.#clock.running = false
+    this.#points +=
+      fillBonus(pct) + timeBonus(this.#clock.elapsed) + livesBonus(this.#lives)
     this.events.emit('points', this.#points)
     this.events.emit('cleared', { pct })
     if (this.#autoAdvance) void this.#autoAdvanceAfterHold(this.#scope.signal)
@@ -198,8 +221,9 @@ export class BoardSession {
 
   #gameOver(): void {
     this.board.freeze()
+    this.#clock.running = false
     this.#setState('gameOver')
-    this.events.emit('gameOver', { finalPoints: this.finalPoints })
+    this.events.emit('gameOver', { finalPoints: this.#points })
   }
 
   #setState(state: SessionState): void {

@@ -1,9 +1,9 @@
 /**
  * Locale infrastructure. Displays own what languages they ship and what their
- * default is — this file defines the type shape shared across displays
+ * default is. This file defines the type shape shared across displays
  * (`Messages`) plus the smaller `CoreMessages` slice that the core ships
  * defaults for. A display's manifest supplies a full `Messages` bundle per
- * language it supports; the `?display=` boot flow wires it to the `t` store
+ * language it supports. The `?display=` boot flow wires it to the `t` store
  * before any component reads a string.
  */
 
@@ -44,7 +44,7 @@ export interface CoreMessages {
 
 /**
  * The runtime shape components read from the `$t` store. Core code sees only
- * the shell keys defined by `CoreMessages`; a display's own components import a
+ * the shell keys defined by `CoreMessages`. A display's own components import a
  * strongly-typed `t` from its i18n module (which casts this store) so they can
  * access whatever additional sections they define. Display bundles are still
  * assignable to `Messages` because they extend `CoreMessages`.

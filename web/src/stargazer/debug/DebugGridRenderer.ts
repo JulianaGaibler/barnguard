@@ -3,6 +3,7 @@
 
 import type { CameraView2D } from '../camera/CameraView2D'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
+import { debugFont } from './debugFont'
 
 /**
  * Draw the world grid (minor/major lines + axis + coordinate labels) for the
@@ -65,7 +66,7 @@ export function drawGrid(
   const labelX = Math.max(2, Math.min(yAxisScreenX + 2, canvasW - 40))
   const labelY = Math.max(0, Math.min(xAxisScreenY + 2, canvasH - 14))
   const labelStyle = {
-    font: '10px monospace',
+    font: debugFont(10),
     align: 'left' as const,
     baseline: 'top' as const,
     color: 'rgba(255, 255, 255, 0.55)',

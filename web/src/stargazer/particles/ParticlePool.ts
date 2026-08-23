@@ -2,9 +2,7 @@ import { SlotPool } from './SlotPool'
 
 /**
  * Structure-of-arrays storage for a {@link ParticlePool}. Each field is a
- * parallel typed array indexed by slot; a slot is live when `alive[i] === 1`.
- *
- * @category Particles
+ * parallel typed array indexed by slot, a slot is live when `alive[i] === 1`.
  */
 export interface ParticleField {
   x: Float32Array
@@ -32,14 +30,12 @@ export interface ParticleField {
 }
 
 /**
- * Fixed-capacity particle pool. All storage is allocated once at construction;
+ * Fixed-capacity particle pool. All storage is allocated once at construction,
  * per-frame `spawn`/`kill`/`clear` are allocation-free. Slot allocation itself
- * (the freelist, `highWaterIndex`, `aliveCount`) is delegated to `SlotPool`;
+ * (the freelist, `highWaterIndex`, `aliveCount`) is delegated to `SlotPool`,
  * this class pairs that with the fixed {@link ParticleField} typed arrays and
  * mirrors liveness into `field.alive` so draw loops can read it directly
  * without going through the pool.
- *
- * @category Particles
  */
 export class ParticlePool {
   readonly capacity: number

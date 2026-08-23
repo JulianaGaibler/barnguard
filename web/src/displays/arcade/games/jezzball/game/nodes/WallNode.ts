@@ -1,8 +1,8 @@
 /**
  * One half of a two-way wall: a single segment that extends from an anchor (the
  * seed cell center) in one direction. The two halves of a placed wall grow,
- * solidify, and are destroyed independently — a ball hitting one half removes
- * only that half while the other keeps going — so each is its own node. The
+ * solidify, and are destroyed independently. A ball hitting one half removes
+ * only that half while the other keeps going, so each is its own node. The
  * anchored side is pinned at the seed center, giving the placed wall its
  * two-tone split there (primary on one half, variant on the other).
  */

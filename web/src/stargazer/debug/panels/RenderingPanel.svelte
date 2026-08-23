@@ -52,12 +52,12 @@
       { value: 'webgl2', label: 'WebGL2' },
     ]
 
-  // Render-mode / MSAA / perf-marks are per-stage engine state; mirror the
+  // Render-mode / MSAA / perf-marks are per-stage engine state. Mirror the
   // active stage's live values so an external toggle or a stage switch stays in
   // sync. Re-synced each tick (see the `revision` effect below).
   // One render-mode control drives both pipelines: the 2D batch modes
   // (`DebugRenderMode`, GpuGfx) and the 3D mesh views (`MeshRenderMode`,
-  // DebugController). Only one is active at a time; picking one resets the
+  // DebugController). Only one is active at a time, and picking one resets the
   // other to `normal`. `'normal'` is shared.
   type CombinedRenderMode = DebugRenderMode | Exclude<MeshRenderMode, 'normal'>
   let renderMode = $state<CombinedRenderMode>('normal')
@@ -184,11 +184,11 @@
   function handleRenderModeChange(mode: CombinedRenderMode): void {
     renderMode = mode
     if (MESH_MODES.has(mode)) {
-      // A 3D mesh view; leave the 2D pipeline normal.
+      // A 3D mesh view, so leave the 2D pipeline normal.
       debug.setRenderMode(mode as MeshRenderMode)
       debug.activeStage.setDebugRenderMode('normal')
     } else {
-      // A 2D batch mode (or 'normal'); leave the 3D pass normal.
+      // A 2D batch mode (or 'normal'), so leave the 3D pass normal.
       debug.activeStage.setDebugRenderMode(mode as DebugRenderMode)
       debug.setRenderMode('normal')
     }

@@ -1,14 +1,14 @@
 /**
  * Drives one JezzBall board: an isolated physics world, the bouncing balls, the
- * grid field, and the wall lifecycle. A placed wall is TWO independent segments
- * growing in opposite directions from the seed cell; each grows, solidifies,
- * and is destroyed on its own — a ball touching one segment removes only that
+ * grid field, and the wall lifecycle. A placed wall is two independent segments
+ * growing in opposite directions from the seed cell. Each grows, solidifies,
+ * and is destroyed on its own. A ball touching one segment removes only that
  * segment (and costs a life) while the other keeps growing. A segment that
  * reaches a border or existing solid solidifies into grid walls and triggers a
  * flood-capture of any newly-enclosed, ball-free region.
  *
- * Operates directly in world coordinates — its space node sits at the origin,
- * so physics/scene/world coordinates all coincide with the board's
+ * Operates directly in world coordinates. Its space node sits at the origin, so
+ * physics/scene/world coordinates all coincide with the board's
  * {@link FieldGeom}. The session layer sits on top and owns lives, scoring, and
  * level flow via the callbacks here.
  */
@@ -50,7 +50,7 @@ import { WallSegmentNode } from './nodes/WallNode'
 import { BallNode } from './nodes/BallNode'
 import { BurstNode } from './nodes/BurstNode'
 
-/** Physics collision layers. Balls hit solids; balls ignore each other. */
+/** Physics collision layers. Balls hit solids. Balls ignore each other. */
 export const LAYER_BALL = 1 << 0
 export const LAYER_SOLID = 1 << 1
 

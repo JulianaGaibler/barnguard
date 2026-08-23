@@ -12,6 +12,7 @@ import {
   type Vec2,
 } from '@src/stargazer'
 import { gameView } from '../../../world'
+import { BLACK, BLUE } from '../palette'
 import type { ArcadeCamera } from '../../arcadeCamera'
 import { loadGameAssets, type GameAssets } from './assets'
 import { STATES, findState, type StateId } from './data/states'
@@ -98,20 +99,18 @@ export interface GameSession {
 }
 
 // -----------------------------------------------------------------------------
-// Look tokens, should eventually move to a theme.ts, but the game layer is
-// still small enough that inlining is clear.
+// Map look tokens. The colour seeds they mix from live in `palette.ts`, shared
+// with the DOM chrome.
 // -----------------------------------------------------------------------------
 
 // The map is black like the backdrop, so states read purely by their opaque
-// borders on the blue grid. No alpha anywhere — highlight/dim is done with
-// solid colour, never opacity.
-const COLOR_STATE_FILL = '#050505'
-// Selected state: the blue accent mixed toward the black backdrop with
-// `mixColor` so it reads as a softer, less heavy highlight. Opaque result — no
-// opacity.
-const COLOR_STATE_FILL_SELECTED = mixColor('#031BC4', '#050505', 0.8)
+// borders on the blue grid. Highlight and dim use solid colour, never alpha.
+const COLOR_STATE_FILL = BLACK
+// Selected state: the blue accent mixed toward the black backdrop so it reads
+// as a softer, less heavy highlight.
+const COLOR_STATE_FILL_SELECTED = mixColor(BLUE, BLACK, 0.8)
 
-// City-state enclaves sit fully inside another state; they must draw AFTER
+// City-state enclaves sit fully inside another state, so they must draw AFTER
 // their surrounder or its fill paints over them (border + selection hidden).
 const ENCLAVE_STATE_IDS = new Set<StateId>(['BE', 'HB'])
 // Opaque so overlapping geometry (shared borders, tripoints) reads identically
@@ -137,7 +136,7 @@ const CAMERA_TWEEN_SEC = 0.6
 // 1920×1080 GAME region and center it. The game's scene lives under a single
 // parent node carrying this transform, so every ported node/behavior keeps
 // operating in map-local units. Only the camera framings (map→world) and the
-// spawn bounds (world→map) cross the boundary. All constant — the region and
+// spawn bounds (world→map) cross the boundary. All constant, the region and
 // viewBox are both fixed, so the camera handles every aspect via contain-fit.
 // -----------------------------------------------------------------------------
 
@@ -188,7 +187,7 @@ export async function startGame(
   const events = createEmitter<GameEvents>()
   const assets = await loadGameAssets()
 
-  // Everything the game draws lives under this node; its transform places the
+  // Everything the game draws lives under this node. Its transform places the
   // 661×888 map into the arcade's game region (see the placement helpers).
   const mapRoot = new Node2D('data-control-map-root')
   mapRoot.transform.x = PLACEMENT_X
@@ -213,7 +212,7 @@ export async function startGame(
   })
   // Register the mask with the debug controller so the `'clip-mask'` HUD
   // render mode can visualise it. Safe to call unconditionally, the controller
-  // stores the reference; nothing draws unless the mode is active.
+  // stores the reference. Nothing draws unless the mode is active.
   host.debug.setInspectedMask(assets.mask)
 
   let sessionState: SessionState = 'loading'
@@ -227,7 +226,7 @@ export async function startGame(
   const cameraScope = new AbortScope()
   let packetIdSeq = 0
   // Re-abortable scope for the deferred game-over timers (ripple settle + the
-  // gameOver-event grace); `reset()`/`destroy()` cancel them.
+  // gameOver-event grace). `reset()`/`destroy()` cancel them.
   const graceScope = new AbortScope()
   // Round-start wall clock (`performance.now()`), used to compute the game's
   // `durationMs` when the round ends. 0 means "no active round".
@@ -240,7 +239,7 @@ export async function startGame(
       epicenter: () => epicenter,
       activePackets: () => activePackets,
       // Spawn only inside the current camera framing so packets never grow
-      // off-screen. The camera frames a world rect; map it back to the map's
+      // off-screen. The camera frames a world rect. Map it back to the map's
       // local space, which is what the mask + rejection sampling expect.
       spawnBounds: () => worldToMap(camera.viewport),
       spawnPacket,
@@ -284,12 +283,12 @@ export async function startGame(
 
   // Country grid overlay sits above the static state fills but under the
   // dynamic path / packet layers. Its own `renderLayer = 'above-static'`
-  // handles the compositing; this add order just controls scene-tree traversal
+  // handles the compositing. This add order just controls scene-tree traversal
   // for `onUpdate` (overlay ticks before packets, which is fine).
   mapRoot.add(gridOverlay)
 
   // Dynamic-layer groups: paths draw under packets so trails don't occlude the
-  // finger's target; endpoint handles draw on top so the player can grab them.
+  // finger's target. Endpoint handles draw on top so the player can grab them.
   mapRoot.add(pathLayer)
   mapRoot.add(packetLayer)
   mapRoot.add(handleLayer)
@@ -297,7 +296,7 @@ export async function startGame(
   host.engine.tree.root.add(mapRoot)
 
   // Frame the whole country. The arcade panned the shared camera to the game
-  // region's home framing on Play; snap to the map slab so it fills the view.
+  // region's home framing on Play. Snap to the map slab so it fills the view.
   camera.snapTo(mapToWorld(FULL_VIEW))
 
   sessionState = 'idle'
@@ -394,7 +393,7 @@ export async function startGame(
   // --- Highlight bookkeeping ---------------------------------------------
   //
   // Highlight is colour-only: the selected state fills with the accent, the
-  // rest stay black. No opacity — the `'static'` layer is drawn per frame (not
+  // rest stay black. No opacity, the `'static'` layer is drawn per frame (not
   // baked), so a plain `fill` reassignment shows on the next frame.
 
   function highlightState(id: StateId): void {
@@ -540,7 +539,7 @@ export async function startGame(
     }
     // The collision visuals stand in for the packets from here on. Destroy both
     // packets so their hexes / trails / hex-particle emitters clean up in a
-    // single cascade; the flash + debris ring plays out at the recorded
+    // single cascade. The flash + debris ring plays out at the recorded
     // midpoint. Destroy handlers remove them from `activePackets` automatically.
     a.destroy()
     b.destroy()
@@ -551,7 +550,7 @@ export async function startGame(
   }
 
   // The loss visuals are shared with the game-over vignette (see
-  // `lossVisuals.ts`); these thin wrappers pin them to the round's packet layer.
+  // `lossVisuals.ts`). These thin wrappers pin them to the round's packet layer.
   function spawnImpactFlash(center: Vec2): void {
     lossImpactFlash(packetLayer, center, assets.impactFlashPath)
   }

@@ -2,7 +2,7 @@
  * Companion node that draws ONLY an orb's white scoring ring. It lives in a
  * separate layer that renders BELOW every orb fill, so when two orbs touch, a
  * ring is painted over by the neighbouring orb's body instead of obstructing
- * it. It owns no state of its own — it mirrors its `OrbNode`'s placement
+ * it. It owns no state of its own, it mirrors its `OrbNode`'s placement
  * (position + bounce scale) and reads the animated ring width straight off it.
  */
 import { Node2D, type Gfx2D } from '@src/stargazer'

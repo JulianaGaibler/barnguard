@@ -21,6 +21,9 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
     setAlpha: (a) => calls.push(['setAlpha', a]),
     setBlend: (mode) => calls.push(['setBlend', mode]),
     setClipMask: () => {},
+    setClip: () => {},
+    deviceScale: () => 1,
+    snapSize: (v: number) => v,
     fillRect: () => {},
     fillRoundRect: () => {},
     strokeRoundRect: () => {},
@@ -38,6 +41,7 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
     drawImage: (_img, dx, dy, dw, dh) =>
       calls.push(['drawImage', dx, dy, dw, dh]),
     fillText: () => {},
+    warmText: () => {},
   }
   return { gfx, calls }
 }
@@ -61,7 +65,7 @@ describe('ParticleEmitterNode draw', () => {
     node.emitter.burst(1, 0, 0)
     const { gfx, calls } = recordingGfx()
     node.draw(gfx, fakeCamera, 0)
-    // Outer save/setBlend/restore, plus one bare drawImage call — no
+    // Outer save/setBlend/restore, plus one bare drawImage call, with no
     // per-particle save/translate/rotate pair.
     expect(calls.filter((c) => c[0] === 'save').length).toBe(1)
     expect(calls.filter((c) => c[0] === 'rotate').length).toBe(0)
@@ -80,7 +84,7 @@ describe('ParticleEmitterNode draw', () => {
     node.emitter.update(1) // angle: 0 -> 2
     const { gfx, calls } = recordingGfx()
     node.draw(gfx, fakeCamera, 0)
-    // Outer save + one inner per-particle save = 2; matching restores.
+    // Outer save plus one inner per-particle save is 2, with matching restores.
     expect(calls.filter((c) => c[0] === 'save').length).toBe(2)
     expect(calls.filter((c) => c[0] === 'restore').length).toBe(2)
     const rotateCalls = calls.filter((c) => c[0] === 'rotate')

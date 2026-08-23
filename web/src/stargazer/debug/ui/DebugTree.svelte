@@ -81,7 +81,7 @@
     display: flex
     align-items: center
     gap: 4px
-    // A little vertical padding so rows are easy to tap on a touchscreen; font
+    // A little vertical padding so rows are easy to tap on a touchscreen. Font
     // size is unchanged.
     padding: 3px 4px
     min-height: 22px

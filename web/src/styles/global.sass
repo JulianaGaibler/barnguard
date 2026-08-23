@@ -4,9 +4,10 @@
 @use "./fonts"
 
 // `scale.sass` emits the static token layer at :root (spacing, radii, z-index,
-// and neutral `--color-*` defaults). The active display's theme then overrides
-// the `--color-*` roles at runtime via `core/theme.applyTheme(...)` (main.ts,
-// before mount); a per-game theme scopes further overrides onto its container.
+// and neutral `--color-*` and `--font-*` defaults). The active display's theme
+// then overrides those roles at runtime via `core/theme.applyTheme(...)`
+// (main.ts, before mount). A per-game theme scopes further overrides onto its
+// container via the `themeScope` / `fontScope` actions.
 
 // Layer order keeps app-authored styles above the reset and type utilities.
 @layer app-reset, app-typography, app-global
@@ -31,7 +32,7 @@
   body
     margin: 0
     color: var(--color-text)
-    font-family: "Mozilla Text", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+    font-family: var(--font-text)
     font-weight: 500
   a, button
     color: inherit

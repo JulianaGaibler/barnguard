@@ -110,7 +110,7 @@ describe('CameraNode2D (transform + framing unified)', () => {
     cam.setViewport({ x: 0, y: 0, width: 100, height: 100 })
     cam.setPixelSize(200, 100) // wider canvas: visible world wider than viewport
     const r = cam.visibleWorldRect()
-    // scale = min(200/100, 100/100) = 1; visible world = 200x100 centered on the
+    // scale = min(200/100, 100/100) = 1, so the visible world is 200x100 centered on the
     // viewport, so x spans [-50, 150].
     expect(r.width).toBeCloseTo(200, 4)
     expect(r.height).toBeCloseTo(100, 4)

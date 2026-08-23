@@ -1,8 +1,8 @@
 <!--
-  A single key for `OnScreenKeyboard`. Commits its character on `pointerdown`;
-  release is heard on `window` rather than the button itself, since a
+  A single key for `OnScreenKeyboard`. Commits its character on `pointerdown`.
+  Release is heard on `window` rather than the button itself, since a
   touchscreen's own `pointerup` can land on a different target, get dropped
-  after the implicit touch capture, or get lost to a system gesture — any of
+  after the implicit touch capture, or get lost to a system gesture, any of
   which would leave the key looking stuck pressed.
 -->
 <script lang="ts">

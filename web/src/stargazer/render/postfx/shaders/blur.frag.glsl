@@ -2,12 +2,12 @@
 precision highp float;
 // One axis of a separable 5-tap Gaussian blur, run twice (horizontal then
 // vertical) by the VignetteBlur effect. The blur step scales with radial
-// distance — zero at the center (image stays sharp), maximal at the edges — for
-// a focus/lens look. u_dir is the per-texel axis (texelW,0) or (0,texelH).
+// distance for a focus/lens look: zero at the center (image stays sharp),
+// maximal at the edges. u_dir is the per-texel axis (texelW,0) or (0,texelH).
 //
 // Note: this blurs sRGB-encoded (not light-linear) values, which darkens the
 // result slightly ("dark energy"). Accepted here as a cheap stylistic edge
-// blur; a correct linear blur would need un-premultiply → linearize → blur →
+// blur. A correct linear blur would need un-premultiply → linearize → blur →
 // encode → re-premultiply, far too costly for this pass. The unit-weight sum of
 // premultiplied samples keeps the premultiplied color valid.
 
@@ -15,7 +15,7 @@ in vec2 v_uv;
 uniform sampler2D u_tex;
 
 // Per-pass params, std140 block (see POST_PARAMS_UBO_BINDING).
-// u_p0 = (dirX, dirY, radius, softness); u_p1.x = strength (texels at edge).
+// u_p0 = (dirX, dirY, radius, softness). u_p1.x = strength (texels at edge).
 layout(std140) uniform Params {
   vec4 u_p0;
   vec4 u_p1;

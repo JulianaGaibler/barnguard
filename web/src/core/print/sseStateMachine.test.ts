@@ -1,7 +1,7 @@
 /**
  * Tests for the SSE connection state machine inside `printerClient.ts`.
  *
- * Stubs `EventSource` and `fetch` at the module boundary; each test drives the
+ * Stubs `EventSource` and `fetch` at the module boundary. Each test drives the
  * mock EventSource through open/error/message events and asserts the resulting
  * `printerLive.connection` transitions.
  */
@@ -55,7 +55,7 @@ class MockEventSource {
     this.onopen?.()
   }
   fireError(): void {
-    // Do NOT change readyState — mirrors the "stuck in CONNECTING" case that
+    // Do NOT change readyState. This mirrors the "stuck in CONNECTING" case that
     // the Vite proxy 502 hits. The state machine must not depend on it.
     this.onerror?.()
   }
@@ -114,7 +114,7 @@ describe('printerLive SSE state machine', () => {
     expect(get(mod.printerLive).connection).toBe('online')
   })
 
-  it('transitions to `offline` and schedules a reopen on onerror — even when readyState stays CONNECTING', async () => {
+  it('transitions to `offline` and schedules a reopen on onerror, even when readyState stays CONNECTING', async () => {
     mod = await subscribeFresh()
     const first = MockEventSource.latest()
     first.fireOpen()
@@ -122,7 +122,7 @@ describe('printerLive SSE state machine', () => {
 
     // Simulate the Vite-proxy-502 case: onerror fires while readyState is
     // still CONNECTING (browser is retrying internally, but never gives up
-    // cleanly). Our machine should NOT wait for CLOSED — it must flip to
+    // cleanly). Our machine should NOT wait for CLOSED. It must flip to
     // offline + tear down + schedule a fresh reopen unconditionally.
     first.fireError()
     expect(get(mod.printerLive).connection).toBe('offline')
@@ -157,7 +157,7 @@ describe('printerLive SSE state machine', () => {
     vi.advanceTimersByTime(1)
     expect(MockEventSource.instances.length).toBe(4)
 
-    // Skip ahead to the cap. The 4th attempt is in flight; fail it and then
+    // Skip ahead to the cap. The 4th attempt is in flight, so fail it and then
     // fail once more to reach 16s → capped at 15s.
     MockEventSource.latest().fireError() // 8s
     vi.advanceTimersByTime(8000)
@@ -182,7 +182,7 @@ describe('printerLive SSE state machine', () => {
     MockEventSource.latest().fireOpen()
     expect(get(mod.printerLive).connection).toBe('online')
 
-    // Fail again — next attempt should be in 1s (reset), not 4s.
+    // Fail again. The next attempt should be in 1s (reset), not 4s.
     MockEventSource.latest().fireError()
     vi.advanceTimersByTime(999)
     expect(MockEventSource.instances.length).toBe(3)
@@ -209,7 +209,7 @@ describe('printerLive SSE state machine', () => {
     expect(MockEventSource.instances.length).toBe(before + 1)
     expect(get(mod.printerLive).connection).toBe('connecting')
 
-    // Now the backoff is reset — next fail schedules 1s again.
+    // Now the backoff is reset, so the next fail schedules 1s again.
     MockEventSource.latest().fireError()
     vi.advanceTimersByTime(999)
     expect(MockEventSource.instances.length).toBe(before + 1)
@@ -220,7 +220,7 @@ describe('printerLive SSE state machine', () => {
   it('heartbeat timeout forces a reopen when no message has arrived in 25 s', async () => {
     mod = await subscribeFresh()
     MockEventSource.latest().fireOpen()
-    // Time = 0. Heartbeat ticks every 5s; a message resets `lastMessageAt`.
+    // Time = 0. Heartbeat ticks every 5s, and a message resets `lastMessageAt`.
     // Advance 20s → no timeout yet (threshold is 25s, checked with `>`).
     vi.advanceTimersByTime(20_000)
     expect(get(mod.printerLive).connection).toBe('online')
@@ -228,11 +228,11 @@ describe('printerLive SSE state machine', () => {
 
     // Advance past 25s total silence → timeout fires on the next 5s tick.
     vi.advanceTimersByTime(10_000) // total 30s
-    // The tick at t=30s (>25s elapsed) ran the timeout check; scheduleReopen
+    // The tick at t=30s (>25s elapsed) ran the timeout check, so scheduleReopen
     // was called.
     expect(get(mod.printerLive).connection).toBe('offline')
     // The next EventSource opens after the (now-reset since force is not
-    // used here) backoff — the timeout path uses `scheduleReopen`, so it goes
+    // used here) backoff. The timeout path uses `scheduleReopen`, so it goes
     // through the backoff timer.
     // Since we've been failing implicitly, backoff is 1s.
     vi.advanceTimersByTime(1000)
@@ -262,9 +262,9 @@ describe('printerLive SSE state machine', () => {
     mod = await subscribeFresh()
     MockEventSource.latest().fireOpen()
 
-    // Fire a `ping` every 15s for 90s — mirrors the real daemon cadence.
+    // Fire a `ping` every 15s for 90s, mirroring the real daemon cadence.
     // The client's ping listener ignores the payload (payload isn't JSON in
-    // prod, either) so `fireEvent`'s JSON-stringified body is fine here — this
+    // prod, either) so `fireEvent`'s JSON-stringified body is fine here. This
     // test is about liveness signaling, not parsing.
     for (let t = 15_000; t <= 90_000; t += 15_000) {
       vi.advanceTimersByTime(15_000)

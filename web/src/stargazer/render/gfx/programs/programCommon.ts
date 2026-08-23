@@ -7,6 +7,7 @@ import type {
   BindGroupLayout,
   CullMode,
   DepthState,
+  StencilState,
   DrawBindGroup,
   FrontFace,
   GfxBlendMode,
@@ -24,8 +25,8 @@ import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 /**
  * Build {@link ShaderReflection} from name→number maps, mirroring the old
  * `ProgramOpts` shape: attribute name → location, uniform-block name → binding,
- * sampler name → binding. WebGL2 uses these to wire the linked program; WebGPU
- * ignores them.
+ * sampler name → binding. WebGL2 uses these to wire the linked program, and
+ * WebGPU ignores them.
  */
 export function reflection(spec: {
   attribs: Record<string, number>
@@ -52,7 +53,7 @@ export function reflection(spec: {
 /**
  * A dynamic-offset uniform ring: many small per-draw uniform slices packed into
  * one buffer, each aligned to the device's UBO offset alignment. `reset` once
- * per frame; `push` writes a slice and returns its byte offset for a draw's
+ * per frame. `push` writes a slice and returns its byte offset for a draw's
  * `dynamicOffsets`. Returns `-1` on overflow (the caller drops that draw's
  * per-run data, matching the vertex ring's overflow behavior).
  */
@@ -77,7 +78,7 @@ export class UboRing {
     this.buffer = device.createUniformBuffer(this.#capacityBytes)
   }
 
-  /** Fixed per-slice byte length — the `size` for a dynamic bind-group entry. */
+  /** Fixed per-slice byte length, the `size` for a dynamic bind-group entry. */
   get sliceBytes(): number {
     return this.#sliceBytes
   }
@@ -88,7 +89,7 @@ export class UboRing {
   }
 
   /**
-   * Write `data` into the next slice; returns its byte offset or `-1` on
+   * Write `data` into the next slice. Returns its byte offset or `-1` on
    * overflow.
    */
   push(device: GfxDevice, data: ArrayBufferView): number {
@@ -129,22 +130,49 @@ export async function warmupBlendPipelines(
     cull?: CullMode
     frontFace?: FrontFace
     primitive?: PrimitiveTopology
+    /**
+     * Extra variants beyond the plain one, each keyed `${blend}|${suffix}` so a
+     * program can select one per draw run.
+     */
+    variants?: Array<{
+      suffix: string
+      stencil?: StencilState | null
+      colorWrite?: boolean
+    }>
   },
 ): Promise<Map<string, Pipeline>> {
   const map = new Map<string, Pipeline>()
+  // WebGPU requires every pipeline used in a pass to declare a depth-stencil
+  // format matching the attachment, so on a stencil-backed target even the
+  // pipelines that do no stencil work must say so. An always-pass test with a
+  // zero write mask is inert: it declares the format and touches nothing.
+  const inert: StencilState | null = ctx.targetHasStencil
+    ? { front: { compare: 'always', passOp: 'keep' }, writeMask: 0 }
+    : null
+  const variants = [
+    { suffix: '', stencil: inert, colorWrite: true },
+    ...(opts.variants ?? []),
+  ]
   for (const blend of opts.blends ?? BLEND_VARIANTS) {
-    const pipeline = await device.createPipeline({
-      shader: opts.shader,
-      vertexLayout: opts.vertexLayout,
-      bindGroupLayouts: opts.bindGroupLayouts,
-      color: { format: ctx.targetColor.format, blend },
-      depth: opts.depth ?? null,
-      cull: opts.cull ?? 'none',
-      frontFace: opts.frontFace ?? 'ccw',
-      primitive: opts.primitive ?? 'triangle-list',
-      samples: ctx.targetColor.samples,
-    })
-    map.set(blend, pipeline)
+    for (const v of variants) {
+      const pipeline = await device.createPipeline({
+        shader: opts.shader,
+        vertexLayout: opts.vertexLayout,
+        bindGroupLayouts: opts.bindGroupLayouts,
+        color: {
+          format: ctx.targetColor.format,
+          blend,
+          write: v.colorWrite ?? true,
+        },
+        depth: opts.depth ?? null,
+        stencil: v.stencil ?? null,
+        cull: opts.cull ?? 'none',
+        frontFace: opts.frontFace ?? 'ccw',
+        primitive: opts.primitive ?? 'triangle-list',
+        samples: ctx.targetColor.samples,
+      })
+      map.set(v.suffix ? `${blend}|${v.suffix}` : blend, pipeline)
+    }
   }
   return map
 }
@@ -171,13 +199,19 @@ export function drawInstancedRun(
   strideBytes: number,
   run: DrawRun,
   materialBindGroup: BindGroup | null,
+  /** Pipeline-map suffix, for a program with per-run variants. */
+  variant?: string,
 ): void {
   const words = strideBytes / 4
   const instCount = (run.endWord - run.startWord) / words
   if (instCount === 0) return
-  const pipeline = pipelines.get(run.blend)
+  const pipeline = pipelines.get(
+    variant ? `${run.blend}|${variant}` : run.blend,
+  )
   if (!pipeline) return
-  const bindGroups: DrawBindGroup[] = [ctx.frameBindGroupEntry()]
+  const bindGroups: DrawBindGroup[] = [
+    ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
+  ]
   if (materialBindGroup)
     bindGroups.push({ group: 1, bindGroup: materialBindGroup })
   ctx.device.draw({

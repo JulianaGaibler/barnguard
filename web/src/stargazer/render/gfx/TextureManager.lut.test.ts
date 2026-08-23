@@ -3,7 +3,7 @@ import { TextureManager } from './TextureManager'
 import { MockGfxDevice } from './webgl2/mockGfxDevice'
 import type { GfxGradientStop } from './Gfx2D'
 
-// happy-dom's OffscreenCanvas has no real 2D context; stub a minimal one so the
+// happy-dom's OffscreenCanvas has no real 2D context. Stub a minimal one so the
 // LUT builder reaches the texture-cache logic under test.
 let getCtxSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
@@ -49,7 +49,7 @@ describe('TextureManager gradient-LUT cache', () => {
     const device = new MockGfxDevice()
     const del = vi.spyOn(device, 'deleteTexture')
     const tm = new TextureManager(device)
-    // Cap is 64; 65 distinct LUTs → exactly one eviction + delete.
+    // Cap is 64, so 65 distinct LUTs give exactly one eviction and delete.
     for (let i = 0; i < 65; i++) {
       tm.ensureStopsLut(stops('#000', `#${i.toString(16).padStart(6, '0')}`))
     }
@@ -69,7 +69,7 @@ describe('TextureManager gradient-LUT cache', () => {
       tm.ensureStopsLut(keep)
     }
     // `keep` is still the same texture (never evicted/rebuilt). Compare by
-    // identity — all LUT textures are structurally identical (256×1), so a
+    // identity. All LUT textures are structurally identical (256×1), so a
     // deep-equality matcher would false-match any evicted LUT.
     expect(tm.ensureStopsLut(keep)).toBe(first)
     const deletedFirst = del.mock.calls.some((c) => c[0] === first)

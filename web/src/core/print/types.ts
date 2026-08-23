@@ -1,6 +1,6 @@
 /**
  * TypeScript mirror of the printer-daemon's wire DTOs. Kept in sync by hand
- * with `printer-daemon/src/types.rs`; both use `camelCase` field names and the
+ * with `printer-daemon/src/types.rs`. Both use `camelCase` field names and the
  * same `snake_case` enum string values.
  */
 
@@ -55,7 +55,7 @@ export interface PrinterStatus {
   backend: string
   lastSeenMs: number
   /**
-   * When the printer first became unreachable (epoch ms); absent while
+   * When the printer first became unreachable (epoch ms). Absent while
    * reachable.
    */
   unreachableSinceMs?: number

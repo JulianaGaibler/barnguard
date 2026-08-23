@@ -12,10 +12,10 @@ import {
  * the strokes stay a constant thickness regardless of the camera framing.
  *
  * Like {@link import('./BackdropNode').BackdropNode} it fills the camera's
- * visible world rect each frame — bottom pinned to the game region — so the
- * grid follows the camera into any zoom (including the framing headroom above
- * the map) instead of leaving a bare strip, while never spilling into the
- * launcher region below.
+ * visible world rect each frame (bottom pinned to the game region) so the grid
+ * follows the camera into any zoom (including the framing headroom above the
+ * map) instead of leaving a bare strip, while never spilling into the launcher
+ * region below.
  */
 export class BackgroundGridNode extends Node2D {
   readonly #cell: number

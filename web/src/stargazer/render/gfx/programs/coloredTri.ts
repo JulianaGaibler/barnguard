@@ -3,9 +3,9 @@
 // one with a clip mask (batch key includes it) and the only one the debug
 // render modes (`'polygons'`, `'overdraw'`, `'batch-color'`) touch. `GpuGfx`
 // keeps the `'polygons'`-mode outline emission (it needs `StrokeProgram`, a
-// different program) and, for `fillPath2D`, the tessellation-registry lookup;
-// everything else — the transform math, mask UVs, and vertex packing for each
-// fill shape — lives here alongside the shader/VAO/stream plumbing and the
+// different program) and, for `fillPath2D`, the tessellation-registry lookup.
+// Everything else, the transform math, mask UVs, and vertex packing for each
+// fill shape, lives here alongside the shader/VAO/stream plumbing and the
 // debug-mode uniforms/blend override inside `flush`.
 
 import type { GeometryHandle, GpuGeometry } from '../GeometryHandle'
@@ -174,8 +174,8 @@ export class ColoredTriProgram implements GpuProgram {
       ],
     )
 
-    // A rebuild (context restore) re-runs init with fresh GL objects; the old
-    // per-handle descriptors are dead, so drop them and re-upload on next draw.
+    // A rebuild (context restore) re-runs init with fresh GL objects, so the
+    // old per-handle descriptors are dead. Drop them and re-upload on next draw.
     for (const geo of this.#retainedHandles) geo.gpu = undefined
     this.#retainedHandles.clear()
   }
@@ -275,8 +275,8 @@ export class ColoredTriProgram implements GpuProgram {
     const dy = t.b * x0 + t.d * y1 + t.f
     // Mask UVs: computed against LOCAL (pre-transform) x0/y0/x1/y1, the
     // mask's worldRect lives in world/local space, NOT device pixels. Under
-    // the coloredTri shader `v_uv` is only sampled when `u_clipEnabled == 1`;
-    // when no clip is active, uv=(0,0) placeholders are ignored.
+    // the coloredTri shader `v_uv` is only sampled when `u_clipEnabled == 1`.
+    // When no clip is active, uv=(0,0) placeholders are ignored.
     const mask = ctx.curClipMask
     let uA = 0,
       vA = 0,
@@ -499,9 +499,11 @@ export class ColoredTriProgram implements GpuProgram {
    * Retained `fillPath2D`: upload `geo` once, then record a draw that
    * GPU-transforms it by the current transform (`u_model`), so no per-vertex
    * CPU work happens. The caller (`GpuGfx.fillPath2D`) gates this on no active
-   * clip mask and normal debug mode — the retained shader carries neither the
-   * clip sampler nor the debug recolor, so those cases stay on the streamed
-   * path.
+   * bitmap clip mask and normal debug mode, since the retained shader carries
+   * neither the mask's sampler nor the debug recolor, so those cases stay on
+   * the streamed path. The analytic clip does compose here. The draw binds the
+   * same group-0 clip slice the streamed path does, and the retained shader
+   * applies it.
    */
   fillTessellationRetained(
     ctx: GpuBatchContext,
@@ -647,7 +649,7 @@ export class ColoredTriProgram implements GpuProgram {
     const clipTex = maskTex ?? ctx.placeholderTexture
     const s = this.#drawParamsStaging
     if (debugModeInt === 2) {
-      // Golden-ratio hue cycling; index fixed at record time so the hue is
+      // Golden-ratio hue cycling. Index fixed at record time so the hue is
       // stable across the frame. Premultiplied (alpha baked into rgb).
       const h = ((run.debugBatchIndex * 0.61803398875) % 1) * 6
       const [r, g, b] = hsvToRgb(h, 0.75, 1)
@@ -666,7 +668,7 @@ export class ColoredTriProgram implements GpuProgram {
     if (dynOffset < 0) return
 
     // Overdraw forces additive blend so the constant red accumulates as a
-    // heatmap instead of painting opaque; otherwise the run's own blend.
+    // heatmap instead of painting opaque. Otherwise it's the run's own blend.
     const blend = debugModeInt === 1 ? 'lighter' : run.blend
     const pipeline = this.#pipelines.get(blend)
     if (!pipeline) return
@@ -675,7 +677,7 @@ export class ColoredTriProgram implements GpuProgram {
       pipeline,
       vertexBuffers: [{ buffer: this.#stream.buffers[ctx.curSlot], offset: 0 }],
       bindGroups: [
-        ctx.frameBindGroupEntry(),
+        ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
         {
           group: 1,
           bindGroup: this.#clipBindGroupFor(ctx, clipTex),
@@ -718,7 +720,7 @@ export class ColoredTriProgram implements GpuProgram {
       vertexBuffers: [{ buffer: gpu.vbo, offset: 0 }],
       indexBuffer: gpu.ibo,
       bindGroups: [
-        ctx.frameBindGroupEntry(),
+        ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
         {
           group: 1,
           bindGroup: this.#retainedBindGroup,

@@ -38,7 +38,7 @@ pub struct PrinterConfigInfo {
 
 /// Lean status snapshot returned by [`crate::PrinterBackend::get_status`]. The
 /// driver fills in what it can read from the printer (state + tape/model
-/// fields the backend has cached from `get_config`); connection telemetry
+/// fields the backend has cached from `get_config`). Connection telemetry
 /// (reachable, last-seen timestamps, failure counters) is the caller's
 /// responsibility.
 #[derive(Debug, Clone, Default)]

@@ -16,22 +16,21 @@ import type { Semantics, SemanticsHandle } from '../a11y/types'
 
 export type { NodeEvents, PointerHandlers }
 
-// Reused across calls; hit-testing is synchronous, so there's no reentrancy.
+// Reused across calls, hit-testing is synchronous, so there's no reentrancy.
 const HIT_TEST_SCRATCH: Vec2 = { x: 0, y: 0 }
 
 /**
- * Which pass a node draws in. `static` nodes are baked once and cached until
- * invalidated; `dynamic` nodes redraw every frame; `above-static` draws every
- * frame on top of the baked static content.
- *
- * @category Scene
+ * Which of the three 2D passes a node draws in. Every pass redraws every frame,
+ * so the layer is draw order only, not a cache: `'static'` paints first,
+ * `'above-static'` over it, `'dynamic'` on top. Painter order within a layer
+ * follows the tree.
  */
 export type RenderLayer = 'static' | 'above-static' | 'dynamic'
 
 /**
  * A node in the 2D scene tree: a {@link Transform2D}, a parent, a list of
  * children, and optional attached {@link Behavior}s. Position a node by mutating
- * its `transform`; nest nodes with {@link Node2D.add} so children inherit the
+ * its `transform`, nest nodes with {@link Node2D.add} so children inherit the
  * parent's transform. Shares its non-spatial machinery (behaviors, lifecycle,
  * abort, tween/wait/loop) with the 3D {@link Node3D} branch through
  * {@link Node}.
@@ -39,14 +38,13 @@ export type RenderLayer = 'static' | 'above-static' | 'dynamic'
  * The built-in rendering primitives (`ShapeNode`, `Path2DNode`, `PolylineNode`,
  * `TextNode`, `ParticleEmitterNode`) subclass this and override
  * {@link Node2D.draw}. Game logic goes in a {@link Behavior} or a subclass hook
- * ({@link Node.onUpdate}, {@link Node.onFixedStep}); the engine core itself is
+ * ({@link Node.onUpdate}, {@link Node.onFixedStep}). The engine core itself is
  * game-agnostic.
  *
  * The async helpers ({@link Node2D.tween}, {@link Node.wait}, {@link Node.loop})
  * are scoped to {@link Node.abortSignal}, so destroying a node cancels its
  * outstanding work rather than leaving Promises hanging.
  *
- * @category Scene
  * @example
  *   const ship = new ShapeNode({
  *     geometry: { kind: 'circle', radius: 20 },
@@ -87,11 +85,11 @@ export class Node2D extends Node {
    */
   #_staticDescendantCount = 0
   /**
-   * Semantics accumulated before the node joins a scene; see
+   * Semantics accumulated before the node joins a scene, see
    * {@link Node2D.a11y}.
    */
   #pendingSemantics: Partial<Semantics> | null = null
-  /** Live accessibility registration once attached; see {@link Node2D.a11y}. */
+  /** Live accessibility registration once attached, see {@link Node2D.a11y}. */
   #a11yHandle: SemanticsHandle | null = null
 
   constructor(id?: string) {
@@ -106,9 +104,9 @@ export class Node2D extends Node {
 
   /**
    * Nearest ancestor that is also a `Node2D`, skipping any 3D or group nodes in
-   * between; `null` if none. World composition uses this, so a `Node2D` nested
-   * under a 3D or group parent behaves as a top-level 2D node (its world equals
-   * its local).
+   * between, or `null` if none. World composition uses this, so a `Node2D`
+   * nested under a 3D or group parent behaves as a top-level 2D node (its world
+   * equals its local).
    */
   get spatialParent(): Node2D | null {
     let p = this.parent
@@ -117,9 +115,9 @@ export class Node2D extends Node {
   }
 
   /**
-   * Which render pass this node draws in. See {@link RenderLayer}. Defaults to
-   * `'dynamic'` (redraws every frame). Set `'static'` for content that rarely
-   * changes so it can be baked and cached.
+   * Which render pass this node draws in, `'dynamic'` by default. See
+   * {@link RenderLayer}. Set `'static'` to put a backdrop under everything else
+   * without reordering the tree.
    */
   get renderLayer(): RenderLayer {
     return this.#_renderLayer
@@ -129,14 +127,14 @@ export class Node2D extends Node {
     const prev = this.#_renderLayer
     this.#_renderLayer = v
     // Propagate the static/non-static delta up the ancestor chain. This node's
-    // own `_staticDescendantCount` counts descendants, so it doesn't change;
-    // only ancestors do.
+    // own `_staticDescendantCount` counts descendants, so it doesn't change.
+    // Only ancestors do.
     const delta = (v === 'static' ? 1 : 0) - (prev === 'static' ? 1 : 0)
     if (delta !== 0) this.#_bumpAncestorsStaticCount(delta)
     const scene = this.scene
     if (scene) {
-      // Painter order across layers changes when a node's layer flips;
-      // invalidate the layer index so the next drawLayer / hit-test walk sees
+      // Painter order across layers changes when a node's layer flips.
+      // Invalidate the layer index so the next drawLayer / hit-test walk sees
       // the new placement.
       scene.invalidatePainterOrder()
       if (prev === 'static' || v === 'static') scene.invalidateStatic()
@@ -152,16 +150,21 @@ export class Node2D extends Node {
   }
 
   /**
-   * Whether this node or any descendant draws on the `'static'` layer. O(1): it
-   * reads the incrementally-maintained descendant count. The layout pass uses
-   * it to decide whether moving a subtree must invalidate the static bake.
+   * Whether this node or any descendant draws on the `'static'` layer, read
+   * from a descendant count kept up to date on attach and detach, so it stays
+   * O(1) on a deep tree.
+   *
+   * Its only caller is `LayoutRoot`, which forwards it to
+   * {@link SceneTree.invalidateStatic}. Nothing reads that flag back, so the
+   * count currently costs attach and detach work for no observable effect.
+   * Removing the pair is safe as long as both go together.
    */
   get subtreeHasStaticLayer(): boolean {
     return this.#_renderLayer === 'static' || this.#_staticDescendantCount > 0
   }
 
   protected override _onChildAttached(child: Node): void {
-    // Only 2D children carry static-layer state; a 3D or group child adds no
+    // Only 2D children carry static-layer state. A 3D or group child adds no
     // static contribution and must not touch the count (it has no such field).
     if (child.kind === '2d') {
       const c = child as Node2D
@@ -175,7 +178,7 @@ export class Node2D extends Node {
         this.scene?.invalidateStatic()
       }
     }
-    // Tree structure changed; the painter-order + layer-index caches rebuild on
+    // Tree structure changed, the painter-order + layer-index caches rebuild on
     // next read.
     this.scene?.invalidatePainterOrder()
   }
@@ -187,7 +190,7 @@ export class Node2D extends Node {
         (c.#_renderLayer === 'static' ? 1 : 0) + c.#_staticDescendantCount
       if (childStaticTotal > 0) {
         this.#_staticDescendantCount -= childStaticTotal
-        // `child.parent` is already null here, so walk ancestors from `this`; the
+        // `child.parent` is already null here, so walk ancestors from `this`. The
         // subtract on `this` above already accounts for this node.
         this.#_bumpAncestorsStaticCount(-childStaticTotal)
         this.scene?.invalidateStatic()
@@ -315,7 +318,7 @@ export class Node2D extends Node {
 
   /**
    * Attach or update accessibility {@link Semantics} on this node and return
-   * `this` for chaining. The first call needs a `role`; later calls take a
+   * `this` for chaining. The first call needs a `role`, later calls take a
    * partial and merge into the current semantics, patching the hidden proxy in
    * place (focus preserved). Sugar over `engine.a11y.attach` / `handle.update`:
    * if the node isn't in a scene yet, the semantics are held and registered
@@ -325,7 +328,7 @@ export class Node2D extends Node {
    *   new ShapeNode({ geometry: { kind: 'rect', width: 240, height: 64 } })
    *     .setHitEnabled(true)
    *     .a11y({ role: 'button', label: 'Start game', onActivate: startGame })
-   *   // later, toggling state — merges and patches in place:
+   *   // later, toggling state, merges and patches in place:
    *   node.a11y({ label: 'Pause', states: { pressed: true } })
    */
   a11y(semantics: Semantics): this
@@ -342,7 +345,7 @@ export class Node2D extends Node {
 
   /**
    * Register held semantics with the engine's accessibility tree once the node
-   * is in a scene and a `role` is known. Idempotent; a no-op otherwise.
+   * is in a scene and a `role` is known. Idempotent, a no-op otherwise.
    */
   #tryRegisterA11y(): void {
     if (this.#a11yHandle) return
@@ -362,7 +365,7 @@ export class Node2D extends Node {
 
   /**
    * Hit-test in world coords. Default: rectangular AABB test against
-   * `debugBounds` (inflated by `touchSlopWorld`), which is LOCAL-space — the
+   * `debugBounds` (inflated by `touchSlopWorld`), which is LOCAL-space. The
    * world point is mapped through {@link Node2D.worldToLocal} first, so this
    * works for a node anywhere in the tree, not just one at world origin with an
    * identity transform. Subclasses override for exact shapes (Path2DNode uses
@@ -390,7 +393,7 @@ export class Node2D extends Node {
 
   /**
    * Tween properties on this node's transform. Auto-scoped to
-   * `this.abortSignal`; destroying the node rejects with AbortError.
+   * `this.abortSignal`, destroying the node rejects with AbortError.
    * `opts.signal` (if provided) is combined with the node signal. Requires the
    * node to be attached to an Engine-owned Scene.
    */
@@ -399,21 +402,24 @@ export class Node2D extends Node {
   }
 
   /**
-   * Promote to `'above-static'` for the tween, demote on completion or abort.
-   * Use for tweens (like alpha) on static-layer nodes; a plain `tween` would be
-   * invisible until the next bake. The demote invalidates the static cache
-   * exactly once so the bake picks up the settled state.
+   * Tween a `'static'` node while lifting it to `'above-static'`, so it
+   * animates clear of the backdrop it normally sits inside, then drops back
+   * when the tween settles or aborts.
+   *
+   * @remarks
+   *   On a node that is not on the `'static'` layer this is a plain
+   *   {@link Node2D.tween}.
+   * @example
+   *   // The tile fades above the rest of the board, not behind it.
+   *   await tile.tweenStatic({ alpha: 0 }, { duration: 0.3 })
    */
   tweenStatic(to: Partial<Transform2D>, opts: TweenOptions): Promise<void> {
     const prevLayer = this.#_renderLayer
-    // Only meaningful on a static-layer node; on non-static nodes the
-    // promote/demote is a no-op and this acts as a plain tween.
     if (prevLayer === 'static') this.renderLayer = 'above-static'
     return this.tween(to, opts).finally(() => {
+      // Restore on abort too, so a teardown mid-fade cannot strand the node on
+      // the wrong layer.
       if (this.isDestroyed) return
-      // Restore the original layer even if the tween aborted; the caller may
-      // have been mid-fade and wants the static bake to pick up the settled
-      // alpha.
       if (this.#_renderLayer !== prevLayer) this.renderLayer = prevLayer
     })
   }

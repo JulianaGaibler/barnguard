@@ -27,7 +27,7 @@ export interface Bounds {
 /** A wall (and a two-finger gesture) is aligned to one of two axes. */
 export type Orientation = 'horizontal' | 'vertical'
 
-/** Which board a value belongs to in multiplayer; also the accent color key. */
+/** Which board a value belongs to in multiplayer. Also the accent color key. */
 export type PlayerId = 1 | 2
 
 /** How a game is played: one board for score, or two boards head-to-head. */
@@ -45,7 +45,7 @@ export interface ScoreBreakdown {
   fillBonus: number
   /** Bonus for finishing a level quickly. */
   timeBonus: number
-  /** Bonus for lives still held. */
+  /** Bonus for lives carried into the clear. */
   livesBonus: number
   /** Sum of the above. */
   total: number

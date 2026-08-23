@@ -13,7 +13,7 @@ const DASH_ROTATION_SPEED_RAD_PER_SEC = (Math.PI * 2) / DASH_ROTATION_PERIOD_SEC
  * Drives the epicenter's animated visuals:
  *
  * - The existing outer-ring intro grow-in + breathing alpha loop.
- * - The cyan gradient pulse disc that grows from 0 → 1 over 2 s, resets, waits 3
+ * - The cyan gradient pulse disc that grows from 0 → 1 over 4 s, resets, waits 3
  *   s, repeats.
  * - Continuous rotation of the dashed capture ring so the perimeter reads as
  *   active without any per-frame heavy work.
@@ -46,11 +46,8 @@ export class EpicenterBehavior extends Behavior {
       { name: 'epicenter-growPulse' },
     )
 
-    // Outer breathing pulse, one-shot intro, then infinite alpha loop.
-    // Kick off the intro grow-in as a separate loop that exits after one
-    // iteration by throwing an abort-like sentinel, but simpler: fire it
-    // as a plain tween in onSceneReady and start the alpha loop right
-    // after. Using `loop` for the ongoing part only.
+    // Outer breathing pulse: a one-shot intro tween runs alongside the
+    // infinite alpha loop started below.
     target.outerScale = 0.7
     void this.node
       .tweenTo(
@@ -59,7 +56,7 @@ export class EpicenterBehavior extends Behavior {
         { duration: 0.45, easing: easings.outBack },
       )
       .catch(() => {
-        // Aborted before completion, the loop below will still start;
+        // Aborted before completion. The loop below still starts,
         // scene-attached loops don't care about the intro's fate.
       })
 

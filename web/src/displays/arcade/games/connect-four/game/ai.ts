@@ -20,7 +20,7 @@ import {
 import type { Difficulty } from './types'
 import { AI_LEVELS } from './tuning'
 
-/** Terminal magnitude; dwarfs any heuristic so a real win/loss always dominates. */
+/** Terminal magnitude. Dwarfs any heuristic so a real win/loss always dominates. */
 const WIN = 100_000
 
 const game: AdversarialGame<Board, number> = {
@@ -33,7 +33,7 @@ const game: AdversarialGame<Board, number> = {
 
 /**
  * Score from the side-to-move's view. A set `winner` means the OTHER player
- * just completed a line, so the side to move has lost; return a large negative
+ * just completed a line, so the side to move has lost. Return a large negative
  * offset by `ply` so a faster loss is worse (and, negated up the tree, a faster
  * win is better). See the stargazer AI guide.
  */

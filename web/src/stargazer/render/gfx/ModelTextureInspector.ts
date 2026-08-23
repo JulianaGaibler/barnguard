@@ -92,6 +92,17 @@ export class ModelTextureInspector implements TextureInspector {
       labelCap: 0,
       labelRegensThisFrame: 0,
       labelMaxRegensPerFrame: 0,
+      labelPage: {
+        size: 0,
+        usedHeight: 0,
+        shelfCount: 0,
+        freeSpanCount: 0,
+        canvas: null,
+      },
+      labelEvictions: 0,
+      labelPackWalk: 0,
+      labelPageWipes: 0,
+      labelScaleClamps: 0,
     }
   }
 

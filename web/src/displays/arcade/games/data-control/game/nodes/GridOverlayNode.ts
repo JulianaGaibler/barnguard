@@ -296,7 +296,7 @@ export class GridOverlayNode extends Node2D {
   }
 
   #pickPulseSlot(): PulseSlot {
-    // Prefer an inactive slot; else evict the earliest start time.
+    // Prefer an inactive slot, otherwise evict the earliest start time.
     let oldest = this.#pulses[0]
     for (const slot of this.#pulses) {
       if (!slot.active) return slot

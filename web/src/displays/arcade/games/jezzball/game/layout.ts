@@ -63,7 +63,7 @@ function toBounds(r: Readonly<Rect>): Bounds {
 }
 
 /**
- * Measure and arrange `content` to fill `gameRect`; callbacks fire during
+ * Measure and arrange `content` to fill `gameRect`. Callbacks fire during
  * arrange.
  */
 function runLayout(content: MeasurableNode, gameRect: Bounds): void {
@@ -141,7 +141,7 @@ export function buildDualContent(
   if (gameRect.width >= gameRect.height) {
     // Reserve top/bottom bands for the hearts+scores and the progress readout,
     // so the HUD never overlaps the boards at any aspect. Each board flushes to
-    // its outer edge; the fixed gap between the two halves stays >= minGap.
+    // its outer edge. The fixed gap between the two halves stays >= minGap.
     const topM = gameRect.height * DUAL_TOP_FRAC
     const botM = gameRect.height * DUAL_BOTTOM_FRAC
     const content = new Padding({
@@ -270,7 +270,7 @@ export function containsWorld(
 
 /**
  * Snap a world point to the grid cell where a wall should originate. Returns
- * the seed cell for a two-way wall; the wall occupies that whole row (for a
+ * the seed cell for a two-way wall. The wall occupies that whole row (for a
  * horizontal wall) or column (for a vertical wall), growing outward from it.
  */
 export function seedCell(
@@ -286,7 +286,7 @@ export function seedCell(
 /**
  * The line of cells a wall of `orientation` through `seed` would occupy across
  * the full field (before growth trims it at obstacles). Horizontal walls fill a
- * row; vertical walls fill a column.
+ * row, vertical walls fill a column.
  */
 export function wallLine(
   g: FieldGeom,

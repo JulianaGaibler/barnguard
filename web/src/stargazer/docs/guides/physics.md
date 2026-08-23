@@ -24,13 +24,14 @@ Physics is a per-stage subsystem the fixed-step loop drives automatically, the
 same way input is per-stage. Turn it on with the `physics` option:
 
 ```ts
-const host = createEngineHost(canvas, {
+const host = createEngineHost({
+  canvas,
   physics: { gravity: { x: 0, y: 900 } },
 })
 const world = host.engine.physics! // the primary stage's world
 ```
 
-`physics: true` uses the defaults; pass a config to tune it. Secondary stages
+`physics: true` uses the defaults. Pass a config to tune it. Secondary stages
 enable their own world through `StageOptions.physics`.
 
 To give one part of the scene its own world instead of the whole stage, attach a
@@ -66,10 +67,10 @@ scene.root.add(buildArena())
 ```
 
 The world exists as soon as the behavior is constructed, so a builder can add
-bodies before the subtree is attached; grab it with `behavior.world`. The node's
+bodies before the subtree is attached, grabbing it with `behavior.world`. The node's
 world transform maps physics coordinates into scene coordinates, so the subtree
 can sit anywhere and the overlay still draws the world in place. Registration
-starts when the node enters a scene; removing the behavior or destroying the
+starts when the node enters a scene. Removing the behavior or destroying the
 node unregisters the world (and clears it, if the behavior created it).
 Reparenting the subtree keeps the world intact.
 
@@ -98,20 +99,20 @@ The three shapes:
 
 - `circleShape(radius)`.
 - `aabbShape(halfW, halfH)`, an axis-aligned box. It stays axis-aligned even on
-  a rotating body; use a polygon for a box that should turn.
+  a rotating body. Use a polygon for a box that should turn.
 - `polygonShape(vertices)`, a convex polygon wound counter-clockwise. Winding is
   checked in dev builds and edge normals are precomputed.
 
-Mass, restitution, friction, and damping default from the body; a collider can
+Mass, restitution, friction, and damping default from the body. A collider can
 override restitution and friction through its `material`. A collider marked
 `sensor: true` is detected and reported but never resolved (see Triggers).
 
 ## Body types
 
 ```
-BodyType.Static     never moves; infinite mass. Walls and ground.
+BodyType.Static     never moves, infinite mass. Walls and ground.
 BodyType.Dynamic    fully simulated: integrated, collided, resolved.
-BodyType.Kinematic  moved only by your code; pushes dynamics, unmoved by them.
+BodyType.Kinematic  moved only by your code, pushes dynamics, unmoved by them.
 ```
 
 The collision matrix follows from those masses:
@@ -132,7 +133,7 @@ angular terms drop out through the same solver, no separate code path.
 The engine calls `world.step(fdt)` once per fixed tick, before the scene's
 `onFixedStep` pass, so behaviors and game code read post-step state that
 tick. `velocityIterations`, `positionIterations`, and `positionalSlop` (see
-Tuning) control the solver passes inside a step; the full sequence is on
+Tuning) control the solver passes inside a step. The full sequence is on
 `PhysicsWorld.step`'s reference entry.
 
 Same initial state and `dt` reproduce the same result on the same build (no
@@ -180,17 +181,17 @@ scene.root.add(node)
 With no `world` option the behavior resolves the nearest world at or above the
 node: it walks up the ancestors for a `PhysicsWorldBehavior` (see Isolated
 sub-worlds) and, finding none, falls back to the stage world. Pass `world`
-explicitly to override. The body is the source of truth; the node follows it.
+explicitly to override. The body is the source of truth, and the node follows it.
 
 ### Suspending the sync
 
-Sometimes the node transform needs to break away from the body — a tween slides
+Sometimes the node transform needs to break away from the body: a tween slides
 the node off-screen, or a finger drags it directly and you want no interpolation
 lag. Rather than hand-rolling the body→node mirror in your own `onUpdate`, gate
 the behavior's sync:
 
 - Set `rb.syncEnabled = false` to stop the per-frame sync entirely (a tween now
-  owns the transform); set it back to `true` to resume mirroring.
+  owns the transform). Set it back to `true` to resume mirroring.
 - Pass `shouldSync: () => boolean` to gate each frame declaratively (e.g. return
   `false` while `body.isBeingDragged`).
 - Toggle `rb.interpolate` to drop from smoothed tracking to hard-tracking the
@@ -211,8 +212,8 @@ rb.syncEnabled = false // a slide-off tween takes over
 When the game adds and removes bodies from the world itself (an imperative loop
 that spawns and retires bodies on its own schedule), pass `manageBody: false`
 with an explicit `body`. The behavior then skips world resolution and
-registration and only mirrors the body onto the node — you keep full control of
-the body's lifetime, the behavior just handles the (suspendable, interpolated)
+registration and only mirrors the body onto the node. You keep full control of
+the body's lifetime, and the behavior just handles the (suspendable, interpolated)
 transform sync:
 
 ```ts
@@ -241,7 +242,7 @@ world.queryRegion(rect, mask, outArray) // bodies overlapping a rect
 world.queryPoint(x, y, mask, outArray) // bodies containing a point
 ```
 
-Rays are broad-phase culled and return the nearest solid hit; sensors are
+Rays are broad-phase culled and return the nearest solid hit, and sensors are
 skipped. The `mask` filters against each body's `layer`.
 
 ## Layers and masks
@@ -279,7 +280,7 @@ what you need inside the handler rather than keeping the object.
 ## Kinematic movement
 
 For a character you move by hand, `moveAndCollide` sweeps a kinematic body and
-stops at the first blocking contact; `moveAndSlide` slides the leftover motion
+stops at the first blocking contact. `moveAndSlide` slides the leftover motion
 along the surface instead:
 
 ```ts
@@ -323,7 +324,7 @@ interface PhysicsWorldConfig {
 
 `correctionFactor` trades softness for firmness: 0.2 keeps resting stacks calm,
 1.0 separates overlaps in one step. `maxLinearSpeed` caps per-step speed so
-nothing outruns a discrete step; it is a cheap guard rather than continuous
+nothing outruns a discrete step. It is a cheap guard rather than continuous
 collision, so very fast, thin projectiles can still pass through thin walls.
 
 ## Broad-phase
@@ -331,6 +332,6 @@ collision, so very fast, thin projectiles can still pass through thin walls.
 The world starts on `BruteForceBroadPhase` (every pair, fine for small worlds)
 and upgrades itself to `SpatialHashBroadPhase` once it holds more than ~64
 bodies. Pass a `broadPhase` to choose one yourself, or `broadPhaseCellSize` to
-tune the grid. The spatial hash is fast when bodies are roughly one size; for
+tune the grid. The spatial hash is fast when bodies are roughly one size. For
 wildly mixed scales the `BroadPhase` interface leaves room for a dynamic AABB
 tree without changing the step.

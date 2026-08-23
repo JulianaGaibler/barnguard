@@ -4,10 +4,10 @@
  * `display: 'arcade'` discriminator, so consumers inside the display can read
  * fields with real types (rather than the `unknown` bag core exposes).
  *
- * The arcade hosts three games with incompatible scoring scales (Jezzball's
- * points vs. Connect Four's/Orbo's round-win streaks), so high scores are
- * grouped per `gameId` rather than tracked as a single arcade-wide "overall" —
- * see `ArcadeHighScores`.
+ * The arcade hosts five games with incompatible scoring scales (Jezzball's
+ * points vs. Connect Four's/Orbo's round-win streaks vs. Data Control's timer),
+ * so high scores are grouped per `gameId` rather than tracked as a single
+ * arcade-wide "overall". See `ArcadeHighScores`.
  */
 
 import {
@@ -31,7 +31,7 @@ export interface ArcadeDetails {
   /** Human-readable winning side (e.g. `'player1'`, `'left'`, `'tie'`). */
   winner?: string
   /**
-   * Snapshotted server-side; true iff the score was the best for this `gameId`
+   * Snapshotted server-side. True if the score was the best for this `gameId`
    * when recorded.
    */
   wasGameHigh: boolean
@@ -58,7 +58,7 @@ export interface ArcadeHighScores {
 
 /**
  * `GameRecord` from the core client (envelope + open bag) narrowed to the
- * arcade shape. Use only on records known to carry the display tag — typically
+ * arcade shape. Use only on records known to carry the display tag, typically
  * inside the attendant panel or the manifest boundary.
  */
 export function asArcade(record: GameRecord): ArcadeGameRecord {

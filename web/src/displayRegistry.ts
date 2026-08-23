@@ -7,7 +7,7 @@ import type { DisplayManifest } from '@src/core/display'
  * code-split into separate chunks anyway).
  *
  * Adding a new display: create `displays/<id>/index.ts` exporting a
- * `DisplayManifest` and register it below. The id is authoritative — it is the
+ * `DisplayManifest` and register it below. The id is authoritative. It is the
  * URL param, the server `display` tag, and the SSE / games.json key.
  */
 export const displayRegistry: Record<string, () => Promise<DisplayManifest>> = {

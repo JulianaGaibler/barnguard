@@ -76,11 +76,11 @@ async function jsonOrThrow<T>(res: Response): Promise<T> {
   return (await res.json()) as T
 }
 
-// --- Mock printing (front-end only, no daemon involved) --------------------
+// Mock printing (front-end only, no daemon involved).
 //
 // An attendant-facing escape hatch for testing label rendering without
 // touching the real print queue: with the toggle on, `enqueuePrint` never
-// reaches the daemon — it just publishes the rendered blob to `lastMockPrint`
+// reaches the daemon, and just publishes the rendered blob to `lastMockPrint`
 // so the printer panel can show it in the preview slot, exactly as if it had
 // printed. Persisted per device like `uiScale`.
 
@@ -104,7 +104,7 @@ export function setMockPrintEnabled(enabled: boolean): void {
   try {
     localStorage.setItem(MOCK_PRINT_STORAGE_KEY, enabled ? '1' : '0')
   } catch {
-    /* storage blocked; the toggle still applies for this session */
+    /* storage blocked, the toggle still applies for this session */
   }
 }
 
@@ -323,7 +323,7 @@ export const printerLive: Readable<PrinterLiveState> =
       stopHeartbeat()
       heartbeatTimer = setInterval(() => {
         if (Date.now() - lastMessageAtMs > HEARTBEAT_TIMEOUT_MS) {
-          // Silent stall — no error, no ping, nothing. Reopen the socket.
+          // Silent stall, no error, no ping, nothing. Reopen the socket.
           scheduleReopen()
         }
       }, HEARTBEAT_TICK_MS)
@@ -426,12 +426,12 @@ export const printerLive: Readable<PrinterLiveState> =
 
     // Wire up the fetch-layer hooks.
     signalBackendUnreachable = (): void => {
-      // Fetch failed → daemon is very likely dead; drop the SSE and start the
-      // backoff loop right away instead of waiting for `onerror`.
+      // Fetch failed, so the daemon is very likely dead. Drop the SSE and start
+      // the backoff loop right away instead of waiting for `onerror`.
       if (state.connection !== 'offline') scheduleReopen()
     }
     signalBackendMaybeUp = (): void => {
-      // 2xx = daemon alive. Only kick a reopen if we've given up; during
+      // 2xx = daemon alive. Only kick a reopen if we've given up, since during
       // 'connecting' interrupting would churn the fresh socket.
       if (state.connection === 'offline') forceReopen()
     }

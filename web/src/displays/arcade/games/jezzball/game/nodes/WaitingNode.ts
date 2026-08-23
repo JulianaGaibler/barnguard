@@ -1,13 +1,13 @@
 /**
- * The "waiting for other player" callout — engine port of the `.waiting`
+ * The "waiting for other player" callout, engine port of the `.waiting`
  * overlay: an ink headline chip over an accent sub chip, fading in over 150ms
  * like the original `transition:fade`.
  */
-import { Node2D, measureText, type Gfx2D } from '@src/stargazer'
+import { Node2D, textMetrics, type Gfx2D } from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
+import { font, headingFont } from '../../fonts'
 
 const FADE_SEC = 0.15
-const FONT_FAMILY = 'system-ui, sans-serif'
 const HEAD_FONT_PX = 57.6
 const SUB_FONT_PX = 18.4
 
@@ -35,17 +35,14 @@ export class WaitingNode extends Node2D {
   override draw(gfx: Gfx2D): void {
     if (this.transform.alpha <= 0) return
 
-    const headFont = `900 ${HEAD_FONT_PX}px ${FONT_FAMILY}`
+    const headFont = headingFont(900, HEAD_FONT_PX)
     const headPadX = 17.6
     const headPadY = 4.8
-    const headMetrics = measureText(this.#headline, {
-      font: headFont,
-      align: 'center',
-      baseline: 'middle',
-      color: COLORS.background,
-    })
-    const headW = headMetrics.localW + headPadX * 2
-    const headH = headMetrics.localH + headPadY * 2
+    // Sized from the ink, not from `localW`/`localH`, which carry the label
+    // bitmap's own transparent border on top of the padding added here.
+    const headMetrics = textMetrics(this.#headline, headFont)
+    const headW = headMetrics.advance + headPadX * 2
+    const headH = headMetrics.ascent + headMetrics.descent + headPadY * 2
     const headX = -headW / 2
     const headY = -headH
     gfx.fillRect(headX, headY, headW, headH, COLORS.ink)
@@ -58,17 +55,12 @@ export class WaitingNode extends Node2D {
 
     if (!this.#sub) return
 
-    const subFont = `800 ${SUB_FONT_PX}px ${FONT_FAMILY}`
+    const subFont = font(800, SUB_FONT_PX)
     const subPadX = 17.6
     const subPadY = 8
-    const subMetrics = measureText(this.#sub, {
-      font: subFont,
-      align: 'center',
-      baseline: 'middle',
-      color: COLORS.white,
-    })
-    const subW = subMetrics.localW + subPadX * 2
-    const subH = subMetrics.localH + subPadY * 2
+    const subMetrics = textMetrics(this.#sub, subFont)
+    const subW = subMetrics.advance + subPadX * 2
+    const subH = subMetrics.ascent + subMetrics.descent + subPadY * 2
     const subX = headX + 56 // indented right of the headline's left edge
     const subY = headY + headH - 2 // slight upward overlap
     gfx.fillRect(subX, subY, subW, subH, PROGRESS_ACCENT)

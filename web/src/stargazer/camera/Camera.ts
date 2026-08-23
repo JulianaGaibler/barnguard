@@ -9,8 +9,6 @@ import type { Affine2x3, CameraView2D } from './CameraView2D'
  * space, the renderer applies DPR separately as a baseline factor.
  *
  * ScreenX = worldX * scale + offsetX screenY = worldY * scale + offsetY
- *
- * @category Camera
  */
 export interface ScreenTransform {
   scale: number
@@ -18,11 +16,7 @@ export interface ScreenTransform {
   offsetY: number
 }
 
-/**
- * Options for {@link Camera.animateTo}.
- *
- * @category Camera
- */
+/** Options for {@link Camera.animateTo}. */
 export interface CameraAnimateOptions {
   /** Total duration in seconds. Default 0.5. */
   duration?: number
@@ -44,12 +38,10 @@ export interface CameraAnimateOptions {
  * {@link Camera.screenToWorld}.
  *
  * Internal view-math helper. A `CameraNode2D` owns one of these and composes
- * its output with the node's world transform; the debug HUD can swap in its own
+ * its output with the node's world transform. The debug HUD can swap in its own
  * to inspect a stage without disturbing the game camera. Not part of the public
- * API — scene code works with camera nodes and the {@link CameraView2D}
- * surface.
+ * API. Scene code works with camera nodes and the {@link CameraView2D} surface.
  *
- * @category Camera
  * @internal
  */
 export class Camera implements CameraView2D {
@@ -223,8 +215,8 @@ export class Camera implements CameraView2D {
   /**
    * The world-space rect currently mapped onto the FULL canvas. Because the
    * viewport is fit `contain`-style, on an off-aspect canvas this is larger
-   * than {@link Camera.viewport} — the surrounding area is what the clear color
-   * or a background layer fills. Returns the viewport itself while the
+   * than {@link Camera.viewport}, and the surrounding area is what the clear
+   * color or a background layer fills. Returns the viewport itself while the
    * transform is degenerate (zero-size viewport or canvas, during initial
    * resize). Writes into `out` (no allocation) when given.
    *
@@ -261,7 +253,7 @@ export class Camera implements CameraView2D {
    * expressed in CSS pixels instead of world units. Multiply the CSS-px value
    * by this before passing it to `ctx.lineWidth` (or into a dash array) inside
    * a node's `draw`. The engine's per-node transform then re-scales by `dpr ×
-   * camera.scale`; the camera scale cancels out and the resulting device-pixel
+   * camera.scale`. The camera scale cancels out and the resulting device-pixel
    * stroke tracks DPR (the "1 CSS px" invariant).
    *
    * Guards against a degenerate `screenPxPerWorldUnit()` of `0` during initial
@@ -273,11 +265,10 @@ export class Camera implements CameraView2D {
   }
 
   /**
-   * Animate {@link Camera.viewport} from its current value to `target` (a
-   * pan-and-zoom). The static-layer cache is skipped during the tween and
-   * re-baked once on settle, so a zoom stays crisp. Resolves when the tween
-   * completes, rejects with `AbortError` if `opts.signal` aborts. Requires the
-   * camera to be attached to an {@link Engine} (every stage camera is).
+   * Animate {@link Camera.viewport} from its current value to `target`, a
+   * combined pan and zoom. Resolves when the tween completes, rejects with
+   * `AbortError` if `opts.signal` aborts. Requires the camera to be attached to
+   * an {@link Engine}, which every stage camera is.
    *
    * @example
    *   // Zoom in on a 200×200 world region over 0.8s.

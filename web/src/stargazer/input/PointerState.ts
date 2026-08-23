@@ -7,8 +7,6 @@ import type { Vec2 } from '../math/Vec2'
  * A node that can capture a pointer: a 2D {@link Node2D} (bounds hit) or a 3D
  * {@link Node3D} (ray pick). The input system dispatches pointer callbacks to
  * whichever captured on `down`.
- *
- * @category Input
  */
 export type PointerTarget = Node2D | Node3D
 
@@ -16,8 +14,6 @@ export type PointerTarget = Node2D | Node3D
  * Snapshot of a single active pointer's state. `world` is re-projected each
  * frame from `screen` via the currently-active camera, so it stays fresh even
  * during a camera animation while a finger is held still.
- *
- * @category Input
  */
 export interface PointerStateSnapshot {
   readonly id: number
@@ -34,18 +30,10 @@ export interface PointerStateSnapshot {
   readonly capturedBy: PointerTarget | null
 }
 
-/**
- * Lifecycle phase of a pointer event.
- *
- * @category Input
- */
+/** Lifecycle phase of a pointer event. */
 export type PointerPhase = 'down' | 'move' | 'up' | 'cancel'
 
-/**
- * A single pointer event dispatched to node behaviors and stage emitters.
- *
- * @category Input
- */
+/** A single pointer event dispatched to node behaviors and stage emitters. */
 export interface PointerEvent2D {
   readonly pointer: PointerStateSnapshot
   /** World-coord delta from the previously-dispatched event for this pointer. */

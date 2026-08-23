@@ -14,6 +14,4 @@ pub mod types;
 pub use backend::protocol;
 pub use backend::{MockBackend, MockControls, MockOpts, PrinterBackend, TcpBackend, TcpTimeouts};
 pub use error::PrinterError;
-pub use types::{
-    CutMode, PrintMode, PrintOpts, PrinterConfigInfo, PrinterHealth, PrinterState,
-};
+pub use types::{CutMode, PrintMode, PrintOpts, PrinterConfigInfo, PrinterHealth, PrinterState};

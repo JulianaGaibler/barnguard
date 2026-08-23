@@ -7,7 +7,6 @@
  * difficulty recipe.
  *
  * @module ai
- * @category AI
  */
 export { searchBestMove } from '../ai/minimax'
 export type {

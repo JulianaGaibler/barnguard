@@ -23,27 +23,26 @@ import type { CameraHost } from './CameraHost'
 
 /**
  * A 3D camera as a scene-tree node. Its view is the inverse of the node's world
- * transform, so positioning it via `transform` — or parenting it under another
- * node — drives the camera pose (Godot `Camera3D` parity). Projection (the
- * ortho↔perspective blend) delegates to an internal `Camera3D` helper.
+ * transform, so positioning it via `transform`, or parenting it under another
+ * node, drives the camera pose. Projection (the ortho↔perspective blend)
+ * delegates to an internal `Camera3D` helper.
  *
  * A `Stage` tracks one _current_ 3D camera and renders the 3D pass through it.
- * First-attached becomes current; {@link CameraNode3D.makeCurrent} switches,
+ * First-attached becomes current. {@link CameraNode3D.makeCurrent} switches,
  * {@link CameraNode3D.enabled} gates. Leaf-only and {@link Node.intrinsic} when
  * auto-created as a stage default.
- *
- * @category Camera
  */
 export class CameraNode3D extends Node3D implements CameraView3D {
   /**
-   * Internal projection-math helper. Only its projection is used; the view
+   * Internal projection-math helper. Only its projection is used. The view
    * comes from the node world.
    */
   readonly #proj = new Camera3D()
 
   #enabled = true
-  /** Tiebreak for auto pick-next when the current camera detaches; higher wins. */
+  /** Tiebreak for auto pick-next when the current camera detaches, higher wins. */
   priority = 0
+  /** `makeCurrent()` called before attach, consumed on first register. */
   #wantsCurrent = false
   #registeredHost: CameraHost | null = null
 
@@ -57,6 +56,9 @@ export class CameraNode3D extends Node3D implements CameraView3D {
 
   // --- projection params (delegate to helper, bump projGen) ------------------
 
+  // Projection settings, forwarded to the wrapped Camera3D, which documents
+  // each one. They live here so a camera node reads like a single object.
+  /** Vertical field of view in degrees. */
   get fovY(): number {
     return this.#proj.fovY
   }
@@ -64,6 +66,7 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     this.#proj.fovY = v
     this.#projGen++
   }
+  /** Near clip distance. */
   get near(): number {
     return this.#proj.near
   }
@@ -71,6 +74,7 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     this.#proj.near = v
     this.#projGen++
   }
+  /** Far clip distance. */
   get far(): number {
     return this.#proj.far
   }
@@ -78,6 +82,10 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     this.#proj.far = v
     this.#projGen++
   }
+  /**
+   * Depth at which ortho and perspective match in scale, so a projection blend
+   * does not appear to zoom.
+   */
   get focalDistance(): number {
     return this.#proj.focalDistance
   }
@@ -85,6 +93,7 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     this.#proj.focalDistance = v
     this.#projGen++
   }
+  /** Ortho to perspective blend in `[0, 1]`. `0` is orthographic. */
   get projectionness(): Projectionness {
     return this.#proj.projectionness
   }
@@ -92,6 +101,7 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     this.#proj.projectionness = t
     this.#projGen++
   }
+  /** Viewport aspect ratio, kept in sync by the stage on resize. */
   get aspect(): number {
     return this.#proj.aspect
   }
@@ -245,6 +255,10 @@ export class CameraNode3D extends Node3D implements CameraView3D {
 
   // --- current-camera machinery ---------------------------------------------
 
+  /**
+   * Whether this camera can be rendered or picked as current. Disabling the
+   * current one promotes the next.
+   */
   get enabled(): boolean {
     return this.#enabled
   }
@@ -254,16 +268,22 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     if (!v) this.#host()?.reevaluateCurrent3D()
   }
 
+  /** Whether this is the stage's current 3D camera. */
   get isCurrent(): boolean {
     return this.#host()?.isCurrent3D(this) ?? false
   }
 
+  /**
+   * Make this the stage's current 3D camera. Before attach, defers via a flag
+   * consumed on register.
+   */
   makeCurrent(): void {
     const host = this.#host()
     if (host) host.makeCurrent3D(this)
     else this.#wantsCurrent = true
   }
 
+  /** Stop being current. By default the next enabled camera is promoted. */
   clearCurrent(enableNext = true): void {
     this.#wantsCurrent = false
     const host = this.#host()

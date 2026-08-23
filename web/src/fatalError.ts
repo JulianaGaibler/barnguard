@@ -1,7 +1,7 @@
 /**
  * Plain-DOM landing / error screens rendered before Svelte mounts. Used when
  * the `?display=<id>` URL parameter is missing (landing) or unknown
- * (fatal-error) — we never fall back to a default display, so a mis-configured
+ * (fatal-error). We never fall back to a default display, so a mis-configured
  * kiosk fails loudly instead of quietly booting into the wrong event.
  */
 
@@ -11,7 +11,7 @@ export interface DisplayLink {
 }
 
 // Rendered before any display theme is applied, so only the neutral defaults
-// from scale.sass are live — the same tokens every display then overrides.
+// from scale.sass are live, the same tokens every display then overrides.
 // `--color-app-backdrop` is the token reserved for chrome behind the
 // canvas-less DOM (see BackgroundLayer.svelte), which is exactly this screen.
 

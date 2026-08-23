@@ -13,20 +13,21 @@ import type { PhysicsWorld } from './PhysicsWorld'
 export { BodyType }
 
 /**
- * Construction parameters for a {@link Body}. Every field is optional; the
+ * Construction parameters for a {@link Body}. Every field is optional. The
  * defaults make a unit-mass dynamic body at the origin with no colliders.
- *
- * @category Physics
  */
 export interface BodyDef {
+  /** Static, dynamic, or kinematic. Default {@link BodyType.Dynamic}. */
   type?: BodyType
+  /** World position. Default the origin. */
   position?: Readonly<Vec2>
   /** Rotation in radians. */
   rotation?: number
+  /** Initial velocity in world units per second. */
   velocity?: Readonly<Vec2>
   /** Angular velocity in radians per second. */
   angularVelocity?: number
-  /** Mass; ignored (treated as infinite) for static and kinematic bodies. */
+  /** Mass, treated as infinite for static and kinematic bodies. */
   mass?: number
   /**
    * Exponential linear retention per frame, applied as `base^(dt*60)`. Default
@@ -45,26 +46,27 @@ export interface BodyDef {
   canSleep?: boolean
   /** Lock rotation (infinite rotational inertia). Default false. */
   fixedRotation?: boolean
+  /** Layers this body occupies. Default {@link LAYER_DEFAULT}. */
   layer?: number
+  /** Layers this body collides with. Default {@link LAYER_ALL}. */
   mask?: number
+  /** Shapes to attach. Mass properties are derived from them. */
   colliders?: ColliderDef[]
   /** Per-body fat-AABB margin override (world units). */
   aabbMargin?: number
+  /** Free slot for the game's own reference. The engine never reads it. */
   userData?: unknown
 }
 
 let nextBodyId = 1
 
-/**
- * A rigid body in a {@link PhysicsWorld}.
- *
- * @category Physics
- */
+/** A rigid body in a {@link PhysicsWorld}. */
 export class Body {
   /** Stable unique id for debugging and user bookkeeping. */
   readonly id: number
+  /** Static, dynamic, or kinematic. See {@link BodyType}. */
   type: BodyType
-  /** World position; mutate through {@link setPosition} to wake and re-index. */
+  /** World position. Mutate through {@link setPosition} to wake and re-index. */
   readonly position: Vec2
   /**
    * Position at the start of the last {@link PhysicsWorld.step}. Interpolate
@@ -76,25 +78,64 @@ export class Body {
   rotation: number
   /** Rotation at the start of the last step (for render interpolation). */
   prevRotation: number
+  /** World units per second. Mutate in place, the solver reads it every step. */
   readonly velocity: Vec2
+  /** Radians per second. */
   angularVelocity: number
 
+  /**
+   * Mass in world units. Ignored for static and kinematic bodies, which the
+   * solver treats as infinitely heavy.
+   */
   mass: number
+  /**
+   * `1 / mass`, or `0` for a body the solver must not push (anything not
+   * dynamic, or with a non-positive mass). Multiplying by this is what lets the
+   * solver skip a body-type branch, so a stale value here silently breaks
+   * contacts. {@link Body.computeMassProperties} keeps it in sync.
+   */
   invMass: number
+  /** Inverse rotational inertia. `0` under {@link Body.fixedRotation}. */
   invInertia: number
+  /** Bounciness in `[0, 1]`. A pair's effective value is the larger of the two. */
   restitution: number
+  /**
+   * Coulomb friction coefficient. A pair's effective value is the geometric
+   * mean.
+   */
   friction: number
+  /** Velocity retained per frame, as `base^(dt*60)`. `1` is no damping. */
   linearDamping: number
+  /** Angular velocity retained per frame. `1` is no damping. */
   angularDamping: number
+  /**
+   * Bitmask of the layers this body occupies. A pair collides only when each
+   * side's `layer` is in the other's {@link Body.mask}, so a one-sided mask
+   * still blocks the pair.
+   */
   layer: number
+  /** Bitmask of the layers this body collides with. See {@link Body.layer}. */
   mask: number
+  /** Lock rotation by treating rotational inertia as infinite. */
   fixedRotation: boolean
+  /** Whether the body may ever sleep. */
   canSleep: boolean
+  /** Linear speed below which the body starts counting toward sleep. */
   sleepThreshold: number
+  /**
+   * Whether the body is asleep. A sleeping body is skipped by integration and
+   * the solver until a contact or an explicit {@link Body.wake} revives it.
+   */
   sleeping = false
+  /** Free slot for the game to hang its own reference off a body. */
   userData: unknown
+  /** How far the broad-phase AABB is inflated, to absorb small motion. */
   aabbMargin: number
 
+  /**
+   * Attached shapes. Add and remove through {@link Body.addCollider} and
+   * {@link Body.removeCollider}, which re-derive the mass properties.
+   */
   readonly colliders: Collider[] = []
 
   // Force accumulators, consumed and cleared each step.
@@ -103,7 +144,7 @@ export class Body {
   _torque = 0
   /** Seconds spent below the sleep threshold. */
   _sleepTimer = 0
-  /** Dense world slot, assigned on add; used for pair keys and broad-phase. */
+  /** Dense world slot, assigned on add and used for pair keys and broad-phase. */
   _index = -1
   /** Owning world, set on add. */
   _world: PhysicsWorld | null = null
@@ -141,7 +182,7 @@ export class Body {
 
   /**
    * Recompute inverse mass and inertia from the current mass, type, and
-   * colliders. Called automatically when colliders change; call it manually
+   * colliders. Called automatically when colliders change. Call it manually
    * after mutating `mass` or `fixedRotation`.
    */
   computeMassProperties(): void {

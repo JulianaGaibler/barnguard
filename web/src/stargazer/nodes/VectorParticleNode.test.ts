@@ -24,6 +24,9 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
     setAlpha: () => {},
     setBlend: () => {},
     setClipMask: () => {},
+    setClip: () => {},
+    deviceScale: () => 1,
+    snapSize: (v: number) => v,
     fillRect: () => {},
     fillRoundRect: () => {},
     strokeRoundRect: () => {},
@@ -40,6 +43,7 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
     strokePath2D: () => {},
     drawImage: () => {},
     fillText: () => {},
+    warmText: () => {},
   }
   return { gfx, calls }
 }
@@ -172,7 +176,7 @@ describe('VectorParticleNode', () => {
     expect(n.xAtUpdateExtra).toEqual([50, 50, 100, 100])
   })
 
-  it('shouldDespawn defaults to false on the base class — particles never auto-despawn without an override', () => {
+  it('shouldDespawn defaults to false on the base class, so particles never auto-despawn without an override', () => {
     const n = new PermanentTestNode({ capacity: 4 })
     n.triggerBurst(4)
     for (let i = 0; i < 50; i++) n.onUpdate(1)

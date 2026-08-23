@@ -27,10 +27,10 @@ function isAncestor(ancestor: Node2D, node: Node2D): boolean {
 
 /**
  * Ordering/reparenting pass. Align `parent`'s actual DOM children to `expected`
- * with a single `insertBefore` walk — `insertBefore` on an element already in
+ * with a single `insertBefore` walk. `insertBefore` on an element already in
  * the document moves it, so a reparent is one atomic mutation that keeps the
  * element (and its focus) intact. A trailing child is removed only when it is
- * genuinely orphaned (`!live`); a live child that belongs elsewhere is left for
+ * genuinely orphaned (`!live`). A live child that belongs elsewhere is left for
  * its owning parent's pass to relocate.
  */
 export function reconcileChildren(
@@ -58,9 +58,10 @@ export function reconcileChildren(
 /**
  * Nesting pass (ancestor stack, O(N)). `ordered` must be in scene painter
  * pre-order. Each registered node attaches under its nearest also-registered
- * ancestor — unregistered intermediates collapse out. Within a parent, entries
- * keep painter order, with `semantics.order` (default 0) as a stable tiebreak.
- * Then the ordering pass aligns the DOM for the content root and every parent.
+ * ancestor, so unregistered intermediates collapse out. Within a parent,
+ * entries keep painter order, with `semantics.order` (default 0) as a stable
+ * tiebreak. Then the ordering pass aligns the DOM for the content root and
+ * every parent.
  */
 export function reconcileTree(
   content: HTMLElement,

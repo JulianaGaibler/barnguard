@@ -13,15 +13,13 @@ import { walkTree } from './traverse'
 /**
  * A ray-picking hit against a {@link MeshNode}: the node struck and the world
  * distance along the ray to its bounding box.
- *
- * @category Scene
  */
 export interface Raycast3DHit {
   node: MeshNode
   distance: number
 }
 
-// Scratch state reused across calls; picking is synchronous.
+// Scratch state reused across calls. Picking is synchronous.
 const INV = mat4()
 const LOCAL_ORIGIN: Vec3 = { x: 0, y: 0, z: 0 }
 const LOCAL_DIR: Vec3 = { x: 0, y: 0, z: 0 }
@@ -31,8 +29,6 @@ const LOCAL_DIR: Vec3 = { x: 0, y: 0, z: 0 }
  * misses. The ray is transformed into the mesh's local space and slab-tested
  * against its bounds, so an oriented or scaled node is handled correctly.
  * Bounds-level precision: good for object picking, not per-triangle.
- *
- * @category Scene
  */
 export function raycastMesh(ray: Ray, mesh: MeshNode): number | null {
   const bounds = mesh.localBounds()
@@ -94,7 +90,6 @@ export function raycastMesh(ray: Ray, mesh: MeshNode): number | null {
  * invisible nodes and meshes without loaded geometry. Pair with
  * `CameraNode3D.screenToRay` for pointer picking in 3D.
  *
- * @category Scene
  * @example
  *   const ray = engine.currentCamera3D.screenToRay(ndcX, ndcY)
  *   const hit = raycastWorld3D(engine.tree, ray)

@@ -184,7 +184,7 @@ export class TutorialSession {
   /**
    * Reshape the world viewport so its aspect ratio matches the canvas's CSS
    * aspect ratio, result: the visible world fills the canvas exactly, no
-   * letterbox, no cropping. Width is held fixed at `TUTORIAL_BASE_WIDTH`;
+   * letterbox, no cropping. Width is held fixed at `TUTORIAL_BASE_WIDTH`,
    * height scales with the aspect. The exit mask + epicenter position update in
    * lock-step so the packet's "close to border" and capture logic stay
    * coherent.

@@ -3,7 +3,7 @@
  * engine, then calls `startGame(host)` to build the scene + return the
  * `GameSession` control surface.
  *
- * Everything below is intentionally re-exported from more focused modules; this
+ * Everything below is intentionally re-exported from more focused modules. This
  * file exists so `import { startGame } from '@src/displays/stallwaechter/game'`
  * stays stable as internals move around.
  */

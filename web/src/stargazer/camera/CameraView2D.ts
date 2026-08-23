@@ -7,8 +7,6 @@ import type { Rect } from '../math/Rect'
  * read through it without copying.
  *
  * `screenX = a·x + c·y + e`, `screenY = b·x + d·y + f`.
- *
- * @category Camera
  */
 export interface Affine2x3 {
   a: number
@@ -26,13 +24,11 @@ export interface Affine2x3 {
  * `Camera` view-math helper, a `CameraNode2D`, or a debug fly-camera all stand
  * in interchangeably.
  *
- * Every mapping is in CSS pixels; the renderer folds DPR in separately as a
+ * Every mapping is in CSS pixels. The renderer folds DPR in separately as a
  * baseline factor. {@link CameraView2D.getScreenAffine} is the single CSS-pixel
  * world→screen affine that already incorporates the camera's own world
  * transform, so a translated / scaled / rotated camera projects correctly
  * everywhere that reads it.
- *
- * @category Camera
  */
 export interface CameraView2D {
   /** Map a CSS-pixel canvas point to world space. */
@@ -56,7 +52,7 @@ export interface CameraView2D {
   /**
    * The full CSS-pixel world→screen affine, including the camera's own world
    * transform. Without `out`, returns a cached object the caller MUST treat as
-   * read-only; pass `out` for a private copy.
+   * read-only. Pass `out` for a private copy.
    */
   getScreenAffine(out?: Affine2x3): Affine2x3
   /** World-space rect the camera frames (its framing viewport). */

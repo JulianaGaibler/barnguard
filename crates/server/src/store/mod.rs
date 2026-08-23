@@ -8,8 +8,9 @@
 //!   `<name>.corrupted-<unix_ts>.json`, logged loudly, and the store falls back
 //!   to `Default::default()`. A parse error must never take down the kiosk.
 //!
-//! Locks are the standard sync `Mutex`; writes are small (< 1 MB) and infrequent,
-//! so blocking under the lock is the simpler tradeoff over an async actor.
+//! Locks are the standard sync `Mutex`. Writes are small (< 1 MB) and
+//! infrequent, so blocking under the lock is the simpler tradeoff over an
+//! async actor.
 
 use crate::events::EventHub;
 use crate::log::LogHub;
@@ -106,7 +107,7 @@ impl GameLogController {
     pub fn push(&self, new: NewGame) -> io::Result<GameRecord> {
         let mut guard = self.inner.lock().unwrap();
         // The details variant already tells us which display's high scores to
-        // compare against — snapshot only those before inserting.
+        // compare against, so snapshot only those before inserting.
         let display = match &new.details {
             crate::types::NewGameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
             crate::types::NewGameDetails::Arcade(_) => DISPLAY_ARCADE,
@@ -116,7 +117,8 @@ impl GameLogController {
         guard.push(record.clone());
         atomic_write_json(&self.path, &*guard)?;
         drop(guard);
-        self.events.publish(ServerEvent::GameCreated(record.clone()));
+        self.events
+            .publish(ServerEvent::GameCreated(record.clone()));
         Ok(record)
     }
 
@@ -138,7 +140,7 @@ impl GameLogController {
 
     /// Remove every recorded game. Returns the number of entries dropped. Used
     /// by the attendant panel's "wipe high scores" action, which is the only
-    /// path to this — the CLI intentionally stays read-only.
+    /// path to this. The CLI intentionally stays read-only.
     pub fn clear(&self) -> io::Result<usize> {
         let mut guard = self.inner.lock().unwrap();
         if guard.is_empty() {
@@ -157,11 +159,11 @@ impl GameLogController {
 }
 
 // ---------------------------------------------------------------------------
-// LeaderboardController — generic, per-`display` (arcade game id) top scores
+// LeaderboardController: generic, per-`display` (arcade game id) top scores
 // keyed by name. Unlike `GameLogController`, `display` is an open string, not
 // a closed enum, so a new arcade game needs no backend change to start
-// submitting. No SSE event on change — the UI fetches on open/submit, there's
-// no live multi-kiosk sync need for this feature.
+// submitting. No SSE event on change. The UI fetches on open/submit, and
+// there's no live multi-kiosk sync need for this feature.
 // ---------------------------------------------------------------------------
 
 const LEADERBOARD_FILE: &str = "leaderboard.json";
@@ -216,7 +218,7 @@ impl LeaderboardController {
 
     /// Upsert the best score for `(display, normalized name)`. Returns the
     /// record for that name after the call: updated if this score improved
-    /// it, unchanged (and not persisted again) if it didn't — either way is
+    /// it, unchanged (and not persisted again) if it didn't. Either way is
     /// success, never an error.
     pub fn submit(&self, new: NewLeaderboardEntry) -> io::Result<LeaderboardEntry> {
         let name = new.normalized_name();
@@ -280,7 +282,7 @@ impl LeaderboardController {
 // ---------------------------------------------------------------------------
 
 /// Read the persisted game log without touching a store. Used by the read-only
-/// CLI subcommands. Returns an empty vec if the file is absent; propagates
+/// CLI subcommands. Returns an empty vec if the file is absent, and propagates
 /// parse errors to the caller so a corrupted file surfaces loudly.
 pub fn load_games(data_dir: &Path) -> Result<Vec<GameRecord>, Box<dyn std::error::Error>> {
     let path = data_dir.join(GAMES_FILE);
@@ -339,7 +341,7 @@ fn read_json_migrated<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult
 
 fn ensure_dir(dir: &Path, log: &LogHub) {
     if let Err(e) = fs::create_dir_all(dir) {
-        // Don't fail boot; the first write attempt will surface the error too.
+        // Don't fail boot. The first write attempt will surface the error too.
         log.error(
             "store",
             format!(
@@ -360,7 +362,7 @@ fn quarantine(path: &Path, log: &LogHub, label: &str, err: &str) {
         Ok(_) => log.error(
             "store",
             format!(
-                "{label} failed to parse ({err}); quarantined at {} — booting on defaults",
+                "{label} failed to parse ({err}); quarantined at {}, booting on defaults",
                 backup.display()
             ),
         ),
@@ -477,8 +479,7 @@ mod tests {
         assert!(!td.was_overall_high); // 75 < 100
         assert!(td.was_state_high); // new state, > 0
 
-        let DisplayHighScores::Stallwaechter(hs) = store.high_scores(DISPLAY_STALLWAECHTER)
-        else {
+        let DisplayHighScores::Stallwaechter(hs) = store.high_scores(DISPLAY_STALLWAECHTER) else {
             panic!("expected Stallwaechter high scores")
         };
         assert_eq!(hs.overall, 100);
@@ -561,7 +562,10 @@ mod tests {
         }
         // Newest-first: scores should be 4,3,2,1,0.
         let all = store.list(None, 0);
-        assert_eq!(all.iter().map(|g| g.score).collect::<Vec<_>>(), vec![4, 3, 2, 1, 0]);
+        assert_eq!(
+            all.iter().map(|g| g.score).collect::<Vec<_>>(),
+            vec![4, 3, 2, 1, 0]
+        );
 
         let page = store.list(Some(2), 1);
         assert_eq!(page.iter().map(|g| g.score).collect::<Vec<_>>(), vec![3, 2]);

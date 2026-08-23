@@ -36,7 +36,7 @@ function has(rects: CellRect[], want: CellRect): boolean {
   )
 }
 
-describe('jezzball colliders — greedy meshing', () => {
+describe('jezzball colliders: greedy meshing', () => {
   it('emits nothing for an empty grid', () => {
     expect(mergeSolidCells(createGrid(10, 10))).toHaveLength(0)
   })
@@ -93,7 +93,7 @@ describe('jezzball colliders — greedy meshing', () => {
     )
     const b = borderRects(geom)
     expect(b).toHaveLength(4)
-    // Left border sits left of the field; right border sits at its right edge.
+    // Left border sits left of the field. Right border sits at its right edge.
     expect(b[2].x).toBeLessThan(geom.x)
     expect(b[3].x).toBeCloseTo(geom.x + geom.width, 5)
   })

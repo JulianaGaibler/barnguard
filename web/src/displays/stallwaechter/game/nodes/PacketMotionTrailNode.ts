@@ -93,7 +93,7 @@ export class PacketMotionTrailNode extends Node2D {
   }
 
   /**
-   * Push a world-space sample if it's far enough from the previous one. O(1);
+   * Push a world-space sample if it's far enough from the previous one. O(1),
    * returns `true` if the sample was accepted.
    */
   sample(x: number, y: number): boolean {
@@ -204,7 +204,7 @@ export class PacketMotionTrailNode extends Node2D {
     }
 
     // Linear gradient head → tail. On broadly-curved paths this reads
-    // correctly; on hairpin U-turns the gradient may cut across the loop,
+    // correctly. On hairpin U-turns the gradient may cut across the loop,
     // which is a documented tradeoff (see the plan's "Non-goals" for the
     // segmented-fill fallback if it starts showing).
     gfx.fillPolyLinearGradient(

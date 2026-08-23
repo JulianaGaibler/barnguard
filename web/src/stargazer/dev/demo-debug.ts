@@ -74,8 +74,8 @@ class SpiralPolylineBehavior extends Behavior {
  * - Debug camera (C). WASD to pan, Q/E to zoom, R to snap back, G to follow the
  *   game camera. Also shows the game camera's world-space viewport as a dashed
  *   rect.
- * - Uniform aspect fit, the orbit circle stays circular at any window aspect
- *   ratio (M2 stretched; M3's camera fix corrects this).
+ * - Uniform aspect fit keeps the orbit circle circular at any window aspect
+ *   ratio.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({

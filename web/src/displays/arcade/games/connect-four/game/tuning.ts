@@ -29,7 +29,7 @@ export const BACKGROUND = {
 
 /**
  * The board panel and its slots. The panel is a light translucent sheet with a
- * single rounded corner (top-right); each slot is a subtly darker "well" with a
+ * single rounded corner (top-right). Each slot is a subtly darker "well" with a
  * faint X behind it that a dropped chip covers.
  */
 export const BOARD = {
@@ -67,7 +67,6 @@ export const FRAME = {
   labelColor: 'rgba(255, 255, 255, 0.8)',
   /** Label font size in CSS pixels. */
   labelSizePx: 22,
-  labelFont: 'ui-monospace, "SF Mono", Menlo, monospace',
   topLeftLabel: '0.0.0.4',
   bottomRightLabel: 'cnntc_4',
 } as const
@@ -91,10 +90,6 @@ export const TAB = {
   dogEarFrac: 0.26,
   /** Gap from the panel edge, in cells. */
   gapFrac: 0.55,
-  /** Main "p.N" label: a bold sans (only the sublabel is monospace). */
-  labelFont: 'system-ui, "Segoe UI", Roboto, sans-serif',
-  /** "your turn" / "won" sublabel font (monospace, technical feel). */
-  subFont: 'ui-monospace, "SF Mono", Menlo, monospace',
 } as const
 
 /** Square particle trail behind a falling chip. */
@@ -132,7 +127,7 @@ export const WIN = {
     /** Fraction of a piece's own launch speed below which it despawns. */
     minSpeedFrac: 0.02,
     /**
-     * Safety cap on lifetime (seconds); pieces normally despawn sooner via
+     * Safety cap on lifetime (seconds). Pieces normally despawn sooner via
      * `minSpeedFrac`.
      */
     lifetimeSecMax: 3,
@@ -153,7 +148,7 @@ export const AI_LEVELS: Record<
 export const ANIM = {
   /**
    * Base drop time plus per-row travel, so a longer fall takes longer. Covers
-   * the whole sequence — the accelerating fall and the bounces after it — so it
+   * the whole sequence, the accelerating fall and the bounces after it, so it
    * needs enough room for both to read clearly.
    */
   dropBase: 0.34,

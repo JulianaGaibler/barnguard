@@ -6,9 +6,9 @@
   interface Props {
     paused: boolean
     /**
-     * Whether the pause button is available. `false` outside an active round ;
-     * nothing meaningful to freeze on the idle map or the game- over screen.
-     * The language toggle stays visible either way.
+     * Whether the pause button is available. `false` outside an active round,
+     * since there's nothing meaningful to freeze on the idle map or the
+     * game-over screen. The language toggle stays visible either way.
      */
     showPause: boolean
     onTogglePause: () => void
@@ -17,7 +17,7 @@
   const { paused, showPause, onTogglePause }: Props = $props()
 
   // Cycle through the languages the active display registered. Single-locale
-  // displays render nothing at all — nothing to switch to.
+  // displays render nothing at all, since there's nothing to switch to.
   const nextLanguage = $derived.by(() => {
     const list = $supportedLanguages
     if (list.length < 2) return null
@@ -69,7 +69,7 @@
 <style lang="sass">
   .attendant-controls
     // Bottom-right of the viewport, deliberately faint. These are
-    // attendant-facing controls; visitors shouldn't notice them.
+    // attendant-facing controls, and visitors shouldn't notice them.
     position: fixed
     right: tint.$size-16
     bottom: tint.$size-16

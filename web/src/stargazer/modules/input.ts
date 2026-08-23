@@ -6,10 +6,11 @@
  * {@link findHitNode} is the top-most-hit walker behind dispatch.
  *
  * @module input
- * @category Input
  */
 export { InputSystem } from '../input/InputSystem'
 export { findHitNode } from '../input/hit'
+export { bindRegionGesture } from '../input/RegionGesture'
+export type { RegionGestureOptions } from '../input/RegionGesture'
 export type {
   PointerEvent2D,
   PointerStateSnapshot,

@@ -4,7 +4,7 @@ Multi-touch input, DOM plus node capture, and world-coord reprojection during ca
 
 ## Layout
 
-`InputSystem` is per-stage. The primary stage always has one, and `engine.input` is a shortcut to `engine.primaryStage.input`. Secondary stages get their own when constructed with `interactive: true` in `StageOptions`; otherwise `stage.input === null` and pointer events on that canvas are ignored. See [Stages](/guides/stages).
+`InputSystem` is per-stage. The primary stage always has one, and `engine.input` is a shortcut to `engine.primaryStage.input`. Secondary stages get their own when constructed with `interactive: true` in `StageOptions`. Otherwise `stage.input === null` and pointer events on that canvas are ignored. See [Stages](/guides/stages).
 
 Each `InputSystem` attaches to its stage's canvas and listens for `pointerdown`, `pointermove`, `pointerup`, `pointercancel`, and `lostpointercapture`. It also swallows `contextmenu`, so a long-press doesn't open the system menu.
 
@@ -38,9 +38,9 @@ Destroying a captured node dispatches a synthetic `cancel` event and releases bo
 
 ## Per-stage event bus vs `engine.events`
 
-Pointer events emit on `stage.events`, not directly on `engine.events`. The primary stage's events are forwarded to `engine.events` by the engine constructor, so code that listens on `engine.events.on('pointerDown', ...)` keeps receiving primary-canvas events. Secondary stages do not forward; their events stay on `stage.events` only.
+Pointer events emit on `stage.events`, not directly on `engine.events`. The primary stage's events are forwarded to `engine.events` by the engine constructor, so code that listens on `engine.events.on('pointerDown', ...)` keeps receiving primary-canvas events. Secondary stages do not forward. Their events stay on `stage.events` only.
 
-So `engine.events.on('pointerXxx', ...)` fires only for the primary canvas. A tap on a secondary canvas can't reach the main game's global handlers; the cross-canvas footgun is walled off at the emitter layer.
+So `engine.events.on('pointerXxx', ...)` fires only for the primary canvas. A tap on a secondary canvas can't reach the main game's global handlers. The cross-canvas footgun is walled off at the emitter layer.
 
 Listen to a specific secondary stage through its own emitter:
 
@@ -55,7 +55,10 @@ const off = stage.events.on('pointerDown', (e) => {
 
 ## Wiring pointer handlers
 
-Set the callbacks on the node, or from a behavior's `onAttach`:
+`node.bindPointer({ ... })` is the way in. It sets the handlers together, flips
+`hitEnabled` when they include a `down`, and returns an `unbind`. Assigning
+`onPointerDown` and friends by hand also works and is what the engine dispatches
+to, but it leaves the flag and the teardown to you.
 
 ```ts
 const shape = new ShapeNode({
@@ -79,11 +82,11 @@ shape.onPointerCancel = (e) => {
 }
 ```
 
-`Path2DNode` and `ShapeNode` set `hitEnabled = true` automatically when constructed with a hit mode other than `'none'`. `Node2D`, `PolylineNode`, and plain `Node2D` don't hit-test until you flip the flag.
+`Path2DNode` and `ShapeNode` set `hitEnabled = true` automatically when constructed with a hit mode other than `'none'`. A plain `Node2D`, a `PolylineNode`, or a `TextNode` does not hit-test until you flip the flag, and `bindPointer` flips it for you when the handlers include a `down`.
 
 ### bindPointer
 
-`node.bindPointer({ down, move, up, cancel })` sets those handlers atomically and returns an `unbind()` that clears exactly them (firing a synthetic cancel if a capture is live). Prefer it over assigning `onPointerDown` etc. by hand, especially from a behavior's `onAttach`/`onDetach` — or extend `PointerBehavior`, which does the bind/unbind for you (see [Scene graph](/guides/scene#pointerbehavior)).
+`node.bindPointer({ down, move, up, cancel })` sets those handlers atomically and returns an `unbind()` that clears exactly them (firing a synthetic cancel if a capture is live). Prefer it over assigning `onPointerDown` etc. by hand, especially from a behavior's `onAttach`/`onDetach`, or extend `PointerBehavior`, which does the bind/unbind for you (see [Scene graph](/guides/scene#pointerbehavior)).
 
 Pass `singlePointer: true` to track only the first press: while it's held, other pointers' down/move/up/cancel are ignored and the slot frees on its up/cancel. That turns a multi-touch-capable node into a single-drag target without tracking an active pointer id yourself.
 
@@ -98,11 +101,11 @@ node.bindPointer({
 
 ### Local coordinates
 
-`e.pointer.world` is in world space. When the captured node lives under a scaled or translated ancestor, convert with `e.localTo(node)` (a thin wrapper over `node.worldToLocal`) instead of threading a bespoke conversion closure — it returns the pointer position in that node's local space, and takes an optional `out` `Vec2` to reuse.
+`e.pointer.world` is in world space. When the captured node lives under a scaled or translated ancestor, convert with `e.localTo(node)` (a thin wrapper over `node.worldToLocal`) instead of threading a bespoke conversion closure. It returns the pointer position in that node's local space, and takes an optional `out` `Vec2` to reuse.
 
 ### Region gestures
 
-When a whole region of the stage should respond to a single-pointer gesture — a board you tap to drop, a strip you flick from — reach for `bindRegionGesture(engine, opts)` rather than wiring four `engine.events.on('pointer…')` handlers and tracking the active pointer id by hand. It applies a `hitTest` (world-rect predicate) and an `enabled` state gate on press, tracks one pointer through move/up/cancel, and routes rejected presses to `onReject`:
+When a whole region of the stage should respond to a single-pointer gesture, a board you tap to drop, a strip you flick from, reach for `bindRegionGesture(engine, opts)` rather than wiring four `engine.events.on('pointer…')` handlers and tracking the active pointer id by hand. It applies a `hitTest` (world-rect predicate) and an `enabled` state gate on press, tracks one pointer through move/up/cancel, and routes rejected presses to `onReject`:
 
 ```ts
 const off = bindRegionGesture(host.engine, {
@@ -118,9 +121,43 @@ const off = bindRegionGesture(host.engine, {
 
 Set `singlePointer: false` for a multi-touch region. The gesture rides the primary stage's pointer stream (`engine.events`), including its synthetic-move reprojection during camera moves.
 
+### Buttons
+
+A tap button, pressed on `down`, firing `onClick` on `up` only when the release still hits the node (a press dragged off is cancelled), is a `ButtonBehavior`. The node draws itself and reflects the pressed state via `onPressedChange`:
+
+```ts
+node.addBehavior(
+  new ButtonBehavior({
+    onClick: () => pause(),
+    enabled: () => canInteract(),
+    onPressedChange: (pressed) => (this.pressed = pressed),
+  }),
+)
+```
+
+### Drag and drop
+
+To carry a node onto a drop target, a card into a slot, a token onto a board cell, attach a `DraggableBehavior` instead of hand-rolling the lift, follow, and snap-back. A press below `threshold` is a tap (`onTap`). Past it, the node lifts into `dragLayer` and tracks the pointer with the grabbed point held under the finger, `findDropTarget` resolves what is under it (reported by `onDragMove`), and release either drops onto a target (`onDrop`) or snaps back (`onDragCancel` at release, then `onSettled` once it lands):
+
+```ts
+node.addBehavior(
+  new DraggableBehavior<Cell>({
+    dragLayer,
+    enabled: () => canPlay(),
+    findDropTarget: (w) => cellAt(w.x, w.y),
+    equals: (a, b) => a.row === b.row && a.col === b.col,
+    onDragMove: (cell) => highlight(cell),
+    onDrop: (cell) => place(node, cell),
+    onDragCancel: () => clearHighlight(),
+  }),
+)
+```
+
+A drop target is whatever `findDropTarget` returns: a node, a grid cell, a rect id, so computed targets work as well as real nodes. `onDragMove` deduplicates by `equals` (default `===`), so a resolver that returns a fresh object each call must supply one (or return stable references). The node stays in `dragLayer` through the snap-back and reparents home only once it settles, so a layout pass that skips drag-layer nodes never fights the tween.
+
 ## Two pointers, two shapes
 
-Node capture is per pointer. Two fingers on two shapes give each shape its own capture; each shape sees only its own pointer's events, and each pointer's `capturedBy` points at its own shape.
+Node capture is per pointer. Two fingers on two shapes give each shape its own capture. Each shape sees only its own pointer's events, and each pointer's `capturedBy` points at its own shape.
 
 ## Continuous world reprojection
 
@@ -145,7 +182,7 @@ Individual nodes can widen their own `hitTest` further, for example a `Path2DNod
 
 ## Preventing browser gestures
 
-The `mountEngine` action sets `touch-action: none`, `user-select: none`, `-webkit-user-select: none`, `-webkit-touch-callout: none`, and `outline: none` on the canvas, and the input system blocks `contextmenu`. Together these stop pinch-zoom, text selection, the touch callout, and the context menu while a game runs. Anything higher in the DOM needs its own handling.
+Every `Stage` sets `touch-action: none`, `user-select: none`, `-webkit-user-select: none`, `-webkit-touch-callout: none`, and `outline: none` on its canvas, and the input system blocks `contextmenu`. Together these stop pinch-zoom, text selection, the touch callout, and the context menu while a game runs. A secondary canvas gets the same treatment. Anything higher in the DOM needs its own handling.
 
 ## When the browser drops capture
 

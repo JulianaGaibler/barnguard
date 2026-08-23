@@ -62,7 +62,7 @@ export interface PacketSessionHooks {
  * Owns a packet's physics: growth on spawn, travel with variable speed,
  * steering along a drawn polyline (consuming the head as it advances),
  * viewport-edge turnaround while still inside Germany, mask-boundary exit
- * detection, and epicenter capture. See the plan for the full contract.
+ * detection, and epicenter capture.
  */
 export class PacketBehavior extends Behavior {
   readonly #session: PacketSessionHooks
@@ -198,7 +198,7 @@ export class PacketBehavior extends Behavior {
     t.rotation = Math.atan2(this.#velocity.y, this.#velocity.x) + Math.PI / 2
 
     // 3.6) Feed the motion trail a distance-filtered sample of the packet's
-    //      new position. The filter dedupes near-stationary frames; the
+    //      new position. The filter dedupes near-stationary frames. The
     //      ribbon draw injects a live-head vertex from `onUpdate` so it
     //      stays glued to the hex regardless of the filter's threshold.
     this.#motionTrail?.sample(t.x, t.y)
@@ -299,7 +299,7 @@ export class PacketBehavior extends Behavior {
       break
     }
     if (trail.nextTargetIndex >= trail.pointCount) {
-      // Queue drained, keep the reference bound; the packet keeps its
+      // Queue drained, keep the reference bound. The packet keeps its
       // current vector until fresh points arrive (from an active drag) or
       // the finger releases and re-taps.
       return
@@ -331,7 +331,7 @@ export class PacketBehavior extends Behavior {
       }
       remaining -= segLen
       if (idx + 1 >= trail.pointCount) {
-        // Beyond the polyline; extrapolate along the current segment.
+        // Beyond the polyline, extrapolate along the current segment.
         if (segLen > 1e-3) {
           targetX = bx + (segDx / segLen) * remaining
           targetY = by + (segDy / segLen) * remaining
@@ -423,7 +423,7 @@ export class PacketBehavior extends Behavior {
     if (this.#hexParticles) {
       this.#hexParticles.emitter.config.ratePerSec = 0
     }
-    // Tween to the exact centre; on completion emit + destroy.
+    // Tween to the exact centre. On completion, emit and destroy.
     packet
       .tween(
         { x: center.x, y: center.y, scaleX: 0.4, scaleY: 0.4, alpha: 0 },

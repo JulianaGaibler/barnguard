@@ -1,6 +1,6 @@
 // Vertex/instance layouts, ring-buffer sizes, and attribute locations shared by
 // the GPU draw programs. Kept in one place so a shader's `in` declarations, its
-// stride, and its VAO binding stay in sync.
+// stride, and its pipeline vertex layout stay in sync.
 
 /**
  * Colored-tri vertex layout: pos.xy (f32) + color.rgba (u8×4) + uv.xy (f32) = 5
@@ -8,11 +8,6 @@
  */
 export const COLORED_TRI_STRIDE = 20
 export const COLORED_TRI_WORDS = COLORED_TRI_STRIDE / 4
-/**
- * Textured-quad instance layout: dst.xyzw (f32) + srcRect.xyzw (f32) +
- * tint.rgba (u8×4) = 9 words = 36 B.
- */
-export const TEXTURED_QUAD_INSTANCE_STRIDE = 36
 /**
  * Stroke instance layout: p0.xy + p1.xy + color(u8×4) + width + dashStart +
  * dashPeriod + dashOnLen = 9 words = 36 B.
@@ -29,7 +24,7 @@ export const SDF_INSTANCE_STRIDE = 32
  *
  * - (halfW, halfH, feather, strokeWidth) (f32×4) + radii tl,tr,br,bl (f32×4) +
  *   colorFill(u8×4) + colorStroke(u8×4) = 16 words = 64 B. All extents/radii
- *   are in local units; the shader evaluates the signed-distance field in local
+ *   are in local units. The shader evaluates the signed-distance field in local
  *   space and anti-aliases with `fwidth`, so it stays crisp under any
  *   transform.
  */
@@ -57,10 +52,10 @@ export const TEXT_QUAD_INSTANCE_STRIDE = 44
 /**
  * Shape-program instance layout: one instanced program covering circles,
  * round-rects, and textured quads (text + atlas sprites). All shapes expand the
- * same unit quad; a per-instance `shapeType` selects the vertex positioning +
+ * same unit quad. A per-instance `shapeType` selects the vertex positioning +
  * fragment SDF/texture math. Layout (96 B = 24 words):
  *
- * - MCol0.xy + mCol1.xy + mTranslate.xy — affine (f32×6, offset 0)
+ * - MCol0.xy + mCol1.xy + mTranslate.xy, affine (f32×6, offset 0)
  * - Shape = (shapeType, feather, texIndex, pad) (f32×4, offset 24)
  * - Params = shape-specific (f32×4, offset 40): circle `(radius, strokeWidth,
  *   dashStart, dashPeriod)`, roundRect `(halfW, halfH, strokeWidth, _)`
@@ -87,7 +82,6 @@ export const SHAPE_TEX_LABEL = 1
  * particles / debris / grid overlay on top.
  */
 export const COLORED_TRI_BUFFER_BYTES = 2 * 1024 * 1024 // 2 MB → ~104k verts
-export const TEXTURED_QUAD_BUFFER_BYTES = 128 * 1024 // 128 KB → ~3.6k instances
 export const STROKE_BUFFER_BYTES = 1 * 1024 * 1024 // 1 MB → ~29k instances
 export const SDF_BUFFER_BYTES = 128 * 1024 // 128 KB → ~4k instances
 export const ROUNDRECT_BUFFER_BYTES = 128 * 1024 // 128 KB → ~2k instances
@@ -97,17 +91,17 @@ export const TEXT_QUAD_BUFFER_BYTES = 128 * 1024 // 128 KB → ~2.9k label insta
 
 /**
  * Two buffers per stream so the GPU can read buffer N-1 while the CPU writes N.
- * VAOs are cached per (program, slot) because a VAO captures the ARRAY_BUFFER
- * bound at `vertexAttribPointer` time.
+ * A draw names its buffer per slot, so the WebGL2 backend can cache one VAO per
+ * (program, slot) pair.
  */
 export const RING_SIZE = 2
 
 /**
- * Uniform-block binding registry. Binding indices are global per GL context, so
+ * Uniform-block binding registry. Binding indices are global per device, so
  * every uniform block picks a distinct slot here to keep them from colliding.
  *
- * - 0 `Frame` — the 2D per-frame block (`u_proj`, device-px → clip).
- * - 1 `Camera3D` — the 3D per-frame view-projection block.
+ * - 0 `Frame`, the 2D per-frame block (`u_proj`, device-px → clip).
+ * - 1 `Camera3D`, the 3D per-frame view-projection block.
  *
  * Add new blocks (per-material, per-object) at the next free index.
  */
@@ -130,15 +124,30 @@ export const MESH_SHADOW_UBO_BINDING = 7
 /**
  * `Frame` UBO size in floats. std140 lays a `mat3` out as 3 vec4-aligned
  * columns = 12 floats = 48 B, so the 9-float `projMat` is staged with a padding
- * float after each column.
+ * float after each column. Two more floats follow, `targetH` (current
+ * render-target height, for the analytic clip's device-px Y) and `fragYFlip` (1
+ * on WebGL2, whose `gl_FragCoord.y` is bottom-up), padded out to 16 floats.
  */
-export const FRAME_UBO_FLOATS = 12
+export const FRAME_UBO_FLOATS = 16
+
+/**
+ * Group-0 binding of the shared per-run analytic clip UBO (2D pipelines only).
+ * 8 keeps it clear of the other group-0 bindings the 3D pass uses (Camera3D at
+ * 1).
+ */
+export const CLIP_UBO_BINDING = 8
+
+/**
+ * `Clip` UBO size (std140): kind, cx, cy, r, halfW, halfH, rrRadius + pad = 8
+ * floats = 32 B.
+ */
+export const CLIP_UBO_BYTES = 32
 
 /**
  * Bind-group group indices. Group 0 is the shared per-frame block (`Frame` /
- * `Camera3D`), reused across every pipeline; group 1 is per-program resources
+ * `Camera3D`), reused across every pipeline. Group 1 is per-program resources
  * (textures, per-run/per-object dynamic UBOs). Groups are organizational for
- * WebGPU; the WebGL2 backend flattens to the binding numbers above.
+ * WebGPU. The WebGL2 backend flattens to the binding numbers above.
  */
 export const GROUP_FRAME = 0
 export const GROUP_MATERIAL = 1
@@ -147,10 +156,6 @@ export const GROUP_MATERIAL = 1
 export const LOC_COLORED_POS = 0
 export const LOC_COLORED_COLOR = 1
 export const LOC_COLORED_UV = 2
-export const LOC_TEXTURED_UNIT = 0
-export const LOC_TEXTURED_DST = 1
-export const LOC_TEXTURED_SRC = 2
-export const LOC_TEXTURED_TINT = 3
 export const LOC_STROKE_UNIT = 0
 export const LOC_STROKE_P0 = 1
 export const LOC_STROKE_P1 = 2
@@ -203,7 +208,6 @@ export const CURVE_FLATTEN_MAX_POINTS = 256
 export type BatchKind =
   | 'none'
   | 'coloredTri'
-  | 'texturedQuad'
   | 'stroke'
   | 'gradientRadial'
   | 'maskedGradient'

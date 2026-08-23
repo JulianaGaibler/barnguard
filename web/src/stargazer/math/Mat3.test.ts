@@ -23,7 +23,7 @@ describe('mat3NormalMatrix', () => {
   })
 
   it('inverts each axis under non-uniform scale', () => {
-    // Plain mat3(model) would give diag(1,2,4) and skew normals; the normal
+    // Plain mat3(model) would give diag(1,2,4) and skew normals. The normal
     // matrix must be diag(1, 1/2, 1/4).
     const model = mat4Compose(mat4(), vec3(5, -3, 2), quat(), vec3(1, 2, 4))
     expectMat3Close(
@@ -53,12 +53,12 @@ describe('mat3NormalMatrix', () => {
   it('preserves normal direction under uniform scale (up to a uniform factor)', () => {
     const model = mat4Compose(mat4(), vec3(0, 0, 0), quat(), vec3(3, 3, 3))
     const n = mat3NormalMatrix(mat3(), model)
-    // Uniform scale s ⇒ normal matrix is (1/s)·I; direction preserved.
+    // Uniform scale s ⇒ normal matrix is (1/s)·I, so direction is preserved.
     expectMat3Close(n, [1 / 3, 0, 0, 0, 1 / 3, 0, 0, 0, 1 / 3])
   })
 
   it('falls back to the plain upper 3×3 when the linear part is singular', () => {
-    // Zero Z scale ⇒ determinant 0; no inverse exists.
+    // Zero Z scale ⇒ determinant 0, so no inverse exists.
     const model: Mat4 = mat4Compose(
       mat4(),
       vec3(0, 0, 0),

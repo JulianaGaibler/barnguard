@@ -1,7 +1,7 @@
 /**
- * `Gfx2D`, the drawing facade nodes draw through. The backend is `GpuGfx`
- * (WebGL2); `GfxDevice` is the thin seam a future backend (e.g. WebGPU) would
- * implement to plug in underneath it.
+ * `Gfx2D`, the drawing facade nodes draw through. The backend is `GpuGfx`,
+ * which batches draws through the `GfxDevice` seam. WebGL2 and WebGPU both
+ * implement that seam, so facade-level code is backend-agnostic.
  *
  * Conventions:
  *
@@ -20,16 +20,26 @@ import type { RoundRectRadii } from './roundRectRadii'
 /**
  * Compositing mode. Maps to `ctx.globalCompositeOperation`. The GPU backend
  * implements `'source-over'` and `'lighter'`.
- *
- * @category Advanced
  */
 export type GfxBlend = GlobalCompositeOperation
 
 /**
- * A single radial/linear gradient stop. `offset` in `[0, 1]`.
- *
- * @category Advanced
+ * An analytic clip region for {@link Gfx2D.setClip}, in the current transform's
+ * local coords. A circle is rotation-safe, a rounded-rect assumes an
+ * axis-aligned transform (rotation/skew is unsupported and warns in dev).
  */
+export type GfxClipShape =
+  | { kind: 'circle'; cx: number; cy: number; r: number }
+  | {
+      kind: 'roundRect'
+      x: number
+      y: number
+      w: number
+      h: number
+      radius: number
+    }
+
+/** A single radial/linear gradient stop. `offset` in `[0, 1]`. */
 export interface GfxGradientStop {
   offset: number
   color: string
@@ -39,12 +49,10 @@ export interface GfxGradientStop {
  * Per-call text style for `fillText`. Mirrors the Canvas text properties.
  *
  * On the GPU backend `color` is baked into the rasterized glyph bitmap (so
- * multi-color emoji and any CSS color render correctly); `setAlpha` still
+ * multi-color emoji and any CSS color render correctly). `setAlpha` still
  * applies on top via the quad tint. Because the color is baked, animating
- * `color` re-rasterizes each frame it changes — prefer alpha fades (free) or a
- * static color.
- *
- * @category Advanced
+ * `color` re-rasterizes each frame it changes, so prefer alpha fades (free) or
+ * a static color.
  */
 export interface GfxTextStyle {
   /**
@@ -63,8 +71,6 @@ export interface GfxTextStyle {
 /**
  * Per-call stroke style. Everything is resolved to the current transform space
  * by the caller (see the `width`/`dash` note on `Gfx2D`).
- *
- * @category Advanced
  */
 export interface GfxStrokeStyle {
   /** CSS color string. */
@@ -84,12 +90,10 @@ export interface GfxStrokeStyle {
 }
 
 /**
- * Immediate-mode 2D drawing facade. Coordinates are in the node's LOCAL space;
- * the Stage installs the `(DPR × camera × world)` base transform via
+ * Immediate-mode 2D drawing facade. Coordinates are in the node's LOCAL space.
+ * The Stage installs the `(DPR × camera × world)` base transform via
  * `setBaseTransform` before calling `draw`, and nodes may push nested local
  * transforms with `save`/`translate`/`rotate`/`scale`/`restore`.
- *
- * @category Advanced
  */
 export interface Gfx2D {
   // --- transform + state ---------------------------------------------------
@@ -125,15 +129,72 @@ export interface Gfx2D {
   /** Set the compositing mode for subsequent draws. */
   setBlend(mode: GfxBlend): void
   /**
-   * Set or clear a bitmap clip mask. `fill*` draws are masked to pixels where
-   * the mask's alpha is non-zero. `worldRect` maps mask UV to world.
-   * Snapshotted by `save`/`restore`.
+   * Set or clear a bitmap clip mask for an arbitrary shape. `fill*` draws are
+   * masked to pixels where the mask's alpha is non-zero, `worldRect` maps mask
+   * UV to world. Snapshotted by `save`/`restore`.
    *
-   * Uploads the mask as a texture (cached per instance), modulates fragment
-   * alpha. Currently only wired through the `coloredTri` program.
-   * GridOverlayNode is the only user.
+   * For a circle or rounded-rect prefer {@link Gfx2D.setClip} (analytic, no
+   * texture). Uploads the mask as a texture (cached per instance) and modulates
+   * fragment alpha, only the `coloredTri` program (fills) reads it.
    */
   setClipMask(mask: BitmapMask | null): void
+
+  /**
+   * Set or clear an analytic clip. Subsequent 2D draws (fills, strokes, text,
+   * images) are cropped to the shape with a crisp anti-aliased edge, with no
+   * texture or CPU raster. Coords are in the current transform's local space,
+   * snapshotted to device px when set, so the clip composes with
+   * `save`/`translate`/`scale`. Snapshotted by `save`/`restore`, clear with
+   * `null`.
+   *
+   * @remarks
+   *   A circle is rotation-safe. A rounded-rect assumes an axis-aligned
+   *   transform. For an arbitrary shape use {@link Gfx2D.setClipMask}.
+   * @example
+   *   gfx.save()
+   *   gfx.setClip({ kind: 'circle', cx, cy, r })
+   *   for (const px of pixels) gfx.fillRect(px.x, px.y, px.w, px.h, px.color)
+   *   gfx.restore() // The clip reverts.
+   */
+  setClip(shape: GfxClipShape | null): void
+
+  // --- device pixel grid ----------------------------------------------------
+
+  /**
+   * Device pixels per unit of the current transform, camera scale and device
+   * pixel ratio included. Returns `1` when there is no transform to read.
+   *
+   * Prefer {@link Gfx2D.snapSize} for the common case of holding a length on the
+   * pixel grid.
+   */
+  deviceScale(): number
+
+  /**
+   * Round `v` to a whole number of device pixels, in local units.
+   *
+   * Quantise sizes, not positions. Equal-sized repeated cells lose the
+   * neighbour-to-neighbour width variance that reads as aliasing, and the block
+   * keeps one shared subpixel offset so it still slides smoothly. Rounding the
+   * position too is crisper at rest but crawls under continuous motion, because
+   * each edge crosses its threshold on a different frame.
+   *
+   * Never returns less than one device pixel. Passes `v` through unchanged when
+   * the device scale is unknown.
+   *
+   * @example
+   *   // A 16x16 pixel-art grid whose cells stay equal at any zoom.
+   *   const cell = gfx.snapSize(box.width / 16)
+   *   for (const run of runs) {
+   *     gfx.fillRect(
+   *       originX + run.x * cell,
+   *       originY + run.row * cell,
+   *       run.len * cell,
+   *       cell,
+   *       run.color,
+   *     )
+   *   }
+   */
+  snapSize(v: number): number
 
   // --- fills ---------------------------------------------------------------
 
@@ -142,7 +203,7 @@ export interface Gfx2D {
 
   /**
    * Filled axis-aligned rounded rectangle. `radii` is the CSS `border-radius`
-   * shorthand: a single number, or 1–4 numbers (`[all]`, `[tl&br, tr&bl]`,
+   * shorthand: a single number, or 1 to 4 numbers (`[all]`, `[tl&br, tr&bl]`,
    * `[tl, tr&bl, br]`, `[tl, tr, br, bl]`). Over-large radii are clamped
    * proportionally, matching `CanvasRenderingContext2D.roundRect`.
    *
@@ -197,9 +258,9 @@ export interface Gfx2D {
    * Fill the rect `(dx,dy,dw,dh)` with a **world-fixed** radial gradient
    * (centered at `gcx,gcy` with radius `gr`, `stops` sampled by distance),
    * masked by the alpha of `mask` sampled across the rect. Moving the rect
-   * slides the mask silhouette across the stationary gradient — used for the
+   * slides the mask silhouette across the stationary gradient, used for the
    * arcade launcher's drifting clouds. Coordinates are in the current transform
-   * space (like `drawImage` / `fillCircleRadialGradient`); the transform must
+   * space (like `drawImage` / `fillCircleRadialGradient`). The transform must
    * be axis-aligned.
    */
   fillMaskedRadialGradient(
@@ -253,7 +314,7 @@ export interface Gfx2D {
   ): void
   /**
    * Stroked polyline from interleaved points. `style.smoothing === 'quadratic'`
-   * reproduces `PolylineNode`'s midpoint smoothing; `style.closed` closes it.
+   * reproduces `PolylineNode`'s midpoint smoothing. `style.closed` closes it.
    */
   strokePolyline(
     pts: ArrayLike<number>,
@@ -287,4 +348,25 @@ export interface Gfx2D {
    * color-animation caveat).
    */
   fillText(text: string, x: number, y: number, style?: GfxTextStyle): void
+
+  /**
+   * Rasterize and upload `text` now, so the frame that first draws it does not
+   * have to.
+   *
+   * @remarks
+   *   A label is otherwise shaped, rasterized and uploaded inside the `fillText`
+   *   that first needs it, on the render thread. The per-frame regen budget
+   *   does not soften a first paint: it falls back to a neighbouring scale
+   *   bucket, and on the first frame no bucket is populated. Warming a
+   *   text-heavy scene ahead of time moves that work somewhere a stall is
+   *   invisible.
+   *
+   *   Uses the transform in force when it is called, so warm under the same
+   *   camera the text will be drawn with, or the bucket will not match and the
+   *   work is repeated.
+   * @example
+   *   // On a loading screen, before the board is built.
+   *   for (const card of deck) gfx.warmText(card.name, { font: nameFont })
+   */
+  warmText(text: string, style?: GfxTextStyle): void
 }

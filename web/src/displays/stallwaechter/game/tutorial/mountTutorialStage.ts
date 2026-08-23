@@ -14,7 +14,7 @@ export interface MountTutorialStageParams {
  * Svelte action for the tutorial `<canvas>` inside `StateConfirmCard`. Owns one
  * `TutorialSession` for the lifetime of the canvas: constructs it on mount,
  * tears it down (aborting any pending respawn and detaching the secondary
- * `Stage`) on unmount. Mirrors `mountStage` from stargazer; the difference is
+ * `Stage`) on unmount. Mirrors `mountStage` from stargazer, the difference is
  * that the callback receives a `TutorialSession` rather than a raw `Stage`.
  *
  * @example

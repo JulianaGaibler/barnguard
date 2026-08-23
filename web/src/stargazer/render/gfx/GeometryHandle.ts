@@ -1,17 +1,15 @@
+import type { VBuffer, IBuffer } from './GfxDevice'
+
 /**
  * Cached triangulated geometry for a shape. `vertices` is interleaved `[x0, y0,
  * x1, y1, ...]` in the shape's own coordinate space (the Path2D's SVG viewport
- * in the current codebase); `indices` addresses those vertex pairs by index.
+ * in the current codebase). `indices` addresses those vertex pairs by index.
  * GpuGfx keeps a `WeakMap<Path2D, GeometryHandle>` so a given `Path2D` is
  * tessellated at most once.
  *
- * ≤ 65 535 vertices per handle (Uint16 addressing); asserted in
+ * ≤ 65 535 vertices per handle (Uint16 addressing), asserted in
  * `SvgPathContours.tessellateContours` at construction time.
- *
- * @category Advanced
  */
-import type { VBuffer, IBuffer } from './GfxDevice'
-
 export interface GeometryHandle {
   vertices: Float32Array
   indices: Uint16Array
@@ -32,8 +30,8 @@ export interface GeometryHandle {
 
 /**
  * A `GeometryHandle`'s GPU residency: its own static vertex + index buffers.
- * Created on the first retained fill and reused every frame after; an indexed
- * draw against them replays it (the device caches the VAO by buffer set).
+ * Created on the first retained fill and reused every frame after. An indexed
+ * draw against them reuses that upload.
  */
 export interface GpuGeometry {
   vbo: VBuffer

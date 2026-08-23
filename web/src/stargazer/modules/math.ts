@@ -1,15 +1,14 @@
 /**
  * Math primitives shared across the engine. {@link Transform2D} /
- * {@link Transform3D} are decomposed node transforms — 2D (position, scale,
+ * {@link Transform3D} are decomposed node transforms: 2D (position, scale,
  * rotation, origin, alpha) and 3D (position, rotation quaternion, scale,
  * alpha). {@link Vec2} / {@link Vec3} / {@link Rect} / {@link Quat} / {@link Ray}
  * are plain data with `vec2*` / `vec3*` / `rect*` / `quat*` helper functions
  * that write into a destination to stay allocation-free. `easings` holds the
- * tween curves; the `matrix` helpers operate on `DOMMatrix` affines (2D) and
+ * tween curves. The `matrix` helpers operate on `DOMMatrix` affines (2D) and
  * {@link Mat4} column-major arrays (3D).
  *
  * @module math
- * @category Math
  */
 export { Transform2D } from '../math/Transform2D'
 export { Transform3D } from '../math/Transform3D'
@@ -69,6 +68,10 @@ export {
   rectContains,
   rectIntersects,
   rectUnion,
+  rectPointAt,
+  rectPercentOf,
+  rectMargins,
+  clampRectToBounds,
 } from '../math/Rect'
 export {
   copyMatrix2D,
@@ -76,7 +79,7 @@ export {
   invertMatrix2D,
   transformPoint2D,
 } from '../math/matrix'
-export type { Mat4 } from '../math/Mat4'
+export type { Mat4, ClipDepth } from '../math/Mat4'
 export {
   mat4,
   mat4Identity,

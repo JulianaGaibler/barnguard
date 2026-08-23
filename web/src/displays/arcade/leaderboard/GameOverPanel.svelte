@@ -1,7 +1,7 @@
 <!-- Reusable end-of-run shell: a game supplies its own score display via the
-     `scoreDisplay` snippet; this owns the card/scrim chrome, the leaderboard
+     `scoreDisplay` snippet. This owns the card/scrim chrome, the leaderboard
      entry flow, and the exit buttons. The name field stays editable for as
-     long as the panel is open — the score is only submitted at the moment
+     long as the panel is open. The score is only submitted at the moment
      the player leaves (Play again / Main menu), and only if a name was
      entered by then. -->
 <script lang="ts">
@@ -34,7 +34,7 @@
     onMenu: () => void
     /**
      * Fired exactly once, whenever the panel is about to go away (a button, or
-     * the arcade-wide swipe escape tearing it down) — with whatever name was
+     * the arcade-wide swipe escape tearing it down), with whatever name was
      * typed, or `''` if the player never opened the keyboard. Lets the caller
      * attach the name to its own game-log record, which it can only finalize
      * once name entry either happens or is skipped.
@@ -60,7 +60,7 @@
   let exiting = $state(false)
 
   // While the keyboard is open, spell out every letter slot ("YAI__") so
-  // typing progress reads clearly; closed, it's just the plain name.
+  // typing progress reads clearly. Closed, it's just the plain name.
   const pendingDisplay = $derived(
     kbOpen ? name.toUpperCase().padEnd(NAME_MAX_LEN, '_') : undefined,
   )

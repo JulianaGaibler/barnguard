@@ -89,7 +89,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     }
   }
 
-  // `D` destroys the first draggable mid-drag, verifying the
+  // `D` destroys the first draggable mid-drag to check the
   // destroy-cascades-pointer-cancel invariant.
   const onKey = (e: KeyboardEvent): void => {
     if (e.key !== 'd' && e.key !== 'D') return

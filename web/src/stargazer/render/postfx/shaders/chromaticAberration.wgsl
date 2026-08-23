@@ -5,7 +5,7 @@
 // state, otherwise the fringe would composite as additive over the page).
 //
 // Shared fullscreen vertex (see vignette.wgsl). Bindings: u_tex at unit 0,
-// Params at POST_PARAMS_UBO_BINDING (6), a_pos at location 0.
+// Params at POST_PARAMS_UBO_BINDING (6), a_pos at location 0, a_uv at location 1.
 
 struct Params {
   ca: vec4<f32>, // x = amount (peak channel separation in uv units at the corners)
@@ -21,9 +21,12 @@ struct VOut {
 };
 
 @vertex
-fn vs_main(@location(0) a_pos: vec2<f32>) -> VOut {
+fn vs_main(
+  @location(0) a_pos: vec2<f32>,
+  @location(1) a_uv: vec2<f32>,
+) -> VOut {
   var out: VOut;
-  out.uv = a_pos * 0.5 + vec2<f32>(0.5);
+  out.uv = a_uv;
   out.pos = vec4<f32>(a_pos, 0.0, 1.0);
   return out;
 }

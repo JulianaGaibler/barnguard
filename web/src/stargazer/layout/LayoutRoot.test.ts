@@ -7,7 +7,7 @@ import { Column, Expanded } from './nodes/Flex'
 import { SizedBox, Box } from './nodes/Box'
 
 // A standalone Scene has no engine, so the root skips its self-registration and
-// resize wiring; the test drives the pass directly with an explicit camera,
+// resize wiring. The test drives the pass directly with an explicit camera,
 // which exercises the measure/arrange/bounds path without a full Engine.
 describe('LayoutRoot', () => {
   it('measures and arranges content to fill the camera visible rect', () => {

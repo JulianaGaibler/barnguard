@@ -2,7 +2,7 @@
   Booth-menu section for the visitor UI scale. The whole DOM UI is rem-based off
   one adjustable base, so this slider tunes it on the actual screen. To avoid
   reflowing the app on every drag step (low-end kiosk hardware), the committed
-  value is set on release; while dragging, a full-screen calibration overlay
+  value is set on release. While dragging, a full-screen calibration overlay
   previews the relative size against a fixed 1-inch reference and a sample touch
   target, so the technician can judge tappability, not just legibility.
 -->

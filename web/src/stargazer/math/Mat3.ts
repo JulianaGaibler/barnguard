@@ -5,18 +5,12 @@
  *
  * Like the `mat4*` helpers, the `mat3*` functions take a destination `dst`
  * first, write into it, and return it, so per-frame math need not allocate.
- *
- * @category Math
  */
 export type Mat3 = Float32Array
 
 import type { Mat4 } from './Mat4'
 
-/**
- * Create a new identity matrix.
- *
- * @category Math
- */
+/** Create a new identity matrix. */
 export function mat3(): Mat3 {
   const m = new Float32Array(9)
   m[0] = 1
@@ -29,11 +23,9 @@ export function mat3(): Mat3 {
  * Normal matrix for `model`: the inverse-transpose of its upper-left 3×3, into
  * `dst`. A surface normal transformed by this stays perpendicular to the
  * surface under non-uniform scale, where the plain upper 3×3 (`mat3(model)`)
- * skews it; rotation and uniform scale are unaffected up to a uniform length
+ * skews it. Rotation and uniform scale are unaffected up to a uniform length
  * the shader normalizes away. Falls back to the plain upper 3×3 when the linear
  * part is singular (zero determinant). `dst` may not alias `model`.
- *
- * @category Math
  */
 export function mat3NormalMatrix(dst: Mat3, model: Readonly<Mat4>): Mat3 {
   // Upper-left 3×3 of the column-major 4×4: (row, col) at col*4 + row.

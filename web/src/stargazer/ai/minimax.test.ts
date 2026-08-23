@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { searchBestMove, type AdversarialGame } from './minimax'
 
 /**
- * Tic-tac-toe as the fixture game. Cells are `0` empty / `1` / `2`; `turn` is
- * the side to move. Terminal loss scores `-(1000 - depthUnused)` — here just
- * `-1000` since depth isn't threaded into evaluate — which is enough for these
+ * Tic-tac-toe as the fixture game. Cells are `0` empty / `1` / `2`, and `turn`
+ * is the side to move. Terminal loss scores `-(1000 - depthUnused)`, here just
+ * `-1000` since depth isn't threaded into evaluate, which is enough for these
  * positions.
  */
 interface TTT {
@@ -80,7 +80,7 @@ describe('searchBestMove (negamax + alpha-beta)', () => {
   })
 
   it('blocks the opponent immediate win', () => {
-    // X (1) to move with no win of its own; O (2) threatens 3,4,5 → must play 5.
+    // X (1) to move with no win of its own. O (2) threatens 3,4,5 → must play 5.
     const state = board('1..22....', 1)
     const { move } = searchBestMove(ttt, state, { depth: 9 })
     expect(move).toBe(5)
@@ -89,7 +89,7 @@ describe('searchBestMove (negamax + alpha-beta)', () => {
   it('never loses from the empty board at full depth (perfect play draws)', () => {
     const state = board('.........', 1)
     const { score } = searchBestMove(ttt, state, { depth: 9 })
-    // A solved tic-tac-toe game is a draw; the root score is 0, not a loss.
+    // A solved tic-tac-toe game is a draw. The root score is 0, not a loss.
     // (`=== 0` rather than `toBe`, since a negated 0 is `-0`.)
     expect(score === 0).toBe(true)
   })

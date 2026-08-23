@@ -1,10 +1,9 @@
 /**
- * A keyed async cache. Register a factory once per key; repeat loads of the
+ * A keyed async cache. Register a factory once per key. Repeat loads of the
  * same key return the same memoized Promise, so a one-time cost (fetching and
  * parsing SVG artwork, building a `BitmapMask`) is paid once even across scene
  * reloads. A factory that rejects is evicted so the next load retries.
  *
- * @category Assets
  * @example
  *   const assets = new AssetLoader()
  *   const svg = await assets.load('map', () =>

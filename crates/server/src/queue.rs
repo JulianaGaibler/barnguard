@@ -121,7 +121,7 @@ impl QueueController {
     }
 
     fn lock(&self) -> MutexGuard<'_, QueueStore> {
-        // Survive a poisoned lock; a panicked holder shouldn't wedge the booth.
+        // Survive a poisoned lock. A panicked holder shouldn't wedge the booth.
         self.store.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -236,7 +236,7 @@ impl QueueController {
         }
         let job = s.pending.pop_front()?;
         let Some(jpeg) = s.jpegs.get(&job.id).cloned() else {
-            // Bytes vanished (shouldn't happen); mark failed and skip.
+            // Bytes vanished (shouldn't happen). Mark failed and skip.
             let mut failed = job;
             failed.set_state(JobState::Failed);
             failed.error = Some("missing_bytes".into());
@@ -298,7 +298,7 @@ impl QueueController {
     }
 
     /// Record the outcome of a status poll and publish a `Status` event. On
-    /// success resets the unreachable telemetry; on failure increments the
+    /// success resets the unreachable telemetry. On failure increments the
     /// failed-attempt counter and stamps how long we've been unreachable.
     /// Returns the result so callers can still use `?`.
     fn note_status(
@@ -387,7 +387,7 @@ impl WorkerConfig {
     }
 }
 
-/// The worker task. Owns the backend; loops forever draining the queue and
+/// The worker task. Owns the backend and loops forever draining the queue and
 /// keeping the printer awake while idle.
 pub async fn run_worker(
     mut backend: Box<dyn PrinterBackend>,
@@ -511,8 +511,8 @@ async fn process_job(
 }
 
 /// One print attempt. Returns `Ok(Some(warning))` when the label almost
-/// certainly printed but we couldn't confirm idle (don't retry; that risks a
-/// duplicate label).
+/// certainly printed but we couldn't confirm idle. Don't retry, because that
+/// risks a duplicate label.
 async fn try_print(
     backend: &mut Box<dyn PrinterBackend>,
     controller: &QueueController,
@@ -525,7 +525,7 @@ async fn try_print(
     match st.state {
         PrinterState::NoMedia => return Err(PrinterError::NoMedia),
         PrinterState::AwaitingRemoval => {
-            // A previous label is still in the slot; wait for it to be removed.
+            // A previous label is still in the slot. Wait for it to be removed.
             controller.set_active_state(JobState::AwaitingRemoval);
             wait_for_removal(backend, controller, cfg).await?;
         }
@@ -543,8 +543,8 @@ async fn try_print(
     poll_until_done(backend, controller, cfg).await
 }
 
-/// Block (polling status) until a held label is removed. No timeout; this
-/// waits on a human, and the printed job hasn't started yet.
+/// Block (polling status) until a held label is removed. No timeout, because
+/// this waits on a human, and the printed job hasn't started yet.
 async fn wait_for_removal(
     backend: &mut Box<dyn PrinterBackend>,
     controller: &QueueController,
@@ -580,7 +580,7 @@ async fn poll_until_done(
                 continue; // don't apply the idle timeout while waiting on a human
             }
             PrinterState::NoMedia => {
-                // Ran dry after sending; the label almost certainly printed.
+                // Ran dry after sending. The label almost certainly printed.
                 return Ok(Some("no_media_after_print".into()));
             }
             _ => {}

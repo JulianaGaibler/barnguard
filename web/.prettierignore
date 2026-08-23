@@ -8,9 +8,12 @@ src/stargazer/site
 *.scss
 *.woff
 *.woff2
+*.otf
+*.ttf
 *.jpeg
 *.jpg
 *.png
 *.mp4
 *.ico
 *.glsl
+*.wgsl

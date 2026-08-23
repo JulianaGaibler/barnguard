@@ -1,7 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { locale } from '@src/i18n'
-  import { initBoothMenuToggle } from '@src/core/attendant/boothMenuToggle'
+  import {
+    BOOTH_CORNER_SIZE_PX,
+    initBoothMenuToggle,
+  } from '@src/core/attendant/boothMenuToggle'
   import { coverScreen } from '@src/stores/coverScreen'
   import CoverScreen from '@src/core/attendant/CoverScreen.svelte'
   import BoothMenu from '@src/core/attendant/BoothMenu.svelte'
@@ -10,7 +13,6 @@
   import LeaderboardPanel from '@src/core/attendant/LeaderboardPanel.svelte'
   import BackgroundLayer from '@src/core/ui/BackgroundLayer.svelte'
   import TopBar from '@src/core/attendant/TopBar.svelte'
-  import DemoRouter from './stargazer/dev/DemoRouter.svelte'
   import type { DisplayManifest } from '@src/core/display'
 
   interface Props {
@@ -18,7 +20,6 @@
   }
   let { display }: Props = $props()
 
-  const demoName = new URLSearchParams(window.location.search).get('demo')
   const DisplayRoot = $derived(display.root)
 
   // Keep the document language in sync with the active locale (accessibility).
@@ -27,17 +28,21 @@
   })
 
   // Attach the booth-menu gestures (corner double-tap + Ctrl+Shift+D
-  // dev backdoor) for the lifetime of the app.
-  onMount(() => initBoothMenuToggle())
+  // dev backdoor) for the lifetime of the app. The corner size goes onto the
+  // root as a CSS variable so DOM chrome can keep out of the gesture's boxes
+  // without restating the number.
+  onMount(() => {
+    document.documentElement.style.setProperty(
+      '--booth-corner-size',
+      `${BOOTH_CORNER_SIZE_PX}px`,
+    )
+    return initBoothMenuToggle()
+  })
 </script>
 
 <BackgroundLayer />
 
-{#if demoName}
-  <DemoRouter {demoName} />
-{:else}
-  <DisplayRoot />
-{/if}
+<DisplayRoot />
 
 <TopBar />
 

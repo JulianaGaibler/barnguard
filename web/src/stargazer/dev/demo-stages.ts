@@ -14,7 +14,8 @@ import type { DemoFn } from './types'
  * and InputSystem.
  *
  * Keys: [SPACE] detach + re-attach the secondary. [R] restart the shared tween.
- * Console logs event counts so the cross-talk fix is visible.
+ * Console logs event counts to confirm secondary pointer events never leak onto
+ * the primary engine's event bus.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
@@ -25,7 +26,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
 
   const { engine } = host
 
-  // --- Primary scene ---------------------------------------------------
+  // Primary scene.
   const primaryHero = new ShapeNode({
     id: 'primary-hero',
     geometry: { kind: 'circle', radius: 60 },
@@ -39,10 +40,9 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   })
   host.start()
 
-  // --- Event-bus isolation counter -------------------------------------
-  // Every tap on the PRIMARY increments both. Every tap on the SECONDARY
-  // increments only the stage counter, verifying that secondary pointer
-  // events never leak onto engine.events.
+  // Event-bus isolation counter. Every tap on the PRIMARY increments both.
+  // Every tap on the SECONDARY increments only the stage counter, since
+  // secondary pointer events never reach engine.events.
   let engineDowns = 0
   let stageDowns = 0
   engine.events.on('pointerDown', () => {
@@ -52,7 +52,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     )
   })
 
-  // --- Secondary canvas + stage ----------------------------------------
+  // Secondary canvas + stage.
   const secondaryCanvas = createSecondaryCanvas()
   document.body.appendChild(secondaryCanvas)
 
@@ -87,7 +87,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       )
     })
 
-    // Background hero (existing behavior, proves shared clock).
+    // Background hero, proves the shared clock.
     secondaryHero = new ShapeNode({
       id: 'secondary-hero',
       geometry: { kind: 'circle', radius: 14 },
@@ -114,7 +114,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     })
     secondaryStage.tree.root.add(secondaryEmitter)
 
-    // Target zone, dashed rectangle. Not hit-enabled; the drop test is a
+    // Target zone, dashed rectangle. Not hit-enabled, the drop test is a
     // point-in-rect check on release.
     const zone = new ShapeNode({
       id: 'zone',
@@ -161,7 +161,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     }
     // Cancel any in-flight ease-back so drag wins immediately.
     engine.animation.cancelAll()
-    void runSharedTween() // relaunch bg tween, cancelAll killed it too
+    void runSharedTween() // cancelAll also stops the shared tween, restart it
   }
   function onPacketMove(e: PointerEvent2D): void {
     if (!packet || !packetDragging) return
@@ -208,7 +208,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
 
   buildSecondary()
 
-  // --- Shared clock tween on both heroes -------------------------------
+  // Shared clock tween on both heroes.
   const runSharedTween = async (): Promise<void> => {
     try {
       primaryHero.transform.x = -700
@@ -341,8 +341,8 @@ function createSecondaryCanvas(): HTMLCanvasElement {
     borderRadius: '12px',
     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
     zIndex: '100',
-    // The Stage sets touch-action / user-select on the element; we let the
-    // canvas receive pointer events now that it's interactive.
+    // Stage.attachStage sets touch-action and user-select on the canvas once
+    // it becomes interactive, so the element itself needs no such styles.
   } satisfies Partial<CSSStyleDeclaration>)
   return el
 }

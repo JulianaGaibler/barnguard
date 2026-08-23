@@ -4,10 +4,8 @@ import type { Node2D } from '../scene/Node2D'
  * ARIA role a semantic node maps to. Determines the generated element's tag or
  * `role` attribute and how it takes part in keyboard navigation. Roles with a
  * native HTML equivalent (`button`, `link`, `heading`) render as that element
- * so the browser supplies keyboard behavior; the rest render as a `<div>`/`<a>`
+ * so the browser supplies keyboard behavior. The rest render as a `<div>`/`<a>`
  * with an explicit `role`.
- *
- * @category A11y
  */
 export type A11yRole =
   | 'button'
@@ -27,11 +25,7 @@ export type A11yRole =
   | 'application'
   | 'status'
 
-/**
- * Live-region urgency. `polite` waits for a pause; `assertive` interrupts.
- *
- * @category A11y
- */
+/** Live-region urgency. `polite` waits for a pause, `assertive` interrupts. */
 export type Politeness = 'polite' | 'assertive'
 
 /**
@@ -39,8 +33,6 @@ export type Politeness = 'polite' | 'assertive'
  * proxy and a real HTML element elsewhere in the page (typically an overlay
  * attached via `engine.dom`). Maps to `aria-controls` / `aria-labelledby` /
  * `aria-describedby` / `aria-details` / `aria-flowto`.
- *
- * @category A11y
  */
 export type A11yRelation =
   'controls' | 'labelledBy' | 'describedBy' | 'details' | 'flowTo'
@@ -49,10 +41,8 @@ export type A11yRelation =
  * Connects a canvas node's proxy to a real HTML element without merging the two
  * into one accessibility tree. `target` is a stable DOM id string (preferred,
  * so no app-owned DOM is mutated) or an `HTMLElement` (an id is assigned only
- * if it lacks one). An unresolved id is written verbatim; the browser resolves
- * it once the target mounts.
- *
- * @category A11y
+ * if it lacks one). An unresolved id is written verbatim, and the browser
+ * resolves it once the target mounts.
  */
 export interface A11yLink {
   relation: A11yRelation
@@ -63,8 +53,6 @@ export interface A11yLink {
  * Boolean/tri-state flags mapped onto the proxy's `aria-*` attributes:
  * `aria-checked`, `aria-selected`, `aria-pressed`, `aria-expanded`,
  * `aria-current`.
- *
- * @category A11y
  */
 export interface A11yStates {
   checked?: boolean
@@ -76,13 +64,11 @@ export interface A11yStates {
 
 /**
  * Optional accessibility description of a {@link Node2D}. Attach it with
- * {@link AccessibilityTree.attach}; the subsystem mirrors every attached node
+ * {@link AccessibilityTree.attach}. The subsystem mirrors every attached node
  * into a hidden, screen-reader-readable HTML element so a canvas scene reads
  * like a normal accessibility tree. A node with no attached `Semantics` is
  * absent from the tree, so decorative content is hidden by simply not
  * registering it.
- *
- * @category A11y
  */
 export interface Semantics {
   /** The ARIA role. Drives the generated element and keyboard behavior. */
@@ -104,7 +90,7 @@ export interface Semantics {
   live?: Politeness
   /** Reflected as `aria-disabled`. */
   disabled?: boolean
-  /** Boolean/tri-state flags; see {@link A11yStates}. */
+  /** Boolean/tri-state flags. See {@link A11yStates}. */
   states?: A11yStates
   /** For `role: 'heading'`, the heading level (renders `<h1>`..`<h6>`). */
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6
@@ -113,8 +99,8 @@ export interface Semantics {
   /** Size of the set this node belongs to (`aria-setsize`). */
   setSize?: number
   /**
-   * Tiebreak ordering among siblings under the same parent. Defaults to 0;
-   * scene painter (pre-order) position breaks ties, so leave it unset to read
+   * Tiebreak ordering among siblings under the same parent. Defaults to 0.
+   * Scene painter (pre-order) position breaks ties, so leave it unset to read
    * in tree order.
    */
   order?: number
@@ -131,8 +117,6 @@ export interface Semantics {
 /**
  * Handle returned by {@link AccessibilityTree.attach}. Keep it to update the
  * node's semantics or to detach.
- *
- * @category A11y
  */
 export interface SemanticsHandle {
   /** The node these semantics describe. */

@@ -1,8 +1,4 @@
-/**
- * Construction options for {@link Renderer}.
- *
- * @category Advanced
- */
+/** Construction options for {@link Renderer}. */
 export interface RendererOptions {
   canvas: HTMLCanvasElement
   /** Solid clear color used each frame when `transparent` is false. */
@@ -22,15 +18,16 @@ export interface RendererOptions {
  *
  * The clear color + transparent flag are carried through as configuration for
  * the facade to consume on `beginFrame`.
- *
- * @category Advanced
  */
 export class Renderer {
   readonly canvas: HTMLCanvasElement
   clearColor: string
   transparent: boolean
+  /** Device pixels per CSS pixel, as last observed. */
   dpr = 1
+  /** Canvas size in CSS pixels. This is the space pointer events arrive in. */
   cssSize: { w: number; h: number } = { w: 0, h: 0 }
+  /** Canvas backing-store size in device pixels, `cssSize * dpr` rounded. */
   pixelSize: { w: number; h: number } = { w: 0, h: 0 }
 
   constructor(opts: RendererOptions) {
@@ -42,8 +39,8 @@ export class Renderer {
   /**
    * Resize the canvas backing store to `cssW × cssH × dpr` device pixels.
    * Writing to `canvas.width`/`canvas.height` is the standard mechanism for
-   * both context types (the WebGL2 default framebuffer is sized by this write);
-   * the FBO GpuGfx renders into is managed separately via
+   * both context types (the WebGL2 default framebuffer is sized by this write).
+   * The FBO GpuGfx renders into is managed separately via
    * `screenGfx.setInternalSize`.
    */
   resize(cssW: number, cssH: number, dpr: number): void {

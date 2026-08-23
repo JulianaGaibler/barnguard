@@ -74,7 +74,7 @@ export function topEntryY(layout: BoardLayout): number {
   return layout.gridY - layout.cell * 0.5
 }
 
-/** Column under a world x, clamped to the panel; null when x is outside it. */
+/** Column under a world x, clamped to the panel. Null when x is outside it. */
 export function columnAtX(layout: BoardLayout, worldX: number): number | null {
   if (worldX < layout.panelX || worldX > layout.panelX + layout.panelW)
     return null

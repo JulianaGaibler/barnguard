@@ -29,6 +29,20 @@
   "categorizeByGroup": false,
   "sort": ["source-order"],
   "skipErrorChecking": true,
+  "highlightLanguages": [
+    "bash",
+    "console",
+    "css",
+    "html",
+    "javascript",
+    "json",
+    "jsonc",
+    "json5",
+    "yaml",
+    "tsx",
+    "typescript",
+    "svelte"
+  ],
   "externalSymbolLinkMappings": {
     "typescript": {
       "AbortSignal": "https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal"
@@ -48,7 +62,9 @@
     "TextureInspector",
     "TextureSource",
     "PointerTarget",
-    "GltfDoc"
+    "GltfDoc",
+    "RenderTarget",
+    "ShaderReflection"
   ],
   "cleanJsdocTheme": {
     "siteName": "Stargazer",
