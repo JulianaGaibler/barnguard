@@ -146,7 +146,7 @@ describe('ending a contest', () => {
   })
 
   it('awards the open ground when a player is walled in', async () => {
-    // Player one holds the corner behind a wall of player two's colour. After
+    // Player one holds the corner behind a wall of player two's color. After
     // player two takes the middle row, player one can never reach the rest.
     const board = createBoard(4, 3, 3)
     board.color.set([0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2])
@@ -215,7 +215,7 @@ describe('ending a contest', () => {
         const player = session.turn
         absorbGains(session.board, player, scratch, res, gains)
         const pick = bestGain(gains)
-        // A player who is not walled in always has a gainful colour, so this
+        // A player who is not walled in always has a gainful color, so this
         // never has to fall back to a wasted turn.
         expect(pick, `seed ${seed} had no gainful move`).toBeGreaterThanOrEqual(
           0,

@@ -6,11 +6,12 @@
 import type {
   BindGroup,
   BindGroupLayout,
-  ColorFormat,
   DrawBindGroup,
   GfxDevice,
+  TargetFormat,
   UBuffer,
 } from './GfxDevice'
+import { hasStencilAspect } from './depthStencil'
 import type { GpuGeometry } from './GeometryHandle'
 import type { GfxBlend } from './Gfx2D'
 import type { BitmapMask } from '../../assets/BitmapMask'
@@ -76,7 +77,7 @@ export interface DrawRun {
    * range. `'core'` paints only near-full-coverage fragments, so a joint's
    * solid body claims its pixels before any neighbour's antialiased rim can.
    * `'fringe'` then fills what is left, and `'reset'` zeroes the stencil again
-   * with colour writes off. Absent on an ordinary stroke.
+   * with color writes off. Absent on an ordinary stroke.
    */
   strokePass?: 'core' | 'fringe' | 'reset'
 }
@@ -106,13 +107,14 @@ export class GpuBatchContext {
   readonly stats: GpuGfxStats
 
   /**
-   * Color format + sample count of the target the 2D pipelines render into.
-   * `GpuGfx` sets this before warming pipelines and on MSAA/format change. A
-   * program reads it in `warmup` to build matching pipeline variants.
+   * The attachment signature the 2D pipelines render into. `GpuGfx` sets this
+   * before warming pipelines and whenever the target changes. A program reads
+   * it in `warmup` to build matching pipeline variants.
    */
-  targetColor: { format: ColorFormat; samples: number } = {
+  targetFormat: TargetFormat = {
     format: 'linear',
     samples: 1,
+    depthStencil: 'none',
   }
 
   /**
@@ -120,7 +122,9 @@ export class GpuBatchContext {
    * decide whether to build its stencil pipeline variants, and the stroke path
    * reads it to decide whether deduplication is available at all.
    */
-  targetHasStencil = false
+  get targetHasStencil(): boolean {
+    return hasStencilAspect(this.targetFormat.depthStencil)
+  }
 
   /** Column-major 3×3 for `u_proj`. Updated once per frame. */
   readonly projMat = new Float32Array(9)

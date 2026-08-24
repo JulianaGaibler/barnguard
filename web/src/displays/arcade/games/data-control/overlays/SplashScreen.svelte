@@ -1,5 +1,5 @@
 <!--
-  Data Control main menu. Thin config over the shared `MenuScreen`; all colour
+  Data Control main menu. Thin config over the shared `MenuScreen`; all color
   comes from the game's `themeTokens`, so this stays presentation-free. The
   right side of the region is left for the in-engine menu preview.
 -->
@@ -8,6 +8,7 @@
   import LeaderboardIcon from '@src/displays/arcade/leaderboard/LeaderboardIcon.svelte'
   import MenuScreen from '@src/displays/arcade/menu/MenuScreen.svelte'
   import type { MenuItem } from '@src/displays/arcade/menu/types'
+  import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { DATA_CONTROL_STRINGS as t } from '../strings'
 
   interface Props {
@@ -24,20 +25,20 @@
     ]
     if (onHowToPlay) {
       list.push({
-        label: t.howToPlay,
+        label: $arcadeT.arcade.tutorial.title,
         variant: 'surface',
         onSelect: onHowToPlay,
         trailing: onOpenLeaderboard
           ? {
               icon: LeaderboardIcon,
-              ariaLabel: t.openLeaderboard,
+              ariaLabel: $arcadeT.arcade.leaderboard.openLeaderboard,
               onSelect: onOpenLeaderboard,
             }
           : undefined,
       })
     }
     list.push({
-      label: t.returnToLauncher,
+      label: $arcadeT.arcade.returnToLauncher,
       variant: 'surface',
       icon: RobotIcon,
       onSelect: onExit,

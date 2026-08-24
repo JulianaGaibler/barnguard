@@ -4,7 +4,7 @@ import { FAMILIES, resolveFonts, type ThemeFonts } from '@src/core/theme'
  * Data Control's typefaces: Azeret Mono throughout.
  *
  * The game is about routing data between states, and its chrome is already
- * instrumentation — a fixed-width face for both roles makes it read as a
+ * instrumentation, so a fixed-width face for both roles makes it read as a
  * console rather than an app. Azeret Mono is variable, so headings can be set
  * heavy without a second file.
  */

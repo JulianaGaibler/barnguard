@@ -15,7 +15,8 @@ export interface GradientBackgroundOptions {
  * bottom-right. A game drops one in as the first child of its scene so it
  * paints over the shared arcade sky within the game's region, giving that game
  * its own backdrop. Reusable across games: pass the region's visible rect and
- * the two corner colors.
+ * the two corner colors. `FlatBackgroundNode` is the single-color counterpart,
+ * with the same contract.
  *
  * The rect is fixed (region-pinned), not camera-tracked: the game mounts before
  * the launcher-to-game camera pan and stays mounted through it, so a fill that

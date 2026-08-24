@@ -1,32 +1,85 @@
-<!-- Standalone leaderboard viewer, opened from a game's menu. -->
+<!-- Standalone leaderboard viewer, opened from a game's menu. A game whose modes
+     do not compare keeps one board per mode and passes several; the switcher
+     only appears past one. -->
 <script lang="ts">
-  import { onMount } from 'svelte'
   import Overlay from '@src/core/ui/Overlay.svelte'
   import Surface from '@src/core/ui/Surface.svelte'
+  import Button from '@src/core/ui/Button.svelte'
   import IconButton from '@src/core/ui/IconButton.svelte'
   import {
     fetchLeaderboard,
     type LeaderboardEntry,
   } from '@src/core/leaderboard/leaderboardClient'
+  import type { LeaderboardBoard } from '../games/GameModule'
   import { t } from '../i18n'
   import LeaderboardList from './LeaderboardList.svelte'
   import LeaderboardIcon from './LeaderboardIcon.svelte'
   import closeIconRaw from '@src/assets/icons/close-16.svg?raw'
 
   interface Props {
-    display: string
+    /** The game's boards, primary first. */
+    boards: readonly LeaderboardBoard[]
     onClose: () => void
   }
-  const { display, onClose }: Props = $props()
+  const { boards, onClose }: Props = $props()
 
+  /**
+   * Rows the list makes room for, whether or not it has them.
+   *
+   * The board arrives over the network and a segment switch fetches again, so a
+   * list sized to its contents would open small, jump when the rows land, and
+   * collapse again on every switch. This is the height it holds instead, and
+   * the number of placeholders it draws while it waits. Past this the list
+   * scrolls rather than growing.
+   */
+  const VISIBLE_ROWS = 8
+
+  /**
+   * Null until a segment is tapped, which is what makes the primary the
+   * default.
+   */
+  let picked = $state<string | null>(null)
+  const selected = $derived(picked ?? boards[0]?.id ?? '')
   let entries = $state<LeaderboardEntry[]>([])
   let loading = $state(true)
+  /**
+   * The fetch failed, so the board's contents are unknown. Distinct from an
+   * empty board: "no scores yet" would be a claim about the board that a
+   * request which never arrived cannot support.
+   */
+  let unreachable = $state(false)
 
-  onMount(() => {
-    fetchLeaderboard(display, 50)
-      .then((e) => (entries = e))
-      .catch(() => (entries = []))
-      .finally(() => (loading = false))
+  /**
+   * Guards against an out-of-order response. `fetchLeaderboard` carries its own
+   * timeout and takes no caller signal, so switching boards twice can land the
+   * first board's rows on top of the second's.
+   */
+  let generation = 0
+
+  $effect(() => {
+    const id = selected
+    // No board to read. Settle on the empty notice rather than on placeholder
+    // rows that nothing will ever replace.
+    if (!id) {
+      loading = false
+      return
+    }
+    const mine = ++generation
+    loading = true
+    fetchLeaderboard(id, 50)
+      .then((e) => {
+        if (mine !== generation) return
+        entries = e
+        unreachable = false
+      })
+      .catch(() => {
+        if (mine !== generation) return
+        entries = []
+        unreachable = true
+      })
+      .finally(() => {
+        if (mine === generation) loading = false
+      })
   })
 </script>
 
@@ -51,11 +104,38 @@
     <Surface tone="light" radius="panel" class="lb__surface">
       <div class="lb__body">
         <h2 class="lb__title">{$t.arcade.leaderboard.title}</h2>
-        {#if !loading}
-          <div class="lb__list">
-            <LeaderboardList {entries} />
+        {#if boards.length > 1}
+          <div
+            class="lb__boards"
+            role="radiogroup"
+            aria-label={$t.arcade.leaderboard.title}
+          >
+            {#each boards as board (board.id)}
+              <Button
+                small
+                variant="secondary"
+                toggled={board.id === selected}
+                onclick={() => (picked = board.id)}
+              >
+                {board.label}
+              </Button>
+            {/each}
           </div>
         {/if}
+        <div
+          class="lb__list"
+          class:lb__list--notice={!loading &&
+            (unreachable || entries.length === 0)}
+          style="--lb-visible-rows: {VISIBLE_ROWS}"
+        >
+          {#if !loading && unreachable}
+            <p class="lb__unavailable" role="alert">
+              {$t.arcade.leaderboard.unavailable}
+            </p>
+          {:else}
+            <LeaderboardList {entries} {loading} skeletonRows={VISIBLE_ROWS} />
+          {/if}
+        </div>
       </div>
     </Surface>
   </div>
@@ -138,8 +218,31 @@
     @include tint.type-class(headline)
     color: var(--color-text)
 
+  .lb__boards
+    display: flex
+    gap: var(--space-8)
+    flex-wrap: wrap
+    justify-content: center
+
+  // A window onto the board rather than a box that takes its size from it. The
+  // row pitch is `LeaderboardList`'s own: a row is at least `--space-48` tall
+  // and the gap between two is `--space-4`, with no gap after the last.
   .lb__list
     width: 100%
+    height: calc(var(--lb-visible-rows) * (var(--space-48) + var(--space-4)) - var(--space-4))
+    // Short screens win over the row count.
     max-height: 50vh
     overflow-y: auto
+
+  // Hands the whole reserved height to whatever stands in for the rows, which
+  // centers itself in it. A block child would only be as tall as its one line.
+  .lb__list--notice
+    display: grid
+
+  .lb__unavailable
+    margin: 0
+    align-self: center
+    text-align: center
+    padding: var(--space-24)
+    color: var(--color-text-secondary)
 </style>

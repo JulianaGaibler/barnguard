@@ -16,13 +16,7 @@
     Node2D,
     type Rect,
   } from '@src/stargazer'
-  import {
-    boothCornerInset,
-    coverView,
-    gameVisibleRect,
-    REGION_HEIGHT,
-    REGION_WIDTH,
-  } from '../../world'
+  import { coverView, REGION_HEIGHT, REGION_WIDTH } from '../../world'
   import { GradientBackgroundNode } from '../common/GradientBackgroundNode'
   import { seededRandom } from '../common/rng'
   import type { GameProps } from '../GameModule'
@@ -56,11 +50,11 @@
   import { FLOOD_IT_TUTORIAL } from './tutorial'
   import { buildFloodItMenuPreview } from './game/menuPreview'
   import { FLOOD_IT_STRINGS as t } from './strings'
-  import PauseMenu from './overlays/PauseMenu.svelte'
+  import PauseMenu from '@src/displays/arcade/menu/PauseMenu.svelte'
   import ResultCard from './overlays/ResultCard.svelte'
   import SplashScreen from './overlays/SplashScreen.svelte'
 
-  const { host, onExit, demoStage }: GameProps = $props()
+  const { host, onExit, demoStage, region }: GameProps = $props()
 
   let screen = $state<'splash' | 'game'>('splash')
   let paused = $state(false)
@@ -129,18 +123,13 @@
   let rig: Rig | null = null
   let startedAtMs = 0
 
-  let anchor = $state<Node2D | null>(null)
+  const anchor = $derived(region.anchor)
+  const gameRect = $derived(region.rect)
   /**
-   * World depth of the booth's top-corner gesture boxes, refreshed on resize.
-   * The two chrome buttons live in the top right, which is one of them.
+   * World depth of the booth's top-corner gesture boxes. The two chrome buttons
+   * live in the top right, which is one of them.
    */
-  let cornerInset = 0
-  let gameRect = $state<Rect>({
-    x: 0,
-    y: 0,
-    width: REGION_WIDTH,
-    height: REGION_HEIGHT,
-  })
+  const cornerInset = $derived(region.cornerInset)
 
   let contentLayer: Node2D | null = null
   let pauseButton: ChromeButtonNode | null = null
@@ -626,30 +615,23 @@
   // --- Mount -------------------------------------------------------------
 
   onMount(() => {
-    const px = host.engine.renderer.pixelSize
-    const css = host.engine.renderer.cssSize
-    const view = gameVisibleRect(px.w, px.h)
-    gameRect = view
-    cornerInset = boothCornerInset(css.w, css.h)
+    const view = region.rect
 
-    // The overlays hang off this node, so the whole DOM surface rides the
-    // camera through the launcher-to-game pan.
-    const uiAnchor = new Node2D('flood-it-ui-anchor')
-    uiAnchor.transform.x = view.x
-    uiAnchor.transform.y = view.y
-    host.engine.tree.root.add(uiAnchor)
-    anchor = uiAnchor
-
-    const content = new Node2D('flood-it-content')
-    host.engine.tree.root.add(content)
-    contentLayer = content
-
+    // The backdrop gets its own layer, NOT the per-board content layer, because
+    // `teardown` empties that one wholesale. A backdrop parented there would be
+    // destroyed by the first `start()` and never come back.
+    const backdrop = new Node2D('flood-it-backdrop')
+    host.engine.tree.root.add(backdrop)
     const bg = new GradientBackgroundNode({
       rect: view,
       topLeft: COLORS.backdropTop,
       bottomRight: COLORS.backdropBottom,
     })
-    content.add(bg)
+    backdrop.add(bg)
+
+    const content = new Node2D('flood-it-content')
+    host.engine.tree.root.add(content)
+    contentLayer = content
 
     // Chrome sits above the board content whatever order boards are built in.
     const chrome = new Node2D('flood-it-chrome')
@@ -667,12 +649,7 @@
     glyphButton = glyphBtn
     layoutChrome()
 
-    const offResize = host.engine.events.on('resize', (e) => {
-      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
-      uiAnchor.transform.x = v.x
-      uiAnchor.transform.y = v.y
-      gameRect = v
-      cornerInset = boothCornerInset(e.css.w, e.css.h)
+    const offResize = region.onResize((v) => {
       bg.setRect(v)
       layoutChrome()
       layout()
@@ -682,9 +659,9 @@
       offResize()
       holds.dispose()
       teardown()
+      if (!backdrop.isDestroyed) backdrop.destroy()
       if (!content.isDestroyed) content.destroy()
       if (!chrome.isDestroyed) chrome.destroy()
-      if (!uiAnchor.isDestroyed) uiAnchor.destroy()
       contentLayer = null
       pauseButton = null
       glyphButton = null

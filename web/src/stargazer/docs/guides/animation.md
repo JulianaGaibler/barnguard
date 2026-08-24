@@ -59,6 +59,8 @@ node.playTo(ring, { width }, { duration: 0.2, key: 'ring' })
 
 Keyed starts also skip the dev-time overlap warning, since the replacement is intentional.
 
+"On the same target" is the part to watch when you call `playTo` yourself: the animator matches the key _and_ the object being interpolated, so a target allocated fresh on each call never matches its predecessor and the key does nothing. Hand it the same object every time. `Node2D.tween` and `Node3D.play` already do this for you, so `key` on a node transform behaves as written.
+
 ## Re-abortable scopes
 
 `AbortScope` is a cancellation handle that hands out a fresh signal per "epoch" and aborts the previous one when the next begins, so async code doesn't need a hand-rolled `moveGen` counter checked with `if (gen !== moveGen) return` after every `await`. Get one scoped to a node with `node.scope()` (destroying the node aborts it):
@@ -143,6 +145,15 @@ await node.tween({ alpha: 0 }, { duration: 0.3 }).catch(ignoreAbort)
 ```
 
 `ignoreAbort(err)` returns cleanly for AbortError and rethrows everything else. That's the idiomatic "the node might die mid-tween and that's fine" shape.
+
+### A destroyed node aborts, it does not error
+
+`node.wait`, `node.tweenTo`, `node.tween`, `Node3D.tween`, `CameraNode2D.animateTo` and `CameraNode3D.animateProjection` all need an engine, and they reach it through their owner. When they cannot, the rejection says which of two things went wrong:
+
+- The node is **destroyed**: `AbortError`. An async sequence that outlived its node is the same cancellation whether the node died mid-await or one step earlier, so `ignoreAbort` handles both and the sequence unwinds quietly.
+- The node was **never attached**: a plain `Error`. That is a wiring mistake, and it stays loud so it does not hide.
+
+This matters most for a sequence of several awaits with no guard between them. A gesture built from four chained tweens only checks liveness at its boundaries, so if teardown mid-gesture rejected with a plain `Error`, `ignoreAbort` would rethrow it, the rejection would go unhandled, and the whole sequence would die silently. `src/stargazer/scene/detachedAsync.test.ts` pins this for every one of those calls; a new async node API belongs in its table.
 
 ## Combining signals
 

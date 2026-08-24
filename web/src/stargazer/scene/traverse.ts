@@ -22,3 +22,20 @@ export function walkTree<N extends Node>(
     walkTree(children[i] as N, visit)
   }
 }
+
+/**
+ * Whether a node draws, accounting for its ancestors.
+ *
+ * Hiding a node hides everything under it, so a group is a working switch for
+ * its whole subtree. The render and hit walks read flattened per-layer lists
+ * rather than descending the tree, so each one has to ask rather than infer it
+ * from the walk.
+ */
+export function isEffectivelyVisible(node: Node): boolean {
+  let n: Node | null = node
+  while (n) {
+    if (!n.visible) return false
+    n = n.parent
+  }
+  return true
+}

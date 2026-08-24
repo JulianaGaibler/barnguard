@@ -21,6 +21,36 @@ export function ignoreAbort(err: unknown): void {
   throw err
 }
 
+/**
+ * The rejection for an async engine call that has no engine to run on.
+ *
+ * There are two reasons that happens and they are not the same failure. A
+ * DESTROYED owner is a cancellation: an async sequence outlived the node that
+ * scoped it, which is what teardown looks like from the inside, and every
+ * caller already unwinds that through {@link ignoreAbort}. An owner that was
+ * never attached is a wiring mistake, and going quiet about it would hide a
+ * real bug.
+ *
+ * Both used to reject with a plain `Error`, so a routine teardown surfaced as a
+ * fault and, worse, `ignoreAbort` RETHREW it. Anything awaiting a chain of
+ * these died silently at the first one.
+ *
+ * @example
+ *   if (!engine) return rejectDetached('Node.wait', this.isDestroyed)
+ *
+ * @param where Dotted name of the call, for the wiring-mistake message.
+ * @param destroyed Whether the owner has been destroyed.
+ */
+export function rejectDetached(
+  where: string,
+  destroyed: boolean,
+): Promise<never> {
+  if (destroyed) return Promise.reject(abortError())
+  return Promise.reject(
+    new Error(`${where}: not attached to an Engine (and not destroyed)`),
+  )
+}
+
 /** Result of `combineAbortSignals`, the caller MUST `dispose()` on completion. */
 export interface CombinedAbort {
   readonly signal: AbortSignal

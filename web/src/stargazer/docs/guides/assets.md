@@ -32,7 +32,7 @@ per scene.
 
 `parseSvgPaths(svgText, opts)` pulls every `<path>` out of an SVG string and
 returns a `Path2D` per key plus the source `viewBox`. Fills and strokes in the
-SVG are ignored, so colour the result at render time on the node.
+SVG are ignored, so color the result at render time on the node.
 
 Keys resolve in three steps. A `<path>` with its own `id` uses that. Otherwise
 the nearest `<g id="...">` ancestor supplies the key, and every sibling path
@@ -117,6 +117,37 @@ headless test environment behaves.
 
 Prefer paths over rasters where the art is flat vector shapes. Paths stay sharp
 at any zoom, batch with every other fill, and cost no texture memory.
+
+## A texture for a 3D material
+
+`createTexture(source, opts)` turns a canvas or an `ImageBitmap` into the
+`MaterialTexture` a `MeshNode` material takes, which is how art gets onto a mesh
+without going through a glTF file. It pairs with `rasterizeSvg`:
+
+```ts
+const face = await createTexture(await rasterizeSvg(cardSvg, { scale: 2 }))
+const card = new MeshNode(quad, {
+  lit: true,
+  pbr: true,
+  color: [1, 1, 1, 1],
+  baseColorTex: face,
+})
+```
+
+`srgb` defaults to true, which is right for base-color and emissive art. Normal,
+metallic-roughness and occlusion maps carry linear data and want `srgb: false`.
+`mipmap` defaults on, and wants turning off for alpha-MASK albedo, where
+filtered edges eat the cutout.
+
+The renderer dedupes GPU textures by `TextureImage` identity, so build one
+texture per distinct picture and share it across every mesh that draws it,
+rather than one per node.
+
+It resolves as soon as the pixels are ready to upload. From a canvas source the
+PNG re-encode that backs context-loss recovery finishes in the background, so
+the first frame never waits on it. `textureFromImageBitmap` is the synchronous
+form for a bitmap you already hold, and retains no source bytes, so a texture
+built that way does not come back after a GPU context loss.
 
 ## Bitmap masks
 

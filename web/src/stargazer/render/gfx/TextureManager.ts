@@ -36,7 +36,7 @@ export const ATLAS_TILE_SIZE = ATLAS_TILE_CORE + 2 * ATLAS_TILE_PADDING // 66
  *
  * One texel of padding only isolates a tile at level 0. At level N the gutter
  * is `1 / 2**N` texels, so neighbouring tiles average into each other and a
- * minified sprite picks up its neighbour's colour. A mipmapped atlas needs
+ * minified sprite picks up its neighbour's color. A mipmapped atlas needs
  * `2**maxLevel` texels of padding or a per-tile LOD clamp, and WebGL2 can
  * express neither per draw on a shared texture.
  *

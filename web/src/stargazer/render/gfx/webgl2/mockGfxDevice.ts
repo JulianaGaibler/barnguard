@@ -27,6 +27,7 @@ import type {
   IndexType,
   Pipeline,
   PipelineDesc,
+  DepthStencilFormat,
   RenderPassDesc,
   RenderTarget,
   RenderTargetOpts,
@@ -41,6 +42,7 @@ import type {
   UBuffer,
   VBuffer,
 } from '../GfxDevice'
+import { depthStencilFormatOf, resolveDepthStencil } from '../depthStencil'
 import { getSourceHeight, getSourceWidth } from '../imageSource'
 
 /**
@@ -132,6 +134,8 @@ export class MockGfxDevice implements GfxDevice {
   readonly textures: Texture[] = []
   /** Textures passed to `deleteTexture`, for lifetime assertions. */
   readonly deletedTextures: Texture[] = []
+  readonly deletedBuffers: VBuffer[] = []
+  readonly deletedIndexBuffers: IBuffer[] = []
   readonly renderTargets: RenderTarget[] = []
   readonly shadowArrays: ShadowArray[] = []
   readonly shadowCubes: ShadowCube[] = []
@@ -294,8 +298,8 @@ export class MockGfxDevice implements GfxDevice {
     this.#bufferBytes.set(buf, this.#lastBufferBytes)
     this.uploads.push({ buffer: buf, byteLength: len })
   }
-  deleteBuffer(_b: VBuffer): void {
-    /* noop */
+  deleteBuffer(b: VBuffer): void {
+    this.deletedBuffers.push(b)
   }
   orphanBuffer(_b: VBuffer): void {
     /* noop */
@@ -359,8 +363,8 @@ export class MockGfxDevice implements GfxDevice {
   ): void {
     this.indexUploads.push({ buffer, byteLength: src.byteLength })
   }
-  deleteIndexBuffer(_b: IBuffer): void {
-    /* noop */
+  deleteIndexBuffer(b: IBuffer): void {
+    this.deletedIndexBuffers.push(b)
   }
 
   // --- textures -------------------------------------------------------------
@@ -444,7 +448,7 @@ export class MockGfxDevice implements GfxDevice {
               height: opts.height,
             }
           : undefined,
-      hasStencil: !!opts.stencil && !opts.depth,
+      hasStencil: !!opts.stencil && !(opts.depth && opts.depthSampled),
       depthTex:
         opts.depth && opts.depthSampled
           ? {
@@ -548,17 +552,16 @@ export class MockGfxDevice implements GfxDevice {
     const pipeline = call.pipeline as MockPipeline
     const desc = pipeline.desc
     // WebGPU rejects a draw whose pipeline declares a different depth-stencil
-    // format from the pass's attachment, and a pipeline that declares none at
-    // all counts as different. Enforced here so that mismatch surfaces as a
-    // test failure rather than as a blank canvas and an uncaptured device
-    // error in the browser.
+    // format from the pass's attachment. Enforced here so that mismatch
+    // surfaces as a test failure rather than as a blank canvas and an
+    // uncaptured device error in the browser.
     if (this.#curPass) {
-      const passHasStencil = !!this.#curPass.desc.stencil
-      const pipelineHasStencil = !!desc.stencil
-      if (passHasStencil !== pipelineHasStencil) {
+      const passFormat = passDepthStencil(this.#curPass.desc)
+      const pipelineFormat = resolveDepthStencil(desc)
+      if (passFormat !== pipelineFormat) {
         throw new Error(
-          `MockGfxDevice.draw: pass ${passHasStencil ? 'has' : 'has no'} stencil attachment but pipeline ` +
-            `${pipelineHasStencil ? 'declares' : 'declares no'} stencil state (label ${desc.label ?? '<none>'})`,
+          `MockGfxDevice.draw: pass attachment is '${passFormat}' but pipeline ` +
+            `declares '${pipelineFormat}' (label ${desc.label ?? '<none>'})`,
         )
       }
     }
@@ -680,4 +683,19 @@ export class MockGfxDevice implements GfxDevice {
     this.deviceStats.bindGroupSwitches = 0
     this.deviceStats.textureBinds = 0
   }
+}
+
+/**
+ * The depth-stencil aspects a pass attaches. A pass that describes neither
+ * aspect opens without the attachment even when its target carries one, and a
+ * shadow pass writes an array layer or cube face, which is always depth-only.
+ */
+function passDepthStencil(desc: RenderPassDesc): DepthStencilFormat {
+  if (!desc.depth && !desc.stencil) return 'none'
+  const target = desc.depth?.target
+  if (target && !('renderTarget' in target)) return 'depth'
+  const rt =
+    (target && 'renderTarget' in target ? target.renderTarget : undefined) ??
+    desc.stencil?.target
+  return rt ? depthStencilFormatOf(rt) : 'none'
 }

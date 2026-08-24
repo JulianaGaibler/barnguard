@@ -13,6 +13,8 @@
  * @module assets
  */
 export { AssetLoader } from '../assets/AssetLoader'
+export { createTexture, textureFromImageBitmap } from '../assets/createTexture'
+export type { CreateTextureOptions } from '../assets/createTexture'
 export { parseSvgPaths, computePathBounds } from '../assets/SvgPathMap'
 export {
   flattenCubic,

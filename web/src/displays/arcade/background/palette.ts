@@ -136,7 +136,7 @@ export const NIGHT: SkyPalette = {
 
 /**
  * The blue hour, bridging night and sunset. A straight blend between those two
- * crosses through a desaturated grey, since all colour here is mixed in gamma
+ * crosses through a desaturated grey, since all color here is mixed in gamma
  * space. This preset holds the midpoint at a saturated periwinkle instead, with
  * a warm horizon under a deep sky.
  */

@@ -11,13 +11,7 @@
  * - {@link buildFullDemo}: a packed board runs out of moves.
  * - {@link buildGoalDemo}: tiles gather into one corner, toward 2048.
  */
-import {
-  easings,
-  ignoreAbort,
-  Node2D,
-  ShapeNode,
-  type Stage,
-} from '@src/stargazer'
+import { ignoreAbort, Node2D, type Stage } from '@src/stargazer'
 import type { DemoBuilder } from '@src/displays/arcade/tutorial/types'
 import { cellCenter, computeBoardGeom, type BoardGeom } from './layout'
 import { ArrowBarNode } from './nodes/ArrowBarNode'
@@ -26,6 +20,7 @@ import { TileLayerNode } from './nodes/TileLayerNode'
 import { indexOf, move, spawnTile } from './rules'
 import { createSpawnStream } from './spawn'
 import { ACCENT_SOLO, ANIM, COLORS } from './tuning'
+import { createFingerDot, showSwipe, showTap } from '../../common/fingerDot'
 import type { BoardState, Direction, Tile } from './types'
 
 /** Board side inside the demo card, in the stage's own world units. */
@@ -93,69 +88,6 @@ function stateFrom(rows: readonly (readonly number[])[]): BoardState {
   }
 }
 
-interface Pt {
-  x: number
-  y: number
-}
-
-const DOT_ALPHA = 0.5
-const DOT_POP_SEC = 0.22
-const DOT_TRAVEL_SEC = 0.42
-
-/**
- * A translucent dot standing in for a fingertip, as JezzBall's demos use. A dot
- * reads at card size where a hand silhouette does not, and it does not cover
- * the tiles it is moving.
- */
-function makeFingerDot(radius: number): ShapeNode {
-  const dot = new ShapeNode({
-    geometry: { kind: 'circle', radius },
-    fill: COLORS.ink,
-  })
-  dot.renderLayer = 'dynamic'
-  dot.transform.alpha = 0
-  dot.transform.scaleX = 0
-  dot.transform.scaleY = 0
-  return dot
-}
-
-/** Pop the dot in at `from`, drag it to `to`, and fade it back out. */
-async function showSwipe(dot: ShapeNode, from: Pt, to: Pt): Promise<void> {
-  dot.transform.x = from.x
-  dot.transform.y = from.y
-  dot.transform.alpha = 0
-  dot.transform.scaleX = 0
-  dot.transform.scaleY = 0
-  await dot.tween(
-    { alpha: DOT_ALPHA, scaleX: 1, scaleY: 1 },
-    { duration: DOT_POP_SEC, easing: easings.outBack },
-  )
-  await dot.tween(
-    { x: to.x, y: to.y },
-    { duration: DOT_TRAVEL_SEC, easing: easings.inOutCubic },
-  )
-  await dot.tween({ alpha: 0 }, { duration: 0.18 })
-}
-
-/** Pop the dot in at `at`, press, and fade it out. */
-async function showTap(dot: ShapeNode, at: Pt): Promise<void> {
-  dot.transform.x = at.x
-  dot.transform.y = at.y
-  dot.transform.alpha = 0
-  dot.transform.scaleX = 0
-  dot.transform.scaleY = 0
-  await dot.tween(
-    { alpha: DOT_ALPHA, scaleX: 1, scaleY: 1 },
-    { duration: DOT_POP_SEC, easing: easings.outBack },
-  )
-  await dot.tween(
-    { scaleX: 0.72, scaleY: 0.72 },
-    { duration: 0.12, easing: easings.outQuad },
-  )
-  await dot.tween({ scaleX: 1, scaleY: 1 }, { duration: 0.12 })
-  await dot.tween({ alpha: 0 }, { duration: 0.18 })
-}
-
 /** Play one move on a demo board and show it, without spawning. */
 async function step(
   board: DemoBoard,
@@ -202,7 +134,7 @@ export const GOAL_DEMO_MOVES: readonly Direction[] = ['right', 'up']
 /** Swipe to move, or tap one of the bars. */
 export const buildMoveDemo: DemoBuilder = (stage) => {
   const board = buildDemoBoard(stage, 't48-demo-move', true)
-  const dot = makeFingerDot(board.geom.cell * 0.3)
+  const dot = createFingerDot(board.geom.cell * 0.3, COLORS.ink)
   board.root.add(dot)
 
   void (async () => {

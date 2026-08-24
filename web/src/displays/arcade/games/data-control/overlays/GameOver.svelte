@@ -1,33 +1,29 @@
 <!--
   End-of-run screen: the duo-card layout from the original game, a dark loss
   card with the reason-specific failure animation on the left, and the score +
-  leaderboard entry on the right. The leaderboard flow mirrors the shared
-  `GameOverPanel` (fetch, qualify, name entry, submit-on-exit) so it behaves
-  like the other arcade games. It's inlined here rather than reused so the two
-  cards can sit side by side.
+  leaderboard entry on the right. The two cards sitting side by side is why
+  this lays itself out rather than composing `GameOverPanel`. The leaderboard
+  flow itself is the shared one, so it cannot drift from the other games.
 -->
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import { fade } from 'svelte/transition'
   import type { EngineHost } from '@src/stargazer'
   import Button from '@src/core/ui/Button.svelte'
   import OnScreenKeyboardField from '@src/core/ui/OnScreenKeyboardField.svelte'
-  import {
-    fetchLeaderboard,
-    submitScore,
-    type LeaderboardEntry,
-  } from '@src/core/leaderboard/leaderboardClient'
   import { formatScore } from '@src/displays/arcade/leaderboard/formatScore'
+  import {
+    CONTEXT_ROWS,
+    NAME_MAX_LEN,
+    NameEntry,
+  } from '@src/displays/arcade/leaderboard/nameEntry.svelte'
+  import { registerExitTask } from '@src/displays/arcade/exitTasks'
   import LeaderboardList from '../../../leaderboard/LeaderboardList.svelte'
   import { t as arcadeT } from '../../../i18n'
   import { mountGameOverStage } from '../game/gameOver/mountGameOverStage'
   import { DATA_CONTROL_STRINGS as S } from '../strings'
   import type { GameOverReason } from '../game'
-
-  const DISPLAY = 'data-control'
-  const MAX_ROWS = 50
-  const CONTEXT_ROWS = 2
-  const NAME_MAX_LEN = 6
+  import { DATA_CONTROL_BOARD_ID } from '../leaderboards'
 
   interface Props {
     reason: GameOverReason
@@ -38,7 +34,7 @@
     onPlayAgain: () => void
     onMenu: () => void
     /** Fired exactly once on exit with the entered name (or ''). */
-    onFinalize?: (name: string) => void
+    onFinalize?: (name: string) => void | Promise<unknown>
   }
   const {
     reason,
@@ -55,54 +51,26 @@
     reason === 'exitedGermany' ? S.gameOverExited : S.gameOverCollision,
   )
 
-  type Stage = 'loading' | 'unavailable' | 'closed' | 'entering'
-  let stage = $state<Stage>('loading')
-  let entries = $state<LeaderboardEntry[]>([])
-  let name = $state('')
-  let kbOpen = $state(false)
+  // The card is built at game over and the run is over, so the entry takes the
+  // values it opens with. `untrack` says that is deliberate.
+  const entry = untrack(
+    () => new NameEntry({ display: DATA_CONTROL_BOARD_ID, score, onFinalize }),
+  )
   let exiting = $state(false)
 
-  const pendingDisplay = $derived(
-    kbOpen ? name.toUpperCase().padEnd(NAME_MAX_LEN, '_') : undefined,
-  )
-
-  onMount(() => {
-    if (score <= 0) {
-      stage = 'closed'
-      return
-    }
-    fetchLeaderboard(DISPLAY, MAX_ROWS)
-      .then((list) => {
-        entries = list
-        const qualifies =
-          list.length < MAX_ROWS || score > list[MAX_ROWS - 1].score
-        stage = qualifies ? 'entering' : 'closed'
-      })
-      .catch(() => {
-        stage = 'unavailable'
-      })
+  onMount(() => entry.start())
+  // So the arcade can flush a typed-but-unconfirmed name before it tears the
+  // game down, rather than leaving it to the un-awaited unmount below.
+  onMount(() => registerExitTask(entry.save))
+  onDestroy(() => {
+    void entry.save()
   })
-
-  // Submit at most once, on whichever exit path runs first (button or the
-  // arcade-wide swipe teardown), then again from the teardown (guarded).
-  let submitted = false
-  async function saveIfNeeded(): Promise<void> {
-    if (submitted) return
-    submitted = true
-    onFinalize?.(name)
-    if (stage !== 'entering' || !name) return
-    await submitScore(DISPLAY, name, score).catch(() => {})
-  }
 
   async function exit(cb: () => void): Promise<void> {
     exiting = true
-    await saveIfNeeded()
+    await entry.save()
     cb()
   }
-
-  onDestroy(() => {
-    void saveIfNeeded()
-  })
 </script>
 
 <div class="over" transition:fade={{ duration: 240 }}>
@@ -123,18 +91,18 @@
         <span class="over__score-label">{S.score}</span>
       </div>
 
-      {#if stage === 'unavailable'}
+      {#if entry.stage === 'unavailable'}
         <p class="over__note">{$t.arcade.leaderboard.unavailable}</p>
       {/if}
 
-      {#if stage === 'entering'}
+      {#if entry.stage === 'entering'}
         <div class="over__leaderboard">
           <LeaderboardList
-            {entries}
-            pending={{ name, score, display: pendingDisplay }}
+            entries={entry.entries}
+            pending={{ name: entry.name, score, display: entry.pending }}
             pendingAction={{
-              label: name ? '' : $t.arcade.leaderboard.enterNameToSave,
-              onClick: () => (kbOpen = true),
+              label: entry.name ? '' : $t.arcade.leaderboard.enterNameToSave,
+              onClick: () => (entry.keyboardOpen = true),
             }}
             contextRows={CONTEXT_ROWS}
           />
@@ -143,10 +111,10 @@
     </section>
   </div>
 
-  {#if stage === 'entering'}
+  {#if entry.stage === 'entering'}
     <OnScreenKeyboardField
-      bind:value={name}
-      bind:open={kbOpen}
+      bind:value={entry.name}
+      bind:open={entry.keyboardOpen}
       showTrigger={false}
       maxLength={NAME_MAX_LEN}
       closeLabel={$t.arcade.leaderboard.closeKeyboard}

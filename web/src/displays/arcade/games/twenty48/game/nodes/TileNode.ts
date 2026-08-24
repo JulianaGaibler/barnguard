@@ -7,7 +7,7 @@
  *
  * Depth grows with value, which is the point of the whole treatment: a 1024
  * visibly stands taller than the 2 beside it. It is also why `TileLayerNode`
- * has to paint tiles in row order (see its header) — a tall tile's skirt
+ * has to paint tiles in row order (see its header), because a tall tile's skirt
  * reaches toward the row below it.
  */
 import {
@@ -27,7 +27,7 @@ import {
   tileInk,
   tileSkirt,
 } from '../tuning'
-import { drawSlab, faceCenterY } from './bevel'
+import { drawSlab, faceCenterY } from '../../../common/bevel'
 
 /**
  * Candidate numeral sizes as fractions of the cell, largest first.

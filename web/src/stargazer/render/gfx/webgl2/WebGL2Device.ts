@@ -1920,13 +1920,13 @@ function faceKey(f: {
 }
 
 /**
- * Whether a target reports stencil bits. A depth renderbuffer is packed
- * DEPTH24_STENCIL8 and so physically carries them, but they stay unreported
- * alongside depth to match WebGPU, where a combined attachment would mean
- * threading its format into every pipeline. See `RenderTargetOpts.stencil`.
+ * Whether a target reports stencil bits. Depth comes packed as
+ * DEPTH24_STENCIL8, so a target asking for both gets both from one
+ * renderbuffer. The sampleable-depth path is the exception: it attaches a
+ * DEPTH_COMPONENT24 texture, which has no stencil bits to report.
  */
 function rtHasStencil(opts: RenderTargetOpts): boolean {
-  return !!opts.stencil && !opts.depth
+  return !!opts.stencil && !(opts.depth && opts.depthSampled)
 }
 
 function stencilOpGl(gl: WebGL2RenderingContext, op: StencilOp): number {

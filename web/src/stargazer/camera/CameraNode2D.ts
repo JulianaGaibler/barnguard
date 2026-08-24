@@ -6,6 +6,7 @@ import type { Vec2 } from '../math/Vec2'
 import { Camera, type CameraAnimateOptions } from './Camera'
 import type { Affine2x3, CameraView2D } from './CameraView2D'
 import type { CameraHost } from './CameraHost'
+import { rejectDetached } from '../anim/abortSignal'
 
 const DEFAULT_CAMERA_VIEWPORT: Rect = { x: 0, y: 0, width: 1000, height: 1000 }
 const EPS = 1e-9
@@ -142,8 +143,15 @@ export class CameraNode2D extends Node2D implements CameraView2D {
     return this.#framingEnabled
   }
 
-  /** Tween the framing viewport (pan-and-zoom). See {@link Camera.animateTo}. */
+  /**
+   * Tween the framing viewport (pan-and-zoom). See {@link Camera.animateTo}.
+   *
+   * A destroyed camera rejects with `AbortError` rather than the bare
+   * {@link Camera}'s not-attached error: the caller is a cancelled animation,
+   * not a wiring mistake, and only this node knows the difference.
+   */
   animateTo(rect: Rect, opts?: CameraAnimateOptions): Promise<void> {
+    if (this.isDestroyed) return rejectDetached('CameraNode2D.animateTo', true)
     this.#framingEnabled = true
     this.#fit.engine = this.engine
     return this.#fit.animateTo(rect, opts)

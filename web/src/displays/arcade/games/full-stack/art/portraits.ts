@@ -13,11 +13,11 @@
 //   s  skin          S  skin in shadow / blush
 //   h  hair          H  hair in shadow
 //   c  garment       d  garment in shadow
-//   C  garment trim (second dept colour, or darker first)
+//   C  garment trim (second dept color, or darker first)
 //   w  cloth white   k  ink, for eyes
 //   a  accent        A  accent in shadow
 //
-// Shadows (H, d, A) are computed automatically by mixing the base colour toward
+// Shadows (H, d, A) are computed automatically by mixing the base color toward
 // black, so they never clash and guarantee consistent top-down lighting.
 
 import { type Card, type Group } from '../game/rules/deck'
@@ -553,7 +553,7 @@ export const PORTRAITS: Record<string, PortraitSpec> = {
   'ic-ux-mobile-manager': [4, 'braids', 'black', 'turtleneck', ['earrings']],
 }
 
-/** Mix a colour toward black (negative) or white (positive). */
+/** Mix a color toward black (negative) or white (positive). */
 const shade = (hex: string, amount: number): string => {
   const n = Number.parseInt(hex.slice(1), 16)
   const channels = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) =>
@@ -594,7 +594,7 @@ const paletteFor = (
 }
 
 /**
- * A spec drawn as a 16x16 grid of CSS colours, row-major, with `null` wherever
+ * A spec drawn as a 16x16 grid of CSS colors, row-major, with `null` wherever
  * the art is transparent. Layers paint garment first and extras last.
  */
 export function renderPortrait(
@@ -614,13 +614,13 @@ export function renderPortrait(
       const r = Number(row)
       for (let c = 0; c < PORTRAIT_SIZE; c++) {
         const glyph = glyphs[c]!
-        let colour: string | undefined
+        let color: string | undefined
 
-        if (glyph === 'a') colour = accentColor
-        else if (glyph === 'A') colour = accentShadow
-        else colour = palette[glyph]
+        if (glyph === 'a') color = accentColor
+        else if (glyph === 'A') color = accentShadow
+        else color = palette[glyph]
 
-        if (colour) grid[r]![c] = colour
+        if (color) grid[r]![c] = color
       }
     }
   }
@@ -643,7 +643,7 @@ export function portraitPixels(card: Card): (string | null)[][] {
   return renderPortrait(spec, card.groups)
 }
 
-/** One horizontal run of same-coloured pixels in a portrait row. */
+/** One horizontal run of same-colored pixels in a portrait row. */
 export interface PortraitRun {
   /** Row index, 0..15. */
   row: number

@@ -29,7 +29,9 @@ export default ts.config(
   // svelte
   ...svelte.configs['flat/recommended'],
   {
-    files: ['**/*.svelte'],
+    // `.svelte.ts` modules hold runes, so they go through the same parser pair
+    // as components: the svelte parser, with TypeScript underneath.
+    files: ['**/*.svelte', '**/*.svelte.ts'],
     languageOptions: {
       parserOptions: {
         extraFileExtensions: ['.svelte'],

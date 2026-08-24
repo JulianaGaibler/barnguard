@@ -149,7 +149,7 @@ export class TileLayerNode extends Node2D {
 
   /**
    * Every tile pops in a wave rolling out from `from`, for the goal moment. One
-   * ring on one cell is what a milestone looks like; reaching 2048 should
+   * ring on one cell is what a milestone looks like, and reaching 2048 should
    * visibly move the whole board.
    */
   cascade(state: BoardState, from: number): void {

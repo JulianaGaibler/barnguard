@@ -20,6 +20,7 @@ import {
 } from './Camera3D'
 import type { CameraView3D } from './CameraView3D'
 import type { CameraHost } from './CameraHost'
+import { rejectDetached } from '../anim/abortSignal'
 
 /**
  * A 3D camera as a scene-tree node. Its view is the inverse of the node's world
@@ -124,9 +125,8 @@ export class CameraNode3D extends Node3D implements CameraView3D {
   ): Promise<void> {
     const engine = this.engine
     if (!engine) {
-      throw new Error(
-        'CameraNode3D.animateProjection: camera is not attached to an Engine',
-      )
+      await rejectDetached('CameraNode3D.animateProjection', this.isDestroyed)
+      return
     }
     const scratch = { t: this.projectionness }
     await engine.animation.tween(

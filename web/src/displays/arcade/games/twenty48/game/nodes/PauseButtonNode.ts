@@ -1,7 +1,7 @@
 /** The in-game pause toggle: the same slab as everything else, at HUD scale. */
 import { ButtonBehavior, mixColor, Node2D, type Gfx2D } from '@src/stargazer'
 import { BEVEL, COLORS } from '../tuning'
-import { drawSlab } from './bevel'
+import { drawSlab } from '../../../common/bevel'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
 
 const SIZE = 52

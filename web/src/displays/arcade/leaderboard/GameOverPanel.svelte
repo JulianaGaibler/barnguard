@@ -1,27 +1,20 @@
 <!-- Reusable end-of-run shell: a game supplies its own score display via the
-     `scoreDisplay` snippet. This owns the card/scrim chrome, the leaderboard
-     entry flow, and the exit buttons. The name field stays editable for as
-     long as the panel is open. The score is only submitted at the moment
-     the player leaves (Play again / Main menu), and only if a name was
-     entered by then. -->
+     `scoreDisplay` snippet. This owns the card/scrim chrome and the exit
+     buttons, and hands the leaderboard flow to `NameEntry`. The name field
+     stays editable for as long as the panel is open. The score is only
+     submitted once the panel goes away, and only if a name was entered by
+     then. -->
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import type { Snippet } from 'svelte'
   import { fade, scale } from 'svelte/transition'
   import Button from '@src/core/ui/Button.svelte'
   import Surface from '@src/core/ui/Surface.svelte'
   import OnScreenKeyboardField from '@src/core/ui/OnScreenKeyboardField.svelte'
-  import {
-    fetchLeaderboard,
-    submitScore,
-    type LeaderboardEntry,
-  } from '@src/core/leaderboard/leaderboardClient'
+  import { registerExitTask } from '../exitTasks'
   import { t } from '../i18n'
   import LeaderboardList from './LeaderboardList.svelte'
-
-  const MAX_ROWS = 50
-  const CONTEXT_ROWS = 2
-  const NAME_MAX_LEN = 6
+  import { CONTEXT_ROWS, NAME_MAX_LEN, NameEntry } from './nameEntry.svelte'
 
   interface Props {
     display: string
@@ -33,13 +26,14 @@
     onPlayAgain: () => void
     onMenu: () => void
     /**
-     * Fired exactly once, whenever the panel is about to go away (a button, or
-     * the arcade-wide swipe escape tearing it down), with whatever name was
-     * typed, or `''` if the player never opened the keyboard. Lets the caller
-     * attach the name to its own game-log record, which it can only finalize
-     * once name entry either happens or is skipped.
+     * Fired exactly once, whenever the panel is about to go away (a button, the
+     * arcade-wide swipe escape, or the idle reset tearing it down), with
+     * whatever name was typed, or `''` if the player never opened the keyboard.
+     * Lets the caller attach the name to its own game-log record, which it can
+     * only finalize once name entry either happens or is skipped. Return that
+     * write to have it waited on alongside the score.
      */
-    onFinalize?: (name: string) => void
+    onFinalize?: (name: string) => void | Promise<unknown>
     /** Game-specific score presentation, rendered at the top of the card. */
     scoreDisplay: Snippet
   }
@@ -52,58 +46,24 @@
     scoreDisplay,
   }: Props = $props()
 
-  type Stage = 'loading' | 'unavailable' | 'closed' | 'entering'
-  let stage = $state<Stage>('loading')
-  let entries = $state<LeaderboardEntry[]>([])
-  let name = $state('')
-  let kbOpen = $state(false)
+  // The card is built at game over and the run is over, so the entry takes the
+  // values it opens with. `untrack` says that is deliberate.
+  const entry = untrack(() => new NameEntry({ display, score, onFinalize }))
   let exiting = $state(false)
 
-  // While the keyboard is open, spell out every letter slot ("YAI__") so
-  // typing progress reads clearly. Closed, it's just the plain name.
-  const pendingDisplay = $derived(
-    kbOpen ? name.toUpperCase().padEnd(NAME_MAX_LEN, '_') : undefined,
-  )
-
-  onMount(() => {
-    if (score === undefined || score <= 0) {
-      stage = 'closed'
-      return
-    }
-    fetchLeaderboard(display, MAX_ROWS)
-      .then((list) => {
-        entries = list
-        const qualifies =
-          list.length < MAX_ROWS || score > list[MAX_ROWS - 1].score
-        stage = qualifies ? 'entering' : 'closed'
-      })
-      .catch(() => {
-        stage = 'unavailable'
-      })
+  onMount(() => entry.start())
+  // So the arcade can flush a typed-but-unconfirmed name before it tears the
+  // game down, rather than leaving it to the un-awaited unmount below.
+  onMount(() => registerExitTask(entry.save))
+  onDestroy(() => {
+    void entry.save()
   })
-
-  // Guards against submitting twice: once from whichever exit path runs
-  // first (a button, or the arcade-wide "return to launcher" swipe gesture
-  // tearing this down without going through either button), and once more
-  // from the teardown that follows it.
-  let submitted = false
-  async function saveIfNeeded(): Promise<void> {
-    if (submitted) return
-    submitted = true
-    onFinalize?.(name)
-    if (stage !== 'entering' || !name || score === undefined) return
-    await submitScore(display, name, score).catch(() => {})
-  }
 
   async function exit(cb: () => void): Promise<void> {
     exiting = true
-    await saveIfNeeded()
+    await entry.save()
     cb()
   }
-
-  onDestroy(() => {
-    saveIfNeeded()
-  })
 </script>
 
 <div class="over" transition:fade={{ duration: 180 }}>
@@ -112,31 +72,35 @@
       <div class="over__body">
         {@render scoreDisplay()}
 
-        {#if stage === 'unavailable'}
+        {#if entry.stage === 'unavailable'}
           <p class="over__note">{$t.arcade.leaderboard.unavailable}</p>
         {/if}
 
-        {#if stage === 'entering'}
+        {#if entry.stage === 'entering'}
           <div class="over__leaderboard">
             <LeaderboardList
-              {entries}
-              pending={{ name, score: score ?? 0, display: pendingDisplay }}
+              entries={entry.entries}
+              pending={{
+                name: entry.name,
+                score: score ?? 0,
+                display: entry.pending,
+              }}
               pendingAction={{
-                label: name ? '' : $t.arcade.leaderboard.enterNameToSave,
-                onClick: () => (kbOpen = true),
+                label: entry.name ? '' : $t.arcade.leaderboard.enterNameToSave,
+                onClick: () => (entry.keyboardOpen = true),
               }}
               contextRows={CONTEXT_ROWS}
             />
             <OnScreenKeyboardField
-              bind:value={name}
-              bind:open={kbOpen}
+              bind:value={entry.name}
+              bind:open={entry.keyboardOpen}
               showTrigger={false}
               maxLength={NAME_MAX_LEN}
               closeLabel={$t.arcade.leaderboard.closeKeyboard}
             />
             <p class="over__hint">
-              {name
-                ? $t.arcade.leaderboard.willBeSavedAs(name.toUpperCase())
+              {entry.name
+                ? $t.arcade.leaderboard.willBeSavedAs(entry.name.toUpperCase())
                 : $t.arcade.leaderboard.wontBeSaved}
             </p>
           </div>

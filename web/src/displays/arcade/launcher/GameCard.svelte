@@ -1,7 +1,10 @@
 <script lang="ts">
   import { t } from '@src/displays/arcade/i18n'
   import { formatPlayerCounts } from './playerCounts'
-  import type { GameModule } from '@src/displays/arcade/games/GameModule'
+  import {
+    primaryBoard,
+    type GameModule,
+  } from '@src/displays/arcade/games/GameModule'
   import LeaderboardIcon from '@src/displays/arcade/leaderboard/LeaderboardIcon.svelte'
   import { formatScore } from '@src/displays/arcade/leaderboard/formatScore'
   import type { LeaderboardEntry } from '@src/core/leaderboard/leaderboardClient'
@@ -41,7 +44,7 @@
   <div class="game-card__body">
     <div class="game-card__heading">
       <h2 class="game-card__title">{game.meta.title}</h2>
-      {#if game.meta.supportsLeaderboard}
+      {#if primaryBoard(game.meta)}
         <div
           class="game-card__badge-frame"
           class:game-card__badge-frame--hidden={!topEntry}

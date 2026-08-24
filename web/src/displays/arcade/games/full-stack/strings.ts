@@ -1,8 +1,8 @@
 /**
- * Every player-visible string for Full Stack.
- *
- * Games in the arcade are self-contained and do not read the display locale
- * store, so the copy lives here rather than in `src/i18n`.
+ * Every string Full Stack shows that is about Full Stack. Copy that is about
+ * the arcade shell rather than this game (Paused, Resume, How to play, Return
+ * to Launcher) comes from `displays/arcade/i18n` instead, so every game says it
+ * the same way.
  */
 export const FS_STRINGS = {
   title: 'Full Stack',
@@ -14,13 +14,6 @@ export const FS_STRINGS = {
   medium: 'Manager',
   hard: 'Executive',
   back: 'Back',
-  howToPlay: 'How to Play',
-  returnToLauncher: 'Return to Launcher',
-  resume: 'Resume',
-  quit: 'Quit to Menu',
-  paused: 'Paused',
-  playAgain: 'Play Again',
-  menu: 'Menu',
   chooseOne: 'Pick one',
   cancel: 'Cancel',
   close: 'Close',

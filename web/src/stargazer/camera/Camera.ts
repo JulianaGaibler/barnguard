@@ -3,6 +3,7 @@ import type { Vec2 } from '../math/Vec2'
 import type { Engine } from '../engine/Engine'
 import type { Easing } from '../math/easings'
 import type { Affine2x3, CameraView2D } from './CameraView2D'
+import { rejectDetached } from '../anim/abortSignal'
 
 /**
  * Uniform aspect-preserving screen transform. All three fields are in CSS pixel
@@ -283,9 +284,10 @@ export class Camera implements CameraView2D {
   ): Promise<void> {
     const engine = this.engine
     if (!engine) {
-      throw new Error(
-        'Camera.animateTo: this camera is not attached to an Engine',
-      )
+      // A bare camera has no owner that could have been destroyed, so this is
+      // always a wiring mistake. The node wrappers handle the cancelled case.
+      await rejectDetached('Camera.animateTo', false)
+      return
     }
     const scratch = {
       x: this.viewport.x,

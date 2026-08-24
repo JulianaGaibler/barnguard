@@ -1,14 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Node2D, domAnchor, type Rect } from '@src/stargazer'
-  import {
-    boothCornerInset,
-    coverView,
-    gameVisibleRect,
-    worldPerCssPx,
-    REGION_WIDTH,
-    REGION_HEIGHT,
-  } from '../../world'
+  import { coverView, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import type { GameProps } from '../GameModule'
   import { BoardSession, type SessionState } from './game/session'
   import { Match } from './game/match'
@@ -19,7 +12,7 @@
     sideMargins,
   } from './game/layout'
   import type { Bounds, TextSegment } from './game/types'
-  import { BackdropNode } from './game/nodes/BackdropNode'
+  import { FlatBackgroundNode } from '../common/FlatBackgroundNode'
   import { ChromeNode, CHROME_TOP_ROW_END_PX } from './game/nodes/ChromeNode'
   import { HeartsNode } from './game/nodes/HeartsNode'
   import { BadgeNode } from './game/nodes/BadgeNode'
@@ -37,12 +30,13 @@
   import { buildJezzballMenuPreview } from './game/menuPreview'
   import LeaderboardModal from '../../leaderboard/LeaderboardModal.svelte'
   import SplashScreen from './overlays/SplashScreen.svelte'
-  import PauseMenu from './overlays/PauseMenu.svelte'
+  import PauseMenu from '@src/displays/arcade/menu/PauseMenu.svelte'
   import GameOver from './overlays/GameOver.svelte'
   import GameOverVersus from './overlays/GameOverVersus.svelte'
   import { recordArcadeGame } from '../../game-log'
+  import { JEZZBALL_LEADERBOARDS } from './leaderboards'
 
-  const { host, onExit, demoStage }: GameProps = $props()
+  const { host, onExit, demoStage, region }: GameProps = $props()
 
   let showTutorial = $state(false)
   let showLeaderboard = $state(false)
@@ -106,11 +100,11 @@
     Parameters<typeof recordArcadeGame>[0],
     'playerName'
   > | null = null
-  function finalizeGameLog(name: string): void {
-    if (!pendingLog) return
+  function finalizeGameLog(name: string): Promise<unknown> {
+    if (!pendingLog) return Promise.resolve()
     const log = pendingLog
     pendingLog = null
-    recordArcadeGame({ ...log, playerName: name || undefined }).catch(
+    return recordArcadeGame({ ...log, playerName: name || undefined }).catch(
       (e: unknown) => {
         console.warn('[jezzball] failed to record game to server', e)
       },
@@ -122,9 +116,12 @@
    * and entered name, sharing the match's winner/duration), mirroring how solo
    * logs one record per played game. Fired once on exit by the overlay.
    */
-  function finalizeVersusLog(names: { a: string; b: string }): void {
+  function finalizeVersusLog(names: {
+    a: string
+    b: string
+  }): Promise<unknown> {
     const r = versusResult
-    if (!r) return
+    if (!r) return Promise.resolve()
     const durationMs = Math.round(performance.now() - gameStartMs)
     const winner =
       r.winner === 0 ? 'tie' : r.winner === 1 ? 'player1' : 'player2'
@@ -136,26 +133,24 @@
     } as const
     const warn = (e: unknown): void =>
       console.warn('[jezzball] failed to record game to server', e)
-    recordArcadeGame({
-      ...base,
-      score: r.pointsA,
-      playerName: names.a || undefined,
-    }).catch(warn)
-    recordArcadeGame({
-      ...base,
-      score: r.pointsB,
-      playerName: names.b || undefined,
-    }).catch(warn)
+    return Promise.all([
+      recordArcadeGame({
+        ...base,
+        score: r.pointsA,
+        playerName: names.a || undefined,
+      }).catch(warn),
+      recordArcadeGame({
+        ...base,
+        score: r.pointsB,
+        playerName: names.b || undefined,
+      }).catch(warn),
+    ])
   }
 
   // Node the overlays are pinned to, so the whole surface rides the camera.
-  let anchor = $state<Node2D | null>(null)
-  let gameRect = $state<Rect>({
-    x: 0,
-    y: 0,
-    width: REGION_WIDTH,
-    height: REGION_HEIGHT,
-  })
+  const anchor = $derived(region.anchor)
+  const gameRect = $derived(region.rect)
+  const cornerInset = $derived(region.cornerInset)
 
   /**
    * Cover rect for the menu preview: the whole visible area at the fixed region
@@ -196,10 +191,6 @@
   // Persistent HUD node, created once in `onMount` and live for the whole
   // component (shown/hidden rather than rebuilt).
   let pauseButtonNode: PauseButtonNode | null = null
-  /** Canvas CSS size, for converting fixed on-screen sizes to world units. */
-  let cssSize = { w: REGION_WIDTH, h: REGION_HEIGHT }
-  /** World depth of the booth's top-corner gesture boxes, refreshed on resize. */
-  let cornerInset = 0
 
   // Board content (backdrop + every session's HUD) lives under this node, so
   // it always paints under `chromeLayer` (pause button, frame chrome) below
@@ -250,7 +241,7 @@
     // the booth's corner gesture, which swallows the event before the scene
     // sees it. The marks are sized in CSS px and so have to be converted, or
     // this tracks them only at the region's design size.
-    const marksEnd = CHROME_TOP_ROW_END_PX * worldPerCssPx(cssSize.w, cssSize.h)
+    const marksEnd = CHROME_TOP_ROW_END_PX * region.cssPxInWorld
     const margin = marksEnd * 0.5
     btn.transform.x = view.x + view.width - margin - PauseButtonNode.size
     btn.transform.y = view.y + Math.max(marksEnd, cornerInset) + margin
@@ -732,23 +723,7 @@
   }
 
   onMount(() => {
-    const px = host.engine.renderer.pixelSize
-    const view = gameVisibleRect(px.w, px.h)
-    cssSize = { ...host.engine.renderer.cssSize }
-    cornerInset = boothCornerInset(cssSize.w, cssSize.h)
-
-    const uiAnchor = new Node2D('jezzball-ui-anchor')
-    uiAnchor.transform.x = view.x
-    uiAnchor.transform.y = view.y
-    uiAnchor.debugBounds = {
-      x: 0,
-      y: 0,
-      width: view.width,
-      height: view.height,
-    }
-    host.engine.tree.root.add(uiAnchor)
-    anchor = uiAnchor
-    gameRect = view
+    const view = region.rect
 
     // Board content: the backdrop plus every session's HUD (added later, as
     // sessions start/restart). A dedicated container so it's always a single,
@@ -760,7 +735,7 @@
     host.engine.tree.root.add(content)
     contentLayer = content
 
-    const bd = new BackdropNode(view)
+    const bd = new FlatBackgroundNode({ rect: view, color: COLORS.background })
     content.add(bd)
 
     // Always-on-top chrome: the pause toggle and the decorative frame.
@@ -781,13 +756,7 @@
     chromeLayer.add(pauseBtn)
     pauseButtonNode = pauseBtn
 
-    const offResize = host.engine.events.on('resize', (e) => {
-      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
-      uiAnchor.transform.x = v.x
-      uiAnchor.transform.y = v.y
-      gameRect = v
-      cssSize = { w: e.css.w, h: e.css.h }
-      cornerInset = boothCornerInset(e.css.w, e.css.h)
+    const offResize = region.onResize((v) => {
       bd.setRect(v)
       chrome.setRect(v)
       placePause(pauseBtn, v)
@@ -800,7 +769,6 @@
       teardownGame()
       if (!content.isDestroyed) content.destroy()
       if (!chromeLayer.isDestroyed) chromeLayer.destroy()
-      if (!uiAnchor.isDestroyed) uiAnchor.destroy()
       contentLayer = null
     }
   })
@@ -856,7 +824,7 @@
 
       {#if showLeaderboard}
         <LeaderboardModal
-          display="jezzball"
+          boards={JEZZBALL_LEADERBOARDS}
           onClose={() => (showLeaderboard = false)}
         />
       {/if}

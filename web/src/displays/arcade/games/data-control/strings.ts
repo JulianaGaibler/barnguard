@@ -1,26 +1,17 @@
 import type { StateId } from './game/data/states'
 
 /**
- * English copy for Data Control. Self-contained plain object the components
- * import directly (the game doesn't depend on the arcade locale store).
+ * English copy for Data Control, a plain object the components import directly.
+ * Copy that is about the arcade shell rather than this game (Paused, Resume,
+ * How to play, Return to Launcher) comes from `displays/arcade/i18n` instead,
+ * so every game says it the same way.
  */
 export const DATA_CONTROL_STRINGS = {
   title: 'DATA CONTROL',
-  tagline: 'Route the data home. Keep control.',
-  loading: 'Loading map…',
   play: 'Play',
-  howToPlay: 'How to Play',
-  openLeaderboard: 'Leaderboard',
-  returnToLauncher: 'Return to Launcher',
-  paused: 'Paused',
-  resume: 'Resume',
-  quit: 'Quit',
-  playAgain: 'Play again',
-  menu: 'Menu',
   gameOver: 'Data lost',
   score: 'Score',
   /** Bottom-corner prompt shown on the idle map. */
-  idleHint: 'Choose a state',
   /** Confirm-card call to action. */
   start: 'Start',
   gameOverExited: 'The data left Germany.',

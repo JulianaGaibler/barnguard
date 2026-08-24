@@ -79,7 +79,7 @@ export class ButtonNode extends Node2D {
    * Draw `icon` centred instead of a label.
    *
    * A checked icon button fills with the accent and swaps to the light weight,
-   * where a labelled one draws a checkbox. Artwork takes no colour from
+   * where a labelled one draws a checkbox. Artwork takes no color from
    * `drawImage`, so the two states are two files.
    */
   setIcon(icon: IconId | null, whenChecked = icon): void {

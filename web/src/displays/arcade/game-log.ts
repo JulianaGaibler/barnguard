@@ -4,9 +4,9 @@
  * `display: 'arcade'` discriminator, so consumers inside the display can read
  * fields with real types (rather than the `unknown` bag core exposes).
  *
- * The arcade hosts five games with incompatible scoring scales (Jezzball's
- * points vs. Connect Four's/Orbo's round-win streaks vs. Data Control's timer),
- * so high scores are grouped per `gameId` rather than tracked as a single
+ * The arcade's games have incompatible scoring scales (JezzBall's points vs.
+ * Connect Four's and Orbo's round-win streaks vs. Data Control's timer), so
+ * high scores are grouped per `gameId` rather than tracked as a single
  * arcade-wide "overall". See `ArcadeHighScores`.
  */
 

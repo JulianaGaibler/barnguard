@@ -18,7 +18,11 @@ import { RenderQuality } from '../RenderQuality'
  * these run the same `device.ndc`-driven branches the live devices do.
  */
 
-const TARGET = { format: 'linear' as const, samples: 1 }
+const TARGET = {
+  format: 'linear' as const,
+  samples: 1,
+  depthStencil: 'depth' as const,
+}
 const SHADOW_FRAME_BYTES = 272
 
 async function untilReady(r: MeshRenderer): Promise<void> {

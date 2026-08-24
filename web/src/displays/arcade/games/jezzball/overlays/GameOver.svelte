@@ -5,6 +5,7 @@
   import ScoreFrame from './ScoreFrame.svelte'
   import { ACCENT_SOLO } from '../game/tuning'
   import type { TextSegment } from '../game/types'
+  import { JEZZBALL_BOARD_ID } from '../leaderboards'
 
   interface Props {
     /** 2p match-result title (winner/tie). Unused for solo, pass `[]`. */
@@ -16,7 +17,7 @@
     onPlayAgain: () => void
     onMenu: () => void
     /** Passed straight through to `GameOverPanel`. See its own doc comment. */
-    onFinalize?: (name: string) => void
+    onFinalize?: (name: string) => void | Promise<unknown>
   }
   const {
     title,
@@ -29,7 +30,7 @@
 </script>
 
 <GameOverPanel
-  display="jezzball"
+  display={JEZZBALL_BOARD_ID}
   score={leaderboardScore}
   {onPlayAgain}
   {onMenu}

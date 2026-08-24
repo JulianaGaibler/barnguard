@@ -117,8 +117,14 @@ export class InputSystem {
    * NDC (full-canvas, since the 3D camera fills the canvas unlike the
    * letterboxed 2D camera), cast a ray, and return the nearest hit-enabled
    * mesh, or `null`.
+   *
+   * Public because a pointer is captured by whatever it went down on, so `up`
+   * arrives there wherever the release actually landed. A control that must not
+   * fire when the press is dragged off it has to ask again, and asking here is
+   * what keeps that answer identical to the one that started the press,
+   * including under the debug fly camera.
    */
-  #pick3d(sx: number, sy: number): PointerTarget | null {
+  pick3D(sx: number, sy: number): PointerTarget | null {
     if (!this.#stage.tree.has3D) return null
     const cssW = this.#stage.renderer.cssSize.w
     const cssH = this.#stage.renderer.cssSize.h
@@ -266,7 +272,7 @@ export class InputSystem {
         world.x,
         world.y,
         this.touchSlopWorld,
-      ) ?? this.#pick3d(screen.x, screen.y)
+      ) ?? this.pick3D(screen.x, screen.y)
     if (hit) {
       record.capturedBy = hit
       // If the node dies while capturing, synthesise cancel + release.

@@ -59,7 +59,7 @@ struct PbrObject {
   matParams0: vec4<f32>,      // metallic, roughness, occlusionStrength, normalScale
   matParams1: vec4<f32>,      // alphaCutoff, diffuseTransmission, hasTangent, alphaMode
   hasTex0: vec4<f32>,         // hasBaseColor, hasMetalRough, hasNormal, hasOcclusion
-  hasTex1: vec4<f32>,         // hasEmissive, hasDiffTrans, _, _
+  hasTex1: vec4<f32>,         // hasEmissive, hasDiffTrans, toonSteps, _
 };
 @group(1) @binding(5) var<uniform> obj: PbrObject;
 
@@ -172,6 +172,14 @@ fn distributionGGX(NdotH: f32, rough: f32) -> f32 {
 
 fn geometrySchlickGGX(NdotX: f32, k: f32) -> f32 {
   return NdotX / (NdotX * (1.0 - k) + k);
+}
+
+// Quantize a 0..1 lighting term into `steps` constant bands, for artwork drawn
+// in flat color. Rounding to band CENTRES keeps the lit end from clipping to
+// pure white and the dark end from crushing to the ambient floor, so the form
+// still reads at low step counts.
+fn toonQuantize(x: f32, steps: f32) -> f32 {
+  return (floor(clamp(x, 0.0, 1.0) * steps - 0.5) + 1.0) / steps;
 }
 
 fn geometrySmith(NdotV: f32, NdotL: f32, rough: f32) -> f32 {
@@ -366,6 +374,14 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
     }
     let radiance = lights.lightColor[i].xyz * atten * shadowVisibility(i, L, in.worldPos, in.normal);
     let NdotL = max(dot(N, L), 0.0);
+    // Only the diffuse wrap is banded. A quantized specular highlight reads as
+    // an artifact rather than a style, and the geometric terms below still want
+    // the true angle.
+    let toonSteps = obj.hasTex1.z;
+    var diffuseWrap = NdotL;
+    if (toonSteps >= 2.0) {
+      diffuseWrap = toonQuantize(NdotL, toonSteps);
+    }
     let H = normalize(V + L);
     let NdotH = max(dot(N, H), 0.0);
     let NDF = distributionGGX(NdotH, roughness);
@@ -374,7 +390,8 @@ fn fs_main(in: VOut, @builtin(front_facing) frontFacing: bool) -> @location(0) v
     let spec = (NDF * G * F) / max(4.0 * NdotV * NdotL, 1e-4);
     let kd = (vec3<f32>(1.0) - F) * (1.0 - metallic);
     // AO on the diffuse lobe only (via aoDirect). Specular is left untouched.
-    Lo = Lo + (kd * diffuseColor / PI * aoDirect + spec) * radiance * NdotL;
+    Lo = Lo + kd * diffuseColor / PI * aoDirect * radiance * diffuseWrap
+            + spec * radiance * NdotL;
     if (diffuseTransmission > 0.0) {
       var tcol = diffuseColor;
       if (obj.hasTex1.y > 0.5) {

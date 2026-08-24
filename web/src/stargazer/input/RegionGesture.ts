@@ -17,16 +17,17 @@ export interface RegionGestureOptions {
   enabled?: () => boolean
   /**
    * Track only the first accepted press, ignoring other pointers until it
-   * releases. Default `true`. Set `false` for a multi-touch region.
+   * releases. Default `true`. Set `false` for a multi-touch region, which then
+   * follows every pointer that lands on it.
    */
   singlePointer?: boolean
   /** Fires on an accepted press (passed `hitTest` and `enabled`). */
   down?: (e: PointerEvent2D) => void
-  /** Fires on move for the tracked pointer. */
+  /** Fires on move for a pointer this binding accepted. */
   move?: (e: PointerEvent2D) => void
-  /** Fires on release for the tracked pointer. */
+  /** Fires on release for a pointer this binding accepted. */
   up?: (e: PointerEvent2D) => void
-  /** Fires on cancel for the tracked pointer. */
+  /** Fires on cancel for a pointer this binding accepted. */
   cancel?: (e: PointerEvent2D) => void
   /**
    * Fires on a press rejected by `hitTest` or `enabled`, a hook for "tap
@@ -37,8 +38,8 @@ export interface RegionGestureOptions {
 }
 
 /**
- * Bind a single-pointer gesture to a region of the stage, over the engine's
- * primary pointer stream. Wraps the raw
+ * Bind a gesture to a region of the stage, over the engine's primary pointer
+ * stream. Wraps the raw
  * `engine.events.on('pointerDown'|'pointerMove'|'pointerUp'|'pointerCancel')`
  * pattern (active-pointer tracking, a hit-region test, and a state gate) that
  * sessions otherwise hand-roll across four handlers. Returns an unsubscribe.
@@ -58,10 +59,19 @@ export function bindRegionGesture(
   opts: RegionGestureOptions,
 ): () => void {
   const singlePointer = opts.singlePointer ?? true
-  let activeId: number | null = null
+  /**
+   * The pointers this binding accepted on `down`.
+   *
+   * A set rather than one id, so a multi-touch region can follow every finger
+   * it took while still turning away the ones it did not. The pointer stream is
+   * the whole stage's: without this, a `singlePointer: false` binding would see
+   * `move` and `up` for fingers that landed on another region entirely, having
+   * never been offered their `down`.
+   */
+  const held = new Set<number>()
 
   const offDown = engine.events.on('pointerDown', (e) => {
-    if (singlePointer && activeId !== null) return
+    if (singlePointer && held.size > 0) return
     if (opts.enabled && !opts.enabled()) {
       opts.onReject?.(e)
       return
@@ -70,25 +80,18 @@ export function bindRegionGesture(
       opts.onReject?.(e)
       return
     }
-    activeId = e.pointer.id
+    held.add(e.pointer.id)
     opts.down?.(e)
   })
 
-  const tracked = (e: PointerEvent2D): boolean =>
-    !singlePointer || e.pointer.id === activeId
-
   const offMove = engine.events.on('pointerMove', (e) => {
-    if (tracked(e)) opts.move?.(e)
+    if (held.has(e.pointer.id)) opts.move?.(e)
   })
   const offUp = engine.events.on('pointerUp', (e) => {
-    if (!tracked(e)) return
-    if (e.pointer.id === activeId) activeId = null
-    opts.up?.(e)
+    if (held.delete(e.pointer.id)) opts.up?.(e)
   })
   const offCancel = engine.events.on('pointerCancel', (e) => {
-    if (!tracked(e)) return
-    if (e.pointer.id === activeId) activeId = null
-    opts.cancel?.(e)
+    if (held.delete(e.pointer.id)) opts.cancel?.(e)
   })
 
   return () => {

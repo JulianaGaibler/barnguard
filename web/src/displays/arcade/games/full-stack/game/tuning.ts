@@ -86,7 +86,7 @@ export const AI_PROFILES: Record<Difficulty, SearchConfig> = {
 export const AI_SLICE_MS = 5
 
 /**
- * Canvas colours. Literal hex only: the canvas parser accepts hex and
+ * Canvas colors. Literal hex only: the canvas parser accepts hex and
  * rgb()/rgba() and silently paints anything else black. These mirror the
  * designed card art. The DOM chrome duplicates the matching roles in `meta.ts`,
  * which is the established split.
@@ -140,7 +140,7 @@ export const COLORS = {
   pressed: '#00000014',
   disabledText: '#b3ada2',
   /**
-   * Board colour at 55%, laid over a whole card to fade it back. The effect it
+   * Board color at 55%, laid over a whole card to fade it back. The effect it
    * stands in for is the card drawn at 45% over the table, so the veil takes
    * `board`, which sits between the two backdrop stops and so is within a level
    * or two of the table wherever a card lands on it.
@@ -153,8 +153,8 @@ export const COLORS = {
 } as const
 
 /**
- * Per-department colours, read straight out of the icon SVGs: `ink` is the
- * badge ring, `fill` the badge disc, `panel` the art-panel tint. Leadership,
+ * Per-department colors, read straight out of the icon SVGs: `ink` is the badge
+ * ring, `fill` the badge disc, `panel` the art-panel tint. Leadership,
  * engineering and design panels come from the reference cards. The other three
  * are matched by hand (research and design deliberately differ despite a shared
  * badge fill, told apart by ink and glyph).

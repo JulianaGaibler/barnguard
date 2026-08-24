@@ -1,7 +1,7 @@
 import type {
   BindGroup,
   BindGroupLayout,
-  ColorFormat,
+  TargetFormat,
   GfxDevice,
   Pipeline,
   ShaderModule,
@@ -40,7 +40,7 @@ const LOC_COLOR = 1
  */
 export class DebugLine3DRenderer {
   readonly #device: GfxDevice
-  readonly #targetColor: { format: ColorFormat; samples: number }
+  readonly #targetColor: TargetFormat
   #shader!: ShaderModule
   #occludedPipeline!: Pipeline
   #overlayPipeline!: Pipeline
@@ -61,7 +61,7 @@ export class DebugLine3DRenderer {
 
   constructor(
     device: GfxDevice,
-    targetColor: { format: ColorFormat; samples: number },
+    targetColor: TargetFormat,
     initialVerts = 4096,
   ) {
     this.#device = device
@@ -121,14 +121,16 @@ export class DebugLine3DRenderer {
    * count matches the resized target. No-op when unchanged. `ready` drops until
    * the async re-warm finishes, so `flush` skips the pass in the meantime.
    */
-  retarget(targetColor: { format: ColorFormat; samples: number }): void {
+  retarget(targetColor: TargetFormat): void {
     if (
       this.#targetColor.format === targetColor.format &&
-      this.#targetColor.samples === targetColor.samples
+      this.#targetColor.samples === targetColor.samples &&
+      this.#targetColor.depthStencil === targetColor.depthStencil
     )
       return
     this.#targetColor.format = targetColor.format
     this.#targetColor.samples = targetColor.samples
+    this.#targetColor.depthStencil = targetColor.depthStencil
     void this.#warmup()
   }
 
@@ -143,6 +145,10 @@ export class DebugLine3DRenderer {
         format: this.#targetColor.format,
         blend: 'source-over' as const,
       },
+      // Both variants pass a depth state (the overlay's is inert so gizmos draw
+      // through geometry), so both would otherwise resolve to a depth-only
+      // format and mismatch a target that also carries stencil.
+      depthStencil: this.#targetColor.depthStencil,
       cull: 'none' as const,
       frontFace: this.#device.ndc.frontFace,
       primitive: 'line-list' as const,

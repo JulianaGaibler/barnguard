@@ -22,3 +22,14 @@ export function seededRandom(seed: number): Random {
     return s / 2 ** 32
   }
 }
+
+/**
+ * A fresh seed for one run, from the platform generator.
+ *
+ * The counterpart to {@link seededRandom}: this picks the seed a run is played
+ * on, that one turns a seed into the run's sequence. Feed it in once and hold
+ * the seed if the run needs to be replayed or shared between two players.
+ */
+export function randomSeed(): number {
+  return Math.floor(Math.random() * 2 ** 31)
+}

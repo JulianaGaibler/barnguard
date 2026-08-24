@@ -65,11 +65,12 @@ export interface DisplayManifest {
   root: Component
   /**
    * The `display` ids this kiosk display submits to `/api/leaderboard` under,
-   * not the manifest's own `id`. For the arcade that's one entry per game that
-   * opts in (`GameMeta.supportsLeaderboard`), e.g. `['jezzball']`, since the
-   * leaderboard is scoped per arcade game, not per kiosk display. Empty/omitted
-   * gates the attendant BoothMenu's "Leaderboard" panel toggle off entirely,
-   * since Stallwächter has no name-entry concept.
+   * not the manifest's own `id`. For the arcade that's every board declared by
+   * every game (`GameMeta.leaderboards`), e.g. `['jezzball']`, since the
+   * leaderboard is scoped per arcade game and a game with modes that do not
+   * compare keeps one board per mode. Empty/omitted gates the attendant
+   * BoothMenu's "Leaderboard" panel toggle off entirely, since Stallwächter has
+   * no name-entry concept.
    */
   leaderboardIds?: string[]
   /**

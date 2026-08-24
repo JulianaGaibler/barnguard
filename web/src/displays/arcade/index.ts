@@ -8,18 +8,18 @@ import { GAMES } from './games/registry'
 
 const GAME_BY_ID = new Map(GAMES.map((g) => [g.meta.id, g]))
 
-// The leaderboard is scoped per arcade game (its `display` param is a
-// `GameMeta.id`, not this manifest's own `id`). Reuse the same per-game
-// opt-in flag the in-game leaderboard UI already checks.
-const LEADERBOARD_IDS = GAMES.filter((g) => g.meta.supportsLeaderboard).map(
-  (g) => g.meta.id,
+// The leaderboard is scoped per arcade game, and a game with modes that do not
+// compare keeps one board per mode, so this is a flat list of every board every
+// game declares rather than one id per game.
+const LEADERBOARD_IDS = GAMES.flatMap((g) =>
+  (g.meta.leaderboards ?? []).map((b) => b.id),
 )
 
 /**
- * The arcade display: a launcher "main screen" that hosts five games (Orbo,
- * Connect Four, Jezzball, Data Control, Full Stack) on the stargazer engine.
- * Every finished game is recorded to the game log (see each game's
- * `recordArcadeGame` call) for attendant visibility in the "Games" panel.
+ * The arcade display: a launcher "main screen" that hosts the games in
+ * `games/registry` on the stargazer engine. Every finished game is recorded to
+ * the game log (see each game's `recordArcadeGame` call) for attendant
+ * visibility in the "Games" panel.
  *
  * Printing is opt-in per game, not per display: each label design is
  * game-specific, so `renderLabelForRecord`/`renderPreviewLabel` live on the

@@ -9,7 +9,13 @@
  *
  * A row can be dimmed whole, for the player who is not up in the contest.
  */
-import { ButtonBehavior, easings, Node2D, type Gfx2D } from '@src/stargazer'
+import {
+  ButtonBehavior,
+  easings,
+  moveToward,
+  Node2D,
+  type Gfx2D,
+} from '@src/stargazer'
 import { swatchRect } from '../layout'
 import { ANIM, CELL_COLORS, CELL_GLYPHS, GEOM, GLYPH_INKS } from '../tuning'
 import type { Bounds, Color } from '../types'
@@ -55,22 +61,14 @@ class SwatchNode extends Node2D {
 
   override onUpdate(dt: number): void {
     const target = this.#pressedTarget ? 1 : 0
-    const step = dt / ANIM.swatchPress
-    this.#pressed =
-      this.#pressed < target
-        ? Math.min(target, this.#pressed + step)
-        : Math.max(target, this.#pressed - step)
+    this.#pressed = moveToward(this.#pressed, target, dt / ANIM.swatchPress)
 
     if (this.#ring < 1) {
       this.#ring = Math.min(1, this.#ring + dt / ANIM.swatchRing)
     }
 
     const glyphTarget = this.glyphsOn ? 1 : 0
-    const glyphStep = dt / ANIM.glyphFade
-    this.#glyphT =
-      this.#glyphT < glyphTarget
-        ? Math.min(glyphTarget, this.#glyphT + glyphStep)
-        : Math.max(glyphTarget, this.#glyphT - glyphStep)
+    this.#glyphT = moveToward(this.#glyphT, glyphTarget, dt / ANIM.glyphFade)
   }
 
   override draw(gfx: Gfx2D): void {

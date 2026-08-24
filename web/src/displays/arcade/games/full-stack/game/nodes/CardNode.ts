@@ -1,7 +1,7 @@
 // One card, drawn whole.
 //
 // A card is a single `Node2D` that paints its entire face in one `draw`. That is
-// deliberate: neither `transform.alpha` nor `visible` cascades in the 2D render
+// deliberate: `transform.alpha` does not cascade in the 2D render
 // walk, which iterates a flat per-layer list, so a card built from a parent plus
 // child nodes would need every part tweened separately to fade or dim as a unit.
 // One node means one tween.
@@ -320,7 +320,7 @@ export class CardNode extends Node2D {
   /**
    * Push the card back, for a shortlist on the floor that is not in play.
    *
-   * This is a veil in the card's own colours rather than `transform.alpha`,
+   * This is a veil in the card's own colors rather than `transform.alpha`,
    * because alpha applies per draw call, not to the node's output as a group: a
    * translucent card shows its own portrait disc through the face over it and
    * its badges through the art panel. One veil over the finished face fades the
@@ -853,7 +853,7 @@ export class CardNode extends Node2D {
  * own weight and each glyph in the rect the layout gave it.
  *
  * A box run's `y` is measured from the same baseline the text sits on, so a
- * glyph and the digits beside it come out level. Glyphs take no colour, since
+ * glyph and the digits beside it come out level. Glyphs take no color, since
  * `drawImage` has none to take: text follows the ink and artwork does not.
  */
 function drawRichBlock(

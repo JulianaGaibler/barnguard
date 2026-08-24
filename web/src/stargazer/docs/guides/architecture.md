@@ -42,7 +42,7 @@ It clips two ways: an analytic circle or rounded rect (`setClip`, evaluated as a
 
 `GfxDevice` is the seam `GpuGfx` draws through. It is modelled on WebGPU semantics (immutable pipelines, render passes with load and store ops, bind groups, fully explicit draws), so the WebGPU backend implements it directly and the WebGL2 backend emulates it. Facade-level code never changes between them. Shaders are authored in WGSL, and the GLSL the WebGL2 backend needs is generated from it, so a `*.gen.*.glsl` file is never hand-edited.
 
-A stage with 3D content runs a depth-tested 3D pass first (`MeshRenderer`, drawing `Node3D` meshes and `Viewport2DNode` quads through the same `GfxDevice` seam), then resets device state to the 2D baseline and composites the painter-order 2D layers on top. The offscreen target grows a depth attachment the first time a stage hosts 3D and keeps it. A pure-2D stage never allocates one. See [3D](/guides/3d).
+A stage with 3D content runs a depth-tested 3D pass first (`MeshRenderer`, drawing `Node3D` meshes and `Viewport2DNode` quads through the same `GfxDevice` seam), then resets device state to the 2D baseline and composites the painter-order 2D layers on top. The offscreen target grows a depth attachment while a stage holds 3D content and drops it again when the last 3D node goes, so a stage shared across scenes hands the next one the target it expects. A pure-2D stage never allocates one. See [3D](/guides/3d).
 
 Cross-cutting facade rules (per-call styles, absolute alpha, pre-resolved stroke widths) are documented on the `Gfx2D` interface.
 

@@ -164,6 +164,14 @@ Within a layer, draw order follows scene-tree DFS pre-order: a parent draws firs
 
 `drawLayer` skips any node whose world-space bounding box (from `debugBounds`, inflated by the stroke half-width) lies fully outside the visible world rect, derived from the canvas corners via `screenToWorld`. Nodes without `debugBounds` always draw. The biggest win is a fresh draw during a zoom-in, where only the few nodes inside the frame get rasterized.
 
+### Visibility
+
+`node.visible = false` hides that node and everything under it, in both the render walk and hit testing, so a group node is a switch for its whole subtree. `isEffectivelyVisible(node)` is the same test if you need it yourself.
+
+Hiding does not prune the walk. The flattened per-layer lists still hold the subtree and each node tests its ancestors, which is cheap but not free, so destroy a subtree you are finished with rather than leaving it hidden forever.
+
+`transform.alpha` is the exception and does NOT compound down the tree. A node built from a parent plus children needs each part faded separately, which is why several games paint a whole widget in one node's `draw`.
+
 ## Stroke widths and camera zoom
 
 Every stroke-capable primitive (`ShapeNode`, `Path2DNode`, `PolylineNode`) treats `lineWidth` as CSS pixels by default. When the camera zooms in, the stroke stays the same visual thickness because its device-pixel width tracks the DPR baseline, not the camera scale.

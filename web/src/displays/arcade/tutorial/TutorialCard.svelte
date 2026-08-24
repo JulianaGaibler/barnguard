@@ -36,6 +36,14 @@
     height: var(--htp-media-h)
     border-radius: var(--radius-card)
 
+  // Fixed, because the carousel needs every card the same height, and what does
+  // not fit is clipped rather than scrolled.
+  //
+  // `--htp-text-h` is a budget rather than a shape: a `card-title` is 2rem and a
+  // body is 1rem, both at the browser's default line height, so it holds a
+  // two-line heading and three or four lines under it. A heading that wraps eats
+  // the body with no sign that it has, which is the failure to write copy
+  // against.
   .tc__text
     display: flex
     flex-direction: column

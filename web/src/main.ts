@@ -13,6 +13,12 @@ import {
   type DisplayLink,
 } from '@src/fatalError'
 
+// A kiosk reload has to come up in its opening state. Left on `auto` the
+// browser restores the scroll offsets the page had, including inside the
+// launcher carousel, so a reload lands on whatever card the last visitor left
+// centred. Set before `load` fires, which is when the restore would happen.
+history.scrollRestoration = 'manual'
+
 const target = document.getElementById('app')
 if (!target) {
   throw new Error('Root element #app not found')

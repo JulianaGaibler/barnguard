@@ -163,6 +163,10 @@ export class Node2D extends Node {
     return this.#_renderLayer === 'static' || this.#_staticDescendantCount > 0
   }
 
+  /**
+   * Keep the static-descendant count in step. Painter order is invalidated by
+   * `Node.add` for every parent kind, so it is not this hook's business.
+   */
   protected override _onChildAttached(child: Node): void {
     // Only 2D children carry static-layer state. A 3D or group child adds no
     // static contribution and must not touch the count (it has no such field).
@@ -178,9 +182,6 @@ export class Node2D extends Node {
         this.scene?.invalidateStatic()
       }
     }
-    // Tree structure changed, the painter-order + layer-index caches rebuild on
-    // next read.
-    this.scene?.invalidatePainterOrder()
   }
 
   protected override _onChildDetached(child: Node): void {
@@ -196,7 +197,6 @@ export class Node2D extends Node {
         this.scene?.invalidateStatic()
       }
     }
-    this.scene?.invalidatePainterOrder()
   }
 
   protected override _onAttach(): void {

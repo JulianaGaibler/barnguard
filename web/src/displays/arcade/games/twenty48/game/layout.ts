@@ -57,7 +57,7 @@ const DUAL_TOP_FRAC = 0.13
 const DUAL_BOTTOM_FRAC = 0.06
 /**
  * Versus: gap between the two halves. Much narrower than JezzBall's, which
- * reserves a central badge; here the space only has to separate two boards that
+ * reserves a central badge. Here the space only has to separate two boards that
  * already carry their own arrow bars.
  */
 const DUAL_GAP_FRAC = 0.1

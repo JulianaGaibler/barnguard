@@ -1,12 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
-  import {
-    coverView,
-    gameVisibleRect,
-    REGION_WIDTH,
-    REGION_HEIGHT,
-  } from '../../world'
+  import { domAnchor, type Rect } from '@src/stargazer'
+  import { coverView, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import type { GameProps } from '../GameModule'
   import {
     startGame,
@@ -16,8 +11,10 @@
     type Player,
   } from './game'
   import { CF_STRINGS } from './strings'
+  import { recordArcadeGame } from '../../game-log'
   import SplashScreen from './overlays/SplashScreen.svelte'
-  import PauseMenu from './overlays/PauseMenu.svelte'
+  import Score from '@src/core/ui/Score.svelte'
+  import PauseMenu from '@src/displays/arcade/menu/PauseMenu.svelte'
   import HowToPlay from '../../tutorial/HowToPlay.svelte'
   import { CONNECT_FOUR_TUTORIAL } from './tutorial'
   import { buildConnectFourMenuPreview } from './game/menuPreview'
@@ -26,7 +23,7 @@
   const FIELD_PADDING = 48
 
   // Overlays ride the camera via `domAnchor`, so there's no fade gate.
-  const { host, onExit, demoStage }: GameProps = $props()
+  const { host, onExit, demoStage, region }: GameProps = $props()
 
   // Whether the "How to play" modal is open (splash-only entry point).
   let showTutorial = $state(false)
@@ -38,16 +35,37 @@
   let matchScore = $state<MatchScore>({ teamL: 0, teamR: 0 })
   // Player whose score just ticked up, so the splash bumps it on return.
   let bumpTeam = $state<Player | null>(null)
+
+  // A finished round is the unit the game log records. The mode and the clock
+  // are held here because `roundOver` carries neither, and the game returns to
+  // the menu on its own afterwards, so there is no card to finalize from.
+  let mode: GameMode = { kind: '2p' }
+  let roundStartMs = 0
+
+  /** The free-form log tag: the two humans, or the strength they picked. */
+  function modeTag(m: GameMode): string {
+    return m.kind === '2p' ? 'versus' : `ai-${m.difficulty}`
+  }
+
+  function logRound(winner: Player | null): void {
+    void recordArcadeGame({
+      gameId: 'connect-four',
+      mode: modeTag(mode),
+      winner: winner === null ? 'tie' : `player${winner}`,
+      // Connect Four keeps no points, so the score is the winning side's
+      // running total of rounds this visit, which is what the game reads as.
+      score:
+        winner === 1 ? matchScore.teamL : winner === 2 ? matchScore.teamR : 0,
+      durationMs: Math.round(performance.now() - roundStartMs),
+    }).catch((e: unknown) => {
+      console.warn('[connect-four] failed to record game to server', e)
+    })
+  }
   // Node the overlays are pinned to, so the whole surface rides the camera.
-  let anchor = $state<Node2D | null>(null)
+  const anchor = $derived(region.anchor)
   // Overlay bounds = the game region's visible rect (full canvas, adopting its
   // aspect), so the splash/pause menus fill the window and reflow on resize.
-  let gameRect = $state<Rect>({
-    x: 0,
-    y: 0,
-    width: REGION_WIDTH,
-    height: REGION_HEIGHT,
-  })
+  const gameRect = $derived(region.rect)
 
   /**
    * Cover rect for the menu preview: the whole visible area at the fixed region
@@ -71,31 +89,11 @@
     let disposed = false
     let s: GameSession | null = null
 
-    const px = host.engine.renderer.pixelSize
-    const view = gameVisibleRect(px.w, px.h)
+    const view = region.rect
 
-    // UI-only node at the game region's visible-rect top-left. The overlays
-    // attach to it and cover the whole visible area so the menus fill the window.
-    const uiAnchor = new Node2D('connect-four-ui-anchor')
-    uiAnchor.transform.x = view.x
-    uiAnchor.transform.y = view.y
-    uiAnchor.debugBounds = {
-      x: 0,
-      y: 0,
-      width: view.width,
-      height: view.height,
-    }
-    host.engine.tree.root.add(uiAnchor)
-    anchor = uiAnchor
-    gameRect = view
-
-    // Keep the overlay fitted as the window resizes. The board reflows on the
-    // next entry. Mid-match board reflow is a separate step.
-    const offResize = host.engine.events.on('resize', (e) => {
-      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
-      uiAnchor.transform.x = v.x
-      uiAnchor.transform.y = v.y
-      gameRect = v
+    // The board reflows on the next entry. Mid-match board reflow is a separate
+    // step.
+    const offResize = region.onResize((v) => {
       s?.resize(v)
     })
 
@@ -117,10 +115,12 @@
         sess.events.on('matchStarted', () => {
           bumpTeam = null
           showSplash = false
+          roundStartMs = performance.now()
         })
         sess.events.on('roundOver', (p) => {
           matchScore = p.matchScore
           bumpTeam = p.winner
+          logRound(p.winner)
         })
         sess.events.on('reset', () => {
           paused = false
@@ -144,11 +144,11 @@
       disposed = true
       offResize()
       s?.destroy()
-      uiAnchor.destroy()
     }
   })
 
   function startMatch(m: GameMode): void {
+    mode = m
     session?.startMatch(m)
   }
   function resume(): void {
@@ -188,7 +188,11 @@
       {/if}
 
       {#if session && paused}
-        <PauseMenu {matchScore} onResume={resume} onQuit={quit} />
+        <PauseMenu onResume={resume} onQuit={quit}>
+          {#snippet detail()}
+            <Score left={matchScore.teamL} right={matchScore.teamR} />
+          {/snippet}
+        </PauseMenu>
       {/if}
     </div>
   {/if}
@@ -232,5 +236,5 @@
     pointer-events: none
 
   .cf__hint
-    color: #f5f7fa
+    color: var(--color-text)
 </style>

@@ -1,5 +1,5 @@
 /**
- * Data Control's colour seeds and the DOM theme derived from them. The canvas
+ * Data Control's color seeds and the DOM theme derived from them. The canvas
  * layer reads the same seeds, so the map and the chrome around it stay the same
  * black, green and blue.
  *

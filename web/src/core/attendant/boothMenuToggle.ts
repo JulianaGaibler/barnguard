@@ -65,7 +65,7 @@ export const toggleGamesPanel = (): void =>
 /**
  * Whether the leaderboard admin panel should be visible. Same
  * seed-next-to-booth-menu pattern as the other panels. The BoothMenu only
- * renders its toggle for displays that declare `supportsLeaderboard`.
+ * renders its toggle for displays that declare `leaderboardIds`.
  */
 export const leaderboardPanelVisible = writable(false)
 export const toggleLeaderboardPanel = (): void =>

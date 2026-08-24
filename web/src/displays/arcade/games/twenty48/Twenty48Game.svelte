@@ -15,9 +15,7 @@
   import LeaderboardModal from '@src/displays/arcade/leaderboard/LeaderboardModal.svelte'
   import { recordArcadeGame } from '@src/displays/arcade/game-log'
   import {
-    boothCornerInset,
     coverView,
-    gameVisibleRect,
     REGION_HEIGHT,
     REGION_WIDTH,
   } from '@src/displays/arcade/world'
@@ -32,13 +30,13 @@
     createSoloSession,
     GRADIENT,
     Match,
-    randomSeed,
     type Bounds,
     type GameMode,
     type PlayerId,
   } from './game'
   import { buildTwenty48MenuPreview } from './game/menuPreview'
-  import { createScreenPulse, type ScreenPulse } from './game/screenPulse'
+  import { createScreenPulse, type ScreenPulse } from '../common/screenPulse'
+  import { randomSeed } from '../common/rng'
   import { ANIM } from './game/tuning'
   import { ScoreBadgeNode } from './game/nodes/ScoreBadgeNode'
   import { PauseButtonNode } from './game/nodes/PauseButtonNode'
@@ -46,10 +44,11 @@
   import { TWENTY48_STRINGS as t } from './strings'
   import GameOver from './overlays/GameOver.svelte'
   import GameOverVersus from './overlays/GameOverVersus.svelte'
-  import PauseMenu from './overlays/PauseMenu.svelte'
+  import PauseMenu from '@src/displays/arcade/menu/PauseMenu.svelte'
   import SplashScreen from './overlays/SplashScreen.svelte'
+  import { TWENTY48_LEADERBOARDS } from './leaderboards'
 
-  const { host, onExit, demoStage }: GameProps = $props()
+  const { host, onExit, demoStage, region }: GameProps = $props()
 
   let showTutorial = $state(false)
   let showLeaderboard = $state(false)
@@ -72,13 +71,9 @@
   let matchWins = $state({ a: 0, b: 0 })
   let bumpPlayer = $state<PlayerId | null>(null)
 
-  let anchor = $state<Node2D | null>(null)
-  let gameRect = $state<Rect>({
-    x: 0,
-    y: 0,
-    width: REGION_WIDTH,
-    height: REGION_HEIGHT,
-  })
+  const anchor = $derived(region.anchor)
+  const gameRect = $derived(region.rect)
+  const cornerInset = $derived(region.cornerInset)
 
   // --- Non-reactive runtime state. Everything below drives canvas nodes
   // directly (there is no DOM to react through), so plain fields and
@@ -89,8 +84,6 @@
   let contentLayer: Node2D | null = null
   let hudLayer: Node2D | null = null
   let pauseButton: PauseButtonNode | null = null
-  /** World depth of the booth's top-corner gesture boxes, refreshed on resize. */
-  let cornerInset = 0
   let scoreA: ScoreBadgeNode | null = null
   let scoreB: ScoreBadgeNode | null = null
   let unbindInput: Array<() => void> = []
@@ -110,23 +103,7 @@
   }
 
   onMount(() => {
-    const px = host.engine.renderer.pixelSize
-    const css = host.engine.renderer.cssSize
-    const view = gameVisibleRect(px.w, px.h)
-    cornerInset = boothCornerInset(css.w, css.h)
-
-    const uiAnchor = new Node2D('t48-ui-anchor')
-    uiAnchor.transform.x = view.x
-    uiAnchor.transform.y = view.y
-    uiAnchor.debugBounds = {
-      x: 0,
-      y: 0,
-      width: view.width,
-      height: view.height,
-    }
-    host.engine.tree.root.add(uiAnchor)
-    anchor = uiAnchor
-    gameRect = view
+    const view = region.rect
 
     const backdrop = new GradientBackgroundNode({
       rect: view,
@@ -145,14 +122,12 @@
     chrome.add(pause)
     pauseButton = pause
 
-    screenPulse = createScreenPulse(host)
+    screenPulse = createScreenPulse(host, {
+      durationSec: ANIM.caPulse,
+      amount: ANIM.caAmount,
+    })
 
-    const offResize = host.engine.events.on('resize', (e) => {
-      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
-      uiAnchor.transform.x = v.x
-      uiAnchor.transform.y = v.y
-      gameRect = v
-      cornerInset = boothCornerInset(e.css.w, e.css.h)
+    const offResize = region.onResize((v) => {
       backdrop.setRect(v)
       layoutBoards()
     })
@@ -164,7 +139,6 @@
       screenPulse = null
       if (!content.isDestroyed) content.destroy()
       if (!chrome.isDestroyed) chrome.destroy()
-      if (!uiAnchor.isDestroyed) uiAnchor.destroy()
       contentLayer = null
       pauseButton = null
     }
@@ -343,11 +317,11 @@
     if (mode) startGame({ kind: mode })
   }
 
-  function finalizeSoloLog(name: string): void {
+  function finalizeSoloLog(name: string): Promise<unknown> {
     const log = pendingSolo
-    if (!log) return
+    if (!log) return Promise.resolve()
     pendingSolo = null
-    recordArcadeGame({
+    return recordArcadeGame({
       ...log,
       gameId: '2048',
       mode: 'solo',
@@ -361,25 +335,30 @@
    * One record per player, each with that player's own score and name, sharing
    * the match's winner and duration. Mirrors how solo logs one record per run.
    */
-  function finalizeVersusLog(names: { a: string; b: string }): void {
+  function finalizeVersusLog(names: {
+    a: string
+    b: string
+  }): Promise<unknown> {
     const r = versusResult
-    if (!r) return
+    if (!r) return Promise.resolve()
     const durationMs = Math.round(performance.now() - gameStartMs)
     const winner =
       r.winner === 0 ? 'tie' : r.winner === 1 ? 'player1' : 'player2'
     const base = { gameId: '2048', mode: 'versus', winner, durationMs } as const
     const warn = (e: unknown): void =>
       console.warn('[2048] failed to record game to server', e)
-    recordArcadeGame({
-      ...base,
-      score: r.scoreA,
-      playerName: names.a || undefined,
-    }).catch(warn)
-    recordArcadeGame({
-      ...base,
-      score: r.scoreB,
-      playerName: names.b || undefined,
-    }).catch(warn)
+    return Promise.all([
+      recordArcadeGame({
+        ...base,
+        score: r.scoreA,
+        playerName: names.a || undefined,
+      }).catch(warn),
+      recordArcadeGame({
+        ...base,
+        score: r.scoreB,
+        playerName: names.b || undefined,
+      }).catch(warn),
+    ])
   }
 </script>
 
@@ -428,7 +407,7 @@
       {/if}
       {#if showLeaderboard}
         <LeaderboardModal
-          display="2048"
+          boards={TWENTY48_LEADERBOARDS}
           onClose={() => (showLeaderboard = false)}
         />
       {/if}

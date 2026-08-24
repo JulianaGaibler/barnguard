@@ -4,6 +4,7 @@
 // scalar fields.
 
 import type { PipelineDesc, StencilFaceState } from './GfxDevice'
+import { resolveDepthStencil } from './depthStencil'
 
 const pipelineIdTag = Symbol('gfxPipelineId')
 let nextPipelineTagId = 1
@@ -37,7 +38,12 @@ export function pipelineKey(desc: PipelineDesc): string {
   const stencil = st
     ? `${face(st.front)}~${face(st.back ?? st.front)}/${st.readMask ?? 0xff}/${st.writeMask ?? 0xff}/${st.reference ?? 0}`
     : 'none'
-  return `s${shaderId}|bgl${layoutIds}|v${vtx}|c${color}|d${depth}|t${stencil}|${desc.cull}|${desc.frontFace}|${desc.primitive}|x${desc.samples}`
+  // The attachment format is part of the pipeline, and two descs with
+  // identical state can target different attachments (a 2D pipeline that tests
+  // nothing looks the same on a stencil-only target as on a combined one), so
+  // it has to key them apart.
+  const ds = resolveDepthStencil(desc)
+  return `s${shaderId}|bgl${layoutIds}|v${vtx}|c${color}|d${depth}|t${stencil}|f${ds}|${desc.cull}|${desc.frontFace}|${desc.primitive}|x${desc.samples}`
 }
 
 function face(f: StencilFaceState): string {

@@ -1,23 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
-  import {
-    coverView,
-    gameVisibleRect,
-    REGION_WIDTH,
-    REGION_HEIGHT,
-  } from '../../world'
+  import { domAnchor, type Rect } from '@src/stargazer'
+  import { coverView, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import type { GameProps } from '../GameModule'
   import {
     startGame,
     type GameMode,
     type GameSession,
     type MatchScore,
+    type TeamCounts,
     type TeamId,
   } from './game'
   import { ORBO_STRINGS } from './strings'
+  import { recordArcadeGame } from '../../game-log'
   import SplashScreen from './overlays/SplashScreen.svelte'
-  import PauseMenu from './overlays/PauseMenu.svelte'
+  import Score from '@src/core/ui/Score.svelte'
+  import PauseMenu from '@src/displays/arcade/menu/PauseMenu.svelte'
   import HowToPlay from '../../tutorial/HowToPlay.svelte'
   import { ORBO_TUTORIAL } from './tutorial'
   import { buildOrboMenuPreview } from './game/menuPreview'
@@ -27,7 +25,7 @@
 
   // `onExit` hands control back to the arcade (used by the splash's "Return to
   // Launcher"). Overlays ride the camera via `domAnchor`, so there's no fade gate.
-  const { host, onExit, demoStage }: GameProps = $props()
+  const { host, onExit, demoStage, region }: GameProps = $props()
 
   // Whether the "How to play" modal is open (splash-only entry point).
   let showTutorial = $state(false)
@@ -43,17 +41,30 @@
   let matchScore = $state<MatchScore>({ teamL: 0, teamR: 0 })
   // Side whose score just ticked up, so the splash can bump it on return.
   let bumpTeam = $state<TeamId | null>(null)
+
+  // A finished round is the unit the game log records. Orbo has no game-over
+  // card to finalize from, so the record goes out as the round is tallied.
+  let mode: GameMode = '1v1'
+  let roundStartMs = 0
+
+  function logRound(winner: TeamId | null, counts: TeamCounts): void {
+    void recordArcadeGame({
+      gameId: 'orbo',
+      mode,
+      winner: winner === null ? 'tie' : winner === 0 ? 'left' : 'right',
+      // Scoring orbs held by the winning side, which is what decided the round.
+      score: winner === null ? 0 : winner === 0 ? counts.teamL : counts.teamR,
+      durationMs: Math.round(performance.now() - roundStartMs),
+    }).catch((e: unknown) => {
+      console.warn('[orbo] failed to record game to server', e)
+    })
+  }
   // Node the menu overlay is pinned to, so it pans with the game region when the
   // arcade camera moves between the game and the launcher.
-  let anchor = $state<Node2D | null>(null)
+  const anchor = $derived(region.anchor)
   // Overlay bounds = the game region's visible rect (full canvas, adopting its
   // aspect), so the splash/pause menus fill the window and reflow on resize.
-  let gameRect = $state<Rect>({
-    x: 0,
-    y: 0,
-    width: REGION_WIDTH,
-    height: REGION_HEIGHT,
-  })
+  const gameRect = $derived(region.rect)
 
   /**
    * Cover rect for the menu preview: the whole visible area at the fixed region
@@ -77,32 +88,11 @@
     let disposed = false
     let s: GameSession | null = null
 
-    const px = host.engine.renderer.pixelSize
-    const view = gameVisibleRect(px.w, px.h)
+    const view = region.rect
 
-    // A UI-only node at the game region's visible-rect top-left. The overlays
-    // attach to it and cover the whole visible area, so the menus fill the
-    // window and ride the camera through pans. `domAnchor` keeps it flush.
-    const uiAnchor = new Node2D('orbo-ui-anchor')
-    uiAnchor.transform.x = view.x
-    uiAnchor.transform.y = view.y
-    uiAnchor.debugBounds = {
-      x: 0,
-      y: 0,
-      width: view.width,
-      height: view.height,
-    }
-    host.engine.tree.root.add(uiAnchor)
-    anchor = uiAnchor
-    gameRect = view
-
-    // Keep the overlay fitted as the window resizes. The field reflows on the
-    // next entry. Mid-match field reflow is a separate step.
-    const offResize = host.engine.events.on('resize', (e) => {
-      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
-      uiAnchor.transform.x = v.x
-      uiAnchor.transform.y = v.y
-      gameRect = v
+    // The field reflows on the next entry. Mid-match field reflow is a separate
+    // step.
+    const offResize = region.onResize((v) => {
       s?.resize(v)
     })
 
@@ -121,13 +111,16 @@
         s = sess
         session = sess
         matchScore = sess.matchScore
-        sess.events.on('matchStarted', () => {
+        sess.events.on('matchStarted', (p) => {
           bumpTeam = null
           showSplash = false
+          mode = p.mode
+          roundStartMs = performance.now()
         })
         sess.events.on('roundOver', (p) => {
           matchScore = p.matchScore
           bumpTeam = p.winner
+          logRound(p.winner, p.counts)
         })
         sess.events.on('reset', () => {
           paused = false
@@ -157,7 +150,6 @@
       disposed = true
       offResize()
       s?.destroy()
-      uiAnchor.destroy()
     }
   })
 
@@ -209,11 +201,14 @@
 
       {#if session && (paused || pausePreview > 0)}
         <PauseMenu
-          {matchScore}
           progress={paused ? 1 : pausePreview}
           onResume={resume}
           onQuit={quit}
-        />
+        >
+          {#snippet detail()}
+            <Score left={matchScore.teamL} right={matchScore.teamR} />
+          {/snippet}
+        </PauseMenu>
       {/if}
     </div>
   {/if}

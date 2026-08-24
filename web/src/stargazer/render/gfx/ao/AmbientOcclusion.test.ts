@@ -8,7 +8,11 @@ import { SceneTree } from '../../../scene/SceneTree'
 import { Node3D } from '../../../scene/Node3D'
 import { MeshNode, createBoxGeometry } from '../../../nodes/MeshNode'
 
-const TARGET = { format: 'linear' as const, samples: 4 }
+const TARGET = {
+  format: 'linear' as const,
+  samples: 4,
+  depthStencil: 'depth' as const,
+}
 
 async function untilReady(...ready: (() => boolean)[]): Promise<void> {
   for (let i = 0; i < 200 && !ready.every((r) => r()); i++)

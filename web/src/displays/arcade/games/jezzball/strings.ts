@@ -1,26 +1,19 @@
 /**
- * English copy for JezzBall. Self-contained plain object the components import
- * directly (the game doesn't depend on the arcade locale store).
+ * English copy for JezzBall, a plain object the components import directly.
+ * Copy that is about the arcade shell rather than this game (Paused, Resume,
+ * How to play, Return to Launcher) comes from `displays/arcade/i18n` instead,
+ * so every game says it the same way.
  */
 export const JEZZBALL_STRINGS = {
   title: 'JEZZBALL',
-  tagline: 'Wall it off. Claim the space.',
-  loading: 'Loading…',
   modeSolo: '1 Player',
   modeVersus: '2 Players',
-  howToPlay: 'How to Play',
-  openLeaderboard: 'Leaderboard',
-  returnToLauncher: 'Return to Launcher',
-  paused: 'Paused',
-  resume: 'Resume',
-  quit: 'Quit',
   gameOver: 'Game over',
   waiting: 'waiting for other player',
   /** Big status word shown over a board that has cleared and is waiting. */
   waitHeadline: 'partitioned',
   /** Big status word shown over a board whose player has run out of lives. */
   out: 'out',
-  ready: 'Ready',
   go: 'GO',
   tie: "It's a tie!",
   winsSuffix: 'wins!',

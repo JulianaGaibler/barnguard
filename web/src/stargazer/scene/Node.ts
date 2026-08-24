@@ -7,6 +7,7 @@ import {
   combineAbortSignals,
   ignoreAbort,
   isAbortError,
+  rejectDetached,
 } from '../anim/abortSignal'
 import { AbortScope } from '../anim/AbortScope'
 import { Timeline } from '../anim/Timeline'
@@ -15,6 +16,16 @@ import { Timeline } from '../anim/Timeline'
 export interface NodeOwner {
   /** The engine the owned tree animates through, or `null` when standalone. */
   readonly engine: Engine | null
+  /**
+   * The shape of the owned tree changed, so any index derived from it is stale.
+   *
+   * Every add and remove reports this, whatever kind of node the parent is.
+   * Painter order is a property of the whole tree, so keying its invalidation
+   * off the parent's kind would leave a node added directly under the
+   * (transform-less {@link GroupNode}) root missing from the index, and a node
+   * missing from the index does not draw and cannot be hit.
+   */
+  invalidatePainterOrder(): void
 }
 
 /**
@@ -97,10 +108,13 @@ export abstract class Node {
   parent: Node | null = null
 
   /**
-   * When false, this node is skipped by the render walk. It does NOT cascade in
-   * the 2D canvas walk: a hidden parent still lets its children draw, so hide
-   * each node you mean to hide. Only the DOM overlay sync compounds visibility
-   * down the tree.
+   * When false, this node and everything under it is skipped by the render and
+   * hit walks, so a group node is a switch for its whole subtree.
+   *
+   * Hiding costs nothing to check but does not prune the walk: the flattened
+   * per-layer lists still hold the subtree, and each node tests its ancestors
+   * (see `isEffectivelyVisible`). Destroy a subtree you are done with rather
+   * than leaving it hidden forever.
    */
   visible = true
   /**
@@ -214,6 +228,9 @@ export abstract class Node {
     this._children.push(child)
     child.#markSubtreeWorldDirty()
     this._onChildAttached(child)
+    // Before the attach walk, so an `onSceneReady` hook that reads the index
+    // rebuilds it rather than reading one taken before this child existed.
+    this.#_owner?.invalidatePainterOrder()
     if (this.#_owner) child.onAttachedToScene(this.#_owner)
   }
 
@@ -232,6 +249,7 @@ export abstract class Node {
     this._children.splice(idx, 1)
     child.parent = null
     this._onChildDetached(child)
+    this.#_owner?.invalidatePainterOrder()
     if (this.#_owner) child.onDetachedFromScene()
   }
 
@@ -507,6 +525,13 @@ export abstract class Node {
    * destroying the node rejects with `AbortError`. For a node's own transform,
    * the spatial branches expose a typed `tween`. Requires an owner with an
    * engine.
+   *
+   * @remarks
+   *   A node destroyed BEFORE the call rejects with `AbortError` too, not with
+   *   the not-attached error. An async sequence outliving its node is the same
+   *   cancellation whether the node died mid-await or a step earlier, and a
+   *   caller unwinding through `ignoreAbort` must not have one of the two
+   *   surface as a fault.
    */
   tweenTo<Obj extends object>(
     target: Obj,
@@ -514,11 +539,7 @@ export abstract class Node {
     opts: TweenOptions,
   ): Promise<void> {
     const engine = this.engine
-    if (!engine) {
-      return Promise.reject(
-        new Error('Node.tweenTo: node is not attached to an Engine scene'),
-      )
-    }
+    if (!engine) return rejectDetached('Node.tweenTo', this.isDestroyed)
     const combined = combineAbortSignals(this.abortSignal, opts.signal)
     return engine.animation
       .tween(target, to, { ...opts, signal: combined.signal })
@@ -624,11 +645,7 @@ export abstract class Node {
    */
   wait(seconds: number, extraSignal?: AbortSignal): Promise<void> {
     const engine = this.engine
-    if (!engine) {
-      return Promise.reject(
-        new Error('Node.wait: node is not attached to an Engine scene'),
-      )
-    }
+    if (!engine) return rejectDetached('Node.wait', this.isDestroyed)
     const combined = combineAbortSignals(this.abortSignal, extraSignal)
     return engine.animation
       .wait(seconds, combined.signal)

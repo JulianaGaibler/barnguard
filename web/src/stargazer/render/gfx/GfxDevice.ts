@@ -162,7 +162,10 @@ export interface RenderTarget {
   readonly colorSpace: ColorFormat
   /** Whether the target carries a depth attachment (opted in at creation). */
   readonly hasDepth: boolean
-  /** Whether the target carries stencil bits (opted in at creation). */
+  /**
+   * Whether the target carries stencil bits (opted in at creation). Reported
+   * independently of {@link RenderTarget.hasDepth}: a target can carry both.
+   */
   readonly hasStencil: boolean
 }
 
@@ -339,6 +342,25 @@ export type PrimitiveTopology = 'triangle-list' | 'line-list'
 /** Color-target format: `'linear'` → `RGBA8`, `'srgb'` → sRGB-encoded RGBA8. */
 export type ColorFormat = 'linear' | 'srgb'
 
+/**
+ * Which aspects a depth-stencil attachment carries. A pipeline bakes this and a
+ * backend that validates (WebGPU) rejects a pipeline whose format differs from
+ * the attachment it draws into, so the two have to be described the same way.
+ */
+export type DepthStencilFormat = 'none' | 'depth' | 'stencil' | 'depth-stencil'
+
+/**
+ * The attachment signature a pipeline must match to draw into a target: color
+ * format, sample count, and depth-stencil aspects. A renderer holds one of
+ * these for the target it draws into and rebuilds its pipelines when it
+ * changes.
+ */
+export interface TargetFormat {
+  format: ColorFormat
+  samples: number
+  depthStencil: DepthStencilFormat
+}
+
 /** Depth-attachment state for a pipeline. */
 export interface DepthState {
   test: boolean
@@ -420,6 +442,18 @@ export interface PipelineDesc {
    * all, which is what the deduplicated stroke path does.
    */
   stencil?: StencilState | null
+  /**
+   * The depth-stencil aspects of the attachment this pipeline draws into.
+   * Omitted resolves to whatever {@link PipelineDesc.depth} and
+   * {@link PipelineDesc.stencil} imply, which is right whenever a pipeline uses
+   * every aspect its target carries.
+   *
+   * Set it when the target carries an aspect this pipeline does not use: a 2D
+   * pipeline drawing into a combined attachment declares `'depth-stencil'` and
+   * leaves {@link PipelineDesc.depth} `null`. The backend supplies inert state
+   * for the unused aspect, so no caller writes one.
+   */
+  depthStencil?: DepthStencilFormat
   cull: CullMode
   frontFace: FrontFace
   primitive: PrimitiveTopology
@@ -519,19 +553,21 @@ export interface RenderTargetOpts {
    * Allocate the depth attachment as a sampleable texture instead of the
    * default renderbuffer, so a later pass can read it through
    * {@link GfxDevice.depthTexture} + a `'texture-2d-depth'` binding (the AO
-   * G-buffer). Single-sample only. Implies `samples: 1`. Requires `depth`.
+   * G-buffer). Single-sample only. Implies `samples: 1`. Requires `depth`, and
+   * excludes {@link RenderTargetOpts.stencil}: the sampleable attachment is
+   * depth-only on both backends, since WebGL2 samples depth only from a
+   * `DEPTH_COMPONENT24` texture, which holds no stencil bits.
    */
   depthSampled?: boolean
   /**
-   * Attach stencil bits, as a stencil-ONLY attachment. Default `false`.
+   * Attach stencil bits. Default `false`. Combines with
+   * {@link RenderTargetOpts.depth}, so a stage running a 3D pass keeps the
+   * stencil its deduplicated 2D stroke path needs.
    *
-   * Ignored when {@link RenderTargetOpts.depth} is set. A pipeline bakes its
-   * depth-stencil format and has no way to learn its target's, so allowing both
-   * would mean threading that format through every `PipelineDesc` to keep
-   * depth-only 3D pipelines matching a combined attachment. Stencil is for the
-   * painter-ordered 2D path, which wants no depth at all, so the two are kept
-   * apart and {@link RenderTarget.hasStencil} reports `false` alongside depth.
-   * Callers gate on `hasStencil` and fall back.
+   * Ignored alongside {@link RenderTargetOpts.depthSampled}, whose depth
+   * attachment is a depth-only sampleable texture with no stencil bits to
+   * carry. Stencil alone allocates a quarter of a combined attachment's memory,
+   * so a pure-2D target should ask for stencil without depth rather than both.
    */
   stencil?: boolean
   /**

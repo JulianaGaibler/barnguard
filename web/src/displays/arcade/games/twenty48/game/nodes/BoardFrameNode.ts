@@ -7,7 +7,7 @@ import { mixColor, Node2D, type Gfx2D } from '@src/stargazer'
 import { type BoardGeom, cellRect } from '../layout'
 import { BEVEL, COLORS } from '../tuning'
 import { CELLS } from '../types'
-import { drawSlab, drawWell } from './bevel'
+import { drawSlab, drawWell } from '../../../common/bevel'
 
 const SHAKE_DECAY_PER_SEC = 9
 

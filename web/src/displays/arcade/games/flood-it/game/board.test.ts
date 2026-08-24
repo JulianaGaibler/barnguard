@@ -58,7 +58,7 @@ function colorRows(board: Board): string[] {
 describe('starting region', () => {
   it('claims every same-colored cell connected to the corner', () => {
     const board = boardOf(['001', '010', '111'], 2)
-    // The two zeroes below and right of the corner join it; the isolated zero
+    // The two zeroes below and right of the corner join it. The isolated zero
     // at (1,1) does not, because it only touches the corner diagonally.
     expect(ownerRows(board)).toEqual(['110', '100', '000'])
     expect(ownedCount(board, 1)).toBe(3)
@@ -168,7 +168,8 @@ describe('move depths', () => {
     const board = boardOf(['011', '222'], 3)
     const res = createMoveResult(board)
     applyMove(board, 1, 1, res)
-    // The corner was already held and only changed color; the two 1s are new.
+    // The corner was already held and only changed color, so the two 1s are
+    // the new ones.
     expect(res.absorbed).toBe(2)
     expect(res.count).toBe(3)
     expect(res.captured[0]).toBe(0)

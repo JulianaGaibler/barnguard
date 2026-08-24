@@ -3,13 +3,13 @@
  *
  * `VectorParticleNode` gives every particle a position, velocity and angle.
  * Both of 2048's bursts want three more things per shard (a size, a spin rate
- * and a colour) and both stage those alongside a position and velocity for the
+ * and a color) and both stage those alongside a position and velocity for the
  * next `burst(1)`, per the base class's synchronous spawn contract. That much
  * is identical, so it lives here.
  *
  * What differs stays in the subclasses, because it is what makes them read as
  * different events: how a shard is launched, when it is done, and what shape it
- * is. A merge throws triangles outward that slow to a stop; the goal drops
+ * is. A merge throws triangles outward that slow to a stop. The goal drops
  * rectangles that fall past the board.
  */
 import {

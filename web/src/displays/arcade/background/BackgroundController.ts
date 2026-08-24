@@ -158,6 +158,23 @@ export class BackgroundController implements PaletteSource {
     )
   }
 
+  /**
+   * Show or hide the whole background.
+   *
+   * A 3D game takes this down while it plays, because the depth-tested 3D pass
+   * runs before every 2D layer and the sky would cover its scene outright. The
+   * arcade restores it when the game exits, see `ArcadeBackdrop`.
+   *
+   * Every child is set, not just the group. The 2D renderer flattens the tree
+   * into per-layer lists and tests `visible` on each node it reaches, so a
+   * hidden parent keeps its children drawing. Hiding the group alone would look
+   * right in the scene tree and change nothing on screen.
+   */
+  setVisible(visible: boolean): void {
+    this.#group.visible = visible
+    for (const child of this.#group.children) child.visible = visible
+  }
+
   destroy(): void {
     if (this.#timer !== null) clearInterval(this.#timer)
     this.#timer = null

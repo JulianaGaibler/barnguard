@@ -29,6 +29,20 @@ export type {
 export { TextNode } from '../nodes/TextNode'
 export type { TextNodeOptions } from '../nodes/TextNode'
 export { MeshNode, createBoxGeometry } from '../nodes/MeshNode'
+export {
+  createQuadGeometry,
+  createRoundedQuadGeometry,
+  createDiscGeometry,
+  createPrismGeometry,
+} from '../nodes/geometry'
+export type {
+  QuadOptions,
+  RoundedQuadOptions,
+  DiscOptions,
+  PrismOptions,
+  QuadOrigin,
+  UvRect,
+} from '../nodes/geometry'
 export type {
   MeshGeometry,
   MeshMaterial,

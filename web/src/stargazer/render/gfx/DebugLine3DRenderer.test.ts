@@ -4,7 +4,11 @@ import { MockGfxDevice } from './webgl2/mockGfxDevice'
 import type { PipelineDesc } from './GfxDevice'
 import { mat4 } from '../../math/Mat4'
 
-const TARGET = { format: 'linear' as const, samples: 1 }
+const TARGET = {
+  format: 'linear' as const,
+  samples: 1,
+  depthStencil: 'depth' as const,
+}
 
 /** Drain microtasks until the renderer's pipelines have warmed. */
 async function ready(r: DebugLine3DRenderer): Promise<void> {

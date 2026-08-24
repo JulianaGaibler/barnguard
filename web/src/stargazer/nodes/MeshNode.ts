@@ -118,6 +118,25 @@ export interface MeshMaterial {
   /** Render both faces (disable back-face culling). Default `false`. */
   doubleSided?: boolean
   /**
+   * Band the diffuse lighting into this many constant steps, for artwork drawn
+   * in flat color. Off below `2`, which is the default.
+   *
+   * Only the diffuse wrap is banded. The specular highlight keeps its true
+   * falloff, since a quantized highlight reads as an artifact rather than a
+   * style. Three or four steps keeps a curved surface legible without a
+   * gradient.
+   */
+  toonSteps?: number
+  /**
+   * Whether this mesh casts into the shadow maps. Default `true`.
+   *
+   * Turning it off keeps a mesh lit and visible while dropping its shadow, for
+   * geometry that reads as an overlay rather than an object: a highlight lying
+   * on a surface, or a piece dimmed out of play. A `'BLEND'` mesh never casts
+   * regardless.
+   */
+  castShadow?: boolean
+  /**
    * Factor `0..1`: how much light passes _through_ the surface as a wrap-around
    * back-side diffuse (translucent leaves). Default `0`.
    */
