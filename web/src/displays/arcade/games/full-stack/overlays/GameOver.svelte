@@ -12,6 +12,7 @@
   import Button from '@src/core/ui/Button.svelte'
   import Surface from '@src/core/ui/Surface.svelte'
   import type { Rect } from '@src/stargazer'
+  import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { FS_STRINGS as t } from '../strings'
   import type { GameMode, GameOverView } from '../game'
 
@@ -75,8 +76,12 @@
         {/each}
       </div>
       <div class="fs-over__actions">
-        <Button variant="primary" onclick={onPlayAgain}>{t.playAgain}</Button>
-        <Button variant="secondary" onclick={onMenu}>{t.menu}</Button>
+        <Button variant="primary" onclick={onPlayAgain}
+          >{$arcadeT.arcade.leaderboard.playAgain}</Button
+        >
+        <Button variant="secondary" onclick={onMenu}
+          >{$arcadeT.arcade.leaderboard.menu}</Button
+        >
       </div>
     </div>
   </Surface>

@@ -140,7 +140,7 @@ export class PostProcessPipeline {
    * counterpart to `Gfx2D.warmText`, and idempotent: an already-compiled pass
    * is skipped.
    *
-   * The colour space of the frame is not known until a run, so both are warmed
+   * The color space of the frame is not known until a run, so both are warmed
    * by default. Pass one to halve the work if the surface is known.
    */
   warm(colorSpaces: readonly ColorFormat[] = ['linear', 'srgb']): void {

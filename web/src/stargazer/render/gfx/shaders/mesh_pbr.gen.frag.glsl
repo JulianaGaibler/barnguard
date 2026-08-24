@@ -141,6 +141,10 @@ float geometrySchlickGGX(float NdotX, float k) {
     return (NdotX / ((NdotX * (1.0 - k)) + k));
 }
 
+float toonQuantize(float x, float steps) {
+    return ((floor(((clamp(x, 0.0, 1.0) * steps) - 0.5)) + 1.0) / steps);
+}
+
 float geometrySmith(float NdotV, float NdotL, float rough_1) {
     float r = (rough_1 + 1.0);
     float k_1 = ((r * r) / 8.0);
@@ -300,6 +304,7 @@ void main() {
     int i = 0;
     vec3 L = vec3(0.0);
     float atten = 0.0;
+    float diffuseWrap = 0.0;
     vec3 tcol = vec3(0.0);
     float matAo = 1.0;
     vec3 color = vec3(0.0);
@@ -410,8 +415,8 @@ void main() {
     bool loop_init_1 = true;
     while(true) {
         if (!loop_init_1) {
-            int _e408 = i;
-            i = (_e408 + 1);
+            int _e419 = i;
+            i = (_e419 + 1);
         }
         loop_init_1 = false;
         int _e218 = i;
@@ -472,61 +477,68 @@ void main() {
             vec3 _e337 = N;
             vec3 _e338 = L;
             float NdotL_1 = max(dot(_e337, _e338), 0.0);
-            vec3 _e342 = L;
-            vec3 H = normalize((V + _e342));
-            vec3 _e345 = N;
-            float NdotH_1 = max(dot(_e345, H), 0.0);
-            float _e349 = roughness;
-            float _e350 = distributionGGX(NdotH_1, _e349);
-            float _e351 = roughness;
-            float _e352 = geometrySmith(NdotV_1, NdotL_1, _e351);
-            vec3 _e356 = fresnelSchlick(max(dot(H, V), 0.0), F0_1);
-            vec3 spec = (((_e350 * _e352) * _e356) / vec3(max(((4.0 * NdotV_1) * NdotL_1), 0.0001)));
-            float _e369 = metallic;
-            vec3 kd = ((vec3(1.0) - _e356) * (1.0 - _e369));
-            vec3 _e373 = Lo;
-            Lo = (_e373 + ((((((kd * diffuseColor) / vec3(3.1415927)) * aoDirect) + spec) * radiance) * NdotL_1));
+            float toonSteps = _group_1_binding_5_fs.hasTex1_.z;
+            diffuseWrap = NdotL_1;
+            if ((toonSteps >= 2.0)) {
+                float _e349 = toonQuantize(NdotL_1, toonSteps);
+                diffuseWrap = _e349;
+            }
+            vec3 _e350 = L;
+            vec3 H = normalize((V + _e350));
+            vec3 _e353 = N;
+            float NdotH_1 = max(dot(_e353, H), 0.0);
+            float _e357 = roughness;
+            float _e358 = distributionGGX(NdotH_1, _e357);
+            float _e359 = roughness;
+            float _e360 = geometrySmith(NdotV_1, NdotL_1, _e359);
+            vec3 _e364 = fresnelSchlick(max(dot(H, V), 0.0), F0_1);
+            vec3 spec = (((_e358 * _e360) * _e364) / vec3(max(((4.0 * NdotV_1) * NdotL_1), 0.0001)));
+            float _e377 = metallic;
+            vec3 kd = ((vec3(1.0) - _e364) * (1.0 - _e377));
+            vec3 _e381 = Lo;
+            float _e388 = diffuseWrap;
+            Lo = ((_e381 + (((((kd * diffuseColor) / vec3(3.1415927)) * aoDirect) * radiance) * _e388)) + ((spec * radiance) * NdotL_1));
             if ((diffuseTransmission > 0.0)) {
                 tcol = diffuseColor;
-                float _e389 = _group_1_binding_5_fs.hasTex1_.y;
-                if ((_e389 > 0.5)) {
-                    vec3 _e392 = tcol;
-                    tcol = (_e392 * diffTransTexel.xyz);
+                float _e400 = _group_1_binding_5_fs.hasTex1_.y;
+                if ((_e400 > 0.5)) {
+                    vec3 _e403 = tcol;
+                    tcol = (_e403 * diffTransTexel.xyz);
                 }
-                vec3 _e395 = Lo;
-                vec3 _e396 = tcol;
-                vec3 _e397 = N;
-                vec3 _e399 = L;
-                Lo = (_e395 + (((_e396 * (diffuseTransmission * max(dot(-(_e397), _e399), 0.0))) * radiance) * aoDirect));
+                vec3 _e406 = Lo;
+                vec3 _e407 = tcol;
+                vec3 _e408 = N;
+                vec3 _e410 = L;
+                Lo = (_e406 + (((_e407 * (diffuseTransmission * max(dot(-(_e408), _e410), 0.0))) * radiance) * aoDirect));
             }
         }
     }
-    float _e416 = _group_1_binding_5_fs.hasTex0_.w;
-    if ((_e416 > 0.5)) {
-        float _e423 = _group_1_binding_5_fs.matParams0_.z;
-        matAo = mix(1.0, occTexel.x, _e423);
+    float _e427 = _group_1_binding_5_fs.hasTex0_.w;
+    if ((_e427 > 0.5)) {
+        float _e434 = _group_1_binding_5_fs.matParams0_.z;
+        matAo = mix(1.0, occTexel.x, _e434);
     }
-    float _e426 = matAo;
-    float indirectAo = min(_e202, _e426);
-    vec3 _e428 = Lo;
-    vec4 _e431 = _group_0_binding_1_fs.ambient;
-    color = (_e428 + ((_e431.xyz * diffuseColor) * indirectAo));
-    vec4 _e439 = _group_1_binding_5_fs.emissiveFactor;
-    emissive = _e439.xyz;
-    float _e445 = _group_1_binding_5_fs.hasTex1_.x;
-    if ((_e445 > 0.5)) {
-        vec3 _e448 = emissive;
-        emissive = (_e448 * emissiveTexel.xyz);
+    float _e437 = matAo;
+    float indirectAo = min(_e202, _e437);
+    vec3 _e439 = Lo;
+    vec4 _e442 = _group_0_binding_1_fs.ambient;
+    color = (_e439 + ((_e442.xyz * diffuseColor) * indirectAo));
+    vec4 _e450 = _group_1_binding_5_fs.emissiveFactor;
+    emissive = _e450.xyz;
+    float _e456 = _group_1_binding_5_fs.hasTex1_.x;
+    if ((_e456 > 0.5)) {
+        vec3 _e459 = emissive;
+        emissive = (_e459 * emissiveTexel.xyz);
     }
-    vec3 _e451 = color;
-    vec3 _e452 = emissive;
-    color = (_e451 + _e452);
-    vec3 _e454 = color;
-    vec3 _e455 = linearToSrgb(_e454);
-    vec3 _e457 = applyFog(_e455, in_.worldPos);
-    color = _e457;
-    vec3 _e458 = color;
-    _fs2p_location0 = vec4((_e458 * alpha), alpha);
+    vec3 _e462 = color;
+    vec3 _e463 = emissive;
+    color = (_e462 + _e463);
+    vec3 _e465 = color;
+    vec3 _e466 = linearToSrgb(_e465);
+    vec3 _e468 = applyFog(_e466, in_.worldPos);
+    color = _e468;
+    vec3 _e469 = color;
+    _fs2p_location0 = vec4((_e469 * alpha), alpha);
     return;
 }
 

@@ -1,7 +1,7 @@
 import type { Node } from '../scene/Node'
 import type { Node2D } from '../scene/Node2D'
 import type { SceneTree } from '../scene/SceneTree'
-import { walkTree } from '../scene/traverse'
+import { isEffectivelyVisible, walkTree } from '../scene/traverse'
 
 /**
  * Reverse-DFS hit walk: visits the tree's {@link Node2D}s in painter order and
@@ -40,7 +40,7 @@ export function findHitNode(
   }
   for (let i = painterOrder.length - 1; i >= 0; i--) {
     const n = painterOrder[i]
-    if (!n.hitEnabled || !n.visible) continue
+    if (!n.hitEnabled || !isEffectivelyVisible(n)) continue
     if (n.hitTest(worldX, worldY, touchSlopWorld)) return n
   }
   return null

@@ -119,7 +119,7 @@ const off = bindRegionGesture(host.engine, {
 // off() to unsubscribe (e.g. in the session's destroy)
 ```
 
-Set `singlePointer: false` for a multi-touch region. The gesture rides the primary stage's pointer stream (`engine.events`), including its synthetic-move reprojection during camera moves.
+Set `singlePointer: false` for a multi-touch region, which then follows every pointer that lands on it. Either way the binding only hears from pointers whose `down` it accepted, so a finger that landed outside `hitTest` never arrives as a stray `move` or `up`. The gesture rides the primary stage's pointer stream (`engine.events`), including its synthetic-move reprojection during camera moves.
 
 ### Buttons
 
@@ -134,6 +134,30 @@ node.addBehavior(
   }),
 )
 ```
+
+### Hold and auto-repeat
+
+`ButtonBehavior` fires on release, which is right for a menu item and wrong for a game control: it adds the finger-lift to the action's latency, and a held button fires at an unpredictable moment. `HoldButtonBehavior` is the counterpart that fires on the pressed edge, with an optional auto-repeat while held.
+
+```ts
+node.addBehavior(
+  new HoldButtonBehavior({
+    onPress: () => shift(-1),
+    repeat: { delay: 0.17, interval: 0.05 },
+    enabled: () => state === 'playing' && !paused,
+    onPressedChange: (pressed) => (this.pressed = pressed),
+  }),
+)
+```
+
+Omit `repeat` for a one-shot press. For an action whose effect is continuous rather than discrete (a thruster, a soft drop that scores per unit travelled), omit it too and poll `behavior.pressed` from your own `onFixedStep` instead, so the effect scales with elapsed time rather than with a callback count.
+
+The repeat runs on the fixed step, so its rate is identical on a 60 Hz and a 144 Hz display. Two consequences worth knowing:
+
+- The fixed step is pause-gated but pointer handlers are not, so a finger held across a pause resumes mid-repeat and fires the moment the engine unpauses. `enabled` is re-checked every step precisely so an expression that is false while paused releases the hold instead.
+- An `interval` shorter than the fixed step still fires at its nominal rate, several times within one step.
+
+Once held, the repeat continues even if the finger drifts off the node, because the pointer stays captured. On glass, a fingertip moving a millimetre should not drop the input.
 
 ### Drag and drop
 

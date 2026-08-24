@@ -33,9 +33,9 @@ async function makeGfx(stencil = true): Promise<{
 const ZIGZAG = [10, 10, 60, 40, 110, 10, 160, 40]
 
 /**
- * Whether a draw is doing real deduplication. On a stencil-backed target every
- * pipeline declares a stencil state so its format matches the attachment, so
- * "has a stencil state" is not the question, "does it test and write" is.
+ * Whether a draw is doing real deduplication. A pipeline declares the
+ * attachment format rather than a stencil state it does not use, so the
+ * question is whether it tests and writes.
  */
 function isDedup(d: DrawRecord): boolean {
   return d.stencil?.front.passOp === 'increment-clamp'
@@ -94,6 +94,38 @@ describe('translucent strokes deduplicate through the stencil', () => {
     expect(reset.stencil?.front.passOp).toBe('zero')
   })
 
+  it('still deduplicates while a 3D pass holds the depth attachment', async () => {
+    // A scene holding 3D content keeps the stencil, so its translucent strokes
+    // deduplicate instead of beading at every join.
+    const canvas = document.createElement('canvas')
+    canvas.width = 400
+    canvas.height = 300
+    const device = new MockGfxDevice()
+    const gfx = new GpuGfx(canvas, device, { stencil: true })
+    await gfx.whenReady
+    gfx.enableDepth()
+    await gfx.whenReady
+    device.reset()
+    gfx.beginFrame({
+      clearColor: '#000000',
+      transparent: false,
+      pixelW: 400,
+      pixelH: 300,
+    })
+    gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
+    gfx.setAlpha(0.4)
+    gfx.strokePolyline(ZIGZAG, 4, { color: '#ffffff', width: 8 })
+    gfx.endFrame()
+
+    const draws = strokeDraws(device)
+    expect(draws).toHaveLength(3)
+    const [core, fringe, reset] = draws
+    expect(isDedup(core)).toBe(true)
+    expect(isDedup(fringe)).toBe(true)
+    expect(isReset(reset)).toBe(true)
+    expect(reset.colorWrite).toBe(false)
+  })
+
   it('leaves an opaque stroke on the plain batched path', async () => {
     const { gfx, device } = await makeGfx()
     gfx.setAlpha(1)
@@ -103,8 +135,9 @@ describe('translucent strokes deduplicate through the stencil', () => {
     const draws = strokeDraws(device)
     expect(draws).toHaveLength(1)
     expect(isDedup(draws[0])).toBe(false)
-    // Inert: declares the format the pass needs, writes nothing.
-    expect(draws[0].stencil?.writeMask).toBe(0)
+    // No stencil state at all. The pipeline declares the attachment through
+    // its format, and the backend supplies the inert aspect.
+    expect(draws[0].stencil).toBeNull()
   })
 
   it('reads alpha from the color as well as the state stack', async () => {
@@ -252,5 +285,25 @@ describe('pipelineKey', () => {
       color: { format: 'linear', blend: 'source-over', write: false },
     })
     expect(on).not.toBe(off)
+  })
+
+  it('separates two pipelines differing only in attachment format', () => {
+    // Identical state, different attachment. The 2D pipelines hit this every
+    // time a stage attaches depth: nothing about them changes except the
+    // format they have to declare.
+    const stencilOnly = pipelineKey({ ...base, depthStencil: 'stencil' })
+    const combined = pipelineKey({ ...base, depthStencil: 'depth-stencil' })
+    expect(stencilOnly).not.toBe(combined)
+    expect(stencilOnly).not.toBe(pipelineKey(base))
+  })
+
+  it('keys an explicit format the same as the one it would derive', () => {
+    const derived = pipelineKey({ ...base, depth: { test: true, write: true } })
+    const explicit = pipelineKey({
+      ...base,
+      depth: { test: true, write: true },
+      depthStencil: 'depth',
+    })
+    expect(derived).toBe(explicit)
   })
 })

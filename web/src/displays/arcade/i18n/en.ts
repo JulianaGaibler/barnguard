@@ -27,6 +27,14 @@ export const en: ArcadeMessages = {
     returnToLauncher: 'Return to Launcher',
     confirm: 'Confirm',
     cancel: 'Cancel',
+    idle: {
+      returningToLauncher: 'Returning to launcher',
+    },
+    pause: {
+      title: 'Paused',
+      resume: 'Resume',
+      quit: 'Quit to menu',
+    },
     tutorial: {
       title: 'How to play',
       close: 'Close',
@@ -45,6 +53,7 @@ export const en: ArcadeMessages = {
       willBeSavedAs: (name) => `Will be saved as ${name}`,
       enterNameToSave: 'enter name to save',
       closeKeyboard: 'Close keyboard',
+      sameName: 'Same name on both sides. Only the higher score is kept.',
     },
   },
 }

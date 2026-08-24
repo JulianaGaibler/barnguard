@@ -88,14 +88,16 @@ void main() {
     VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2);
     vec3 shaded = vec3(0.0);
     bool local = false;
-    vec4 tex = texture(_group_1_binding_0_fs, vec2(vec2(in_.uv.x, (1.0 - in_.uv.y))));
     float a = _group_1_binding_5_fs.color.w;
     float debugMode = _group_0_binding_1_fs.debug.x;
     float lit = _group_1_binding_5_fs.flags.x;
     float useTexture = _group_1_binding_5_fs.flags.y;
+    float useBaseColor = _group_1_binding_5_fs.flags.z;
+    vec2 flipped = vec2(in_.uv.x, (1.0 - in_.uv.y));
+    vec4 tex = texture(_group_1_binding_0_fs, vec2(((useTexture > 0.5) ? flipped : in_.uv)));
     if ((debugMode > 2.5)) {
-        float _e30 = sampleSSAO(in_.pos);
-        _fs2p_location0 = vec4((_e30 * a), (_e30 * a), (_e30 * a), a);
+        float _e38 = sampleSSAO(in_.pos);
+        _fs2p_location0 = vec4((_e38 * a), (_e38 * a), (_e38 * a), a);
         return;
     }
     if ((debugMode > 1.5)) {
@@ -105,35 +107,47 @@ void main() {
     }
     if ((useTexture > 0.5)) {
         vec3 straight = ((tex.w > 0.0) ? (tex.xyz / vec3(tex.w)) : tex.xyz);
-        vec3 _e58 = applyFog(straight, in_.worldPos);
-        float _e66 = _group_1_binding_5_fs.color.w;
-        _fs2p_location0 = (vec4((_e58 * tex.w), tex.w) * _e66);
+        vec3 _e66 = applyFog(straight, in_.worldPos);
+        float _e74 = _group_1_binding_5_fs.color.w;
+        _fs2p_location0 = (vec4((_e66 * tex.w), tex.w) * _e74);
         return;
     }
-    vec4 _e70 = _group_1_binding_5_fs.color;
-    vec3 base = _e70.xyz;
+    if ((useBaseColor > 0.5)) {
+        vec4 _e81 = _group_1_binding_5_fs.color;
+        vec3 rgb = (tex.xyz * _e81.xyz);
+        float alpha = (tex.w * a);
+        float _e89 = _group_1_binding_5_fs.flags.w;
+        if ((alpha < _e89)) {
+            discard;
+        }
+        vec3 _e92 = applyFog(rgb, in_.worldPos);
+        _fs2p_location0 = vec4((_e92 * alpha), alpha);
+        return;
+    }
+    vec4 _e97 = _group_1_binding_5_fs.color;
+    vec3 base = _e97.xyz;
     if ((lit > 0.5)) {
         local = (debugMode < 0.5);
     } else {
         local = false;
     }
-    bool _e80 = local;
-    if (_e80) {
+    bool _e107 = local;
+    if (_e107) {
         vec3 n_1 = normalize(in_.normal);
-        vec4 _e85 = _group_0_binding_1_fs.lightDir;
-        float ndl = max(dot(n_1, -(normalize(_e85.xyz))), 0.0);
-        float _e93 = sampleSSAO(in_.pos);
-        float _e97 = _group_0_binding_1_fs.aoParams2_.x;
-        float aoDirect = mix(1.0, _e93, _e97);
-        vec4 _e102 = _group_0_binding_1_fs.ambient;
-        vec4 _e107 = _group_0_binding_1_fs.lightColor;
-        shaded = (base * ((_e102.xyz * _e93) + ((_e107.xyz * ndl) * aoDirect)));
+        vec4 _e112 = _group_0_binding_1_fs.lightDir;
+        float ndl = max(dot(n_1, -(normalize(_e112.xyz))), 0.0);
+        float _e120 = sampleSSAO(in_.pos);
+        float _e124 = _group_0_binding_1_fs.aoParams2_.x;
+        float aoDirect = mix(1.0, _e120, _e124);
+        vec4 _e129 = _group_0_binding_1_fs.ambient;
+        vec4 _e134 = _group_0_binding_1_fs.lightColor;
+        shaded = (base * ((_e129.xyz * _e120) + ((_e134.xyz * ndl) * aoDirect)));
     } else {
         shaded = base;
     }
-    vec3 _e113 = shaded;
-    vec3 _e115 = applyFog(_e113, in_.worldPos);
-    _fs2p_location0 = vec4((_e115 * a), a);
+    vec3 _e140 = shaded;
+    vec3 _e142 = applyFog(_e140, in_.worldPos);
+    _fs2p_location0 = vec4((_e142 * a), a);
     return;
 }
 

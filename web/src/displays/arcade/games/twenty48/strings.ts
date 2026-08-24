@@ -1,15 +1,13 @@
 /**
- * Every piece of copy 2048 shows, in one frozen object the components import
- * directly. The game is self-contained and does not read the arcade locale
- * store; only the shared shell components it wraps do.
+ * Every piece of copy 2048 shows that is about 2048, in one frozen object the
+ * components import directly. Copy that is about the arcade shell rather than
+ * this game (Paused, Resume, How to play, Return to Launcher) comes from
+ * `displays/arcade/i18n` instead, so every game says it the same way.
  */
 export const TWENTY48_STRINGS = {
   title: '2048',
   modeSolo: '1 Player',
   modeVersus: '2 Players',
-  howToPlay: 'How to Play',
-  openLeaderboard: 'Leaderboard',
-  returnToLauncher: 'Return to Launcher',
 
   /** Above the running score on each board. */
   scoreLabel: 'Score',
@@ -26,9 +24,6 @@ export const TWENTY48_STRINGS = {
   noMoves: 'No moves',
   /** Shown over a versus board whose player is finished. */
   out: 'Out',
-  pauseTitle: 'Paused',
-  resume: 'Resume',
-  quit: 'Quit',
 
   tutorial: {
     moveTitle: 'Swipe or tap',

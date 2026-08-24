@@ -142,15 +142,9 @@ export async function warmupBlendPipelines(
   },
 ): Promise<Map<string, Pipeline>> {
   const map = new Map<string, Pipeline>()
-  // WebGPU requires every pipeline used in a pass to declare a depth-stencil
-  // format matching the attachment, so on a stencil-backed target even the
-  // pipelines that do no stencil work must say so. An always-pass test with a
-  // zero write mask is inert: it declares the format and touches nothing.
-  const inert: StencilState | null = ctx.targetHasStencil
-    ? { front: { compare: 'always', passOp: 'keep' }, writeMask: 0 }
-    : null
+  const target = ctx.targetFormat
   const variants = [
-    { suffix: '', stencil: inert, colorWrite: true },
+    { suffix: '', stencil: null as StencilState | null, colorWrite: true },
     ...(opts.variants ?? []),
   ]
   for (const blend of opts.blends ?? BLEND_VARIANTS) {
@@ -160,16 +154,21 @@ export async function warmupBlendPipelines(
         vertexLayout: opts.vertexLayout,
         bindGroupLayouts: opts.bindGroupLayouts,
         color: {
-          format: ctx.targetColor.format,
+          format: target.format,
           blend,
           write: v.colorWrite ?? true,
         },
         depth: opts.depth ?? null,
         stencil: v.stencil ?? null,
+        // The 2D path is painter-ordered and tests nothing, but it shares a
+        // pass with whatever else draws into the target, so it declares the
+        // attachment it renders into and lets the backend fill in the aspects
+        // it does not use.
+        depthStencil: target.depthStencil,
         cull: opts.cull ?? 'none',
         frontFace: opts.frontFace ?? 'ccw',
         primitive: opts.primitive ?? 'triangle-list',
-        samples: ctx.targetColor.samples,
+        samples: target.samples,
       })
       map.set(v.suffix ? `${blend}|${v.suffix}` : blend, pipeline)
     }

@@ -101,7 +101,7 @@ export function buildGlyphDemo(stage: Stage, host: EngineHost): DemoHandle {
  * The board runs dimmed behind a large counter, so the card reads as being
  * about the number rather than the flood. It is still the same board really
  * playing itself, so the count on screen is a count of real moves, and the
- * counter turns to its warning colour on its own as the allowance runs down.
+ * counter turns to its warning color on its own as the allowance runs down.
  */
 export function buildLimitDemo(stage: Stage, host: EngineHost): DemoHandle {
   return card(

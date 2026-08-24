@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="156" viewBox="0 0 1920 156" fill="none">
+  <!-- The monster's lower lip, filling the bottom band of the frame. Its top
+       edge dips in the middle so the mouth above it reads as sitting in the
+       lip rather than resting on a straight bar. Drawn in 2D, so it covers
+       the near end of the 3D table and the bottom of the mouth. -->
+  <path id="lip" d="M1920 155.707H0V3.86523C253.274 66.8727 590.185 83.707 960 83.707C1329.81 83.707 1666.73 64.4424 1920 0V155.707Z"/>
+</svg>

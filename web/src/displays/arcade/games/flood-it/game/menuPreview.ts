@@ -46,7 +46,7 @@ const CENTER_X_FRAC = 0.72
  *
  * Both work against the run eating the field. Nine moves on a coarse board with
  * few colors flood most of it, leaving one flat shade where the texture used to
- * be; at this size and spread they take a seventh of it, so the pattern
+ * be. At this size and spread they take a seventh of it, so the pattern
  * survives and the moves read as ripples across it.
  */
 const GRID = { cols: 16, rows: 16, colors: 7 }

@@ -297,10 +297,10 @@ export function glyphAspect(glyph: Glyph): number {
 /**
  * Height in em, optically matched across the set.
  *
- * A region is exactly as tall as the glyph it marks. The marker used to be a
- * ring around the glyph, which forced the pair to more than twice the height
- * and left the badge inside smaller than one standing on its own; setting the
- * marker beside it instead gives the badge its full size back.
+ * A region is exactly as tall as the glyph it marks. The marker sits beside the
+ * glyph rather than ringing it, which is what gives the badge its full size: a
+ * ring forces the pair to more than twice the height and shrinks the badge
+ * inside below one standing on its own.
  */
 function glyphHeightEm(glyph: Glyph): number {
   return glyph.g === 'region' ? glyphHeightEm(glyph.inner) : GLYPH_EM[glyph.g]

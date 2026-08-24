@@ -104,6 +104,10 @@ float geometrySchlickGGX(float NdotX, float k) {
     return (NdotX / ((NdotX * (1.0 - k)) + k));
 }
 
+float toonQuantize(float x, float steps) {
+    return ((floor(((clamp(x, 0.0, 1.0) * steps) - 0.5)) + 1.0) / steps);
+}
+
 float geometrySmith(float NdotV, float NdotL, float rough_1) {
     float r = (rough_1 + 1.0);
     float k_1 = ((r * r) / 8.0);

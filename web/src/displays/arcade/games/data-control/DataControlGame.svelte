@@ -1,18 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import {
-    Node2D,
-    domAnchor,
-    ignoreAbort,
-    mixColor,
-    type Rect,
-  } from '@src/stargazer'
-  import {
-    coverView,
-    gameVisibleRect,
-    REGION_WIDTH,
-    REGION_HEIGHT,
-  } from '../../world'
+  import { domAnchor, ignoreAbort, mixColor, type Rect } from '@src/stargazer'
+  import { coverView, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import { BLACK, GREEN } from './palette'
   import type { GameProps } from '../GameModule'
   import { recordArcadeGame } from '../../game-log'
@@ -25,17 +14,18 @@
   import { buildDataControlMenuPreview } from './game/menuPreview'
   import { BackdropNode } from './game/nodes/BackdropNode'
   import { BackgroundGridNode } from './game/nodes/BackgroundGridNode'
-  import { DATA_CONTROL_STRINGS as t } from './strings'
+  import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { DATA_CONTROL_TUTORIAL } from './tutorial'
   import SplashScreen from './overlays/SplashScreen.svelte'
   import PauseIcon from '@src/displays/arcade/PauseIcon.svelte'
-  import PauseMenu from './overlays/PauseMenu.svelte'
+  import PauseMenu from '@src/displays/arcade/menu/PauseMenu.svelte'
   import GameOver from './overlays/GameOver.svelte'
   import StateConfirmCard from './overlays/StateConfirmCard.svelte'
   import HowToPlay from '../../tutorial/HowToPlay.svelte'
   import LeaderboardModal from '../../leaderboard/LeaderboardModal.svelte'
+  import { DATA_CONTROL_LEADERBOARDS } from './leaderboards'
 
-  const { host, onExit, demoStage, camera }: GameProps = $props()
+  const { host, onExit, demoStage, camera, region }: GameProps = $props()
 
   type GameOverPayload = GameEvents['gameOver']
 
@@ -64,11 +54,11 @@
     Parameters<typeof recordArcadeGame>[0],
     'playerName'
   > | null = null
-  function finalizeGameLog(name: string): void {
-    if (!pendingLog) return
+  function finalizeGameLog(name: string): Promise<unknown> {
+    if (!pendingLog) return Promise.resolve()
     const log = pendingLog
     pendingLog = null
-    recordArcadeGame({ ...log, playerName: name || undefined }).catch(
+    return recordArcadeGame({ ...log, playerName: name || undefined }).catch(
       (e: unknown) => {
         console.warn('[data-control] failed to record game to server', e)
       },
@@ -76,13 +66,8 @@
   }
 
   // Node the splash surface is pinned to, so it rides the camera on the way in.
-  let anchor = $state<Node2D | null>(null)
-  let gameRect = $state<Rect>({
-    x: 0,
-    y: 0,
-    width: REGION_WIDTH,
-    height: REGION_HEIGHT,
-  })
+  const anchor = $derived(region.anchor)
+  const gameRect = $derived(region.rect)
 
   /** Cover rect for the menu preview: the whole visible area at region aspect. */
   function previewView(): Rect {
@@ -168,9 +153,6 @@
   }
 
   onMount(() => {
-    const px = host.engine.renderer.pixelSize
-    const view = gameVisibleRect(px.w, px.h)
-
     // Solid black backdrop that fills the viewport each frame so the shared
     // arcade sky can never leak in when the camera zooms into a state (the
     // framing overshoots above the map for headroom, which a fixed
@@ -197,34 +179,11 @@
     })
     host.engine.tree.root.add(grid)
 
-    const uiAnchor = new Node2D('data-control-ui-anchor')
-    uiAnchor.transform.x = view.x
-    uiAnchor.transform.y = view.y
-    uiAnchor.debugBounds = {
-      x: 0,
-      y: 0,
-      width: view.width,
-      height: view.height,
-    }
-    host.engine.tree.root.add(uiAnchor)
-    anchor = uiAnchor
-    gameRect = view
-
-    const offResize = host.engine.events.on('resize', (e) => {
-      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
-      uiAnchor.transform.x = v.x
-      uiAnchor.transform.y = v.y
-      gameRect = v
-    })
-
     return () => {
-      offResize()
       session?.destroy()
       session = null
       if (!backdrop.isDestroyed) backdrop.destroy()
       if (!grid.isDestroyed) grid.destroy()
-      if (!uiAnchor.isDestroyed) uiAnchor.destroy()
-      anchor = null
     }
   })
 </script>
@@ -254,7 +213,11 @@
        zooms into a state. -->
   <div class="dc__screen">
     {#if screen === 'game' && !showOver && !paused}
-      <button class="dc__pause" onclick={pause} aria-label={t.paused}>
+      <button
+        class="dc__pause"
+        onclick={pause}
+        aria-label={$arcadeT.arcade.pause.title}
+      >
         <PauseIcon size="2rem" />
       </button>
     {/if}
@@ -288,7 +251,7 @@
 
     {#if showLeaderboard}
       <LeaderboardModal
-        display="data-control"
+        boards={DATA_CONTROL_LEADERBOARDS}
         onClose={() => (showLeaderboard = false)}
       />
     {/if}

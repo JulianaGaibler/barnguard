@@ -7,7 +7,11 @@ import { SceneTree } from '../../scene/SceneTree'
 import { Node3D } from '../../scene/Node3D'
 import { MeshNode, createBoxGeometry } from '../../nodes/MeshNode'
 
-const TARGET = { format: 'linear' as const, samples: 1 }
+const TARGET = {
+  format: 'linear' as const,
+  samples: 1,
+  depthStencil: 'depth' as const,
+}
 
 async function untilReady(r: MeshRenderer): Promise<void> {
   for (let i = 0; i < 100 && !r.ready; i++) await Promise.resolve()

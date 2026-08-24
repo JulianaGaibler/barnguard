@@ -6,18 +6,25 @@
   import GameOverPanel from '@src/displays/arcade/leaderboard/GameOverPanel.svelte'
   import { ACCENT_SOLO } from '../game/tuning'
   import ScoreFrame from './ScoreFrame.svelte'
+  import { TWENTY48_BOARD_ID } from '../leaderboards'
 
   interface Props {
     score: number
     bestTile: number
     onPlayAgain: () => void
     onMenu: () => void
-    onFinalize?: (name: string) => void
+    onFinalize?: (name: string) => void | Promise<unknown>
   }
   const { score, bestTile, onPlayAgain, onMenu, onFinalize }: Props = $props()
 </script>
 
-<GameOverPanel display="2048" {score} {onPlayAgain} {onMenu} {onFinalize}>
+<GameOverPanel
+  display={TWENTY48_BOARD_ID}
+  {score}
+  {onPlayAgain}
+  {onMenu}
+  {onFinalize}
+>
   {#snippet scoreDisplay()}
     <ScoreFrame {score} {bestTile} color={ACCENT_SOLO} />
   {/snippet}

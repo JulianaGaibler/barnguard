@@ -5,6 +5,7 @@ import JezzBallGame from './JezzBallGame.svelte'
 import { ACCENT_SOLO, ACCENT_VS, COLORS } from './game/tuning'
 import thumbImage from './assets/thumb.png?url'
 import { JEZZBALL_FONT_TOKENS } from './fonts'
+import { JEZZBALL_LEADERBOARDS } from './leaderboards'
 
 const INK = COLORS.ink
 const PINK = ACCENT_SOLO.primary
@@ -63,7 +64,7 @@ export const jezzballModule: GameModule = {
     thumbImage,
     themeTokens,
     fontTokens: JEZZBALL_FONT_TOKENS,
-    supportsLeaderboard: true,
+    leaderboards: JEZZBALL_LEADERBOARDS,
   },
   component: JezzBallGame,
 }

@@ -361,7 +361,7 @@ export class BoardNode extends Node2D {
           // Opaque, and one glyph rather than two cross-fading. Several glyphs
           // are drawn in more than one pass, so any translucency shows the seam
           // where those passes overlap. The glyph therefore swaps at the
-          // half-way point of the cell's own colour change, and the toggle
+          // half-way point of the cell's own color change, and the toggle
           // scales it in instead of fading it.
           const c = cellCenter(g, col, row)
           const shown = fade < 0.5 ? this.#from[i]! : this.#to[i]!

@@ -6,14 +6,18 @@ import { dataControlModule } from './data-control/meta'
 import { fullStackModule } from './full-stack/meta'
 import { twenty48Module } from './twenty48/meta'
 import { floodItModule } from './flood-it/meta'
+import { bufferOverflowModule } from './buffer-overflow/meta'
+import { monstersIntModule } from './monsters-int/meta'
 
 /** Games shown in the launcher. */
 export const GAMES: GameModule[] = [
-  orboModule,
-  connectFourModule,
-  jezzballModule,
-  dataControlModule,
-  fullStackModule,
   floodItModule,
+  connectFourModule,
+  dataControlModule,
+  monstersIntModule,
+  jezzballModule,
+  orboModule,
+  bufferOverflowModule,
   twenty48Module,
+  fullStackModule,
 ]

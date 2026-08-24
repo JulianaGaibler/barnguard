@@ -17,7 +17,7 @@ const contrast = (a: string, b: string): number => {
   const [x, y] = [relativeLuminance(rgba(a)), relativeLuminance(rgba(b))]
   return x > y ? (x + 0.05) / (y + 0.05) : (y + 0.05) / (x + 0.05)
 }
-/** The two colour stops of a `linear-gradient(...)` declaration. */
+/** The two color stops of a `linear-gradient(...)` declaration. */
 const gradientStops = (css: string): string[] =>
   css.match(/#[0-9a-f]{6}/gi) ?? []
 

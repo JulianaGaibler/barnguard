@@ -16,6 +16,7 @@
     MenuItem,
     MenuScore,
   } from '@src/displays/arcade/menu/types'
+  import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { FLOOD_IT_STRINGS as t } from '../strings'
   import { ACCENT } from '../game/tuning'
   import type { GameMode, PlayerId, PresetId } from '../game/types'
@@ -72,13 +73,13 @@
     ]
     if (onHowToPlay) {
       list.push({
-        label: t.howToPlay,
+        label: $arcadeT.arcade.tutorial.title,
         variant: 'surface',
         onSelect: onHowToPlay,
       })
     }
     list.push({
-      label: t.returnToLauncher,
+      label: $arcadeT.arcade.returnToLauncher,
       variant: 'surface',
       icon: RobotIcon,
       onSelect: onExit,

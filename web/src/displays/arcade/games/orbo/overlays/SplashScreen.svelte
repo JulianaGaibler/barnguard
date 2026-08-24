@@ -7,6 +7,7 @@
   import RobotIcon from '@src/displays/arcade/RobotIcon.svelte'
   import MenuScreen from '@src/displays/arcade/menu/MenuScreen.svelte'
   import type { MenuItem, MenuScore } from '@src/displays/arcade/menu/types'
+  import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { ORBO_STRINGS as t } from '../strings'
   import { TEAM_COLORS } from '../game/tuning'
   import type { GameMode, MatchScore, TeamId } from '../game'
@@ -32,13 +33,13 @@
     ]
     if (onHowToPlay) {
       list.push({
-        label: t.howToPlay,
+        label: $arcadeT.arcade.tutorial.title,
         variant: 'surface',
         onSelect: onHowToPlay,
       })
     }
     list.push({
-      label: t.returnToLauncher,
+      label: $arcadeT.arcade.returnToLauncher,
       variant: 'surface',
       icon: RobotIcon,
       onSelect: onExit,

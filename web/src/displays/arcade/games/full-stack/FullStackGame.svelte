@@ -1,13 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
+  import { domAnchor, type Rect } from '@src/stargazer'
   import { PauseButtonNode } from '../common/PauseButtonNode'
-  import {
-    boothCornerInset,
-    gameVisibleRect,
-    REGION_HEIGHT,
-    REGION_WIDTH,
-  } from '../../world'
   import type { GameProps } from '../GameModule'
   import {
     centreColumn,
@@ -21,8 +15,9 @@
   } from './game'
   import { COLORS } from './game/tuning'
   import { FS_STRINGS as t } from './strings'
+  import { recordArcadeGame } from '@src/displays/arcade/game-log'
   import SplashScreen from './overlays/SplashScreen.svelte'
-  import PauseMenu from './overlays/PauseMenu.svelte'
+  import PauseMenu from '@src/displays/arcade/menu/PauseMenu.svelte'
   import GameOver from './overlays/GameOver.svelte'
   import ChoicePrompt from './overlays/ChoicePrompt.svelte'
   import HelpSheet from './overlays/HelpSheet.svelte'
@@ -30,7 +25,11 @@
   import { FULL_STACK_TUTORIAL } from './tutorial'
 
   // Overlays ride the camera via `domAnchor`, so there is no fade gate.
-  const { host, onExit, demoStage }: GameProps = $props()
+  const { host, onExit, demoStage, region }: GameProps = $props()
+
+  const anchor = $derived(region.anchor)
+  const gameRect = $derived(region.rect)
+  const cornerInset = $derived(region.cornerInset)
 
   let session = $state<GameSession | null>(null)
   let loadError = $state<string | null>(null)
@@ -39,14 +38,43 @@
   let mode = $state<GameMode>({ kind: 'versus' })
   let result = $state<GameOverView | null>(null)
 
+  /** Match clock, started with the deal and read once at game over. */
+  let matchStartMs = 0
+
+  /** The free-form log tag: the two humans, or the strength they picked. */
+  function modeTag(m: GameMode): string {
+    return m.kind === 'versus' ? 'versus' : `ai-${m.difficulty}`
+  }
+
+  /**
+   * Record the finished match.
+   *
+   * One record per side, each carrying that side's own total, which is how a
+   * two-seat result stays comparable with a solo one. Full Stack keeps no
+   * leaderboard, so nothing waits on a name and the write goes out here.
+   */
+  function logMatch(view: GameOverView): void {
+    const durationMs = Math.round(performance.now() - matchStartMs)
+    const winner =
+      view.winner === null ? 'tie' : view.winner === 0 ? 'player1' : 'player2'
+    const warn = (e: unknown): void =>
+      console.warn('[full-stack] failed to record game to server', e)
+    for (const side of view.sides) {
+      void recordArcadeGame({
+        gameId: 'full-stack',
+        mode: modeTag(mode),
+        winner,
+        score: side.total,
+        durationMs,
+      }).catch(warn)
+    }
+  }
+
   /** The pause toggle, hidden outside a live match. */
   let pauseButton: PauseButtonNode | null = null
 
   /** Side length of the pause toggle, as a fraction of the region's short side. */
   const PAUSE_FRAC = 0.045
-
-  /** World depth of the booth's top-corner gesture boxes, refreshed on resize. */
-  let cornerInset = 0
 
   /**
    * Sit the pause toggle in the free band above the orgs, at the right.
@@ -83,42 +111,13 @@
   let helpCard = $state<Card | null>(null)
   let helpMode = $state(false)
   let showTutorial = $state(false)
-  let anchor = $state<Node2D | null>(null)
-  let gameRect = $state<Rect>({
-    x: 0,
-    y: 0,
-    width: REGION_WIDTH,
-    height: REGION_HEIGHT,
-  })
 
   onMount(() => {
     let disposed = false
     let s: GameSession | null = null
 
-    const px = host.engine.renderer.pixelSize
-    const css = host.engine.renderer.cssSize
-    const view = gameVisibleRect(px.w, px.h)
-    cornerInset = boothCornerInset(css.w, css.h)
-
-    const uiAnchor = new Node2D('full-stack-ui-anchor')
-    uiAnchor.transform.x = view.x
-    uiAnchor.transform.y = view.y
-    uiAnchor.debugBounds = {
-      x: 0,
-      y: 0,
-      width: view.width,
-      height: view.height,
-    }
-    host.engine.tree.root.add(uiAnchor)
-    anchor = uiAnchor
-    gameRect = view
-
-    const offResize = host.engine.events.on('resize', (e) => {
-      const v = gameVisibleRect(e.pixel.w, e.pixel.h)
-      uiAnchor.transform.x = v.x
-      uiAnchor.transform.y = v.y
-      gameRect = v
-      cornerInset = boothCornerInset(e.css.w, e.css.h)
+    const view = region.rect
+    const offResize = region.onResize((v) => {
       if (pauseButton) placePause(pauseButton, v)
       s?.resize(v)
     })
@@ -153,10 +152,12 @@
           mode = p.mode
           result = null
           showSplash = false
+          matchStartMs = performance.now()
           if (pauseButton) pauseButton.visible = true
         })
         sess.events.on('gameOver', (p) => {
           result = p
+          logMatch(p)
           const kind = mode.kind
           const running =
             matchWins.kind === kind ? matchWins : { kind, a: 0, b: 0 }
@@ -200,7 +201,6 @@
       disposed = true
       offResize()
       s?.destroy()
-      uiAnchor.destroy()
       if (pauseButton && !pauseButton.isDestroyed) pauseButton.destroy()
       pauseButton = null
     }

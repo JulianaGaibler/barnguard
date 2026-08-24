@@ -63,7 +63,7 @@ describe('portraits', () => {
 
   // A card wearing a department it does not belong to is the one error the art
   // can make that the game itself would read as a lie.
-  it('dresses every card in its own department colours', () => {
+  it('dresses every card in its own department colors', () => {
     for (const card of DECK) {
       const flat = portraitPixels(card).flat().filter(Boolean)
       expect(flat.length, card.id).toBeGreaterThan(40)

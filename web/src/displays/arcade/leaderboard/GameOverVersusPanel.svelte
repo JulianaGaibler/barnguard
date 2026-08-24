@@ -25,6 +25,7 @@
     submitScore,
     type LeaderboardEntry,
   } from '@src/core/leaderboard/leaderboardClient'
+  import { registerExitTask } from '../exitTasks'
   import { t } from '../i18n'
   import LeaderboardList from './LeaderboardList.svelte'
   import { formatScore } from './formatScore'
@@ -48,8 +49,11 @@
     banner: Snippet
     onPlayAgain: () => void
     onMenu: () => void
-    /** Fired exactly once on exit, with whatever names were entered. */
-    onFinalize?: (names: { a: string; b: string }) => void
+    /**
+     * Fired exactly once on exit, with whatever names were entered. Return the
+     * caller's own write to have it waited on alongside the scores.
+     */
+    onFinalize?: (names: { a: string; b: string }) => void | Promise<unknown>
   }
   const { display, sides, banner, onPlayAgain, onMenu, onFinalize }: Props =
     $props()
@@ -66,6 +70,26 @@
     if (score <= 0) return false
     return entries.length < MAX_ROWS || score > entries[MAX_ROWS - 1].score
   }
+
+  /** The server's own key: trimmed, lowercased, cut to the field's length. */
+  const normalized = (name: string): string =>
+    name.trim().toLowerCase().slice(0, NAME_MAX_LEN)
+
+  /**
+   * Both players typed the same name and both scores would post.
+   *
+   * A board keeps one row per name, so the second submission would overwrite
+   * the first only if it were higher, and otherwise vanish with no feedback.
+   * Two people at one booth reaching for the same three letters is common
+   * enough to say something about rather than silently drop a score.
+   */
+  const sameName = $derived(
+    stage === 'ready' &&
+      names.a !== '' &&
+      normalized(names.a) === normalized(names.b) &&
+      qualifies(sides[0].score) &&
+      qualifies(sides[1].score),
+  )
 
   /** While a side has the keyboard, spell out its letter slots ("YAI___"). */
   function pendingDisplay(id: 'a' | 'b'): string | undefined {
@@ -85,16 +109,25 @@
   })
 
   // Submit both qualifying scores at most once, on whichever exit path runs
-  // first (a button, or the arcade-wide swipe tearing this down), then guarded
-  // against the teardown that follows it.
+  // first (a button, the arcade-wide swipe, or the idle reset tearing this
+  // down), then guarded against the teardown that follows it.
   let submitted = false
   async function saveIfNeeded(): Promise<void> {
     if (submitted) return
     submitted = true
-    onFinalize?.({ ...names })
-    if (stage !== 'ready') return
-    const jobs: Array<Promise<unknown>> = []
-    for (const side of sides) {
+    const logged = onFinalize?.({ ...names })
+    if (stage !== 'ready') {
+      await logged
+      return
+    }
+    // Under one shared name the board can only hold the higher score, so send
+    // that one alone. Sending both would leave the outcome to whichever request
+    // the server happened to apply last.
+    const posting = sameName
+      ? [sides[0].score >= sides[1].score ? sides[0] : sides[1]]
+      : sides
+    const jobs: unknown[] = [logged]
+    for (const side of posting) {
       const name = names[side.id]
       if (name && qualifies(side.score)) {
         jobs.push(submitScore(display, name, side.score).catch(() => {}))
@@ -108,6 +141,11 @@
     await saveIfNeeded()
     cb()
   }
+
+  // So the arcade can flush names typed but never confirmed with a button
+  // before it tears the game down, rather than leaving it to the un-awaited
+  // unmount below.
+  onMount(() => registerExitTask(saveIfNeeded))
 
   onDestroy(() => {
     void saveIfNeeded()
@@ -162,6 +200,10 @@
             </section>
           {/each}
         </div>
+
+        {#if sameName}
+          <p class="over__warn">{$t.arcade.leaderboard.sameName}</p>
+        {/if}
 
         <div class="over__actions">
           <Button
@@ -226,6 +268,12 @@
   .over__note
     margin: 0
     color: var(--color-text-secondary)
+
+  .over__warn
+    margin: 0
+    @include tint.type-class(ui-small-bold)
+    color: var(--color-accent)
+    text-align: center
 
   .over__cols
     display: flex

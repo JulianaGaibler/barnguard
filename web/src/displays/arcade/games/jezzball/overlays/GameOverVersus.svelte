@@ -8,6 +8,7 @@
   } from '@src/displays/arcade/leaderboard/GameOverVersusPanel.svelte'
   import { ACCENT_VS, COLORS } from '../game/tuning'
   import { JEZZBALL_STRINGS as S } from '../strings'
+  import { JEZZBALL_BOARD_ID } from '../leaderboards'
 
   interface Props {
     winner: 0 | 1 | 2
@@ -16,7 +17,7 @@
     onPlayAgain: () => void
     onMenu: () => void
     /** Fired exactly once on exit with both entered names (or ''). */
-    onFinalize?: (names: { a: string; b: string }) => void
+    onFinalize?: (names: { a: string; b: string }) => void | Promise<unknown>
   }
   const { winner, pointsA, pointsB, onPlayAgain, onMenu, onFinalize }: Props =
     $props()
@@ -28,7 +29,7 @@
 </script>
 
 <GameOverVersusPanel
-  display="jezzball"
+  display={JEZZBALL_BOARD_ID}
   {sides}
   {onPlayAgain}
   {onMenu}

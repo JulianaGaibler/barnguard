@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="647" height="252" viewBox="636 941 647 252" fill="none">
+  <!-- Lifted from layout.svg, in its original coordinates so the paths need no
+       retargeting. The teeth are clipped to the mouth exactly as the source
+       masks them.
+
+       No tongue. It is drawn in the 2D banner instead, over the red, so it
+       reads as hanging out of the hole rather than lying inside it. -->
+  <defs>
+    <clipPath id="mouth">
+      <ellipse cx="959.5" cy="1067" rx="323.5" ry="126"/>
+    </clipPath>
+  </defs>
+  <ellipse cx="959.5" cy="1067" rx="323.5" ry="126" fill="#190607"/>
+  <g clip-path="url(#mouth)">
+    <path d="M759.954 1002.1L713.333 957.793L782.555 950.689L759.954 1002.1Z" fill="white"/>
+    <path d="M858.573 991.297L818.765 944.791L888.787 941.225L858.573 991.297Z" fill="white"/>
+    <path d="M957.183 981.348L924.49 933H994.78L957.183 981.348Z" fill="white"/>
+    <path d="M1055.81 991.051L1030.48 941.229L1100.51 944.794L1055.81 991.051Z" fill="white"/>
+    <path d="M1154.49 1001.27L1136.72 950.355L1205.94 957.459L1154.49 1001.27Z" fill="white"/>
+  </g>
+</svg>

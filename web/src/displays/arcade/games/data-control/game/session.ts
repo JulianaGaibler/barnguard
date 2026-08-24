@@ -99,12 +99,12 @@ export interface GameSession {
 }
 
 // -----------------------------------------------------------------------------
-// Map look tokens. The colour seeds they mix from live in `palette.ts`, shared
+// Map look tokens. The color seeds they mix from live in `palette.ts`, shared
 // with the DOM chrome.
 // -----------------------------------------------------------------------------
 
 // The map is black like the backdrop, so states read purely by their opaque
-// borders on the blue grid. Highlight and dim use solid colour, never alpha.
+// borders on the blue grid. Highlight and dim use solid color, never alpha.
 const COLOR_STATE_FILL = BLACK
 // Selected state: the blue accent mixed toward the black backdrop so it reads
 // as a softer, less heavy highlight.
@@ -392,7 +392,7 @@ export async function startGame(
 
   // --- Highlight bookkeeping ---------------------------------------------
   //
-  // Highlight is colour-only: the selected state fills with the accent, the
+  // Highlight is color-only: the selected state fills with the accent, the
   // rest stay black. No opacity, the `'static'` layer is drawn per frame (not
   // baked), so a plain `fill` reassignment shows on the next frame.
 

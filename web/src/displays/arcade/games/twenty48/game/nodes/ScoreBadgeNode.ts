@@ -6,7 +6,7 @@
 import { easings, mixColor, Node2D, type Gfx2D } from '@src/stargazer'
 import { font, headingFont } from '../../fonts'
 import { ANIM, BEVEL, COLORS } from '../tuning'
-import { drawSlab } from './bevel'
+import { drawSlab } from '../../../common/bevel'
 
 export class ScoreBadgeNode extends Node2D {
   #label: string

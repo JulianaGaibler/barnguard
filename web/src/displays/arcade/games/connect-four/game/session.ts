@@ -189,6 +189,7 @@ export async function startGame(
       color: PLAYER_COLORS[1],
       label: CF_STRINGS.tab.p1,
       yourTurn: CF_STRINGS.tab.yourTurn,
+      thinking: CF_STRINGS.tab.thinking,
       won: CF_STRINGS.tab.won,
     })
     left.transform.x = leftX
@@ -200,6 +201,7 @@ export async function startGame(
       color: PLAYER_COLORS[2],
       label: CF_STRINGS.tab.p2,
       yourTurn: CF_STRINGS.tab.yourTurn,
+      thinking: CF_STRINGS.tab.thinking,
       won: CF_STRINGS.tab.won,
     })
     right.transform.x = rightX
@@ -231,9 +233,10 @@ export async function startGame(
     rightTab.visible = visible
   }
 
-  function updateTabsForTurn(player: Player): void {
-    leftTab.setState(player === 1 ? 'active' : 'inactive')
-    rightTab.setState(player === 2 ? 'active' : 'inactive')
+  function updateTabsForTurn(player: Player, thinking = false): void {
+    const up = thinking ? 'thinking' : 'active'
+    leftTab.setState(player === 1 ? up : 'inactive')
+    rightTab.setState(player === 2 ? up : 'inactive')
   }
 
   function updateTabsForWin(winner: Player | null): void {
@@ -246,8 +249,8 @@ export async function startGame(
     rightTab.setState(winner === 2 ? 'won' : 'lost')
   }
 
-  function focusTurn(player: Player): void {
-    updateTabsForTurn(player)
+  function focusTurn(player: Player, thinking = false): void {
+    updateTabsForTurn(player, thinking)
   }
 
   function clearBoard(): void {
@@ -371,9 +374,10 @@ export async function startGame(
       return
     }
 
-    focusTurn(board.turn)
+    const aiToMove = mode?.kind === 'ai' && board.turn === 2
+    focusTurn(board.turn, aiToMove)
     events.emit('turnChanged', { player: board.turn })
-    if (mode?.kind === 'ai' && board.turn === 2) {
+    if (aiToMove) {
       void aiMove(signal).catch(ignoreAbort)
     } else {
       inputLocked = false

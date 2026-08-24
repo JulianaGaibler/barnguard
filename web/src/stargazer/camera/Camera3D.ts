@@ -16,6 +16,7 @@ import { clamp, lerp } from '../math/scalar'
 import type { Engine } from '../engine/Engine'
 import type { Easing } from '../math/easings'
 import type { CameraView3D } from './CameraView3D'
+import { rejectDetached } from '../anim/abortSignal'
 
 /**
  * Projection blend between orthographic (`0`) and perspective (`1`). A
@@ -366,9 +367,10 @@ export class Camera3D implements CameraView3D {
   ): Promise<void> {
     const engine = this.engine
     if (!engine) {
-      throw new Error(
-        'Camera3D.animateProjection: camera is not attached to an Engine',
-      )
+      // A bare camera has no owner that could have been destroyed, so this is
+      // always a wiring mistake. The node wrappers handle the cancelled case.
+      await rejectDetached('Camera3D.animateProjection', false)
+      return
     }
     const scratch = { t: this.#_projectionness }
     await engine.animation.tween(

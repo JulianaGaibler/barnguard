@@ -1,7 +1,7 @@
 import type {
   BindGroup,
   BindGroupLayout,
-  ColorFormat,
+  TargetFormat,
   DepthState,
   GfxDevice,
   IBuffer,
@@ -21,6 +21,7 @@ import type { Node3D } from '../../scene/Node3D'
 import {
   MeshNode,
   type MaterialTexture,
+  type MeshGeometry,
   type TextureImage,
   type TextureSampler,
 } from '../../nodes/MeshNode'
@@ -31,7 +32,7 @@ import {
   PointLight3D,
   SpotLight3D,
 } from '../../nodes/Light3D'
-import { walkTree } from '../../scene/traverse'
+import { isEffectivelyVisible, walkTree } from '../../scene/traverse'
 import { mat3, mat3NormalMatrix, type Mat3 } from '../../math/Mat3'
 import {
   fitDirectionalOrtho,
@@ -102,6 +103,14 @@ interface GpuMesh {
   indexCount: number
   /** Whether the geometry actually had tangents (drives the PBR tangent path). */
   hasTangent: boolean
+  /**
+   * The geometry these buffers hold, so a node that swaps its geometry gets a
+   * re-upload instead of the previous shape. Absent on the shared quad, which
+   * has no node and never changes.
+   */
+  geometry?: MeshGeometry
+  /** Drops the node's destroy subscription. Absent on the shared quad. */
+  offDestroy?: () => void
 }
 
 const LOC_POSITION = 0
@@ -157,7 +166,7 @@ interface ShadowLink {
  */
 export class MeshRenderer {
   readonly #device: GfxDevice
-  readonly #targetColor: { format: ColorFormat; samples: number }
+  readonly #targetColor: TargetFormat
 
   #flatShader!: ShaderModule
   #pbrShader!: ShaderModule
@@ -262,7 +271,7 @@ export class MeshRenderer {
 
   constructor(
     device: GfxDevice,
-    targetColor: { format: ColorFormat; samples: number },
+    targetColor: TargetFormat,
     quality: RenderQuality = new RenderQuality(),
     fog: Fog = new Fog(),
   ) {
@@ -289,14 +298,16 @@ export class MeshRenderer {
    * skips the 3D pass in the meantime. The depth-only shadow pipelines are
    * single-sample and unaffected, but the shared re-warm rebuilds them too.
    */
-  retarget(targetColor: { format: ColorFormat; samples: number }): void {
+  retarget(targetColor: TargetFormat): void {
     if (
       this.#targetColor.format === targetColor.format &&
-      this.#targetColor.samples === targetColor.samples
+      this.#targetColor.samples === targetColor.samples &&
+      this.#targetColor.depthStencil === targetColor.depthStencil
     )
       return
     this.#targetColor.format = targetColor.format
     this.#targetColor.samples = targetColor.samples
+    this.#targetColor.depthStencil = targetColor.depthStencil
     void this.#warmup()
   }
 
@@ -520,6 +531,10 @@ export class MeshRenderer {
     const device = this.#device
     const format = this.#targetColor.format
     const samples = this.#targetColor.samples
+    // The shared screen target may carry stencil for the 2D path alongside the
+    // depth this pass needs. The shadow, cube and G-buffer pipelines below
+    // render into their own depth-only targets and keep the derived default.
+    const depthStencil = this.#targetColor.depthStencil
     const flatLayout = [this.#flatFrameLayout, this.#flatObjectLayout]
     const pbrLayout = [this.#pbrFrameLayout, this.#pbrObjectLayout]
     for (const cull of ['back', 'none'] as const) {
@@ -534,6 +549,7 @@ export class MeshRenderer {
             bindGroupLayouts: flatLayout,
             color: { format, blend: 'source-over' },
             depth,
+            depthStencil,
             cull,
             frontFace: device.ndc.frontFace,
             primitive: 'triangle-list',
@@ -550,6 +566,7 @@ export class MeshRenderer {
             bindGroupLayouts: pbrLayout,
             color: { format, blend: 'source-over' },
             depth,
+            depthStencil,
             cull,
             frontFace: device.ndc.frontFace,
             primitive: 'triangle-list',
@@ -794,6 +811,7 @@ export class MeshRenderer {
       if (
         n instanceof MeshNode &&
         n.geometry &&
+        n.material.castShadow !== false &&
         !isBlended(n) &&
         isEffectivelyVisible(n)
       ) {
@@ -1328,11 +1346,19 @@ export class MeshRenderer {
     s[17] = c[1]
     s[18] = c[2]
     s[19] = c[3] * mesh.transform.alpha // u_color @16
-    s[20] = mesh.material.lit ? 1 : 0 // u_flags.x = lit
-    s[21] = 0 // u_flags.y = useTexture
+    const m = mesh.material
+    // An unlit mesh can still carry artwork. The flat program takes it straight
+    // and upright, unlike the Viewport2D path beside it.
+    const base = m.baseColorTex
+      ? this.#resolveMap(m.baseColorTex, 'u_texture')
+      : null
+    s[20] = m.lit ? 1 : 0 // u_flags.x = lit
+    s[21] = 0 // u_flags.y = viewport texture
+    s[22] = base ? 1 : 0 // u_flags.z = material texture
+    s[23] = m.alphaMode === 'MASK' ? (m.alphaCutoff ?? 0.5) : 0 // u_flags.w
     const off = this.#flatObjectRing.push(this.#device, s)
     if (off < 0) return
-    this.#drawFlat(gpu, this.#whiteTex, off, cull, write)
+    this.#drawFlat(gpu, base ?? this.#whiteTex, off, cull, write)
     this.#countDraw(gpu)
   }
 
@@ -1349,7 +1375,9 @@ export class MeshRenderer {
     s[18] = 1
     s[19] = node.transform.alpha
     s[20] = 0 // lit
-    s[21] = 1 // useTexture
+    s[21] = 1 // viewport texture
+    s[22] = 0 // material texture
+    s[23] = 0 // no cutoff
     const off = this.#flatObjectRing.push(this.#device, s)
     if (off < 0) return
     this.#drawFlat(this.#quad, tex, off, cull, write)
@@ -1444,6 +1472,7 @@ export class MeshRenderer {
     s[51] = t3 ? 1 : 0
     s[52] = t4 ? 1 : 0
     s[53] = t5 ? 1 : 0
+    s[54] = m.toonSteps ?? 0 // u_hasTex1.z: diffuse banding, off below 2
     const off = this.#pbrObjectRing.push(device, s)
     if (off < 0) return
     const objBg = device.createBindGroup(this.#pbrObjectLayout, [
@@ -1583,7 +1612,12 @@ export class MeshRenderer {
     const geom = mesh.geometry
     if (!geom) return null
     const existing = this.#cache.get(mesh)
-    if (existing) return existing
+    // Keyed by node, so a node handed different geometry has to re-upload
+    // rather than keep drawing the shape it was built with.
+    if (existing) {
+      if (existing.geometry === geom) return existing
+      this.release(mesh)
+    }
 
     const device = this.#device
     const vertCount = geom.positions.length / 3
@@ -1614,6 +1648,11 @@ export class MeshRenderer {
       ibo,
       indexCount: geom.indices.length,
       hasTangent: !!geom.tangents,
+      geometry: geom,
+      // `#uploaded` holds meshes strongly so `destroy` can free them all, which
+      // means a destroyed node would otherwise keep its buffers for the life of
+      // the renderer. `destroy` fires once per node.
+      offDestroy: mesh.events.on('destroy', () => this.release(mesh)),
     }
     this.#cache.set(mesh, gpu)
     this.#uploaded.add(mesh)
@@ -1656,6 +1695,7 @@ export class MeshRenderer {
   release(mesh: MeshNode): void {
     const gpu = this.#cache.get(mesh)
     if (!gpu) return
+    gpu.offDestroy?.()
     this.#device.deleteBuffer(gpu.posBuf)
     this.#device.deleteBuffer(gpu.normBuf)
     this.#device.deleteBuffer(gpu.uvBuf)
@@ -1707,11 +1747,3 @@ function isBlended(node: Node3D): boolean {
 }
 
 /** True when the node and every ancestor is visible (any kind). */
-function isEffectivelyVisible(node: Node): boolean {
-  let n: Node | null = node
-  while (n) {
-    if (!n.visible) return false
-    n = n.parent
-  }
-  return true
-}

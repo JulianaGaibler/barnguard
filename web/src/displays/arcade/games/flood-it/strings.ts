@@ -1,7 +1,8 @@
 /**
  * Flood It's UI copy. English only, kept as a plain object the game's Svelte
- * components and nodes import directly. The game is self-contained and does not
- * depend on the arcade's `t` locale store.
+ * components and nodes import directly. Copy that is about the arcade shell
+ * rather than this game (Paused, Resume, How to play, Return to Launcher) comes
+ * from `displays/arcade/i18n` instead, so every game says it the same way.
  */
 export const FLOOD_IT_STRINGS = {
   title: 'Flood It',
@@ -13,20 +14,10 @@ export const FLOOD_IT_STRINGS = {
   sizeSmall: 'Small',
   sizeMedium: 'Medium',
   sizeLarge: 'Large',
-  howToPlay: 'How to Play',
-  returnToLauncher: 'Return to Launcher',
-
-  paused: 'Paused',
-  resume: 'Resume',
-  quit: 'Quit to Menu',
-
-  playAgain: 'Play again',
-  menu: 'Menu',
 
   moves: 'MOVES',
   playerOne: 'Player 1',
   playerTwo: 'Player 2',
-  yourTurn: 'Your turn',
   waiting: 'Waiting for the other player',
 
   wonTitle: 'Flooded',

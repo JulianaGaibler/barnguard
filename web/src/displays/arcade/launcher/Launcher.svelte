@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { SvelteSet } from 'svelte/reactivity'
+  import { fade } from 'svelte/transition'
   import arcadeLogoRaw from '@src/displays/arcade/assets/arcade-logo.svg?raw'
   import { GAMES } from '@src/displays/arcade/games/registry'
-  import type { GameModule } from '@src/displays/arcade/games/GameModule'
+  import {
+    primaryBoard,
+    type GameModule,
+  } from '@src/displays/arcade/games/GameModule'
   import {
     fetchLeaderboard,
     type LeaderboardEntry,
@@ -12,6 +15,9 @@
   import LauncherFilters from './LauncherFilters.svelte'
   import { playerCountsAcross } from './playerCounts'
   import { boothDay, dailyOrder } from './gameOfTheDay'
+  import { browseState } from './browseState.svelte'
+  import Button from '@src/core/ui/Button.svelte'
+  import RobotIcon from '@src/displays/arcade/RobotIcon.svelte'
   import { daemonConfig } from '@src/stores/daemonConfig'
   import { locationFromConfig } from '@src/displays/arcade/background/dayCycle'
   import { t } from '@src/displays/arcade/i18n'
@@ -25,17 +31,17 @@
   // for every entry in this map so a late-arriving score never shifts layout.
   let topEntries = $state<Record<string, LeaderboardEntry | null>>(
     Object.fromEntries(
-      GAMES.filter((g) => g.meta.supportsLeaderboard).map((g) => [
-        g.meta.id,
-        null,
-      ]),
+      GAMES.filter((g) => primaryBoard(g.meta)).map((g) => [g.meta.id, null]),
     ),
   )
 
   onMount(() => {
     for (const game of GAMES) {
-      if (!game.meta.supportsLeaderboard) continue
-      fetchLeaderboard(game.meta.id, 1)
+      // Keyed by game id but fetched by board id: the card shows one badge, and
+      // a multi-board game earns it on its primary board.
+      const board = primaryBoard(game.meta)
+      if (!board) continue
+      fetchLeaderboard(board.id, 1)
         .then(([entry]) => {
           topEntries = { ...topEntries, [game.meta.id]: entry ?? null }
         })
@@ -67,33 +73,42 @@
   const daily = $derived(dailyOrder(GAMES, today))
 
   // Filters narrow the carousel. An empty count set means no constraint, so
-  // the launcher opens showing everything.
+  // the launcher opens showing everything. They live in `browseState` rather
+  // than here because this component is destroyed while a game runs, and a
+  // visitor trying two games before settling should not have to rebuild their
+  // shortlist in between.
   const allCounts = playerCountsAcross(GAMES)
-  const selectedCounts = new SvelteSet<number>()
-  let leaderboardOnly = $state(false)
-  let aiOnly = $state(false)
 
   const visibleGames = $derived(
     daily.games.filter((game) => {
-      const { playerCounts, supportsLeaderboard, supportsAi } = game.meta
-      if (leaderboardOnly && !supportsLeaderboard) return false
-      if (aiOnly && !supportsAi) return false
-      if (selectedCounts.size === 0) return true
-      return playerCounts.some((n) => selectedCounts.has(n))
+      const { playerCounts, supportsAi } = game.meta
+      if (browseState.leaderboardOnly && !primaryBoard(game.meta)) return false
+      if (browseState.aiOnly && !supportsAi) return false
+      if (browseState.counts.size === 0) return true
+      return playerCounts.some((n) => browseState.counts.has(n))
     }),
   )
 
-  function toggleCount(n: number): void {
-    if (!selectedCounts.delete(n)) selectedCounts.add(n)
-  }
-
-  function clearFilters(): void {
-    selectedCounts.clear()
-    leaderboardOnly = false
-    aiOnly = false
+  /**
+   * Put the carousel back the way it opens: no filters, Game of the Day first.
+   *
+   * The arcade calls this when the booth has sat untouched long enough that
+   * whoever set those filters has gone. Instant rather than the track's own
+   * smooth scroll, which is there to follow a gesture.
+   */
+  export function reset(): void {
+    browseState.clear()
+    trackEl?.scrollTo({ left: 0, behavior: 'instant' })
   }
 
   let trackEl = $state<HTMLDivElement>()
+
+  // Come back to the card the visitor was looking at. Instant, so the track's
+  // smooth scroll does not animate the restore.
+  onMount(() => {
+    trackEl?.scrollTo({ left: browseState.scrollLeft, behavior: 'instant' })
+  })
+
   // Mouse-only drag-to-scroll: touch already scrolls natively via
   // `overflow-x: auto`, and adding our own handling on top of it would double
   // up with (and likely fight) the browser's native touch/momentum scrolling.
@@ -182,49 +197,57 @@
   </header>
 
   <div class="launcher__viewport">
-    <div
-      class="launcher__track"
-      bind:this={trackEl}
-      onpointerdown={onPointerDown}
-      onpointermove={onPointerMove}
-      onpointerup={endDrag}
-      onpointercancel={endDrag}
-      role="group"
-      aria-roledescription="carousel"
-    >
-      {#each visibleGames as game (game.meta.id)}
-        <div class="launcher__slot">
-          <GameCard
-            {game}
-            {onPlay}
-            gameOfTheDay={game === daily.featured}
-            topEntry={game.meta.supportsLeaderboard
-              ? topEntries[game.meta.id]
-              : undefined}
-          />
+    {#if visibleGames.length > 0}
+      <div
+        class="launcher__track"
+        bind:this={trackEl}
+        onpointerdown={onPointerDown}
+        onpointermove={onPointerMove}
+        onpointerup={endDrag}
+        onpointercancel={endDrag}
+        onscroll={() => (browseState.scrollLeft = trackEl?.scrollLeft ?? 0)}
+        role="group"
+        aria-roledescription="carousel"
+      >
+        {#each visibleGames as game (game.meta.id)}
+          <div class="launcher__slot">
+            <GameCard
+              {game}
+              {onPlay}
+              gameOfTheDay={game === daily.featured}
+              topEntry={primaryBoard(game.meta)
+                ? topEntries[game.meta.id]
+                : undefined}
+            />
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <!-- Takes the carousel's place rather than sitting under an empty track,
+           so the one thing left to press is where the cards were. -->
+      <div class="launcher__empty" in:fade={{ duration: 160 }}>
+        <div class="launcher__empty-message" role="status">
+          <span class="launcher__empty-icon" aria-hidden="true">
+            <RobotIcon size={44} />
+          </span>
+          <p class="launcher__empty-text">{$t.arcade.filters.noMatches}</p>
         </div>
-      {/each}
-    </div>
-
-    {#if visibleGames.length === 0}
-      <p class="launcher__empty">
-        {$t.arcade.filters.noMatches}
-        <button type="button" class="launcher__clear" onclick={clearFilters}
-          >{$t.arcade.filters.clear}</button
-        >
-      </p>
+        <Button variant="surface" onclick={reset}>
+          {$t.arcade.filters.clear}
+        </Button>
+      </div>
     {/if}
   </div>
 
   <div class="launcher__bar">
     <LauncherFilters
       counts={allCounts}
-      {selectedCounts}
-      {leaderboardOnly}
-      {aiOnly}
-      onToggleCount={toggleCount}
-      onToggleLeaderboard={() => (leaderboardOnly = !leaderboardOnly)}
-      onToggleAi={() => (aiOnly = !aiOnly)}
+      selectedCounts={browseState.counts}
+      leaderboardOnly={browseState.leaderboardOnly}
+      aiOnly={browseState.aiOnly}
+      onToggleCount={(n) => browseState.toggleCount(n)}
+      onToggleLeaderboard={() => browseState.toggleLeaderboard()}
+      onToggleAi={() => browseState.toggleAi()}
     />
   </div>
 </div>
@@ -279,22 +302,34 @@
     position: relative
     width: 100%
 
+  // On the sky rather than on a card, like the logo, so it takes the launcher's
+  // day and night palettes and transitions with them.
   .launcher__empty
-    margin: 0
+    display: flex
+    flex-direction: column
+    align-items: center
+    gap: var(--space-32)
     padding-block: var(--space-48)
     text-align: center
-    color: var(--color-text-secondary)
     pointer-events: auto
 
-  .launcher__clear
-    @include tint.type-class(ui-bold)
-    margin-inline-start: var(--space-8)
-    border: none
-    background: none
-    padding: 0
+  .launcher__empty-message
+    display: flex
+    flex-direction: column
+    align-items: center
+    gap: var(--space-12)
     color: var(--color-text)
-    text-decoration: underline
-    cursor: pointer
+    transition: color 600ms linear
+
+  // Company for the message rather than a second thing to read, so it sits a
+  // shade back from the text under it.
+  .launcher__empty-icon
+    display: flex
+    opacity: 0.55
+
+  .launcher__empty-text
+    margin: 0
+    @include tint.type-class(headline-sm)
 
   .launcher__track
     // Grid (one implicit row, one column per card) rather than flex: every

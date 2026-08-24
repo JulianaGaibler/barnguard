@@ -41,9 +41,11 @@ export type { BehaviorCtor } from './scene/Behavior'
 export { PointerBehavior } from './scene/PointerBehavior'
 export { ButtonBehavior } from './scene/ButtonBehavior'
 export type { ButtonOptions } from './scene/ButtonBehavior'
+export { HoldButtonBehavior } from './scene/HoldButtonBehavior'
+export type { HoldButtonOptions } from './scene/HoldButtonBehavior'
 export { DraggableBehavior } from './scene/DraggableBehavior'
 export type { DraggableOptions } from './scene/DraggableBehavior'
-export { walkTree } from './scene/traverse'
+export { walkTree, isEffectivelyVisible } from './scene/traverse'
 export { hitTestCircle } from './scene/hitTest'
 export { raycastWorld3D, raycastMesh, makeRay } from './scene/raycast3d'
 export type { Raycast3DHit } from './scene/raycast3d'
@@ -141,7 +143,7 @@ export type { Mat3 } from './math/Mat3'
 export { mat3, mat3NormalMatrix } from './math/Mat3'
 export type { Aabb } from './math/shadowFit'
 export { fitDirectionalOrtho } from './math/shadowFit'
-export { clamp, clampAbs, lerp, lerpAngle } from './math/scalar'
+export { clamp, clampAbs, lerp, lerpAngle, moveToward } from './math/scalar'
 export type { Easing } from './math/easings'
 /**
  * Easing functions for tweens, e.g. `easings.inOutCubic`. Each is an
@@ -254,6 +256,20 @@ export type {
 export { TextNode } from './nodes/TextNode'
 export type { TextNodeOptions } from './nodes/TextNode'
 export { MeshNode, createBoxGeometry } from './nodes/MeshNode'
+export {
+  createQuadGeometry,
+  createRoundedQuadGeometry,
+  createDiscGeometry,
+  createPrismGeometry,
+} from './nodes/geometry'
+export type {
+  QuadOptions,
+  RoundedQuadOptions,
+  DiscOptions,
+  PrismOptions,
+  QuadOrigin,
+  UvRect,
+} from './nodes/geometry'
 export type {
   MeshGeometry,
   MeshMaterial,
@@ -388,6 +404,8 @@ export type { ParticleSpriteStyle } from './particles/draw'
 
 // assets
 export { AssetLoader } from './assets/AssetLoader'
+export { createTexture, textureFromImageBitmap } from './assets/createTexture'
+export type { CreateTextureOptions } from './assets/createTexture'
 export { parseSvgPaths, computePathBounds } from './assets/SvgPathMap'
 export {
   flattenCubic,

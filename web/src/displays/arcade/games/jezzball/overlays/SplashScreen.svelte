@@ -8,6 +8,7 @@
   import LeaderboardIcon from '@src/displays/arcade/leaderboard/LeaderboardIcon.svelte'
   import MenuScreen from '@src/displays/arcade/menu/MenuScreen.svelte'
   import type { MenuItem, MenuScore } from '@src/displays/arcade/menu/types'
+  import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { JEZZBALL_STRINGS as t } from '../strings'
   import { ACCENT_VS } from '../game/tuning'
   import type { GameMode, PlayerId } from '../game/types'
@@ -46,20 +47,20 @@
     ]
     if (onHowToPlay) {
       list.push({
-        label: t.howToPlay,
+        label: $arcadeT.arcade.tutorial.title,
         variant: 'surface',
         onSelect: onHowToPlay,
         trailing: onOpenLeaderboard
           ? {
               icon: LeaderboardIcon,
-              ariaLabel: t.openLeaderboard,
+              ariaLabel: $arcadeT.arcade.leaderboard.openLeaderboard,
               onSelect: onOpenLeaderboard,
             }
           : undefined,
       })
     }
     list.push({
-      label: t.returnToLauncher,
+      label: $arcadeT.arcade.returnToLauncher,
       variant: 'surface',
       icon: RobotIcon,
       onSelect: onExit,

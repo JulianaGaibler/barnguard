@@ -9,6 +9,7 @@
 import {
   ButtonBehavior,
   easings,
+  moveToward,
   Node2D,
   textAdvance,
   withAlpha,
@@ -153,6 +154,9 @@ export class MoveMeterNode extends Node2D {
  * The turn has to be unmistakable at booth distance, so it is carried by three
  * things at once: the accent bar, the label, and the swatch row brightening.
  */
+/** Seconds for a tally to fade between its idle and active look. */
+const ACTIVE_FADE = 0.22
+
 export class TallyNode extends Node2D {
   readonly #player: PlayerId
   readonly #label: string
@@ -182,11 +186,7 @@ export class TallyNode extends Node2D {
 
   override onUpdate(dt: number): void {
     const target = this.#active ? 1 : 0
-    const step = dt / 0.22
-    this.#activeT =
-      this.#activeT < target
-        ? Math.min(target, this.#activeT + step)
-        : Math.max(target, this.#activeT - step)
+    this.#activeT = moveToward(this.#activeT, target, dt / ACTIVE_FADE)
   }
 
   override draw(gfx: Gfx2D): void {

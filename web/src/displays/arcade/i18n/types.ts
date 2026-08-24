@@ -36,6 +36,20 @@ export interface ArcadeMessages extends CoreMessages {
     confirm: string
     /** Accessible label for the cancel (✗) button. */
     cancel: string
+    /** The countdown notice shown before an idle booth resets itself. */
+    idle: {
+      /** Notice body, beside the countdown ring. */
+      returningToLauncher: string
+    }
+    /** Shared pause menu, the one modal during play. */
+    pause: {
+      /** Card heading. */
+      title: string
+      /** Returns to the board. */
+      resume: string
+      /** Ends the run and returns to the game's own menu. */
+      quit: string
+    }
     /** Shared "How to play" tutorial chrome. */
     tutorial: {
       /** Modal heading. */
@@ -70,6 +84,11 @@ export interface ArcadeMessages extends CoreMessages {
       enterNameToSave: string
       /** Accessible label for the keyboard's collapse key. */
       closeKeyboard: string
+      /**
+       * Warning when both players in a versus result type the same name. The
+       * board keeps one row per name, so only the higher score can survive.
+       */
+      sameName: string
     }
   }
 }

@@ -31,9 +31,9 @@ const swatch = (pixels: (string | null)[][]): HTMLCanvasElement => {
   const gfx = canvas.getContext('2d')!
   for (let r = 0; r < PORTRAIT_SIZE; r++) {
     for (let c = 0; c < PORTRAIT_SIZE; c++) {
-      const colour = pixels[r]![c]
-      if (!colour) continue
-      gfx.fillStyle = colour
+      const color = pixels[r]![c]
+      if (!color) continue
+      gfx.fillStyle = color
       gfx.fillRect(c, r, 1, 1)
     }
   }

@@ -6,6 +6,7 @@ import { lerp } from '../math/scalar'
 import { Node, type NodeKind } from './Node'
 import type { TweenOptions } from '../anim/Animator'
 import { combineAbortSignals, ignoreAbort } from '../anim/abortSignal'
+import { rejectDetached } from '../anim/abortSignal'
 
 /**
  * Targets for {@link Node3D.tween}. Position and scale interpolate linearly,
@@ -107,6 +108,35 @@ export class Node3D extends Node {
   }
 
   /**
+   * Interpolation targets for keyed tweens, one per key.
+   *
+   * The animator cancels a running tween by matching the replace-key AND the
+   * object being interpolated, so a keyed restart only replaces its predecessor
+   * if both calls hand it the same object. A fresh one per call makes
+   * `opts.key` inert: the moves stack instead, each driving the transform from
+   * the pose it captured when IT started, and the loser of each tick drags the
+   * node backwards.
+   *
+   * One per key rather than one per node, because two tweens under different
+   * keys are meant to run together and would otherwise interpolate the same
+   * field.
+   */
+  #progress = new Map<string, { p: number }>()
+
+  /** The interpolation target for a key, reset to the start of its run. */
+  #progressFor(key: string | undefined): { p: number } {
+    if (key === undefined) return { p: 0 }
+    const existing = this.#progress.get(key)
+    if (existing) {
+      existing.p = 0
+      return existing
+    }
+    const fresh = { p: 0 }
+    this.#progress.set(key, fresh)
+    return fresh
+  }
+
+  /**
    * Tween the transform toward `to`, scoped to this node's lifetime: destroying
    * the node rejects with `AbortError`. Position and scale lerp, rotation
    * slerps, alpha lerps. `opts.signal` (if provided) combines with the node
@@ -114,12 +144,9 @@ export class Node3D extends Node {
    */
   tween(to: Node3DTweenTo, opts: TweenOptions): Promise<void> {
     const engine = this.engine
-    if (!engine) {
-      return Promise.reject(
-        new Error('Node3D.tween: node is not attached to an Engine world'),
-      )
-    }
+    if (!engine) return rejectDetached('Node3D.tween', this.isDestroyed)
     const t = this.transform
+    const progress = this.#progressFor(opts.key)
     const startP = { x: t.position.x, y: t.position.y, z: t.position.z }
     const startS = { x: t.scale.x, y: t.scale.y, z: t.scale.z }
     const startR = {
@@ -131,7 +158,6 @@ export class Node3D extends Node {
     const startAlpha = t.alpha
     const combined = combineAbortSignals(this.abortSignal, opts.signal)
     const userUpdate = opts.onUpdate
-    const progress = { p: 0 }
     return engine.animation
       .tween(
         progress,

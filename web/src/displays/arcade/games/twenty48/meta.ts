@@ -5,6 +5,7 @@ import Twenty48Game from './Twenty48Game.svelte'
 import { ACCENT_SOLO, ACCENT_VS, COLORS, tileColor } from './game/tuning'
 import { TWENTY48_FONT_TOKENS } from './fonts'
 import thumbImage from './assets/thumb.png?url'
+import { TWENTY48_LEADERBOARDS } from './leaderboards'
 
 const INK = COLORS.ink
 
@@ -59,7 +60,7 @@ export const twenty48Module: GameModule = {
     thumbImage,
     themeTokens,
     fontTokens: TWENTY48_FONT_TOKENS,
-    supportsLeaderboard: true,
+    leaderboards: TWENTY48_LEADERBOARDS,
   },
   component: Twenty48Game,
 }

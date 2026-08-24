@@ -111,11 +111,11 @@ describe('discounts and abilities', () => {
     }
   })
 
-  it('has 4 two-effect cards and 7 offering a choice', () => {
-    expect(DECK.filter((c) => c.ability.length === 2)).toHaveLength(4)
+  it('has 3 two-effect cards and 8 offering a choice', () => {
+    expect(DECK.filter((c) => c.ability.length === 2)).toHaveLength(3)
     expect(
       DECK.filter((c) => c.ability.some((e) => e.effect === 'choose')),
-    ).toHaveLength(7)
+    ).toHaveLength(8)
   })
 })
 

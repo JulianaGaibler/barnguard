@@ -171,7 +171,7 @@ export class BoardSession {
 
   /**
    * Try to move. Returns false only when the board is not accepting input at
-   * all; a swipe arriving mid-slide is held rather than dropped, because 2048
+   * all. A swipe arriving mid-slide is held rather than dropped, because 2048
    * is played in fast muscle-memory bursts and a swallowed input reads as the
    * game ignoring you. The slot is one deep, so holding a direction can never
    * run the model further ahead than a single move.

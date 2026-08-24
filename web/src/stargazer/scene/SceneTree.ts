@@ -75,8 +75,13 @@ export class SceneTree implements NodeOwner {
 
   /**
    * Mark the painter-order + per-layer indices dirty. Cheap (flags only), the
-   * next `getPainterOrder()` / `getLayerNodes()` read rebuilds them in one DFS.
-   * Called from {@link Node2D} mutations (add/remove/renderLayer change).
+   * next `getPainterOrder()` / `getLayerNodes()` read rebuilds them in one
+   * DFS.
+   *
+   * Called by `Node.add` and `Node.remove` for every structural change in the
+   * tree, and by {@link Node2D} when a node's `renderLayer` moves it between
+   * buckets. A change that skipped this leaves a node out of the index, which
+   * means it neither draws nor hit-tests while sitting correctly in the tree.
    */
   invalidatePainterOrder(): void {
     this.#_painterOrder = null

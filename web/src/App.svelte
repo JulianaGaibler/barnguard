@@ -5,6 +5,7 @@
     BOOTH_CORNER_SIZE_PX,
     initBoothMenuToggle,
   } from '@src/core/attendant/boothMenuToggle'
+  import { startActivityTracking } from '@src/core/activity'
   import { coverScreen } from '@src/stores/coverScreen'
   import CoverScreen from '@src/core/attendant/CoverScreen.svelte'
   import BoothMenu from '@src/core/attendant/BoothMenu.svelte'
@@ -31,12 +32,20 @@
   // dev backdoor) for the lifetime of the app. The corner size goes onto the
   // root as a CSS variable so DOM chrome can keep out of the gesture's boxes
   // without restating the number.
+  //
+  // Activity tracking goes on first: the booth-menu gesture swallows corner
+  // taps at capture phase, and a listener attached after it never sees them.
   onMount(() => {
     document.documentElement.style.setProperty(
       '--booth-corner-size',
       `${BOOTH_CORNER_SIZE_PX}px`,
     )
-    return initBoothMenuToggle()
+    const stopActivityTracking = startActivityTracking()
+    const stopBoothMenu = initBoothMenuToggle()
+    return () => {
+      stopBoothMenu()
+      stopActivityTracking()
+    }
   })
 </script>
 

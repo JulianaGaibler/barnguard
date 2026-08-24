@@ -13,7 +13,11 @@ import {
 import { RenderQuality } from '../RenderQuality'
 import { Fog } from '../Fog'
 
-const TARGET = { format: 'linear' as const, samples: 1 }
+const TARGET = {
+  format: 'linear' as const,
+  samples: 1,
+  depthStencil: 'depth' as const,
+}
 
 /** Drain microtasks until the renderer's pipelines have warmed. */
 async function untilReady(r: MeshRenderer): Promise<void> {
@@ -42,6 +46,21 @@ function frameUpload(device: MockGfxDevice, bytes: number): Float32Array {
       return new Float32Array(u.data.buffer, u.data.byteOffset, bytes / 4)
   }
   throw new Error(`no ${bytes}-byte uniform upload`)
+}
+
+/** The most recent per-object PBR block (the largest non-frame upload). */
+function objectUpload(device: MockGfxDevice): Float32Array {
+  for (let i = device.uniformUploads.length - 1; i >= 0; i--) {
+    const u = device.uniformUploads[i]
+    if (u.data.byteLength >= 56 * 4 && u.data.byteLength !== 176) {
+      return new Float32Array(
+        u.data.buffer,
+        u.data.byteOffset,
+        u.data.byteLength / 4,
+      )
+    }
+  }
+  throw new Error('no per-object upload')
 }
 
 /** Fog color (words 24..27) + params (28..31) within a mesh frame block. */
@@ -119,7 +138,7 @@ describe('MeshRenderer', () => {
       )
     expect(colorPipes().every((p) => p.desc.samples === 1)).toBe(true)
 
-    renderer.retarget({ format: 'linear', samples: 4 })
+    renderer.retarget({ format: 'linear', samples: 4, depthStencil: 'depth' })
     expect(renderer.ready).toBe(false)
     await untilReady(renderer)
 
@@ -133,7 +152,7 @@ describe('MeshRenderer', () => {
   it('retarget is a no-op when the target color is unchanged', async () => {
     const { device, renderer } = await setup()
     const before = device.pipelines.length
-    renderer.retarget({ format: 'linear', samples: 1 })
+    renderer.retarget({ format: 'linear', samples: 1, depthStencil: 'depth' })
     expect(renderer.ready).toBe(true)
     expect(device.pipelines.length).toBe(before)
   })
@@ -439,5 +458,120 @@ describe('MeshRenderer', () => {
     expect(params[0]).toBe(1) // linear mode
     expect(params[2]).toBe(3) // start
     expect(params[3]).toBe(12) // end
+  })
+  // A stage outlives the meshes drawn on it, and `#uploaded` holds them
+  // strongly so `destroy` can free them all. Without an explicit release a
+  // destroyed node's buffers live as long as the renderer.
+  it('frees a mesh GPU buffers when its node is destroyed', async () => {
+    const { device, renderer, world, camera } = await setup()
+    const cube = new MeshNode(createBoxGeometry(1), {
+      lit: false,
+      color: [1, 1, 1, 1],
+    })
+    world.add(cube)
+    world.updateTransforms()
+    renderer.render(camera, world.root)
+    expect(device.deletedBuffers).toHaveLength(0)
+
+    cube.destroy()
+
+    // Position, normal, uv and tangent, plus the index buffer.
+    expect(device.deletedBuffers).toHaveLength(4)
+    expect(device.deletedIndexBuffers).toHaveLength(1)
+  })
+
+  it('drops a destroyed mesh from the upload set, so it is not freed twice', async () => {
+    const { device, renderer, world, camera } = await setup()
+    const cube = new MeshNode(createBoxGeometry(1), {
+      lit: false,
+      color: [1, 1, 1, 1],
+    })
+    world.add(cube)
+    world.updateTransforms()
+    renderer.render(camera, world.root)
+    cube.destroy()
+    const afterDestroy = device.deletedBuffers.length
+
+    // `destroy` walks the same upload set the node just released itself from.
+    renderer.destroy()
+
+    const quadBuffers = 4
+    expect(device.deletedBuffers).toHaveLength(afterDestroy + quadBuffers)
+  })
+
+  it('re-uploads when a node is handed different geometry', async () => {
+    const { device, renderer, world, camera } = await setup()
+    const cube = new MeshNode(createBoxGeometry(1), {
+      lit: false,
+      color: [1, 1, 1, 1],
+    })
+    world.add(cube)
+    world.updateTransforms()
+    renderer.render(camera, world.root)
+
+    // A tetrahedron, so the index count differs from the box's 36.
+    cube.geometry = {
+      positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1]),
+      normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]),
+      indices: new Uint16Array([0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3]),
+    }
+    device.reset()
+    renderer.render(camera, world.root)
+
+    const draws = device.draws.filter((d) => d.kind === 'elements')
+    expect(draws).toHaveLength(1)
+    expect(draws[0].count).toBe(12)
+    // The old buffers went back rather than leaking alongside the new ones.
+    expect(device.deletedBuffers).toHaveLength(4)
+    expect(device.deletedIndexBuffers).toHaveLength(1)
+  })
+
+  it('keeps a castShadow:false mesh out of the shadow map but still draws it', async () => {
+    const { device, renderer, world, camera } = await setup()
+    world.add(
+      new MeshNode(createBoxGeometry(1), {
+        lit: true,
+        color: [1, 1, 1, 1],
+        pbr: true,
+        castShadow: false,
+      }),
+    )
+    world.add(new DirectionalLight3D({ shadowEnabled: true }))
+    world.updateTransforms()
+
+    renderer.renderShadows(world.root)
+    expect(device.draws.filter((d) => d.kind === 'elements')).toHaveLength(0)
+
+    renderer.render(camera, world.root)
+    expect(device.draws.filter((d) => d.kind === 'elements')).toHaveLength(1)
+  })
+
+  it('passes toon banding to the PBR program, and leaves it off by default', async () => {
+    const { device, renderer, world, camera } = await setup()
+    const geo = createBoxGeometry(1)
+    geo.uvs = new Float32Array((geo.positions.length / 3) * 2)
+    world.add(
+      new MeshNode(geo, {
+        lit: true,
+        color: [1, 1, 1, 1],
+        pbr: true,
+        toonSteps: 3,
+      }),
+    )
+    world.updateTransforms()
+    renderer.render(camera, world.root)
+    // `u_hasTex1.z`, word 54 of the per-object block.
+    const banded = objectUpload(device)
+    expect(banded[54]).toBe(3)
+
+    const plain = await setup()
+    const geo2 = createBoxGeometry(1)
+    geo2.uvs = new Float32Array((geo2.positions.length / 3) * 2)
+    plain.world.add(
+      new MeshNode(geo2, { lit: true, color: [1, 1, 1, 1], pbr: true }),
+    )
+    plain.world.updateTransforms()
+    plain.renderer.render(plain.camera, plain.world.root)
+    expect(objectUpload(plain.device)[54]).toBe(0)
   })
 })

@@ -39,6 +39,14 @@
      * list from rank 1 (the standalone leaderboard modal).
      */
     contextRows?: number
+    /**
+     * The board is still on its way. Held past {@link SKELETON_DELAY_MS} it
+     * draws placeholder rows, which is what holds a caller's height while it
+     * waits.
+     */
+    loading?: boolean
+    /** How many placeholder rows a held `loading` draws. */
+    skeletonRows?: number
   }
   const {
     entries,
@@ -47,6 +55,8 @@
     maxRows = 50,
     focused = false,
     contextRows,
+    loading = false,
+    skeletonRows = 8,
   }: Props = $props()
 
   interface Row {
@@ -74,6 +84,29 @@
     }
     return all.slice(start, end)
   }
+
+  /**
+   * How long `loading` must hold before placeholder rows appear.
+   *
+   * The board is served from the booth's own machine and normally lands in a
+   * few milliseconds. Drawing the skeleton for that long reads as a flash of
+   * noise rather than as loading, so only a wait long enough to notice gets
+   * placeholders; a quick one goes straight from nothing to rows.
+   */
+  const SKELETON_DELAY_MS = 250
+
+  let held = $state(false)
+
+  $effect(() => {
+    if (!loading) {
+      held = false
+      return
+    }
+    const timer = setTimeout(() => (held = true), SKELETON_DELAY_MS)
+    return () => clearTimeout(timer)
+  })
+
+  const skeleton = $derived([...Array(skeletonRows).keys()])
 
   const rows = $derived.by<Row[]>(() => {
     const base: Array<{ name: string; score: number; pending: boolean }> =
@@ -115,27 +148,45 @@
   {/if}
 {/snippet}
 
-<ol class="board">
-  {#each rows as row (row.place)}
-    <li>
-      {#if row.pending && pendingAction}
-        <button
-          type="button"
-          class="row pending"
-          class:focused
-          onclick={pendingAction.onClick}
-        >
-          {@render rowContent(row)}
-        </button>
-      {:else}
-        <div class="row" class:pending={row.pending}>
-          {@render rowContent(row)}
+<ol
+  class="board"
+  class:board--empty={!loading && rows.length === 0}
+  aria-busy={loading || undefined}
+>
+  {#if held}
+    <!-- Nothing to read here, so the rows are hidden from the reader that
+         `aria-busy` above has already told to wait. -->
+    {#each skeleton as i (i)}
+      <li aria-hidden="true">
+        <div class="row skeleton" style="--skeleton-delay: {i * 90}ms">
+          <span class="bar bar--place"></span>
+          <span class="bar bar--name"></span>
+          <span class="bar bar--score"></span>
         </div>
-      {/if}
-    </li>
-  {/each}
-  {#if rows.length === 0}
-    <li class="empty">{$t.arcade.leaderboard.empty}</li>
+      </li>
+    {/each}
+  {:else if !loading}
+    {#each rows as row (row.place)}
+      <li>
+        {#if row.pending && pendingAction}
+          <button
+            type="button"
+            class="row pending"
+            class:focused
+            onclick={pendingAction.onClick}
+          >
+            {@render rowContent(row)}
+          </button>
+        {:else}
+          <div class="row" class:pending={row.pending}>
+            {@render rowContent(row)}
+          </div>
+        {/if}
+      </li>
+    {/each}
+    {#if rows.length === 0}
+      <li class="empty">{$t.arcade.leaderboard.empty}</li>
+    {/if}
   {/if}
 </ol>
 
@@ -148,6 +199,11 @@
     width: 100%
     min-height: 8rem
     overflow-x: hidden
+
+  // Nothing to rank yet, so the notice sits in the middle of whatever height
+  // the caller has given the list rather than at the top of it.
+  .board--empty
+    justify-content: center
 
   .row
     display: grid
@@ -226,4 +282,34 @@
     color: var(--color-text-secondary)
     text-align: center
     padding: var(--space-24)
+
+  // Placeholder rows take the real grid, so a row lands exactly where its
+  // placeholder was and only the text arrives.
+  .bar
+    block-size: var(--space-12)
+    border-radius: var(--radius-pill)
+    background: var(--color-border)
+    // Staggered down the list, which reads as one list waking up rather than
+    // as several rows blinking together.
+    animation: skeleton-pulse 1400ms ease-in-out infinite
+    animation-delay: var(--skeleton-delay, 0ms)
+
+  .bar--place
+    inline-size: 1.25rem
+    justify-self: end
+
+  .bar--name
+    inline-size: 60%
+
+  // Ends where a score ends, past the gutter the CTA pill needs.
+  .bar--score
+    inline-size: 3rem
+    justify-self: end
+    margin-inline-end: var(--space-40)
+
+  @keyframes skeleton-pulse
+    0%, 100%
+      opacity: 1
+    50%
+      opacity: 0.4
 </style>

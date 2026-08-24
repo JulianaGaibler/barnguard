@@ -3,7 +3,7 @@
  *
  * Games with a distinctive look draw their own button and just borrow
  * {@link drawPauseGlyph} for the mark. This is for the rest: a rounded square, a
- * hairline border, and the shared mark, coloured from whatever the game passes
+ * hairline border, and the shared mark, colored from whatever the game passes
  * in.
  *
  * Positioned in world units, so it suits a game that renders at the camera's

@@ -56,10 +56,11 @@ import type {
   VertexBufferLayout,
 } from '../GfxDevice'
 import {
-  blendToGPU,
   colorFormatToGPU,
+  colorTargetToGPU,
   compareFnToGPU,
-  stencilFaceToGPU,
+  depthStencilFormatToGPU,
+  depthStencilToGPU,
   cullModeToGPU,
   frontFaceToGPU,
   indexTypeToGPU,
@@ -67,6 +68,12 @@ import {
   topologyToGPU,
   vertexFormatToGPU,
 } from './conv'
+import {
+  depthStencilFormatFor,
+  depthStencilFormatOf,
+  hasDepthAspect,
+  hasStencilAspect,
+} from '../depthStencil'
 import { BlitPass, mipLevels } from './blitPass'
 import { pipelineKey } from '../pipelineKey'
 import {
@@ -152,6 +159,12 @@ type WebGPURenderTarget = RenderTarget & {
   /** Multisample color texture, allocated only when `samples > 1`. */
   colorMs?: GPUTexture
   depthTex?: GPUTexture
+  /**
+   * The format `depthTex` was allocated with. A resize reallocates from this
+   * rather than re-deriving it, so a target keeps whichever aspects it was
+   * built with.
+   */
+  depthFormat?: GPUTextureFormat
   stencilTex?: GPUTexture
   /** Depth allocated as a sampleable single-sample texture (G-buffer). */
   depthSampled?: boolean
@@ -354,45 +367,12 @@ export class WebGPUDevice implements GfxDevice {
       descriptor.fragment = {
         module: shader.module,
         entryPoint: shader.fragmentEntry,
-        targets: [
-          {
-            format: colorFormatToGPU(desc.color.format),
-            blend: blendToGPU(desc.color.blend),
-            writeMask: GPUColorWrite.ALL,
-          },
-        ],
+        targets: [colorTargetToGPU(desc.color)],
       }
     }
 
-    // Depth and stencil are mutually exclusive here (see
-    // `RenderTargetOpts.stencil`), so the attachment format follows from which
-    // one the pipeline asked for and always matches its target's.
-    if (desc.depth !== null) {
-      const d = desc.depth
-      descriptor.depthStencil = {
-        format: 'depth24plus',
-        depthWriteEnabled: d.write,
-        depthCompare: d.test
-          ? compareFnToGPU(d.compare ?? 'less-equal')
-          : 'always',
-        depthBias: d.biasConstant ?? 0,
-        depthBiasSlopeScale: d.biasSlopeScale ?? 0,
-      }
-    } else if (desc.stencil) {
-      const st = desc.stencil
-      const back = st.back ?? st.front
-      // A stencil8 attachment has no depth aspect, so depth must be inert:
-      // writes off and an always-pass compare.
-      descriptor.depthStencil = {
-        format: 'stencil8',
-        depthWriteEnabled: false,
-        depthCompare: 'always',
-        stencilFront: stencilFaceToGPU(st.front),
-        stencilBack: stencilFaceToGPU(back),
-        stencilReadMask: st.readMask ?? 0xff,
-        stencilWriteMask: st.writeMask ?? 0xff,
-      }
-    }
+    const depthStencil = depthStencilToGPU(desc)
+    if (depthStencil) descriptor.depthStencil = depthStencil
 
     const gpu = await device.createRenderPipelineAsync(descriptor)
     const pipeline: WebGPUPipeline = {
@@ -1041,6 +1021,7 @@ export class WebGPUDevice implements GfxDevice {
     const height = Math.max(1, opts.height)
     const colorSpace: ColorFormat = opts.colorSpace ?? 'linear'
     const format = colorFormatToGPU(colorSpace)
+    const aspects = depthStencilFormatFor(opts)
 
     const rt: WebGPURenderTarget = {
       __gfxRenderTarget: undefined as never,
@@ -1048,8 +1029,8 @@ export class WebGPUDevice implements GfxDevice {
       height,
       samples,
       colorSpace,
-      hasDepth: !!opts.depth,
-      hasStencil: !!opts.stencil && !opts.depth,
+      hasDepth: hasDepthAspect(aspects),
+      hasStencil: hasStencilAspect(aspects),
     } as WebGPURenderTarget
 
     if (samples > 1) {
@@ -1071,24 +1052,25 @@ export class WebGPUDevice implements GfxDevice {
       })
     }
 
-    if (opts.stencil && !opts.depth) {
+    // Stencil without depth is its own quarter-sized attachment. Depth, with or
+    // without stencil, is one texture in `depthTex` carrying both aspects.
+    if (aspects === 'stencil') {
       rt.stencilTex = device.createTexture({
         size: [width, height, 1],
         format: 'stencil8',
         sampleCount: samples,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
       })
-    }
-
-    if (opts.depth) {
+    } else if (hasDepthAspect(aspects)) {
       // A sampleable depth attachment (the AO G-buffer) is single-sample and
       // adds TEXTURE_BINDING so a later pass can read it as `texture_depth_2d`.
-      // depth24plus already supports sampling, so the render pipeline's baked
-      // depth format needs no change.
+      // `depthStencilFormatFor` drops stencil in that case, so the sampled view
+      // is always depth-only and needs no aspect of its own.
       rt.depthSampled = !!opts.depthSampled
+      rt.depthFormat = depthStencilFormatToGPU(aspects) ?? 'depth24plus'
       rt.depthTex = device.createTexture({
         size: [width, height, 1],
-        format: 'depth24plus',
+        format: rt.depthFormat,
         sampleCount: rt.depthSampled ? 1 : samples,
         usage:
           GPUTextureUsage.RENDER_ATTACHMENT |
@@ -1127,7 +1109,7 @@ export class WebGPUDevice implements GfxDevice {
       r.depthTex.destroy()
       r.depthTex = device.createTexture({
         size: [w, h, 1],
-        format: 'depth24plus',
+        format: r.depthFormat ?? 'depth24plus',
         sampleCount: r.depthSampled ? 1 : r.samples,
         usage:
           GPUTextureUsage.RENDER_ATTACHMENT |
@@ -1303,29 +1285,76 @@ export class WebGPUDevice implements GfxDevice {
       descriptor.colorAttachments = [attachment]
     }
 
-    if (desc.depth) {
-      descriptor.depthStencilAttachment = {
+    // The attachment's own format decides which ops the pass carries. WebGPU
+    // rejects a pass that omits ops for an aspect the format has, and equally
+    // one that supplies ops for an aspect it lacks, so neither can be driven by
+    // which of `desc.depth` / `desc.stencil` the caller happened to fill in.
+    if (desc.depth || desc.stencil) {
+      const attachment = this.#depthStencilAttachment(desc)
+      if (attachment) descriptor.depthStencilAttachment = attachment
+    }
+
+    this.#pass = encoder.beginRenderPass(descriptor)
+    this.#lastPipeline = null
+  }
+
+  /**
+   * The pass's depth-stencil attachment, built from the aspects its target
+   * actually carries.
+   *
+   * An aspect the caller described nothing for is cleared rather than loaded. A
+   * load would be legal (WebGPU zero-initializes lazily) but leaves depth at
+   * `0.0`, which fails the engine's `less-equal` default for every fragment and
+   * makes 3D content vanish with no error to trace it by.
+   */
+  #depthStencilAttachment(
+    desc: RenderPassDesc,
+  ): GPURenderPassDepthStencilAttachment | null {
+    // A shadow pass targets an array layer or cube face, which is depth-only
+    // and has no render target to read a format from.
+    if (desc.depth && !('renderTarget' in desc.depth.target)) {
+      return {
         view: this.#depthView(desc.depth.target),
         depthLoadOp: desc.depth.loadOp,
         depthStoreOp: desc.depth.storeOp ?? 'store',
         depthClearValue: desc.depth.clearValue ?? 1.0,
       }
-    } else if (desc.stencil) {
-      // A stencil8 attachment carries no depth aspect, so WebGPU rejects the
-      // depth ops here rather than ignoring them.
-      const target = desc.stencil.target as WebGPURenderTarget
-      if (target.stencilTex) {
-        descriptor.depthStencilAttachment = {
-          view: target.stencilTex.createView(),
-          stencilLoadOp: desc.stencil.loadOp,
-          stencilStoreOp: desc.stencil.storeOp ?? 'store',
-          stencilClearValue: desc.stencil.clearValue ?? 0,
-        }
-      }
     }
 
-    this.#pass = encoder.beginRenderPass(descriptor)
-    this.#lastPipeline = null
+    const target = (
+      desc.depth && 'renderTarget' in desc.depth.target
+        ? desc.depth.target.renderTarget
+        : desc.stencil?.target
+    ) as WebGPURenderTarget | undefined
+    if (!target) return null
+    const aspects = depthStencilFormatOf(target)
+    if (aspects === 'none') return null
+
+    const view = (
+      aspects === 'stencil' ? target.stencilTex : target.depthTex
+    )?.createView()
+    if (!view) {
+      throw new Error(
+        `WebGPUDevice.beginRenderPass: target reports '${aspects}' but has no matching attachment`,
+      )
+    }
+
+    const attachment: GPURenderPassDepthStencilAttachment = { view }
+    if (hasDepthAspect(aspects)) {
+      attachment.depthLoadOp = desc.depth?.loadOp ?? 'clear'
+      attachment.depthStoreOp = desc.depth?.storeOp ?? 'store'
+      if (attachment.depthLoadOp === 'clear') {
+        attachment.depthClearValue = desc.depth?.clearValue ?? 1.0
+      }
+    }
+    if (hasStencilAspect(aspects)) {
+      attachment.stencilLoadOp = desc.stencil?.loadOp ?? 'clear'
+      attachment.stencilStoreOp = desc.stencil?.storeOp ?? 'store'
+      if (attachment.stencilLoadOp === 'clear') {
+        attachment.stencilClearValue = desc.stencil?.clearValue ?? 0
+      }
+    }
+    return attachment
   }
 
   /** Resolve a `DepthTarget` union to the depth view a pass writes into. */

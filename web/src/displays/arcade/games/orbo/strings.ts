@@ -1,21 +1,16 @@
 /**
  * Orbo's UI copy. English-only, kept as a plain object the game's Svelte
- * components import directly. The game is self-contained and doesn't depend on
- * the arcade's `t` locale store.
+ * components import directly. Copy that is about the arcade shell rather than
+ * this game (Paused, Resume, How to play, Return to Launcher) comes from
+ * `displays/arcade/i18n` instead, so every game says it the same way.
  */
 export const ORBO_STRINGS = {
   title: 'ORBO',
   loading: 'Loading …',
   mode1v1: 'Play 1v1',
   mode2v2: 'Play 2v2',
-  returnToLauncher: 'Return to Launcher',
-  howToPlay: 'How to play',
   teamL: 'Team Blue',
   teamR: 'Team Red',
-  // Pause menu.
-  paused: 'Paused',
-  resume: 'Resume',
-  quit: 'Quit to menu',
   // How-to-play cards.
   tutorial: {
     scoreTitle: 'Flick to score',

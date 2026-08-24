@@ -26,7 +26,12 @@
     REGION_HEIGHT,
   } from './world'
   import Launcher from './launcher/Launcher.svelte'
+  import { browseState } from './launcher/browseState.svelte'
   import ReturnToLauncherOverlay from './ReturnToLauncherOverlay.svelte'
+  import IdleNotice from './IdleNotice.svelte'
+  import { IDLE_POLL_MS, isExpired, isWarning } from './idle'
+  import { runExitTasks } from './exitTasks'
+  import { msSinceInput, pokeActivity } from '@src/core/activity'
   import { fontScope, themeScope } from '@src/core/ui/themeScope'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
   import { applyTheme } from '@src/core/theme'
@@ -44,6 +49,8 @@
   import { skyIsDark, skyTimeOverride, skyTopColor } from './uiState'
   import type { GameModule } from './games/GameModule'
   import { ArcadeCamera } from './games/arcadeCamera'
+  import { ArcadeBackdrop } from './games/arcadeBackdrop'
+  import { GameRegion } from './games/gameRegion.svelte'
   import { DemoStage } from './tutorial/DemoStage'
   import { tutorialOpen } from './uiState'
   import { get } from 'svelte/store'
@@ -130,6 +137,11 @@
   // game region (e.g. a zoom) without owning the shared camera. Created on
   // Play, released on exit so a mid-zoom game can't fight the pan back.
   let gameCamera = $state<ArcadeCamera | null>(null)
+  let gameBackdrop = $state<ArcadeBackdrop | null>(null)
+  // The game region's anchor, rect and booth-corner inset, created once and
+  // handed to every game so none of them recompute it. Long-lived: the anchor
+  // sits in the tree with nothing pinned to it while the launcher is up.
+  let gameRegion = $state<GameRegion | null>(null)
   // Node the launcher UI is pinned to, at the launcher region's origin. The
   // launcher rides the camera, so a pan slides it on/off screen instead of the
   // old fade-out-then-move, `cull` hides it once it's fully off the canvas.
@@ -144,6 +156,11 @@
     width: REGION_WIDTH,
     height: REGION_HEIGHT,
   })
+  // The mounted launcher, so an idle booth can be put back the way it opens.
+  let launcher = $state<ReturnType<typeof Launcher> | null>(null)
+  // True for the countdown that precedes an idle reset, in-game only. On the
+  // launcher there is nothing to lose, so the reset happens without warning.
+  let idleWarning = $state(false)
 
   const CAMERA_SEC = 0.7
 
@@ -179,6 +196,7 @@
       h.engine.tree.root.add(cam)
       cam.makeCurrent()
       camera = cam
+      gameRegion = new GameRegion(h.engine)
       // A node at the launcher visible rect's top-left. The launcher UI attaches
       // to it and covers the whole visible area. Its position + the overlay size
       // are re-fit on resize so the menu tracks the window aspect.
@@ -219,6 +237,8 @@
     offFontChange = null
     if (launcherAnchor && !launcherAnchor.isDestroyed) launcherAnchor.destroy()
     launcherAnchor = null
+    gameRegion?.destroy()
+    gameRegion = null
     demoStage?.destroy()
     demoStage = null
     background?.destroy()
@@ -230,9 +250,17 @@
   async function play(game: GameModule): Promise<void> {
     if (!host || !camera || screen !== 'launcher') return
     screen = 'transitioning'
+    // The launcher's filters and scroll outlive its component so a visitor
+    // trying a game and coming straight back keeps their shortlist. Past a
+    // minute in-game they are treated as gone and it clears itself.
+    browseState.startExpiry()
     // Lease the shared camera to the game, scoped to the game region's home
     // framing. Games that don't zoom simply never touch it.
     gameCamera = new ArcadeCamera(camera, gameView())
+    // Lease the shared background too. A 3D game takes it down once its own
+    // menu covers the change, since the 3D pass draws under every 2D layer and
+    // the sky would otherwise hide its scene outright.
+    if (background) gameBackdrop = new ArcadeBackdrop(background)
     // Mount the game first: its overlays attach to the game region, off-screen
     // (culled) while the camera is still on the launcher.
     activeGame = game
@@ -285,9 +313,27 @@
     })
   })
 
+  // Return the booth to its opening state once the visitor in front of it has
+  // gone. In a game that means quitting, and `browseState` has already expired
+  // by then, so the launcher comes back clean on its own. On the launcher the
+  // component is up and holding that state, so it has to be reset in place.
+  $effect(() => {
+    const id = setInterval(() => {
+      const idleMs = msSinceInput()
+      idleWarning = isWarning(idleMs) && screen === 'ingame'
+      if (!isExpired(idleMs) || screen === 'transitioning') return
+      // Restart the clock so the next tick doesn't fire the same reset again.
+      pokeActivity()
+      if (screen === 'ingame') void exit()
+      else launcher?.reset()
+    }, IDLE_POLL_MS)
+    return () => clearInterval(id)
+  })
+
   async function exit(): Promise<void> {
     if (!host || screen !== 'ingame') return
     screen = 'transitioning'
+    browseState.cancelExpiry()
     // A game may have paused the engine for its pause menu. Resume before the
     // pan. A paused engine skips the animation tick, so the camera tween would
     // never advance and the return would hang.
@@ -296,12 +342,20 @@
     // zoom and stops the game issuing new framing calls, so the pan to the
     // launcher can't be fought by a late zoom (e.g. a mid-zoom swipe-out).
     gameCamera?.release()
+    // Restore the sky before the pan, so the launcher is never seen without it.
+    gameBackdrop?.release()
+    // A game-over card can be holding a name the player typed but never
+    // confirmed with a button. Flush alongside the pan rather than after it, so
+    // a slow daemon costs nothing anyone can see.
+    const flushed = runExitTasks()
     // Pan back to the launcher: the game's overlays slide out and cull, the
     // launcher slides back in. Unmount the game (→ session.destroy()) only once
     // the camera has left the game region.
     await panCamera(launcherView())
+    await flushed
     activeGame = null
     gameCamera = null
+    gameBackdrop = null
     screen = 'launcher'
   }
 </script>
@@ -346,11 +400,11 @@
       }}
       use:themeScope={$skyIsDark ? arcadeNightPalette : arcadeTheme.palette}
     >
-      <Launcher onPlay={play} />
+      <Launcher bind:this={launcher} onPlay={play} />
     </div>
   {/if}
 
-  {#if host && activeGame && gameCamera}
+  {#if host && activeGame && gameCamera && gameBackdrop && gameRegion}
     {@const Game = activeGame.component}
     <!-- Layout-neutral wrapper carrying the game's scoped theme overrides. -->
     <div
@@ -358,7 +412,14 @@
       use:themeScope={activeGame.meta.themeTokens}
       use:fontScope={activeGame.meta.fontTokens}
     >
-      <Game {host} onExit={exit} {demoStage} camera={gameCamera} />
+      <Game
+        {host}
+        onExit={exit}
+        {demoStage}
+        camera={gameCamera}
+        backdrop={gameBackdrop}
+        region={gameRegion}
+      />
     </div>
   {/if}
 
@@ -372,6 +433,8 @@
     active={!!activeGame && !$tutorialOpen}
     onConfirm={exit}
   />
+
+  <IdleNotice visible={idleWarning} />
 </main>
 
 {#if host}

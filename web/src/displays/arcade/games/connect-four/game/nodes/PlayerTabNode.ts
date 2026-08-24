@@ -3,7 +3,7 @@ import { FAMILIES, fontFor, fontWith } from '@src/core/theme'
 import { CONNECT_FOUR_FONTS } from '../../fonts'
 import { TAB } from '../tuning'
 
-export type PlayerTabState = 'active' | 'inactive' | 'won' | 'lost'
+export type PlayerTabState = 'active' | 'thinking' | 'inactive' | 'won' | 'lost'
 
 export interface PlayerTabOptions {
   /** Card size in world units. */
@@ -17,25 +17,25 @@ export interface PlayerTabOptions {
   label: string
   /** Sublabel strings (i18n owned by the caller). */
   yourTurn: string
+  thinking: string
   won: string
 }
 
 /**
  * A side tab showing a player: a card with a single rounded corner (bookmark
  * look), the "p.N" label, and a sublabel that reads "your turn" for the side to
- * move. On a win the winner's card flips to white with the player color as
- * text, grows a folded (dog-ear) bottom-right corner, and its sublabel reads
- * "won". The session owns two of these (left/right) and calls {@link setState}
- * on turn and round-over events. It toggles `visible` for the menu vs play.
+ * move, or "thinking" while the AI decides. On a win the winner's card flips to
+ * white with the player color as text, grows a folded (dog-ear) bottom-right
+ * corner, and its sublabel reads "won". The session owns two of these
+ * (left/right) and calls {@link setState} on turn and round-over events. It
+ * toggles `visible` for the menu vs play.
  *
  * Everything (card, labels, pill) is drawn in this node's own `draw`, so
- * `visible = false` hides the whole tab atomically. (The renderer draws from a
- * flat per-layer list and checks `visible` per node, so child nodes would keep
- * drawing even with the parent hidden.) The card is composed from `fillRect` +
- * `fillCircle` (its fill is opaque, so the overlaps don't darken) rather than a
- * `Path2D`. The GPU `fillPath2D` only renders pre-registered tessellations, so
- * a runtime path draws nothing. Sizes are world units so the tab scales with
- * the board.
+ * `visible = false` hides the whole tab atomically. The card is composed from
+ * `fillRect` + `fillCircle` (its fill is opaque, so the overlaps don't darken)
+ * rather than a `Path2D`. The GPU `fillPath2D` only renders pre-registered
+ * tessellations, so a runtime path draws nothing. Sizes are world units so the
+ * tab scales with the board.
  */
 export class PlayerTabNode extends Node2D {
   readonly #w: number
@@ -46,6 +46,7 @@ export class PlayerTabNode extends Node2D {
   readonly #color: string
   readonly #label: string
   readonly #yourTurn: string
+  readonly #thinking: string
   readonly #wonLabel: string
   readonly #mainFont: string
   readonly #subFont: string
@@ -73,10 +74,11 @@ export class PlayerTabNode extends Node2D {
     this.#fill = opts.color
     this.#label = opts.label
     this.#yourTurn = opts.yourTurn
+    this.#thinking = opts.thinking
     this.#wonLabel = opts.won
     this.#subColor = opts.color
-    // The "p.N" label is body-weight sans; the "your turn" / "won" sublabel is
-    // monospace for the technical feel the board chrome is going for.
+    // The "p.N" label is body-weight sans. The sublabel is monospace, for the
+    // technical feel the board chrome is going for.
     this.#mainFont = fontFor(
       CONNECT_FOUR_FONTS,
       'text',
@@ -92,10 +94,11 @@ export class PlayerTabNode extends Node2D {
   setState(state: PlayerTabState): void {
     switch (state) {
       case 'active':
+      case 'thinking':
         this.#fill = this.#color
         this.#mainColor = '#ffffff'
         this.#showDogEar = false
-        this.#subText = this.#yourTurn
+        this.#subText = state === 'thinking' ? this.#thinking : this.#yourTurn
         this.#subColor = this.#color
         this.#showSub = true
         this.#showPill = true

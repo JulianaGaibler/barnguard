@@ -3,7 +3,7 @@
  *
  * {@link parseSvgPaths} is the other half of SVG support and answers a different
  * need: it returns geometry for `fillPath2D`, so the caller picks the paint.
- * Use that for silhouettes to recolour, animate or hit-test, and this for
+ * Use that for silhouettes to recolor, animate or hit-test, and this for
  * artwork that carries its own fills and strokes.
  *
  * Decoding goes through an `<img>` on an object URL. `createImageBitmap` does

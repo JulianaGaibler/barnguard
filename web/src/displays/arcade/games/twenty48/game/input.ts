@@ -20,7 +20,7 @@ export interface Pt {
 
 /**
  * The direction of a drag, or `null` when it did not travel far enough to be a
- * swipe. The larger of the two axes wins; a perfect diagonal resolves
+ * swipe. The larger of the two axes wins, and a perfect diagonal resolves
  * horizontally, which only matters for a pixel-exact 45 degrees.
  */
 export function classifySwipe(

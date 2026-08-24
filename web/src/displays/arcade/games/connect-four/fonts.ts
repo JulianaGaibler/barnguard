@@ -4,8 +4,8 @@ import { FAMILIES, resolveFonts, type ThemeFonts } from '@src/core/theme'
  * Connect Four's typefaces: Raleway throughout.
  *
  * The board's technical readouts stay on Azeret Mono, named directly rather
- * than through a role — corner version strings and turn status are meant to
- * read as fixed-width instrumentation, not as body copy.
+ * than through a role. Corner version strings and turn status are meant to read
+ * as fixed-width instrumentation, not as body copy.
  */
 export const CONNECT_FOUR_FONT_TOKENS: ThemeFonts = {
   text: FAMILIES.raleway,

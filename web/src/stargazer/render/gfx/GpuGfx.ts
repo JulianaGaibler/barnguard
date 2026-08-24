@@ -22,8 +22,9 @@ import type {
   GfxStrokeStyle,
   GfxTextStyle,
 } from './Gfx2D'
-import type { RenderTarget, Texture, VBuffer } from './GfxDevice'
+import type { RenderTarget, TargetFormat, Texture, VBuffer } from './GfxDevice'
 import type { GfxDevice } from './GfxDevice'
+import { depthStencilFormatOf } from './depthStencil'
 import { parseColor } from './parseColor'
 import type { GeometryHandle } from './GeometryHandle'
 import {
@@ -152,11 +153,9 @@ export class GpuGfx implements Gfx2D {
    * Whether the offscreen target carries stencil bits, which the deduplicated
    * translucent-stroke path needs.
    *
-   * Fixed at construction, unlike {@link GpuGfx.enableDepth}. A pipeline bakes
-   * its depth-stencil format, so flipping this later would invalidate every 2D
-   * pipeline and force a re-warm mid-session. It is also mutually exclusive
-   * with depth (see `RenderTargetOpts.stencil`), so a stage that turns on 3D
-   * loses it and translucent strokes fall back to the plain path.
+   * Fixed at construction, and independent of depth: the attachment carries
+   * both, so a 3D pass costs the stroke path nothing. Changing it later would
+   * re-warm every pipeline, since each one bakes the format it draws into.
    */
   #stencilEnabled: boolean
   /**
@@ -264,11 +263,7 @@ export class GpuGfx implements Gfx2D {
       stencil: this.#stencilEnabled,
     })
     this.stats.msaaSamples = this.#target.samples
-    this.#ctx.targetColor = {
-      format: this.#target.colorSpace,
-      samples: this.#target.samples,
-    }
-    this.#ctx.targetHasStencil = this.#target.hasStencil
+    this.#publishTargetFormat()
     this.#ensureResolveTarget()
 
     if (this.#textureManager) {
@@ -291,11 +286,7 @@ export class GpuGfx implements Gfx2D {
   async #warmupPipelines(): Promise<void> {
     this.#ready = false
     const seq = ++this.#warmupSeq
-    this.#ctx.targetColor = {
-      format: this.#target.colorSpace,
-      samples: this.#target.samples,
-    }
-    this.#ctx.targetHasStencil = this.#target.hasStencil
+    this.#publishTargetFormat()
     for (const p of this.#programs) {
       await p.warmup(this.#device, this.#ctx)
       if (seq !== this.#warmupSeq) return
@@ -354,43 +345,77 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * Color format + sample count of the offscreen target, so the 3D pass
+   * The attachment signature of the offscreen target, so the 3D pass
    * (`MeshRenderer`, `DebugLine3DRenderer`) can build pipelines matching the
    * shared target it draws into.
    */
-  get targetColor(): {
-    format: import('./GfxDevice').ColorFormat
-    samples: number
-  } {
-    return { ...this.#ctx.targetColor }
+  get targetFormat(): TargetFormat {
+    return { ...this.#ctx.targetFormat }
+  }
+
+  /**
+   * Republish the live target's signature onto the batch context. Every path
+   * that swaps `#target` calls this, so the format the programs build against
+   * is the one the pass will actually open with.
+   */
+  #publishTargetFormat(): void {
+    this.#ctx.targetFormat = {
+      format: this.#target.colorSpace,
+      samples: this.#target.samples,
+      depthStencil: depthStencilFormatOf(this.#target),
+    }
   }
 
   /**
    * Add a depth attachment to the offscreen target so a depth-tested 3D pass
    * can run before the 2D layers, and clear it each frame from then on.
-   * Idempotent and permanent for the stage's lifetime (the attachment survives
-   * resize and context restore). No-op if already enabled.
+   * Idempotent, and reversible through {@link GpuGfx.disableDepth}. The
+   * attachment survives resize and context restore. No-op if already enabled.
    */
   enableDepth(): void {
     if (this.#depthEnabled) return
     this.#depthEnabled = true
+    this.#retarget()
+  }
+
+  /**
+   * Drop the depth attachment. No-op if depth is already off. Stencil bits the
+   * stage was built with are unaffected either way.
+   *
+   * A host that shares one stage across several scenes calls this when a
+   * depth-using scene goes away. A stage outlives the scenes drawn on it, so
+   * without this the attachment stays allocated for the rest of the stage's
+   * life.
+   */
+  disableDepth(): void {
+    if (!this.#depthEnabled) return
+    this.#depthEnabled = false
+    this.#retarget()
+  }
+
+  /** Rebuild the offscreen target for the current depth and stencil flags. */
+  #retarget(): void {
+    const had = depthStencilFormatOf(this.#target)
     this.#ctx.flushActive()
     this.#device.deleteRenderTarget(this.#target)
     this.#target = this.#device.createRenderTarget({
       width: this.#targetWidth,
       height: this.#targetHeight,
       samples: this.#samples,
-      depth: true,
+      depth: this.#depthEnabled,
+      stencil: this.#stencilEnabled,
     })
     this.stats.msaaSamples = this.#target.samples
-    this.#ctx.targetHasStencil = false
+    this.#publishTargetFormat()
     this.#ensureResolveTarget()
-    // Color format + sample count are unchanged (only a depth attachment was
-    // added), so the 2D pipelines stay valid and no re-warm is needed.
-    //
-    // Depth and stencil cannot share a target here, so a stage that turns on 3D
-    // gives up stencil. The stroke path gates on `targetHasStencil` and falls
-    // back to plain overlapping draws, so that needs no re-warm either.
+
+    // Every pipeline bakes the depth-stencil format of the attachment it draws
+    // into, so changing which aspects the target carries invalidates all of
+    // them, not just the stroke path. A stage that kept drawing with them would
+    // render nothing at all.
+    if (depthStencilFormatOf(this.#target) !== had) {
+      this.#warmupPromise = this.#warmupPipelines()
+    }
   }
 
   // --- frame lifecycle ------------------------------------------------------
@@ -441,7 +466,9 @@ export class GpuGfx implements Gfx2D {
         clearColor: clear,
         resolveTarget: this.#resolveTarget ?? undefined,
       },
-      depth: this.#depthEnabled
+      // Both aspects come off the live target rather than the requested flags,
+      // so the pass can never describe an attachment the target does not have.
+      depth: this.#target.hasDepth
         ? {
             target: { renderTarget: this.#target },
             loadOp: 'clear',

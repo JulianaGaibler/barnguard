@@ -25,6 +25,11 @@
   }: Props = $props()
 </script>
 
+<!--
+  The two chips past the divider exclude each other, a rule `browseState` owns.
+  These stay plain toggles that render the state they are handed, so pressing
+  one shows up here as the other un-pressing.
+-->
 <div class="filters" role="group" aria-label={$t.arcade.filters.label}>
   <span class="filters__icon" aria-hidden="true">{@html usersIconRaw}</span>
 

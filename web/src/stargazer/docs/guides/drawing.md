@@ -202,6 +202,13 @@ A translucent multi-segment stroke is the one case the engine deduplicates for
 you, using the stencil buffer, so a dashed translucent polyline does not bead at
 its joins.
 
+That path needs stencil bits, which a stage's target carries alongside the depth
+a 3D pass uses, so a scene can hold 3D content and translucent multi-segment
+strokes at the same time. A stage built without stencil, and any surface that
+never asked for it, falls back to plain overlapping draws, where a dashed
+translucent polyline beads at its joins. How the combined attachment works is
+written up in [combined depth and stencil](../combined-depth-stencil.md).
+
 **Group by texture, not by object.** Interleaving text and images from different
 sources flushes on every switch. Page-backed labels and atlas sprites share
 fixed texture units, so ordinary text and particle sprites interleave for free.

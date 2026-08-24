@@ -6,6 +6,7 @@
   import RobotIcon from '@src/displays/arcade/RobotIcon.svelte'
   import MenuScreen from '@src/displays/arcade/menu/MenuScreen.svelte'
   import type { MenuItem, MenuScore } from '@src/displays/arcade/menu/types'
+  import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { FS_STRINGS as t } from '../strings'
   import type { Difficulty, GameMode } from '../game'
 
@@ -63,13 +64,13 @@
     ]
     if (onHowToPlay) {
       list.push({
-        label: t.howToPlay,
+        label: $arcadeT.arcade.tutorial.title,
         variant: 'surface',
         onSelect: onHowToPlay,
       })
     }
     list.push({
-      label: t.returnToLauncher,
+      label: $arcadeT.arcade.returnToLauncher,
       variant: 'surface',
       icon: RobotIcon,
       onSelect: onExit,
@@ -77,7 +78,7 @@
     return list
   })
 
-  // Read from the theme rather than a local constant: the seat colours only
+  // Read from the theme rather than a local constant: the seat colors only
   // exist as `themeTokens`, and taking them from there means they cannot drift
   // from the ones the board itself is drawn in.
   const score = $derived<MenuScore | undefined>(

@@ -240,8 +240,7 @@ export const DECK: readonly Card[] = [
     cost: 5,
     groups: ['product', 'product'],
     sendsMarkerTo: 'ic',
-    discount: { amount: 1, on: 'ic' },
-    ability: [],
+    ability: [{ effect: 'opponentGains', resource: 'budget', amount: 2 }],
     scoring: {
       score: 'bonus',
       points: 8,
@@ -652,7 +651,8 @@ export const DECK: readonly Card[] = [
     cost: 7,
     groups: ['research'],
     sendsMarkerTo: null,
-    ability: [{ effect: 'opponentGains', resource: 'budget', amount: 2 }],
+    discount: { amount: 1, on: 'ic' },
+    ability: [],
     scoring: {
       score: 'perMetric',
       points: 5,
@@ -874,16 +874,25 @@ export const DECK: readonly Card[] = [
     sendsMarkerTo: null,
     ability: [
       {
-        effect: 'gainPer',
-        resource: 'budget',
-        amount: 1,
-        per: { count: 'group', group: 'design' },
-      },
-      {
-        effect: 'gainPer',
-        resource: 'approval',
-        amount: 1,
-        per: { count: 'ribbon', floor: 'ic' },
+        effect: 'choose',
+        options: [
+          [
+            {
+              effect: 'gainPer',
+              resource: 'budget',
+              amount: 1,
+              per: { count: 'group', group: 'design' },
+            },
+          ],
+          [
+            {
+              effect: 'gainPer',
+              resource: 'approval',
+              amount: 1,
+              per: { count: 'ribbon', floor: 'ic' },
+            },
+          ],
+        ],
       },
     ],
     scoring: {

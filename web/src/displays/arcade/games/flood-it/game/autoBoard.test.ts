@@ -296,8 +296,8 @@ describe('a carved board', () => {
     auto.destroy()
   })
 
-  it('confines the carve colour to the cut', async () => {
-    // On a carved board colour 0 means "cut away", so it must not appear in the
+  it('confines the carve color to the cut', async () => {
+    // On a carved board color 0 means "cut away", so it must not appear in the
     // body. A stray one would be a hole nothing can ever fill.
     const { auto } = build({ grid: GRID, seed: 7, carveLeftFrac: CARVE })
     const { color, cols, rows } = auto.board
@@ -310,9 +310,9 @@ describe('a carved board', () => {
     auto.destroy()
   })
 
-  it('deals the carve colour anywhere when no carve was asked for', async () => {
-    // Without a carve there is nothing reserved, so colour 0 is just another
-    // colour and turns up across the whole board.
+  it('deals the carve color anywhere when no carve was asked for', async () => {
+    // Without a carve there is nothing reserved, so color 0 is just another
+    // color and turns up across the whole board.
     const { auto } = build({ grid: GRID, seed: 7 })
     const { color, cols, rows } = auto.board
     let onTheRight = 0

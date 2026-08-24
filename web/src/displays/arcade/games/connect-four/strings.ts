@@ -1,7 +1,8 @@
 /**
  * Connect Four UI copy. English only, imported directly by the game's Svelte
- * components (the game is self-contained and doesn't use the arcade locale
- * store).
+ * components. Copy that is about the arcade shell rather than this game
+ * (Paused, Resume, How to play, Return to Launcher) comes from
+ * `displays/arcade/i18n` instead, so every game says it the same way.
  */
 export const CF_STRINGS = {
   title: 'CONNECT 4',
@@ -13,24 +14,14 @@ export const CF_STRINGS = {
   medium: 'Medium',
   hard: 'Hard',
   back: 'Back',
-  returnToLauncher: 'Return to Launcher',
-  howToPlay: 'How to play',
-  // Turn indicator.
-  player1: 'Player 1',
-  player2: 'Player 2',
-  yourTurn: 'Your turn',
-  thinking: 'Thinking …',
   // In-engine player tabs.
   tab: {
     p1: 'p.1',
     p2: 'p.2',
     yourTurn: 'your turn',
+    thinking: 'thinking …',
     won: 'won',
   },
-  // Pause menu.
-  paused: 'Paused',
-  resume: 'Resume',
-  quit: 'Quit to menu',
   // How-to-play cards.
   tutorial: {
     placeTitle: 'Take turns placing discs',

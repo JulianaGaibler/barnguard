@@ -8,6 +8,7 @@
   } from '@src/displays/arcade/leaderboard/GameOverVersusPanel.svelte'
   import { ACCENT_VS, COLORS } from '../game/tuning'
   import { TWENTY48_STRINGS as t } from '../strings'
+  import { TWENTY48_BOARD_ID } from '../leaderboards'
 
   interface Props {
     winner: 0 | 1 | 2
@@ -15,7 +16,7 @@
     scoreB: number
     onPlayAgain: () => void
     onMenu: () => void
-    onFinalize?: (names: { a: string; b: string }) => void
+    onFinalize?: (names: { a: string; b: string }) => void | Promise<unknown>
   }
   const { winner, scoreA, scoreB, onPlayAgain, onMenu, onFinalize }: Props =
     $props()
@@ -26,7 +27,13 @@
   ])
 </script>
 
-<GameOverVersusPanel display="2048" {sides} {onPlayAgain} {onMenu} {onFinalize}>
+<GameOverVersusPanel
+  display={TWENTY48_BOARD_ID}
+  {sides}
+  {onPlayAgain}
+  {onMenu}
+  {onFinalize}
+>
   {#snippet banner()}
     <h2 class="over__title">
       {#if winner === 0}

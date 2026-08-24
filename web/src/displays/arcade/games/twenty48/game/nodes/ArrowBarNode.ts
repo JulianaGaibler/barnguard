@@ -27,10 +27,10 @@ const CHEVRON_FRAC = 0.3
 const CHEVRON_INK = 0.4
 
 /**
- * The chevron is drawn OPAQUE, at the colour a translucent one would composite
+ * The chevron is drawn OPAQUE, at the color a translucent one would composite
  * to over the bar. Its two arms necessarily overlap at the elbow, and any
  * overlap of translucent geometry composites twice there. Opaque geometry has
- * no such problem, so the colour is resolved up front instead.
+ * no such problem, so the color is resolved up front instead.
  */
 function chevronColor(tint: number): string {
   const backdrop = mixColor(COLORS.background, '#000000', tint)

@@ -100,9 +100,8 @@ export interface StageResizeInfo {
  *     clearColor: '#101018',
  *     interactive: true,
  *   })
- *   const cam = new CameraNode2D({
- *     viewport: { x: 0, y: 0, width: 640, height: 360 },
- *   })
+ *   const cam = new CameraNode2D()
+ *   cam.setViewport({ x: 0, y: 0, width: 640, height: 360 })
  *   stage.tree.root.add(cam)
  *   cam.makeCurrent()
  *   // Park it when it goes off screen, at no per-frame cost.
@@ -424,26 +423,42 @@ export class Stage implements CameraHost {
 
     const screen = this.#screenGfx
 
-    // Readiness gate: pipelines warm up asynchronously (a microtask on WebGL2,
-    // longer on WebGPU). Skip the whole frame, no passes, no draws, until the
-    // surface can render, rather than opening a pass with no pipelines.
-    if (!screen.ready) return
-
     // Stand up the 3D pass when the world has 3D content or the 3D debug camera
     // is active. `has3D` skips intrinsic nodes, a pure-2D stage never enables it.
     const cam3d: CameraView3D | null =
       debug?.activeCamera3dFor(this) ?? this.currentCamera3D
     const has3D = this.tree.has3D
     const show3D = (has3D || (debug?.camera3dActive ?? false)) && cam3d !== null
+
+    // Depth is attached for as long as the scene holds 3D content and released
+    // when it stops. A stage outlives the scenes drawn on it, so holding the
+    // attachment after the last 3D node keeps it for the rest of the booth's
+    // life. `has3D` is structural rather than visibility-based, so this does
+    // not toggle while a scene hides its meshes.
+    //
+    // Ahead of the readiness gate on purpose. Swapping the attachment
+    // invalidates every pipeline baked against the old one, so the frame that
+    // triggers the swap has to be the frame that is skipped.
     if (show3D) screen.enableDepth()
+    else screen.disableDepth()
+
+    // Readiness gate: pipelines warm up asynchronously (a microtask on WebGL2,
+    // longer on WebGPU). Skip the whole frame, no passes, no draws, until the
+    // surface can render, rather than opening a pass with no pipelines.
+    if (!screen.ready) return
     if (has3D && cam3d && !this.#meshRenderer) {
       this.#meshRenderer = new MeshRenderer(
         screen.device,
-        screen.targetColor,
+        screen.targetFormat,
         this.tree.engine?.quality,
         this.tree.engine?.fog,
       )
+    } else {
+      // A renderer built against a previous attachment rebuilds its pipelines
+      // here. No-op while the signature is unchanged.
+      this.#meshRenderer?.retarget(screen.targetFormat)
     }
+    this.#debugLines?.retarget(screen.targetFormat)
 
     // Viewport2D pre-passes: render each embedded 2D scene to its own offscreen
     // target before the main frame begins, so the 3D pass can sample the result.
@@ -525,7 +540,7 @@ export class Stage implements CameraHost {
         if (!this.#debugLines)
           this.#debugLines = new DebugLine3DRenderer(
             screen.device,
-            screen.targetColor,
+            screen.targetFormat,
           )
         this.#debugLines.begin()
         debug.drawOverlay3D(this, cam3d, this.#debugLines)
@@ -727,8 +742,8 @@ export class Stage implements CameraHost {
     // The 3D pipelines bake the target's sample count, so re-point them at the
     // resized target. Each drops `ready` and re-warms. The 3D pass is gated on
     // `ready`, so it is skipped until the new-sample pipelines are live.
-    this.#meshRenderer?.retarget(this.#screenGfx.targetColor)
-    this.#debugLines?.retarget(this.#screenGfx.targetColor)
+    this.#meshRenderer?.retarget(this.#screenGfx.targetFormat)
+    this.#debugLines?.retarget(this.#screenGfx.targetFormat)
   }
 
   /** MSAA sample count actually in use, after the driver clamp. */
@@ -840,6 +855,19 @@ export class Stage implements CameraHost {
 
   setActive(value: boolean): void {
     this.#active = value
+  }
+
+  /**
+   * Whether a render frame threw and the stage stopped drawing.
+   *
+   * A halted stage is otherwise indistinguishable from an idle one: it keeps
+   * its canvas, its scene and its `active` flag, and simply stops producing
+   * frames. A host that shares one stage across several scenes reads this to
+   * tell "nothing to draw" from "this stage is dead", which is the difference
+   * between a blank card and a bug.
+   */
+  get faulted(): boolean {
+    return this.#faulted
   }
 
   /**

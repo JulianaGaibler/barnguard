@@ -3,6 +3,7 @@ import DataControlGame from './DataControlGame.svelte'
 import thumbImage from './assets/thumb.png?url'
 import { BLACK, themeTokens } from './palette'
 import { DATA_CONTROL_FONT_TOKENS } from './fonts'
+import { DATA_CONTROL_LEADERBOARDS } from './leaderboards'
 
 export const dataControlModule: GameModule = {
   meta: {
@@ -15,7 +16,7 @@ export const dataControlModule: GameModule = {
     thumbImage,
     themeTokens,
     fontTokens: DATA_CONTROL_FONT_TOKENS,
-    supportsLeaderboard: true,
+    leaderboards: DATA_CONTROL_LEADERBOARDS,
   },
   component: DataControlGame,
 }

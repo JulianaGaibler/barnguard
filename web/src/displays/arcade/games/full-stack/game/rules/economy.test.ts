@@ -156,13 +156,16 @@ describe('resolveAbility', () => {
   })
 
   it('resolves both effects of a two-effect card', () => {
-    // Content Designer: 1 budget per Design badge, plus 1 approval per IC ribbon.
+    // Chief People Officer: 3 approvals, and 1 approval for the opponent.
     const g = grid3()
-    g[0]![0] = seat('ic-content-designer') // design, IC
-    g[0]![1] = seat('ic-ux-lead') // design, IC
-    const out = resolveAbility(card('ic-content-designer'), player(g), empty())
-    expect(out.selfBudget).toBe(2)
-    expect(out.selfApprovals).toBe(2)
+    g[0]![0] = seat('mgmt-chief-people-officer')
+    const out = resolveAbility(
+      card('mgmt-chief-people-officer'),
+      player(g),
+      empty(),
+    )
+    expect(out.selfApprovals).toBe(3)
+    expect(out.opponentApprovals).toBe(1)
   })
 })
 

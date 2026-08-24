@@ -15,12 +15,12 @@
  * unowned cell touching their region can never gain again, so the rest of the
  * board is already the opponent's and there is nothing left to watch.
  *
- * A player who is not walled in always has a colour that gains ground, so play
+ * A player who is not walled in always has a color that gains ground, so play
  * that takes ground always reaches an end. Two players who both keep choosing
- * colours that take nothing can hold the board open indefinitely. That is
+ * colors that take nothing can hold the board open indefinitely. That is
  * visibly self-inflicted, since nothing on screen moves, and the arcade's
  * swipe-down exit is always there, so the rules do not police it: forcing a
- * gainful move would mean telling players which colours touch their region,
+ * gainful move would mean telling players which colors touch their region,
  * which is the read the game is made of.
  */
 import {

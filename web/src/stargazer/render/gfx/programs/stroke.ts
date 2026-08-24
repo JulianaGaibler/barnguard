@@ -151,7 +151,7 @@ export class StrokeProgram implements GpuProgram {
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
     // Core and fringe share one pipeline and differ only by the uniform. The
-    // reset pass is its own pipeline (colour off, bits zeroed).
+    // reset pass is its own pipeline (color off, bits zeroed).
     const variant =
       run.strokePass === undefined
         ? undefined

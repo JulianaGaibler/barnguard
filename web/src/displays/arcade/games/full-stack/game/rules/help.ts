@@ -483,7 +483,7 @@ export const CONCEPTS: Record<
   discount: {
     title: 'Cheaper hires',
     body: [
-      [t('The discount lasts the rest of the game and stack.')],
+      [t('The discount lasts the rest of the game and stacks.')],
       [
         t(
           'It never applies to the card that brings it, and cannot take a price below zero.',

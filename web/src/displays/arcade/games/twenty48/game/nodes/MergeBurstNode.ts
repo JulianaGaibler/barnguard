@@ -3,7 +3,7 @@
  *
  * One long-lived node rather than one per merge: in versus, two players
  * chaining merges can easily fire eight bursts a second, and a pool keeps that
- * allocation-free. Each shard carries its own colour so a single pool serves
+ * allocation-free. Each shard carries its own color so a single pool serves
  * every tile value.
  */
 import { type Gfx2D } from '@src/stargazer'

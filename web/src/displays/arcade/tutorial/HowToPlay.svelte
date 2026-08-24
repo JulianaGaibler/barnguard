@@ -15,6 +15,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { demoLog, resetDemoLog } from './demoDebug'
   import Overlay from '@src/core/ui/Overlay.svelte'
   import Surface from '@src/core/ui/Surface.svelte'
   import IconButton from '@src/core/ui/IconButton.svelte'
@@ -63,8 +64,15 @@
   }
 
   function commit(): void {
-    if (committedIndex === centeredIndex) return
+    if (committedIndex === centeredIndex) {
+      demoLog('commit skipped, already built', { index: centeredIndex })
+      return
+    }
     committedIndex = centeredIndex
+    demoLog('commit', {
+      index: centeredIndex,
+      title: cards[centeredIndex].title,
+    })
     demoStage.setDemo(cards[centeredIndex].build)
   }
 
@@ -88,6 +96,8 @@
   }
 
   onMount(() => {
+    resetDemoLog()
+    demoLog('modal mounted', { cards: cards.length, hasSlot: !!stageSlotEl })
     for (let i = 0; i < cards.length; i++) ratios[i] = 0
     if (stageSlotEl) demoStage.reveal(stageSlotEl)
     tutorialOpen.set(true)
@@ -107,6 +117,7 @@
     // Build the first card once layout has settled (the reveal's resize gives
     // the canvas a real size).
     const raf = requestAnimationFrame(() => {
+      demoLog('first-card frame', { centeredIndex, committedIndex })
       centeredIndex = 0
       commit()
     })
@@ -126,7 +137,7 @@
 <Overlay scrim center onscrimclick={onClose}>
   <div
     class="htp"
-    style="--htp-media-w: 30rem; --htp-media-h: 22.5rem; --htp-card-pad: var(--space-24); --htp-text-h: 8rem; --htp-card-w: calc(var(--htp-media-w) + var(--htp-card-pad) * 2)"
+    style="--htp-media-w: 30rem; --htp-media-h: 22.5rem; --htp-card-pad: var(--space-24); --htp-text-h: 10.5rem; --htp-card-w: calc(var(--htp-media-w) + var(--htp-card-pad) * 2)"
   >
     <Surface tone="light" radius="panel">
       <div class="htp__inner">

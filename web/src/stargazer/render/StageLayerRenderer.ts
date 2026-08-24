@@ -9,6 +9,7 @@ import type { SceneTree } from '../scene/SceneTree'
 import type { RenderLayer, Node2D } from '../scene/Node2D'
 import type { Gfx2D } from './gfx/Gfx2D'
 import type { Renderer } from './Renderer'
+import { isEffectivelyVisible } from '../scene/traverse'
 
 /**
  * World-unit slack on viewport cull, on top of stroke half-width. Covers AA
@@ -53,7 +54,7 @@ export class StageLayerRenderer {
     const layerNodes = scene.getLayerNodes(layer)
     for (let i = 0; i < layerNodes.length; i++) {
       const node = layerNodes[i]
-      if (!node.visible) continue
+      if (!isEffectivelyVisible(node)) continue
       if (!node.draw) continue
       // Skip nodes whose bounds are fully outside the visible rect. Only nodes
       // that declare `debugBounds` can be culled, the rest always draw.
