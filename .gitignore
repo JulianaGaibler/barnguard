@@ -50,4 +50,5 @@ coverage
 .svelte-kit
 
 # Nix build results
-result*
+/result
+/result-*
