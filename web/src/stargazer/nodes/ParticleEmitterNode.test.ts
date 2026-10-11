@@ -37,6 +37,7 @@ function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
     fillAndStrokeCircle: () => {},
     shadowRoundRect: () => {},
     shadowCircle: () => {},
+    shadowPath2D: () => {},
     strokeCircle: () => {},
     strokeLine: () => {},
     strokeQuadratic: () => {},

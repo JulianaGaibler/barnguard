@@ -48,6 +48,7 @@ import type {
   ShaderModuleDesc,
   ShadowArray,
   ShadowCube,
+  TargetPixelFormat,
   Texture,
   Texture2DOpts,
   TextureUploadOpts,
@@ -65,6 +66,7 @@ import {
   frontFaceToGPU,
   indexTypeToGPU,
   roundUp4,
+  targetPixelFormatToGPU,
   topologyToGPU,
   vertexFormatToGPU,
 } from './conv'
@@ -158,6 +160,8 @@ type WebGPURenderTarget = RenderTarget & {
   color?: GPUTexture
   /** Multisample color texture, allocated only when `samples > 1`. */
   colorMs?: GPUTexture
+  /** The actual GPU format `color`/`colorMs` was allocated with, for resize. */
+  colorFormat: GPUTextureFormat
   depthTex?: GPUTexture
   /**
    * The format `depthTex` was allocated with. A resize reallocates from this
@@ -1020,7 +1024,13 @@ export class WebGPUDevice implements GfxDevice {
     const width = Math.max(1, opts.width)
     const height = Math.max(1, opts.height)
     const colorSpace: ColorFormat = opts.colorSpace ?? 'linear'
-    const format = colorFormatToGPU(colorSpace)
+    const pixelFormat: TargetPixelFormat = opts.pixelFormat ?? 'rgba8'
+    if (pixelFormat !== 'rgba8' && samples > 1) {
+      throw new Error(
+        `WebGPUDevice.createRenderTarget: pixelFormat '${pixelFormat}' is single-sample only (no renderable multisample R8/RG8 target)`,
+      )
+    }
+    const format = targetPixelFormatToGPU(pixelFormat)
     const aspects = depthStencilFormatFor(opts)
 
     const rt: WebGPURenderTarget = {
@@ -1029,6 +1039,8 @@ export class WebGPUDevice implements GfxDevice {
       height,
       samples,
       colorSpace,
+      pixelFormat,
+      colorFormat: format,
       hasDepth: hasDepthAspect(aspects),
       hasStencil: hasStencilAspect(aspects),
     } as WebGPURenderTarget
@@ -1086,7 +1098,7 @@ export class WebGPUDevice implements GfxDevice {
     const h = Math.max(1, height)
     if (r.width === w && r.height === h) return
     const device = this.#device
-    const format = colorFormatToGPU(r.colorSpace)
+    const format = r.colorFormat
     if (r.colorMs) {
       r.colorMs.destroy()
       r.colorMs = device.createTexture({

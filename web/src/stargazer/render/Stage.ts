@@ -463,6 +463,13 @@ export class Stage implements CameraHost {
     // longer on WebGPU). Skip the whole frame, no passes, no draws, until the
     // surface can render, rather than opening a pass with no pipelines.
     if (!screen.ready) return
+
+    // Path-shadow bake pre-pass: outside the has3D guards below (and
+    // outside the has3D check entirely) since it must run on every stage,
+    // including a pure-2D one, and its own render passes cannot nest inside
+    // the main 2D pass `screen.beginFrame` is about to open.
+    screen.processPendingShadowBakes()
+
     if (has3D && cam3d && !this.#meshRenderer) {
       this.#meshRenderer = new MeshRenderer(
         screen.device,

@@ -10,6 +10,7 @@ import type {
 } from '../gfx/GfxDevice'
 import type { PostEffect, PostPass, PostPassContext } from './PostEffect'
 import { POST_PARAMS_UBO_BINDING } from '../gfx/batchLayout'
+import { RenderTargetPool } from '../gfx/RenderTargetPool'
 
 /** Attribute location the fullscreen vertex shader forces for `a_pos`. */
 const LOC_POS = 0
@@ -78,13 +79,6 @@ interface PassGpu {
   unseenFrames: number
 }
 
-/** A pooled render target and whether it is claimed this frame. */
-interface PooledTarget {
-  key: string
-  rt: RenderTarget
-  inUse: boolean
-}
-
 /**
  * Runs a chain of screen-space {@link PostEffect}s over the composited frame. A
  * `Stage` owns one (lazily, via `stage.postProcess`) and, when
@@ -109,14 +103,14 @@ export class PostProcessPipeline {
   #vbo: VBuffer | null = null
   #passGpu = new Map<PostPass, PassGpu>()
 
-  #pool: PooledTarget[] = []
-  #usedKeys = new Set<string>()
+  #rtPool: RenderTargetPool
 
   #time = 0
   readonly #offRestore: () => void
 
   constructor(device: GfxDevice) {
     this.#device = device
+    this.#rtPool = new RenderTargetPool(device)
     this.#offRestore = device.onContextRestored(() => this.#onContextRestored())
   }
 
@@ -207,7 +201,6 @@ export class PostProcessPipeline {
       return
     }
 
-    this.#usedKeys.clear()
     const uvYDown = device.ndc.textureTopDown
 
     let read = source
@@ -218,7 +211,7 @@ export class PostProcessPipeline {
         const scale = pass.scale ?? 1
         const dstW = Math.max(1, Math.floor(w * scale))
         const dstH = Math.max(1, Math.floor(h * scale))
-        const dst = this.#acquire(dstW, dstH, cs)
+        const dst = this.#rtPool.acquireTransient(dstW, dstH, cs)
         const ctx: PostPassContext = {
           width: dstW,
           height: dstH,
@@ -258,13 +251,13 @@ export class PostProcessPipeline {
           vertexCount: 3,
         })
         device.endRenderPass()
-        if (read !== source) this.#release(read)
+        if (read !== source) this.#rtPool.release(read)
         read = dst
       }
     }
 
     device.present(read, opts.canvasW, opts.canvasH, { filter: 'nearest' })
-    if (read !== source) this.#release(read)
+    if (read !== source) this.#rtPool.release(read)
     this.#pruneStale()
   }
 
@@ -275,8 +268,7 @@ export class PostProcessPipeline {
       if (gpu.paramsUbo) this.#device.deleteUniformBuffer(gpu.paramsUbo)
     }
     this.#passGpu.clear()
-    for (const p of this.#pool) this.#device.deleteRenderTarget(p.rt)
-    this.#pool.length = 0
+    this.#rtPool.destroy()
     if (this.#vbo) {
       this.#device.deleteBuffer(this.#vbo)
       this.#vbo = null
@@ -362,44 +354,8 @@ export class PostProcessPipeline {
     return null
   }
 
-  #acquire(w: number, h: number, colorSpace: ColorFormat): RenderTarget {
-    const key = `${w}x${h}:${colorSpace}`
-    this.#usedKeys.add(key)
-    for (const p of this.#pool) {
-      if (!p.inUse && p.key === key) {
-        p.inUse = true
-        return p.rt
-      }
-    }
-    const rt = this.#device.createRenderTarget({
-      width: w,
-      height: h,
-      samples: 1,
-      depth: false,
-      colorSpace,
-    })
-    this.#pool.push({ key, rt, inUse: true })
-    return rt
-  }
-
-  #release(rt: RenderTarget): void {
-    for (const p of this.#pool) {
-      if (p.rt === rt) {
-        p.inUse = false
-        return
-      }
-    }
-  }
-
   #pruneStale(): void {
-    for (let i = this.#pool.length - 1; i >= 0; i--) {
-      const p = this.#pool[i]
-      p.inUse = false
-      if (!this.#usedKeys.has(p.key)) {
-        this.#device.deleteRenderTarget(p.rt)
-        this.#pool.splice(i, 1)
-      }
-    }
+    this.#rtPool.endFrame()
     // An effect that rebuilds its `passes` array (e.g. when a parameter like
     // a blur's level count changes) orphans the old PostPass objects. Their
     // GPU resources would otherwise leak, one shader module and uniform
@@ -435,6 +391,6 @@ export class PostProcessPipeline {
     // rebuild the VBO, shaders/pipelines, and targets lazily.
     this.#vbo = null
     this.#passGpu.clear()
-    this.#pool.length = 0
+    this.#rtPool = new RenderTargetPool(this.#device)
   }
 }

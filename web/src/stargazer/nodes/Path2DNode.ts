@@ -50,11 +50,15 @@ export interface Path2DNodeOptions {
    */
   strokeSpace?: 'screen' | 'world'
   /**
-   * One or more drop shadows. **Hard only in this version**: blur, spread,
-   * and inset are not yet implemented for an arbitrary path (they need a
-   * cached blurred-coverage mask, not yet built; see the path-shadows guide).
-   * `offsetX`/`offsetY` and `color` work today. An inset shadow is silently
-   * skipped. A list draws in order, so the first entry sits deepest.
+   * One or more drop shadows, from a cached blurred-coverage mask (see the
+   * path-shadows guide for the bake, its one-frame latency, and what stays
+   * free to animate). A list draws in order, so the first entry sits
+   * deepest. Offsets, blur, and spread follow `strokeSpace`, same as
+   * `lineWidth`. Below the hard-shadow threshold, or while the mask is cold
+   * (the frame it first appears, or while the bake budget is exhausted), an
+   * outset shadow falls back to the path's own fill translated by the
+   * offset, with no blur; an inset shadow has no such fallback and is
+   * silently skipped in that case.
    */
   shadow?: GfxShadowStyle | readonly GfxShadowStyle[]
   /**
@@ -77,12 +81,12 @@ export interface Path2DNodeOptions {
 const EMPTY_SHADOWS: readonly GfxShadowStyle[] = []
 
 /**
- * Draws a `Path2D` (filled and/or stroked), with an optional hard drop
- * shadow, and hit-tests points against it. Build the path by hand, or get
- * one from `parseSvgPaths` for SVG artwork. A path needs a registered
- * tessellation before it renders. `parseSvgPaths` registers one for each
- * path it returns, so paths from there draw with no extra setup. A path
- * with no tessellation is skipped and counted in the debug HUD.
+ * Draws a `Path2D` (filled and/or stroked), with an optional drop shadow,
+ * and hit-tests points against it. Build the path by hand, or get one from
+ * `parseSvgPaths` for SVG artwork. A path needs a registered tessellation
+ * before it renders. `parseSvgPaths` registers one for each path it
+ * returns, so paths from there draw with no extra setup. A path with no
+ * tessellation is skipped and counted in the debug HUD.
  *
  * Hit-testing walks in world coords (what the input pipeline delivers) while
  * the path data is in the node's local coords, so the node inverts its `world`
@@ -142,15 +146,17 @@ export class Path2DNode extends Node2D {
 
   /**
    * How far outside `debugBounds` this node can paint: an outside-aligned
-   * border, or an outset shadow's own offset (blur/spread don't contribute,
-   * since neither is implemented yet for a path shadow).
+   * border, or an outset shadow's own offset/blur/spread. Inset shadows
+   * never extend past the shape, so they don't contribute.
    */
   get cullMargin(): number {
     let m = this.lineAlign === 'outside' ? this.lineWidth : 0
     for (const sh of this.#shadowList()) {
       if (sh.inset) continue
       const offset = Math.hypot(sh.offsetX ?? 0, sh.offsetY ?? 0)
-      if (offset > m) m = offset
+      const sigma = (sh.blur ?? 0) * 0.5
+      const extent = offset + 3 * sigma + Math.max(0, sh.spread ?? 0)
+      if (extent > m) m = extent
     }
     return m
   }
@@ -160,6 +166,18 @@ export class Path2DNode extends Node2D {
     if (!shadow) return EMPTY_SHADOWS
     if (Array.isArray(shadow)) return shadow as readonly GfxShadowStyle[]
     return [shadow as GfxShadowStyle]
+  }
+
+  /** `style`'s `strokeSpace`-relative lengths, scaled to local units by `s`. */
+  #scaleShadow(style: GfxShadowStyle, s: number): GfxShadowStyle {
+    if (s === 1) return style
+    return {
+      ...style,
+      offsetX: (style.offsetX ?? 0) * s,
+      offsetY: (style.offsetY ?? 0) * s,
+      blur: (style.blur ?? 0) * s,
+      spread: (style.spread ?? 0) * s,
+    }
   }
 
   #strokeStyle(s: number): GfxStrokeStyle {
@@ -176,23 +194,15 @@ export class Path2DNode extends Node2D {
 
   override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
     const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
-    for (const sh of this.#shadowList()) {
-      // Hard-only: the path's own fill, translated and tinted. No blur, no
-      // spread, no inset (those need a cached blurred-coverage mask, which
-      // does not exist yet for an arbitrary path). An opaque fill drawn over
-      // this afterwards covers it exactly where the real shape is, the same
-      // effect `box-shadow`'s knockout has for the common case; a
-      // translucent fill shows a faint shadow through itself in the overlap,
-      // a known gap in this fallback.
-      if (sh.inset) continue
-      const ox = (sh.offsetX ?? 0) * s
-      const oy = (sh.offsetY ?? 0) * s
-      gfx.save()
-      gfx.translate(ox, oy)
-      gfx.fillPath2D(this.path, sh.color)
-      gfx.restore()
+    const shadows = this.#shadowList()
+    // CSS paint order: outset shadows, fill, inset shadows, border.
+    for (const sh of shadows) {
+      if (!sh.inset) gfx.shadowPath2D(this.path, this.#scaleShadow(sh, s))
     }
     if (this.fill) gfx.fillPath2D(this.path, this.fill)
+    for (const sh of shadows) {
+      if (sh.inset) gfx.shadowPath2D(this.path, this.#scaleShadow(sh, s))
+    }
     if (this.stroke) gfx.strokePath2D(this.path, this.#strokeStyle(s))
   }
 

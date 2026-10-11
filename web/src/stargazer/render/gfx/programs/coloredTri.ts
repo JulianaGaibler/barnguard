@@ -14,6 +14,7 @@ import { RingStream } from '../RingStream'
 import {
   gradientAxis,
   hsvToRgb,
+  packColor,
   packRgba,
   resolvePaint,
   writeColoredVert,
@@ -31,7 +32,8 @@ import {
 import type {
   DrawRun,
   GpuBatchContext,
-  ResolvedGradientPaint,
+  ResolvedMaskPaint,
+  ResolvedRunPaint,
 } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
 import type { TransformOut } from '../TransformStack'
@@ -69,6 +71,8 @@ const DRAWPARAMS_BYTES = 64
 const MODELCOLOR_BYTES = 64
 /** Texture unit for the shared gradient ramp atlas, in this program's group 1. */
 const RAMP_ATLAS_BINDING = 3
+/** Texture unit for an inset path-shadow's coverage mask, in group 1. */
+const MASK_BINDING = 4
 
 export class ColoredTriProgram implements GpuProgram {
   readonly kind = 'coloredTri' as const
@@ -81,12 +85,16 @@ export class ColoredTriProgram implements GpuProgram {
   #materialLayout!: BindGroupLayout
   #drawParamsRing!: UboRing
   /**
-   * Bind groups keyed by (clip texture → ramp atlas texture). Nested because
-   * both vary independently: the clip is a placeholder until `setClipMask`,
-   * the atlas is a placeholder until the first gradient, and each flips to
-   * its real texture on its own schedule.
+   * Bind groups keyed by (clip texture → ramp atlas texture → mask texture).
+   * Nested because all three vary independently: the clip is a placeholder
+   * until `setClipMask`, the atlas is a placeholder until the first gradient,
+   * the mask is a placeholder until the first inset path shadow, and each
+   * flips to its real texture on its own schedule.
    */
-  #clipBindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
+  #clipBindGroups = new WeakMap<
+    Texture,
+    WeakMap<Texture, WeakMap<Texture, BindGroup>>
+  >()
   readonly #drawParamsStaging = new Float32Array(DRAWPARAMS_BYTES / 4)
   /**
    * `flags` (the last 4 words of `DrawParams`) is a `vec4<u32>`, so writing it
@@ -150,6 +158,7 @@ export class ColoredTriProgram implements GpuProgram {
       },
       { binding: 1, type: 'texture-2d' },
       { binding: RAMP_ATLAS_BINDING, type: 'texture-2d' },
+      { binding: MASK_BINDING, type: 'texture-2d' },
     ])
     this.#drawParamsRing = new UboRing(
       device,
@@ -261,7 +270,7 @@ export class ColoredTriProgram implements GpuProgram {
    * break the batch rather than merge into the gradient's run and draw with
    * its `DrawParams` slice.
    */
-  begin(ctx: GpuBatchContext, paint: ResolvedGradientPaint | null = null): void {
+  begin(ctx: GpuBatchContext, paint: ResolvedRunPaint | null = null): void {
     ctx.beginBatch('coloredTri', {
       clipMask: ctx.stateStack.getClipMask(),
       paint,
@@ -282,7 +291,7 @@ export class ColoredTriProgram implements GpuProgram {
     ctx: GpuBatchContext,
     fill: GfxFill,
     t: TransformOut,
-  ): { packedColor: number; paint: ResolvedGradientPaint | null } | null {
+  ): { packedColor: number; paint: ResolvedRunPaint | null } | null {
     const resolved = resolvePaint(fill, ctx.stateStack.getAlpha())
     if (resolved.kind === 'solid') {
       return { packedColor: resolved.packedColor, paint: null }
@@ -300,6 +309,7 @@ export class ColoredTriProgram implements GpuProgram {
     return {
       packedColor: 0,
       paint: {
+        kind: 'gradient',
         scaleDirX: axis.scaleDirX,
         scaleDirY: axis.scaleDirY,
         startOffset: axis.startOffset,
@@ -586,6 +596,92 @@ export class ColoredTriProgram implements GpuProgram {
   }
 
   /**
+   * An inset path shadow: `geo` (the path's own fill tessellation, so the
+   * geometry itself is the clip, no stencil and no extra pass) tinted flat
+   * by `color`/`alpha` and modulated by `mask` in the paint slot (mode 2).
+   * Otherwise identical to {@link ColoredTriProgram.fillTessellation}, which
+   * resolves its `packedColor`/paint from a `GfxFill` instead of taking them
+   * directly.
+   */
+  fillTessellationInsetShadow(
+    ctx: GpuBatchContext,
+    geo: GeometryHandle,
+    color: string,
+    alpha: number,
+    mask: ResolvedMaskPaint,
+  ): void {
+    ctx.txStack.read(ctx.txOut)
+    const t = ctx.txOut
+    const packedColor = packColor(color, alpha)
+    this.begin(ctx, mask)
+    const slot = ctx.curSlot
+    const triCount = geo.indices.length / 3
+    const vertCount = geo.indices.length
+    const wordsNeeded = vertCount * COLORED_TRI_WORDS
+    const off = ctx.reserveVerts(this.#stream, wordsNeeded, vertCount)
+    if (off < 0) return
+    const clipMask = ctx.curClipMask
+    const mrx = clipMask ? clipMask.worldRect.x : 0
+    const mry = clipMask ? clipMask.worldRect.y : 0
+    const invMW = clipMask ? 1 / clipMask.worldRect.width : 0
+    const invMH = clipMask ? 1 / clipMask.worldRect.height : 0
+    const f = this.#stream.floatView
+    const u = this.#stream.uintView
+    const verts = geo.vertices
+    const idx = geo.indices
+    let cursor = off
+    for (let i = 0; i < triCount; i++) {
+      const i0 = idx[i * 3]
+      const i1 = idx[i * 3 + 1]
+      const i2 = idx[i * 3 + 2]
+      const v0x = verts[i0 * 2]
+      const v0y = verts[i0 * 2 + 1]
+      const v1x = verts[i1 * 2]
+      const v1y = verts[i1 * 2 + 1]
+      const v2x = verts[i2 * 2]
+      const v2y = verts[i2 * 2 + 1]
+      const u0 = clipMask ? (v0x - mrx) * invMW : 0
+      const v0v = clipMask ? (v0y - mry) * invMH : 0
+      const u1 = clipMask ? (v1x - mrx) * invMW : 0
+      const v1v = clipMask ? (v1y - mry) * invMH : 0
+      const u2 = clipMask ? (v2x - mrx) * invMW : 0
+      const v2v = clipMask ? (v2y - mry) * invMH : 0
+      writeColoredVert(
+        f,
+        u,
+        cursor,
+        t.a * v0x + t.c * v0y + t.e,
+        t.b * v0x + t.d * v0y + t.f,
+        packedColor,
+        u0,
+        v0v,
+      )
+      writeColoredVert(
+        f,
+        u,
+        cursor + COLORED_TRI_WORDS,
+        t.a * v1x + t.c * v1y + t.e,
+        t.b * v1x + t.d * v1y + t.f,
+        packedColor,
+        u1,
+        v1v,
+      )
+      writeColoredVert(
+        f,
+        u,
+        cursor + 2 * COLORED_TRI_WORDS,
+        t.a * v2x + t.c * v2y + t.e,
+        t.b * v2x + t.d * v2y + t.f,
+        packedColor,
+        u2,
+        v2v,
+      )
+      cursor += 3 * COLORED_TRI_WORDS
+    }
+    this.#stream.commit(slot, wordsNeeded, vertCount)
+  }
+
+  /**
    * A tessellated stroke outline (`strokeOutline`'s cached result): per-vertex
    * local position plus coverage (1 at the core edge, 0 at the fringe), fed
    * through the same streamed path as `fillTessellation`. Never retained
@@ -795,11 +891,14 @@ export class ColoredTriProgram implements GpuProgram {
     // DrawParams slice.
     const debugModeInt =
       run.debugMode === 'overdraw' ? 1 : run.debugMode === 'batch-color' ? 2 : 0
-    const maskTex = run.clipMask
+    const clipMaskTex = run.clipMask
       ? ctx.textureManager.ensureMaskTexture(run.clipMask)
       : null
-    const clipTex = maskTex ?? ctx.placeholderTexture
+    const clipTex = clipMaskTex ?? ctx.placeholderTexture
     const atlasTex = ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
+    const paint = run.paint
+    const shadowMaskTex =
+      paint?.kind === 'mask' ? paint.maskTex : ctx.placeholderTexture
     const s = this.#drawParamsStaging
     const su = this.#drawParamsStagingU32
     if (debugModeInt === 2) {
@@ -814,25 +913,37 @@ export class ColoredTriProgram implements GpuProgram {
     } else {
       s[0] = s[1] = s[2] = s[3] = 0
     }
-    const paint = run.paint
-    if (paint) {
+    let paintMode = 0
+    if (paint?.kind === 'gradient') {
+      paintMode = 1
       s[4] = paint.scaleDirX
       s[5] = paint.scaleDirY
       s[6] = paint.startOffset
       s[7] = paint.rampRow
+    } else if (paint?.kind === 'mask') {
+      paintMode = 2
+      s[4] = paint.originX
+      s[5] = paint.originY
+      s[6] = paint.invW
+      s[7] = paint.invH
     } else {
       s[4] = s[5] = s[6] = s[7] = 0
     }
     s[8] = 0
-    s[9] = paint ? paint.opacity : 0 // misc.y: gradient alpha multiplier
+    s[9] = paint?.kind === 'gradient' ? paint.opacity : 0 // misc.y: gradient alpha multiplier
     s[10] = 0
     s[11] = 0
-    su[12] = maskTex ? 1 : 0 // flags.x: clipEnabled
+    su[12] = clipMaskTex ? 1 : 0 // flags.x: clipEnabled
     su[13] = debugModeInt // flags.y: debugMode
-    su[14] = paint ? 1 : 0 // flags.z: paintMode (0 none, 1 gradient)
+    su[14] = paintMode // flags.z: paintMode (0 none, 1 gradient, 2 inset mask)
     // flags.w: dither. Never under `lighter` (the per-draw offset sums
     // instead of averaging out) and never with nothing ramping.
-    su[15] = paint && run.blend !== 'lighter' && ctx.vectorQuality.dither ? 1 : 0
+    su[15] =
+      paint?.kind === 'gradient' &&
+      run.blend !== 'lighter' &&
+      ctx.vectorQuality.dither
+        ? 1
+        : 0
     const dynOffset = this.#drawParamsRing.push(ctx.device, s)
     if (dynOffset < 0) return
 
@@ -849,7 +960,7 @@ export class ColoredTriProgram implements GpuProgram {
         ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
         {
           group: 1,
-          bindGroup: this.#clipBindGroupFor(ctx, clipTex, atlasTex),
+          bindGroup: this.#clipBindGroupFor(ctx, clipTex, atlasTex, shadowMaskTex),
           dynamicOffsets: [dynOffset],
         },
       ],
@@ -902,22 +1013,29 @@ export class ColoredTriProgram implements GpuProgram {
   }
 
   /**
-   * The group-1 bind group for a given (clip texture, ramp atlas texture)
-   * pair: the shared DrawParams ring (dynamic offset supplied per draw) plus
-   * the clip and ramp samplers. Cached by texture (the placeholder for a
-   * no-clip run or before the first gradient).
+   * The group-1 bind group for a given (clip texture, ramp atlas texture,
+   * inset-shadow mask texture) triple: the shared DrawParams ring (dynamic
+   * offset supplied per draw) plus the clip, ramp, and mask samplers. Cached
+   * by texture (the placeholder for a no-clip run, before the first
+   * gradient, or before the first inset path shadow, respectively).
    */
   #clipBindGroupFor(
     ctx: GpuBatchContext,
     clipTex: Texture,
     atlasTex: Texture,
+    maskTex: Texture,
   ): BindGroup {
     let byAtlas = this.#clipBindGroups.get(clipTex)
     if (!byAtlas) {
       byAtlas = new WeakMap()
       this.#clipBindGroups.set(clipTex, byAtlas)
     }
-    let bg = byAtlas.get(atlasTex)
+    let byMask = byAtlas.get(atlasTex)
+    if (!byMask) {
+      byMask = new WeakMap()
+      byAtlas.set(atlasTex, byMask)
+    }
+    let bg = byMask.get(maskTex)
     if (!bg) {
       bg = ctx.device.createBindGroup(this.#materialLayout, [
         {
@@ -929,8 +1047,9 @@ export class ColoredTriProgram implements GpuProgram {
         },
         { binding: 1, resource: { texture: clipTex } },
         { binding: RAMP_ATLAS_BINDING, resource: { texture: atlasTex } },
+        { binding: MASK_BINDING, resource: { texture: maskTex } },
       ])
-      byAtlas.set(atlasTex, bg)
+      byMask.set(maskTex, bg)
     }
     return bg
   }

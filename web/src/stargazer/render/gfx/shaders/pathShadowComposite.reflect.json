@@ -1,0 +1,23 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 0,
+      "glslName": "Frame_block_0Fragment"
+    },
+    {
+      "binding": 0,
+      "glslName": "Frame_block_0Vertex"
+    },
+    {
+      "binding": 8,
+      "glslName": "Clip_block_1Fragment"
+    }
+  ],
+  "samplers": [
+    {
+      "binding": 0,
+      "glslName": "_group_1_binding_0_fs"
+    }
+  ]
+}

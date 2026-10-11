@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import { Path2DNode } from './Path2DNode'
 import { Camera } from '../camera/Camera'
-import type { Gfx2D, GfxFill, GfxStrokeStyle } from '../render/gfx/Gfx2D'
+import type {
+  Gfx2D,
+  GfxFill,
+  GfxShadowStyle,
+  GfxStrokeStyle,
+} from '../render/gfx/Gfx2D'
 
 interface Call {
   method: string
@@ -21,6 +26,7 @@ function recordingGfx(): { gfx: Gfx2D; calls: Call[] } {
     translate: record('translate'),
     fillPath2D: record('fillPath2D'),
     strokePath2D: record('strokePath2D'),
+    shadowPath2D: record('shadowPath2D'),
   }
   return { gfx: gfx as unknown as Gfx2D, calls }
 }
@@ -40,7 +46,7 @@ describe('Path2DNode', () => {
     expect(calls.map((c) => c.method)).toEqual(['fillPath2D', 'strokePath2D'])
   })
 
-  it('draws an outset hard shadow as a translated fillPath2D before the real fill', () => {
+  it('draws an outset shadow via shadowPath2D before the real fill', () => {
     const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
@@ -49,31 +55,30 @@ describe('Path2DNode', () => {
       shadow: { color: 'rgba(0,0,0,0.5)', offsetX: 2, offsetY: 4 },
     })
     node.draw(gfx, cameraWithScale(1), 0)
-    expect(calls.map((c) => c.method)).toEqual([
-      'save',
-      'translate',
-      'fillPath2D',
-      'restore',
-      'fillPath2D',
-    ])
-    expect(calls[1].args).toEqual([2, 4])
-    expect(calls[2].args).toEqual([path, 'rgba(0,0,0,0.5)'])
-    expect(calls[4].args).toEqual([path, '#fff'])
+    expect(calls.map((c) => c.method)).toEqual(['shadowPath2D', 'fillPath2D'])
+    expect(calls[0].args[0]).toBe(path)
+    const style = calls[0].args[1] as GfxShadowStyle
+    expect(style.color).toBe('rgba(0,0,0,0.5)')
+    expect(style.offsetX).toBe(2)
+    expect(style.offsetY).toBe(4)
+    expect(calls[1].args).toEqual([path, '#fff'])
   })
 
-  it('scales the shadow offset by strokeSpaceScale, like lineWidth', () => {
+  it('scales the shadow offset/blur/spread by strokeSpaceScale, like lineWidth', () => {
     const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
       path,
-      shadow: { color: '#000', offsetX: 10, offsetY: 0 },
+      shadow: { color: '#000', offsetX: 10, offsetY: 0, blur: 8, spread: 4 },
     })
     node.draw(gfx, cameraWithScale(2), 0) // strokeSpaceScale() = 1/2
-    const translateCall = calls.find((c) => c.method === 'translate')!
-    expect(translateCall.args[0]).toBeCloseTo(5)
+    const style = calls[0].args[1] as GfxShadowStyle
+    expect(style.offsetX).toBeCloseTo(5)
+    expect(style.blur).toBeCloseTo(4)
+    expect(style.spread).toBeCloseTo(2)
   })
 
-  it('skips an inset shadow (not yet implemented for an arbitrary path)', () => {
+  it('draws an inset shadow via shadowPath2D after the real fill', () => {
     const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
@@ -82,7 +87,28 @@ describe('Path2DNode', () => {
       shadow: { color: '#000', inset: true },
     })
     node.draw(gfx, cameraWithScale(1), 0)
-    expect(calls.map((c) => c.method)).toEqual(['fillPath2D'])
+    expect(calls.map((c) => c.method)).toEqual(['fillPath2D', 'shadowPath2D'])
+    const style = calls[1].args[1] as GfxShadowStyle
+    expect(style.inset).toBe(true)
+  })
+
+  it('draws outset shadows before the fill and inset shadows after it, in one call each', () => {
+    const { gfx, calls } = recordingGfx()
+    const path = new Path2D()
+    const node = new Path2DNode({
+      path,
+      fill: '#fff',
+      shadow: [
+        { color: '#111', offsetY: 2 },
+        { color: '#222', inset: true },
+      ],
+    })
+    node.draw(gfx, cameraWithScale(1), 0)
+    expect(calls.map((c) => c.method)).toEqual([
+      'shadowPath2D',
+      'fillPath2D',
+      'shadowPath2D',
+    ])
   })
 
   it('passes lineAlign/lineJoin/lineCap/miterLimit/exactJoins through to strokePath2D', () => {
@@ -151,6 +177,22 @@ describe('Path2DNode', () => {
           { color: '#000', offsetX: 3, offsetY: 4 }, // hypot = 5
           { color: '#000', offsetX: 1000, inset: true },
         ],
+      })
+      expect(node.cullMargin).toBeCloseTo(5)
+    })
+
+    it('includes an outset shadow blur (3 sigma) and positive spread', () => {
+      const node = new Path2DNode({
+        path: new Path2D(),
+        shadow: { color: '#000', blur: 20, spread: 6 }, // 3 * (20/2) + 6 = 36
+      })
+      expect(node.cullMargin).toBeCloseTo(36)
+    })
+
+    it('clamps a negative spread to not reduce the margin', () => {
+      const node = new Path2DNode({
+        path: new Path2D(),
+        shadow: { color: '#000', offsetX: 5, spread: -1000 },
       })
       expect(node.cullMargin).toBeCloseTo(5)
     })

@@ -14,8 +14,8 @@
 // Bindings match batchLayout.ts: a_pos/a_color/a_uv at LOC_COLORED_* (0/1/2),
 // Frame at FRAME_UBO_BINDING (0), DrawParams at DRAWPARAMS_UBO_BINDING (2),
 // u_clipTex at texture unit 1, u_ramp (the shared ramp atlas) at texture unit
-// 3. Sampler at texture_binding + 16 (see gradientRadial.wgsl for the
-// convention).
+// 3, u_mask (an inset path-shadow's coverage mask) at texture unit 4. Sampler
+// at texture_binding + 16 (see gradientRadial.wgsl for the convention).
 
 struct Frame {
   proj: mat3x3<f32>,
@@ -81,10 +81,15 @@ fn bayerValue(fragPos: vec2<f32>) -> f32 {
   return BAYER8[xy.y * 8 + xy.x] / 64.0;
 }
 
-// Per-run paint/debug/clip params.
+// Per-run paint/debug/clip params. `paint`'s meaning depends on `flags.z`
+// (paintMode): gradient mode reads it as the axis projection (scaleDirX,
+// scaleDirY, startOffset, rampRow); inset-mask mode reads it as the mask
+// rect's device-px origin and reciprocal extent (originX, originY, invW,
+// invH), the same "project a device position into a sample" shape the
+// gradient axis already uses.
 struct DrawParams {
   debugColor: vec4<f32>, // premultiplied hue for batch-color mode
-  paint: vec4<f32>,      // gradient: (scaleDirX, scaleDirY, startOffset, rampRow)
+  paint: vec4<f32>,
   misc: vec4<f32>,       // reserved for a future per-run field (opacity at .y)
   flags: vec4<u32>,      // (clipEnabled, debugMode, paintMode, dither)
 };
@@ -94,6 +99,8 @@ struct DrawParams {
 @group(1) @binding(17) var u_clipSamp: sampler;
 @group(1) @binding(3) var u_ramp: texture_2d<f32>;
 @group(1) @binding(19) var u_rampSamp: sampler;
+@group(1) @binding(4) var u_mask: texture_2d<f32>;
+@group(1) @binding(20) var u_maskSamp: sampler;
 
 struct VOut {
   @builtin(position) pos: vec4<f32>,
@@ -132,6 +139,19 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     c = textureSample(u_ramp, u_rampSamp, vec2<f32>(u, v)) * params.misc.y;
   } else {
     c = in.color;
+  }
+  if (paintMode == 2u) {
+    // Inset path shadow: the geometry drawn here is the path's own fill, so
+    // no clip and no extra pass is needed, only a sample of the cached mask
+    // in the paint slot. Outside the mask's own (padded) rect the sample is
+    // forced to 0, which inverts to full shadow: a point that far from the
+    // silhouette has a true blurred coverage below one 8-bit level, and
+    // `1 - 0` is exactly that.
+    let p = devicePos(in.pos.xy);
+    let uv = (p - params.paint.xy) * params.paint.zw;
+    let uvInside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
+    let maskR = select(0.0, textureSample(u_mask, u_maskSamp, uv).r, uvInside);
+    c = c * (1.0 - maskR);
   }
   if (params.flags.x > 0u) {
     c = c * textureSample(u_clipTex, u_clipSamp, in.uv).a;

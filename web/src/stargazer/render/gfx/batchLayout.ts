@@ -220,6 +220,20 @@ export const LOC_SHAPE_COLORFILL = 8
 export const LOC_SHAPE_COLORSTROKE = 9
 export const LOC_SHAPE_PAINT = 10
 
+/**
+ * Path-shadow composite instance layout: mCol0.xy + mCol1.xy + mTranslate.xy
+ * (affine, f32×6) + srcRect.xyzw (f32×4) + tint(u8×4) + dither (f32) = 48 B.
+ */
+export const PATHSHADOW_INSTANCE_STRIDE = 48
+export const PATHSHADOW_BUFFER_BYTES = 16 * 1024 // 16 KB -> ~340 instances
+export const LOC_PATHSHADOW_UNIT = 0
+export const LOC_PATHSHADOW_MCOL0 = 1
+export const LOC_PATHSHADOW_MCOL1 = 2
+export const LOC_PATHSHADOW_MTRANSLATE = 3
+export const LOC_PATHSHADOW_SRC = 4
+export const LOC_PATHSHADOW_TINT = 5
+export const LOC_PATHSHADOW_DITHER = 6
+
 /** Pixel tolerance for CPU curve flattening (device px). */
 export const CURVE_FLATTEN_TOL_PX = 0.5
 /** Max flattened points per curve segment (safety upper bound). */
@@ -234,3 +248,4 @@ export type BatchKind =
   | 'maskedGradient'
   | 'textQuad'
   | 'shape'
+  | 'pathShadowComposite'

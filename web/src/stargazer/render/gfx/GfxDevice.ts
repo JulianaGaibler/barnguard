@@ -160,6 +160,8 @@ export interface RenderTarget {
    * format. A multisample→single-sample resolve requires identical formats.
    */
   readonly colorSpace: ColorFormat
+  /** Color-attachment pixel layout the target was allocated with. */
+  readonly pixelFormat: TargetPixelFormat
   /** Whether the target carries a depth attachment (opted in at creation). */
   readonly hasDepth: boolean
   /**
@@ -343,6 +345,16 @@ export type PrimitiveTopology = 'triangle-list' | 'line-list'
 export type ColorFormat = 'linear' | 'srgb'
 
 /**
+ * Color-attachment pixel layout, orthogonal to {@link ColorFormat} (a color
+ * SPACE, not a channel count): an `r8` target still has no color space to
+ * speak of, it's a coverage mask. `'rgba8'` (default) is ordinary 2D content.
+ * `'r8'` / `'rg8'` back a single- or dual-channel coverage mask (the
+ * path-shadow bake) and are single-sample only: no backend exposes a
+ * renderable multisample R8/RG8 target.
+ */
+export type TargetPixelFormat = 'rgba8' | 'r8' | 'rg8'
+
+/**
  * Which aspects a depth-stencil attachment carries. A pipeline bakes this and a
  * backend that validates (WebGPU) rejects a pipeline whose format differs from
  * the attachment it draws into, so the two have to be described the same way.
@@ -384,6 +396,14 @@ export interface ColorState {
    * without repainting.
    */
   write?: boolean
+  /**
+   * Override the attachment's pixel layout for a non-color-managed target (one
+   * allocated with a {@link RenderTargetOpts.pixelFormat} other than
+   * `'rgba8'`, such as a path-shadow mask). When set, this wins over `format`
+   * for picking the actual GPU texture format; `format` is otherwise unused.
+   * Omit for ordinary RGBA8 2D content.
+   */
+  pixelFormat?: TargetPixelFormat
 }
 
 /** What a stencil test does to the buffer at one fragment. */
@@ -511,6 +531,12 @@ export interface Texture2DOpts {
    * compute.
    */
   storage?: boolean
+  /**
+   * Internal pixel layout for a non-color-managed texture (a render target's
+   * own color attachment). Default `'rgba8'`. `srgb` is meaningless for
+   * `'r8'`/`'rg8'` and is ignored alongside them.
+   */
+  pixelFormat?: TargetPixelFormat
 }
 
 export interface TextureUploadOpts {
@@ -575,6 +601,13 @@ export interface RenderTargetOpts {
    * sRGB-encoded. Only the single-sample path honors `'srgb'`.
    */
   colorSpace?: ColorFormat
+  /**
+   * Color-attachment pixel layout. Default `'rgba8'`. `'r8'`/`'rg8'` are
+   * single-sample only; combining either with `samples > 1` throws, since no
+   * backend exposes a renderable multisample R8/RG8 target (see
+   * {@link TargetPixelFormat}).
+   */
+  pixelFormat?: TargetPixelFormat
 }
 
 export type IndexType = 'u16' | 'u32'

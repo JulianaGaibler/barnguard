@@ -9,6 +9,7 @@ import type {
   DrawBindGroup,
   GfxDevice,
   TargetFormat,
+  Texture,
   UBuffer,
 } from './GfxDevice'
 import { hasStencilAspect } from './depthStencil'
@@ -61,7 +62,7 @@ export interface DrawRun {
   clip: ResolvedClip | null
   texture: import('./GfxDevice').Texture | null
   lut: import('./GfxDevice').Texture | null
-  paint: ResolvedGradientPaint | null
+  paint: ResolvedRunPaint | null
   debugMode: DebugRenderMode
   /** Monotonic index for the `'batch-color'` hue, fixed at record time. */
   debugBatchIndex: number
@@ -103,12 +104,13 @@ export interface GpuGfxStats {
  * `coloredTri`'s resolved per-run gradient paint: a device-space axis
  * projection (see `strokeOutline`'s WebRender-derived note in `coloredTri.ts`)
  * plus the atlas row and the draw's own alpha (the ramp can't bake a per-draw
- * alpha, since a row is shared by content, not by caller). `null` is a solid
- * fill. Compared by value, not by reference: two draws resolving to the same
- * five numbers may share a run, and any difference, including two distinct
- * gradients back to back, forces a break so each gets its own `DrawParams`.
+ * alpha, since a row is shared by content, not by caller). Compared by value,
+ * not by reference: two draws resolving to the same five numbers may share a
+ * run, and any difference, including two distinct gradients back to back,
+ * forces a break so each gets its own `DrawParams`.
  */
 export interface ResolvedGradientPaint {
+  kind: 'gradient'
   scaleDirX: number
   scaleDirY: number
   startOffset: number
@@ -116,18 +118,49 @@ export interface ResolvedGradientPaint {
   opacity: number
 }
 
+/**
+ * `coloredTri`'s resolved per-run inset-shadow mask paint: the device-space
+ * rect→uv projection for the cached mask (same "project a device position"
+ * shape the gradient axis uses) plus the mask texture itself. A run's mask
+ * texture also joins the batch key like a gradient's ramp row does, so two
+ * different inset shadows drawn back to back each get their own
+ * `DrawParams` slice and their own bound texture.
+ */
+export interface ResolvedMaskPaint {
+  kind: 'mask'
+  originX: number
+  originY: number
+  invW: number
+  invH: number
+  maskTex: Texture
+}
+
+export type ResolvedRunPaint = ResolvedGradientPaint | ResolvedMaskPaint
+
 function paintEquals(
-  a: ResolvedGradientPaint | null,
-  b: ResolvedGradientPaint | null,
+  a: ResolvedRunPaint | null,
+  b: ResolvedRunPaint | null,
 ): boolean {
   if (a === b) return true
   if (a === null || b === null) return false
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'gradient') {
+    const bb = b as ResolvedGradientPaint
+    return (
+      a.scaleDirX === bb.scaleDirX &&
+      a.scaleDirY === bb.scaleDirY &&
+      a.startOffset === bb.startOffset &&
+      a.rampRow === bb.rampRow &&
+      a.opacity === bb.opacity
+    )
+  }
+  const bb = b as ResolvedMaskPaint
   return (
-    a.scaleDirX === b.scaleDirX &&
-    a.scaleDirY === b.scaleDirY &&
-    a.startOffset === b.startOffset &&
-    a.rampRow === b.rampRow &&
-    a.opacity === b.opacity
+    a.originX === bb.originX &&
+    a.originY === bb.originY &&
+    a.invW === bb.invW &&
+    a.invH === bb.invH &&
+    a.maskTex === bb.maskTex
   )
 }
 
@@ -136,7 +169,7 @@ export interface BatchKey {
   texture?: import('./GfxDevice').Texture | null
   lut?: import('./GfxDevice').Texture | null
   clipMask?: BitmapMask | null
-  paint?: ResolvedGradientPaint | null
+  paint?: ResolvedRunPaint | null
 }
 
 export class GpuBatchContext {
@@ -206,7 +239,7 @@ export class GpuBatchContext {
   curBatch: BatchKind = 'none'
   curTexture: import('./GfxDevice').Texture | null = null
   curLut: import('./GfxDevice').Texture | null = null
-  curPaint: ResolvedGradientPaint | null = null
+  curPaint: ResolvedRunPaint | null = null
   curBlend: GfxBlend = 'source-over'
   curClipMask: BitmapMask | null = null
   curClip: ResolvedClip | null = null

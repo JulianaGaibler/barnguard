@@ -446,6 +446,18 @@ export interface Gfx2D {
     r: number,
     style: GfxShadowStyle,
   ): void
+  /**
+   * A drop shadow for an arbitrary `Path2D`, from a cached blurred-coverage
+   * mask. `style.inset` composes with the path's own fill geometry (no
+   * stencil, no extra pass): draw it after the fill and before the border.
+   * Below `PathShadowCache`'s hard-shadow threshold, or while `quality.vector
+   * .pathShadowsEnabled` is off, falls back to the path's own fill translated
+   * by `offsetX`/`offsetY` with no blur; an inset shadow has no such
+   * fallback (there is nothing to approximate it with) and is silently
+   * skipped in that case. A path needs a registered tessellation, same as
+   * {@link Gfx2D.fillPath2D}.
+   */
+  shadowPath2D(path: Path2D, style: GfxShadowStyle): void
 
   // --- strokes -------------------------------------------------------------
 

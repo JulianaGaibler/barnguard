@@ -29,7 +29,7 @@ export function pipelineKey(desc: PipelineDesc): string {
     )
     .join(';')
   const color = desc.color
-    ? `${desc.color.format}/${desc.color.blend}/${desc.color.write === false ? 0 : 1}`
+    ? `${desc.color.format}/${desc.color.pixelFormat ?? 'rgba8'}/${desc.color.blend}/${desc.color.write === false ? 0 : 1}`
     : 'none'
   const depth = desc.depth
     ? `${desc.depth.test ? 1 : 0}${desc.depth.write ? 1 : 0}/${desc.depth.compare ?? 'le'}/${desc.depth.biasSlopeScale ?? 0}/${desc.depth.biasConstant ?? 0}`

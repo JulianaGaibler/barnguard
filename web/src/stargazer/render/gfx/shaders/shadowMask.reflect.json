@@ -1,0 +1,10 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 0,
+      "glslName": "Params_block_0Vertex"
+    }
+  ],
+  "samplers": []
+}

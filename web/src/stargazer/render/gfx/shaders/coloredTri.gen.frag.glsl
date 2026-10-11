@@ -41,6 +41,8 @@ uniform highp sampler2D _group_1_binding_1_fs;
 
 uniform highp sampler2D _group_1_binding_3_fs;
 
+uniform highp sampler2D _group_1_binding_4_fs;
+
 smooth in vec4 _vs2fs_location0;
 smooth in vec2 _vs2fs_location1;
 layout(location = 0) out vec4 _fs2p_location0;
@@ -92,6 +94,7 @@ float bayerValue(vec2 fragPos_2) {
 void main() {
     VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1);
     vec4 c = vec4(0.0);
+    bool local = false;
     uint paintMode = _group_1_binding_2_fs.flags.z;
     if ((paintMode == 1u)) {
         vec2 _e10 = devicePos(in_.pos.xy);
@@ -107,36 +110,52 @@ void main() {
     } else {
         c = in_.color;
     }
-    uint _e49 = _group_1_binding_2_fs.flags.x;
-    if ((_e49 > 0u)) {
-        vec4 _e52 = c;
-        vec4 _e56 = texture(_group_1_binding_1_fs, vec2(in_.uv));
-        c = (_e52 * _e56.w);
+    if ((paintMode == 2u)) {
+        vec2 _e50 = devicePos(in_.pos.xy);
+        vec4 _e53 = _group_1_binding_2_fs.paint;
+        vec4 _e58 = _group_1_binding_2_fs.paint;
+        vec2 uv = ((_e50 - _e53.xy) * _e58.zw);
+        if (all(greaterThanEqual(uv, vec2(0.0)))) {
+            local = all(lessThanEqual(uv, vec2(1.0)));
+        } else {
+            local = false;
+        }
+        bool uvInside = local;
+        vec4 _e75 = texture(_group_1_binding_4_fs, vec2(uv));
+        float maskR = (uvInside ? _e75.x : 0.0);
+        vec4 _e79 = c;
+        c = (_e79 * (1.0 - maskR));
     }
-    vec4 _e59 = c;
-    float _e62 = clipCoverage(in_.pos.xy);
-    c = (_e59 * _e62);
-    uint _e67 = _group_1_binding_2_fs.flags.w;
-    if ((_e67 > 0u)) {
-        float _e72 = bayerValue(in_.pos.xy);
-        float _e78 = c.w;
-        float noise = (((_e72 - 0.5) / 256.0) * _e78);
-        vec4 _e80 = c;
-        float _e85 = c.w;
-        float _e89 = c.w;
-        c = vec4(min((_e80.xyz + vec3(noise)), vec3(_e85)), _e89);
+    uint _e86 = _group_1_binding_2_fs.flags.x;
+    if ((_e86 > 0u)) {
+        vec4 _e89 = c;
+        vec4 _e93 = texture(_group_1_binding_1_fs, vec2(in_.uv));
+        c = (_e89 * _e93.w);
+    }
+    vec4 _e96 = c;
+    float _e99 = clipCoverage(in_.pos.xy);
+    c = (_e96 * _e99);
+    uint _e104 = _group_1_binding_2_fs.flags.w;
+    if ((_e104 > 0u)) {
+        float _e109 = bayerValue(in_.pos.xy);
+        float _e115 = c.w;
+        float noise = (((_e109 - 0.5) / 256.0) * _e115);
+        vec4 _e117 = c;
+        float _e122 = c.w;
+        float _e126 = c.w;
+        c = vec4(min((_e117.xyz + vec3(noise)), vec3(_e122)), _e126);
     }
     uint mode = _group_1_binding_2_fs.flags.y;
     if ((mode == 1u)) {
         c = vec4(0.05, 0.0, 0.0, 0.05);
     } else {
         if ((mode == 2u)) {
-            vec4 _e106 = _group_1_binding_2_fs.debugColor;
-            c = _e106;
+            vec4 _e143 = _group_1_binding_2_fs.debugColor;
+            c = _e143;
         }
     }
-    vec4 _e107 = c;
-    _fs2p_location0 = _e107;
+    vec4 _e144 = c;
+    _fs2p_location0 = _e144;
     return;
 }
 

@@ -15,6 +15,7 @@ import type {
   PrimitiveTopology,
   StencilFaceState,
   StencilOp,
+  TargetPixelFormat,
   VertexFormat,
 } from '../GfxDevice'
 import {
@@ -47,6 +48,23 @@ export function vertexFormatToGPU(f: VertexFormat): GPUVertexFormat {
  */
 export function colorFormatToGPU(f: ColorFormat): GPUTextureFormat {
   return f === 'srgb' ? 'rgba8unorm-srgb' : 'rgba8unorm'
+}
+
+/**
+ * Pixel-layout override → WebGPU texture format, for a non-color-managed
+ * target (a coverage mask). `'rgba8'` defers to {@link colorFormatToGPU}'s
+ * `'linear'` case rather than being a case of its own, so the two stay in
+ * sync.
+ */
+export function targetPixelFormatToGPU(f: TargetPixelFormat): GPUTextureFormat {
+  switch (f) {
+    case 'rgba8':
+      return colorFormatToGPU('linear')
+    case 'r8':
+      return 'r8unorm'
+    case 'rg8':
+      return 'rg8unorm'
+  }
 }
 
 /**
@@ -91,7 +109,9 @@ const COLOR_WRITE_ALL = 0xf
  */
 export function colorTargetToGPU(color: ColorState): GPUColorTargetState {
   return {
-    format: colorFormatToGPU(color.format),
+    format: color.pixelFormat
+      ? targetPixelFormatToGPU(color.pixelFormat)
+      : colorFormatToGPU(color.format),
     blend: blendToGPU(color.blend),
     writeMask: color.write === false ? 0 : COLOR_WRITE_ALL,
   }

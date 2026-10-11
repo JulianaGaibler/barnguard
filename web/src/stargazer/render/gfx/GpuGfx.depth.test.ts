@@ -120,7 +120,13 @@ describe('GpuGfx depth and stencil', () => {
   it('declares stencil alone on a stage with no 3D content', async () => {
     const { gfx, device } = makeGfx(true)
     await gfx.whenReady
+    // `PathShadowCache`'s raster/blur pipelines are excluded: they target
+    // their own private, depth-and-stencil-free r8/rg8 masks, independent of
+    // the shared 2D target this test is about.
     for (const p of device.pipelines) {
+      if (p.desc.label === 'shadowMask' || p.desc.label === 'shadowBlur') {
+        continue
+      }
       expect(p.desc.depthStencil, p.desc.label ?? '2d pipeline').toBe('stencil')
     }
   })

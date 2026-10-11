@@ -135,6 +135,9 @@ export class Viewport2DNode extends Node3D {
     // Skip until the offscreen surface's pipelines warm (async). The 3D pass
     // falls back to a white texture for the first frame or two.
     if (!gpu.ready) return
+    // Same pre-beginFrame window as `Stage`'s: a path-shadow bake's own
+    // render passes cannot nest inside the one `beginFrame` is about to open.
+    gpu.processPendingShadowBakes()
     const camera = this.camera
     camera.setPixelSize(this.#width, this.#height)
     const t = camera.getScreenTransform()

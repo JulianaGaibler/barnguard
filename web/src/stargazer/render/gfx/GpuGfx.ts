@@ -51,7 +51,7 @@ import { TextureManager, type TextureInspector } from './TextureManager'
 import { VectorQuality } from '../VectorQuality'
 import { DEFAULT_LABEL_FONT, type LabelStyle } from './rasterizeLabel'
 import type { BitmapMask } from '../../assets/BitmapMask'
-import { rgbaTuple } from './packing'
+import { packColor, rgbaTuple } from './packing'
 import {
   CURVE_FLATTEN_MAX_POINTS,
   CURVE_FLATTEN_TOL_PX,
@@ -71,6 +71,13 @@ import { MaskedGradientProgram } from './programs/maskedGradient'
 import { TextQuadProgram } from './programs/textQuad'
 import { ShapeProgram } from './programs/shape'
 import { SHAPE_TEX_ATLAS, SHAPE_TEX_LABEL } from './batchLayout'
+import { PathShadowCompositeProgram } from './programs/pathShadowComposite'
+import {
+  PathShadowCache,
+  HARD_SHADOW_BLUR_PX,
+  type PathShadowRequest,
+} from './PathShadowCache'
+import type { Rect } from '../../math/Rect'
 
 /**
  * The scale-independent half of a label's cache key. `TextureManager` appends
@@ -101,6 +108,7 @@ export interface UnimplementedCounts {
   strokeQuadratic: number
   strokePolyline: number
   strokePath2D: number
+  shadowPath2D: number
 }
 
 export class GpuGfx implements Gfx2D {
@@ -124,6 +132,27 @@ export class GpuGfx implements Gfx2D {
   readonly #maskedGradient = new MaskedGradientProgram()
   readonly #textQuad = new TextQuadProgram()
   readonly #shape = new ShapeProgram()
+  readonly #pathShadowComposite = new PathShadowCompositeProgram()
+
+  /**
+   * Cached blurred-coverage masks for arbitrary-path drop shadows. Unlike the
+   * other programs, not re-warmed on retarget: its raster/blur targets are
+   * its own private r8/rg8 targets, independent of the screen target's
+   * format, depth, stencil, or sample count.
+   */
+  #pathShadowCache!: PathShadowCache
+  readonly #pathBoundsCache = new WeakMap<
+    Path2D,
+    { epoch: number; bounds: Rect }
+  >()
+  /**
+   * This frame's distinct (path, style, scale-bucket) requests that missed
+   * the cache, drained by `processPendingShadowBakes` in next frame's
+   * pre-`beginFrame` window.
+   */
+  readonly #pendingShadowBakes = new Map<string, PathShadowRequest>()
+  /** Warn once per surface for a rotated/skewed inset path shadow. */
+  #warnedInsetShadowTransform = false
 
   /**
    * Every texture the GPU backend uses: atlas, per-source, gradient LUTs, clip
@@ -155,6 +184,7 @@ export class GpuGfx implements Gfx2D {
     strokeQuadratic: 0,
     strokePolyline: 0,
     strokePath2D: 0,
+    shadowPath2D: 0,
   }
 
   /**
@@ -228,6 +258,7 @@ export class GpuGfx implements Gfx2D {
     this.#ctx.registerProgram(this.#gradientRadial)
     this.#ctx.registerProgram(this.#maskedGradient)
     this.#ctx.registerProgram(this.#textQuad)
+    this.#ctx.registerProgram(this.#pathShadowComposite)
     this.#initGpuResources()
   }
 
@@ -240,6 +271,7 @@ export class GpuGfx implements Gfx2D {
       this.#gradientRadial,
       this.#maskedGradient,
       this.#textQuad,
+      this.#pathShadowComposite,
     ]
   }
 
@@ -298,6 +330,13 @@ export class GpuGfx implements Gfx2D {
       this.#textureManager = new TextureManager(device)
     }
     this.#ctx.textureManager = this.#textureManager
+
+    // Old handles (if any) died with the previous context; no explicit
+    // teardown call reaches them, same as every other GPU resource rebuilt
+    // here. Its own pipelines are independent of the screen target's format,
+    // so this is the only place it's (re)built, unlike `#programs`.
+    this.#pathShadowCache = new PathShadowCache(device)
+    void this.#pathShadowCache.warmup()
 
     this.#warmupPromise = this.#warmupPipelines()
   }
@@ -1087,6 +1126,169 @@ export class GpuGfx implements Gfx2D {
 
   shadowCircle(cx: number, cy: number, r: number, style: GfxShadowStyle): void {
     this.#shape.shadowCircle(this.#ctx, cx, cy, r, style)
+  }
+
+  /** Local-space AABB of `path`'s tessellation, cached per registration epoch. */
+  #localBoundsFor(path: Path2D, geo: { vertices: Float32Array }, epoch: number): Rect {
+    const cached = this.#pathBoundsCache.get(path)
+    if (cached && cached.epoch === epoch) return cached.bounds
+    const v = geo.vertices
+    let minX = Infinity,
+      minY = Infinity,
+      maxX = -Infinity,
+      maxY = -Infinity
+    for (let i = 0; i < v.length; i += 2) {
+      const x = v[i]
+      const y = v[i + 1]
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+    const bounds: Rect =
+      v.length === 0
+        ? { x: 0, y: 0, width: 0, height: 0 }
+        : { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
+    this.#pathBoundsCache.set(path, { epoch, bounds })
+    return bounds
+  }
+
+  /** The path's own fill, translated by the shadow's offset, no blur. */
+  #hardPathShadow(path: Path2D, style: GfxShadowStyle): void {
+    this.save()
+    this.translate(style.offsetX ?? 0, style.offsetY ?? 0)
+    this.fillPath2D(path, style.color)
+    this.restore()
+  }
+
+  shadowPath2D(path: Path2D, style: GfxShadowStyle): void {
+    const geo = getPathTessellation(path)
+    if (!geo) {
+      this.unimplemented.shadowPath2D++
+      return
+    }
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const scaleX = Math.hypot(t.a, t.b)
+    const scaleY = Math.hypot(t.c, t.d)
+    const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c)) || 1e-4
+    const blur = Math.max(0, style.blur ?? 0)
+    const sigmaDevice = blur * 0.5 * scale
+    const inset = style.inset === true
+
+    if (sigmaDevice * 2 <= HARD_SHADOW_BLUR_PX) {
+      if (!inset) this.#hardPathShadow(path, style)
+      return
+    }
+
+    const epoch = getRegistrationEpoch(path)
+    const req: PathShadowRequest = {
+      path,
+      geometry: geo,
+      localBounds: this.#localBoundsFor(path, geo, epoch),
+      registrationEpoch: epoch,
+      blur,
+      spread: style.spread ?? 0,
+      scaleX,
+      scaleY,
+      scale,
+      quality: this.#ctx.vectorQuality,
+    }
+    const mask = this.#pathShadowCache.peek(req)
+    if (!mask) {
+      this.#pendingShadowBakes.set(this.#pathShadowCache.requestKey(req), req)
+      if (!inset) this.#hardPathShadow(path, style)
+      return
+    }
+
+    const alpha = this.#ctx.stateStack.getAlpha()
+    const offsetX = style.offsetX ?? 0
+    const offsetY = style.offsetY ?? 0
+    const offDx = t.a * offsetX + t.c * offsetY
+    const offDy = t.b * offsetX + t.d * offsetY
+
+    if (inset) {
+      const rotatedOrSkewed = Math.abs(t.b) > 1e-4 || Math.abs(t.c) > 1e-4
+      if (rotatedOrSkewed && !this.#warnedInsetShadowTransform) {
+        this.#warnedInsetShadowTransform = true
+        console.warn(
+          'GpuGfx.shadowPath2D: an inset path shadow assumes an axis-aligned transform; rotation/skew is unsupported.',
+        )
+      }
+      const c0x = t.a * mask.localX + t.c * mask.localY + t.e + offDx
+      const c0y = t.b * mask.localX + t.d * mask.localY + t.f + offDy
+      const c1x =
+        t.a * (mask.localX + mask.localW) +
+        t.c * (mask.localY + mask.localH) +
+        t.e +
+        offDx
+      const c1y =
+        t.b * (mask.localX + mask.localW) +
+        t.d * (mask.localY + mask.localH) +
+        t.f +
+        offDy
+      const originX = Math.min(c0x, c1x)
+      const originY = Math.min(c0y, c1y)
+      const width = Math.abs(c1x - c0x)
+      const height = Math.abs(c1y - c0y)
+      this.#coloredTri.fillTessellationInsetShadow(this.#ctx, geo, style.color, alpha, {
+        kind: 'mask',
+        originX,
+        originY,
+        invW: width > 0 ? 1 / width : 0,
+        invH: height > 0 ? 1 / height : 0,
+        maskTex: mask.texture,
+      })
+      return
+    }
+
+    const col0x = t.a * mask.localW
+    const col0y = t.b * mask.localW
+    const col1x = t.c * mask.localH
+    const col1y = t.d * mask.localH
+    const tx = t.a * mask.localX + t.c * mask.localY + t.e + offDx
+    const ty = t.b * mask.localX + t.d * mask.localY + t.f + offDy
+    const off = this.#pathShadowComposite.beginInstance(this.#ctx, mask.texture)
+    if (off < 0) return
+    const slot = this.#ctx.curSlot
+    const f = this.#pathShadowComposite.floatView
+    const u = this.#pathShadowComposite.uintView
+    f[off + 0] = col0x
+    f[off + 1] = col0y
+    f[off + 2] = col1x
+    f[off + 3] = col1y
+    f[off + 4] = tx
+    f[off + 5] = ty
+    f[off + 6] = 0
+    f[off + 7] = 0
+    f[off + 8] = 1
+    f[off + 9] = 1
+    u[off + 10] = packColor(style.color, alpha)
+    f[off + 11] =
+      this.#ctx.stateStack.getBlend() !== 'lighter' && this.#ctx.vectorQuality.dither
+        ? 1
+        : 0
+    this.#pathShadowComposite.commitInstance(slot)
+  }
+
+  /**
+   * Drain this frame's queued path-shadow bake requests. Must run outside
+   * any open render pass (the bake opens and closes its own), so callers
+   * run it in the pre-`beginFrame` window: `Stage` before `screen
+   * .beginFrame()`, `Viewport2DNode.renderOffscreen` before its own
+   * `gpu.beginFrame()`. A request queued this way bakes at the earliest in
+   * the FOLLOWING frame's draw, one frame behind the draw call that queued
+   * it; `shadowPath2D` draws the hard fallback in the meantime.
+   */
+  processPendingShadowBakes(): void {
+    this.#pathShadowCache.beginFrame()
+    if (this.#pendingShadowBakes.size > 0) {
+      for (const req of this.#pendingShadowBakes.values()) {
+        this.#pathShadowCache.getOrBake(req)
+      }
+      this.#pendingShadowBakes.clear()
+    }
+    this.#pathShadowCache.pool.endFrame()
   }
 
   // --- Gfx2D: strokes ------------------------------------------------------

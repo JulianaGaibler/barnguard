@@ -137,6 +137,8 @@ export class MockGfxDevice implements GfxDevice {
   readonly deletedBuffers: VBuffer[] = []
   readonly deletedIndexBuffers: IBuffer[] = []
   readonly renderTargets: RenderTarget[] = []
+  /** Handles passed to `deleteRenderTarget`, for lifetime assertions. */
+  readonly deletedRenderTargetHandles: RenderTarget[] = []
   readonly shadowArrays: ShadowArray[] = []
   readonly shadowCubes: ShadowCube[] = []
   readonly boundTargets: RenderTarget[] = []
@@ -442,6 +444,7 @@ export class MockGfxDevice implements GfxDevice {
       samples,
       hasDepth: opts.depth === true,
       colorSpace: opts.colorSpace ?? 'linear',
+      pixelFormat: opts.pixelFormat ?? 'rgba8',
       color:
         samples === 1
           ? {
@@ -466,8 +469,9 @@ export class MockGfxDevice implements GfxDevice {
   resizeRenderTarget(_rt: RenderTarget, _w: number, _h: number): void {
     /* noop */
   }
-  deleteRenderTarget(_rt: RenderTarget): void {
+  deleteRenderTarget(rt: RenderTarget): void {
     this.deletedRenderTargets++
+    this.deletedRenderTargetHandles.push(rt)
   }
   colorTexture(rt: RenderTarget): Texture {
     const c = (rt as { color?: Texture }).color

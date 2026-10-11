@@ -53,6 +53,7 @@ import type {
   ShaderModuleDesc,
   ShadowArray,
   ShadowCube,
+  TargetPixelFormat,
   Texture,
   Texture2DOpts,
   TextureUploadOpts,
@@ -159,6 +160,7 @@ interface WebGL2Texture extends Texture {
   wrap: 'clamp' | 'repeat'
   srgb: boolean
   mipmap: boolean
+  pixelFormat: TargetPixelFormat
 }
 
 interface WebGL2ShadowArray extends ShadowArray {
@@ -195,6 +197,30 @@ interface FormatInfo {
   glType: number
   normalized: boolean
   byteSize: number
+}
+
+/**
+ * `TargetPixelFormat` → the GL internal/upload format triple `texImage2D`
+ * needs. `srgb` only has an effect for `'rgba8'`: a mask has no color space to
+ * convert.
+ */
+function pixelFormatGl(
+  gl: WebGL2RenderingContext,
+  pixelFormat: TargetPixelFormat,
+  srgb: boolean,
+): { internalFormat: number; format: number; type: number } {
+  switch (pixelFormat) {
+    case 'rgba8':
+      return {
+        internalFormat: srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+        format: gl.RGBA,
+        type: gl.UNSIGNED_BYTE,
+      }
+    case 'r8':
+      return { internalFormat: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE }
+    case 'rg8':
+      return { internalFormat: gl.RG8, format: gl.RG, type: gl.UNSIGNED_BYTE }
+  }
 }
 
 // --- device -----------------------------------------------------------------
@@ -739,16 +765,18 @@ export class WebGL2Device implements GfxDevice {
     const wrap = opts.wrap ?? 'clamp'
     const srgb = opts.srgb ?? false
     const mipmap = opts.mipmap ?? false
+    const pixelFormat = opts.pixelFormat ?? 'rgba8'
+    const { internalFormat, format, type } = pixelFormatGl(gl, pixelFormat, srgb)
     gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.texImage2D(
       gl.TEXTURE_2D,
       0,
-      srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+      internalFormat,
       clampedW,
       clampedH,
       0,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
+      format,
+      type,
       null,
     )
     const minFilter = mipmap
@@ -792,6 +820,7 @@ export class WebGL2Device implements GfxDevice {
       wrap,
       srgb,
       mipmap,
+      pixelFormat,
     } as WebGL2Texture
   }
 
@@ -892,6 +921,12 @@ export class WebGL2Device implements GfxDevice {
   createRenderTarget(opts: RenderTargetOpts): RenderTarget {
     const gl = this.#gl
     const samples = this.#clampSamples(opts.samples ?? 1)
+    const pixelFormat: TargetPixelFormat = opts.pixelFormat ?? 'rgba8'
+    if (pixelFormat !== 'rgba8' && samples > 1) {
+      throw new Error(
+        `WebGL2Device.createRenderTarget: pixelFormat '${pixelFormat}' is single-sample only (no renderable multisample R8/RG8 target)`,
+      )
+    }
     const fbo = gl.createFramebuffer()
     if (!fbo)
       throw new Error(
@@ -933,6 +968,7 @@ export class WebGL2Device implements GfxDevice {
         height: clampedH,
         samples,
         colorSpace: 'linear',
+        pixelFormat,
         hasDepth: !!opts.depth,
         hasStencil: rtHasStencil(opts),
       } as WebGL2RenderTarget
@@ -943,6 +979,7 @@ export class WebGL2Device implements GfxDevice {
         filter: 'linear',
         wrap: 'clamp',
         srgb: opts.colorSpace === 'srgb',
+        pixelFormat,
       }) as WebGL2Texture
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
       gl.framebufferTexture2D(
@@ -960,6 +997,7 @@ export class WebGL2Device implements GfxDevice {
         height: clampedH,
         samples: 1,
         colorSpace: opts.colorSpace ?? 'linear',
+        pixelFormat,
         hasDepth: !!opts.depth,
         hasStencil: rtHasStencil(opts),
       } as WebGL2RenderTarget
@@ -1044,16 +1082,21 @@ export class WebGL2Device implements GfxDevice {
       )
       gl.bindRenderbuffer(gl.RENDERBUFFER, null)
     } else if (r.color !== undefined) {
+      const { internalFormat, format, type } = pixelFormatGl(
+        gl,
+        r.color.pixelFormat,
+        r.color.srgb,
+      )
       gl.bindTexture(gl.TEXTURE_2D, r.color.gl)
       gl.texImage2D(
         gl.TEXTURE_2D,
         0,
-        r.color.srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+        internalFormat,
         clampedW,
         clampedH,
         0,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
+        format,
+        type,
         null,
       )
       gl.bindTexture(gl.TEXTURE_2D, null)
@@ -1171,6 +1214,7 @@ export class WebGL2Device implements GfxDevice {
       wrap: 'clamp',
       srgb: false,
       mipmap: false,
+      pixelFormat: 'rgba8',
     } as WebGL2Texture
   }
 
