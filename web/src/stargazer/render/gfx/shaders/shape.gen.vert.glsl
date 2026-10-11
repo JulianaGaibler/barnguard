@@ -18,6 +18,10 @@ struct Clip {
     float rrRadius;
     float clipPad;
 };
+struct ShapeParams {
+    vec4 debugColor;
+    uvec4 flags;
+};
 struct VOut {
     vec4 pos;
     int shapeType;

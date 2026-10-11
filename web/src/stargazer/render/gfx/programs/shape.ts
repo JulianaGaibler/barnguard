@@ -11,7 +11,13 @@
 import type { GfxFill, GfxShadowStyle, SolidStrokeStyle } from '../Gfx2D'
 import type { ResolvedRadii } from '../roundRectRadii'
 import { RingStream } from '../RingStream'
-import { gradientAxis, packColor, resolveDash, resolvePaint } from '../packing'
+import {
+  gradientAxis,
+  hsvToRgb,
+  packColor,
+  resolveDash,
+  resolvePaint,
+} from '../packing'
 import {
   LOC_SHAPE_COLORFILL,
   LOC_SHAPE_COLORSTROKE,
@@ -30,6 +36,7 @@ import {
   SHAPE_KIND_ROUNDRECT,
   SHAPE_KIND_SHADOW,
   SHAPE_KIND_TEXTURED,
+  SHAPE_PARAMS_UBO_BINDING,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
@@ -42,17 +49,16 @@ import type {
   Texture,
   VertexBufferLayout,
 } from '../GfxDevice'
-import {
-  drawInstancedRun,
-  unitQuadLayout,
-  warmupBlendPipelines,
-} from './programCommon'
+import { unitQuadLayout, UboRing, warmupBlendPipelines } from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
 import type { TransformOut } from '../TransformStack'
 import shapeWgsl from '../shaders/shape.wgsl?raw'
 import shapeVertSrc from '../shaders/shape.gen.vert.glsl?raw'
 import shapeFragSrc from '../shaders/shape.gen.frag.glsl?raw'
 import shapeReflect from '../shaders/shape.reflect.json'
+
+/** `ShapeParams` block size (std140): debugColor + flags, two vec4s = 32 B. */
+const SHAPE_PARAMS_BYTES = 32
 
 /** Word offsets into the 28-word shape instance record. */
 const W_MCOL0 = 0
@@ -99,6 +105,11 @@ export class ShapeProgram implements GpuProgram {
     Texture,
     WeakMap<Texture, WeakMap<Texture, BindGroup>>
   >()
+  /** Per-run debug-mode override (dynamic-offset ring), see `ShapeParams` in shape.wgsl. */
+  #paramsRing!: UboRing
+  readonly #paramsStaging = new Float32Array(SHAPE_PARAMS_BYTES / 4)
+  /** `flags` is a `vec4<u32>`; same dual-view trick as `RingStream`/`coloredTri`. */
+  readonly #paramsStagingU32 = new Uint32Array(this.#paramsStaging.buffer)
 
   get stream(): RingStream {
     return this.#stream
@@ -125,7 +136,18 @@ export class ShapeProgram implements GpuProgram {
       { binding: 0, type: 'texture-2d' },
       { binding: 1, type: 'texture-2d' },
       { binding: 2, type: 'texture-2d' },
+      {
+        binding: SHAPE_PARAMS_UBO_BINDING,
+        type: 'uniform-buffer',
+        dynamicOffset: true,
+      },
     ])
+    this.#paramsRing = new UboRing(
+      device,
+      SHAPE_PARAMS_BYTES,
+      2048,
+      'shapeParams',
+    )
     this.#bindGroups = new WeakMap()
     const s = SHAPE_INSTANCE_STRIDE
     this.#vertexLayout = [
@@ -157,7 +179,15 @@ export class ShapeProgram implements GpuProgram {
     })
   }
 
+  resetFrame(): void {
+    this.#paramsRing.reset()
+  }
+
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    const words = SHAPE_INSTANCE_STRIDE / 4
+    const instCount = (run.endWord - run.startWord) / words
+    if (instCount === 0) return
+
     // Fixed-unit textures: atlas on 0, label page on 1, ramp atlas on 2.
     // Non-textured shapes ignore the first two; a shape with no gradient
     // ignores the third. A placeholder fills a slot before its texture
@@ -167,15 +197,54 @@ export class ShapeProgram implements GpuProgram {
       ctx.textureManager.getLabelPageTexture() ?? ctx.placeholderTexture
     const ramp =
       ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
-    drawInstancedRun(
-      ctx,
-      this.#pipelines,
-      ctx.unitQuadBuffer,
-      this.#stream,
-      SHAPE_INSTANCE_STRIDE,
-      run,
-      this.#bindGroupFor(ctx, atlas, label, ramp),
-    )
+
+    const debugModeInt =
+      run.debugMode === 'overdraw' ? 1 : run.debugMode === 'batch-color' ? 2 : 0
+    const s = this.#paramsStaging
+    const su = this.#paramsStagingU32
+    if (debugModeInt === 2) {
+      // Golden-ratio hue cycling, same as `coloredTri`'s batch-color mode, so
+      // the two programs' hues read consistently in one frame's HUD overlay.
+      const h = ((run.debugBatchIndex * 0.61803398875) % 1) * 6
+      const [r, g, b] = hsvToRgb(h, 0.75, 1)
+      s[0] = r * 0.8
+      s[1] = g * 0.8
+      s[2] = b * 0.8
+      s[3] = 0.8
+    } else {
+      s[0] = s[1] = s[2] = s[3] = 0
+    }
+    su[4] = debugModeInt
+    su[5] = 0
+    su[6] = 0
+    su[7] = 0
+    const dynOffset = this.#paramsRing.push(ctx.device, s)
+    if (dynOffset < 0) return
+
+    // Overdraw forces additive blend so the constant red accumulates as a
+    // heatmap instead of painting opaque, same as `coloredTri`.
+    const blend = debugModeInt === 1 ? 'lighter' : run.blend
+    const pipeline = this.#pipelines.get(blend)
+    if (!pipeline) return
+
+    ctx.device.draw({
+      pipeline,
+      vertexBuffers: [
+        { buffer: ctx.unitQuadBuffer, offset: 0 },
+        { buffer: this.#stream.buffers[ctx.curSlot], offset: run.startWord * 4 },
+      ],
+      bindGroups: [
+        ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
+        {
+          group: 1,
+          bindGroup: this.#bindGroupFor(ctx, atlas, label, ramp),
+          dynamicOffsets: [dynOffset],
+        },
+      ],
+      vertexCount: 6,
+      instanceCount: instCount,
+    })
+    ctx.stats.drawCalls++
   }
 
   #bindGroupFor(
@@ -200,6 +269,13 @@ export class ShapeProgram implements GpuProgram {
         { binding: 0, resource: { texture: atlas } },
         { binding: 1, resource: { texture: label } },
         { binding: 2, resource: { texture: ramp } },
+        {
+          binding: SHAPE_PARAMS_UBO_BINDING,
+          resource: {
+            uniformBuffer: this.#paramsRing.buffer,
+            size: SHAPE_PARAMS_BYTES,
+          },
+        },
       ])
       byRamp.set(ramp, bg)
     }

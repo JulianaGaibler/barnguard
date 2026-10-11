@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import {
   StrokeOutlineBuffer,
   strokeOutline,
+  wouldFallBackToCenter,
   DEFAULT_MITER_LIMIT,
   type StrokeOutlineOptions,
 } from './strokeOutline'
@@ -221,6 +222,37 @@ describe('strokeOutline', () => {
       const buf = new StrokeOutlineBuffer()
       strokeOutline([5, 5], 1, baseOpts(), buf)
       expect(buf.indices.length).toBe(0)
+    })
+  })
+
+  describe('wouldFallBackToCenter', () => {
+    it('is false for a center request, regardless of the contour', () => {
+      expect(wouldFallBackToCenter([0, 0, 100, 0], 2, false, 'center')).toBe(
+        false,
+      )
+    })
+
+    it('is true for a non-center request on an open contour', () => {
+      expect(wouldFallBackToCenter([0, 0, 100, 0], 2, false, 'inside')).toBe(
+        true,
+      )
+    })
+
+    it('is true for a non-center request on a zero-area bowtie', () => {
+      const bowtie = [0, 0, 100, 100, 100, 0, 0, 100]
+      expect(wouldFallBackToCenter(bowtie, 4, true, 'outside')).toBe(true)
+    })
+
+    it('is false for a non-center request on a well-wound closed contour', () => {
+      const square = [0, 0, 100, 0, 100, 100, 0, 100]
+      expect(wouldFallBackToCenter(square, 4, true, 'outside')).toBe(false)
+    })
+
+    it('never warns (unlike the real tessellation)', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      wouldFallBackToCenter([0, 0, 100, 0], 2, false, 'inside')
+      expect(warn).not.toHaveBeenCalled()
+      warn.mockRestore()
     })
   })
 

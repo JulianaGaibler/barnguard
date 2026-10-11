@@ -272,6 +272,26 @@
           {/if}
         {/each}
       </DebugSection>
+
+      <DebugSection
+        title={`Path-shadow masks (${snap.shadowMasks.length})`}
+        maxHeight={true}
+      >
+        {#if snap.shadowMasks.length === 0}
+          <p class="hint">No live path-shadow masks.</p>
+        {/if}
+        {#each snap.shadowMasks as mask, i (i)}
+          <div class="row">
+            <span class="text"
+              >{mask.width}×{mask.height} · rg8 · bucket {mask.bucket}</span
+            >
+            <span class="meta"
+              >{(mask.bytes / 1024).toFixed(1)} KB · baked f{mask.bakedFrame} ·
+              used f{mask.lastUsedFrame}</span
+            >
+          </div>
+        {/each}
+      </DebugSection>
     {/if}
 
     <DebugSection

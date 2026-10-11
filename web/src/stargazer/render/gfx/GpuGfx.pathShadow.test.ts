@@ -148,4 +148,19 @@ describe('GpuGfx.shadowPath2D', () => {
     gfx.endFrame()
     expect(() => gfx.processPendingShadowBakes()).not.toThrow()
   })
+
+  it('lists a baked mask in the texture inspector snapshot', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    const path = squarePath()
+    gfx.shadowPath2D(path, shadow())
+    gfx.endFrame()
+    expect(gfx.textureInspector.snapshot().shadowMasks).toEqual([])
+
+    gfx.processPendingShadowBakes()
+    const masks = gfx.textureInspector.snapshot().shadowMasks
+    expect(masks.length).toBe(1)
+    expect(masks[0].width).toBeGreaterThan(0)
+    expect(masks[0].bytes).toBeGreaterThan(0)
+  })
 })

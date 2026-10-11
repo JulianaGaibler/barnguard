@@ -33,13 +33,15 @@ import type { GpuProgram } from './GpuProgram'
 import type { RingStream } from './RingStream'
 
 /**
- * Debug render overlays. Only `coloredTri` draws are affected, strokes, SDF,
- * and gradients render normally in every mode.
+ * Debug render overlays. `coloredTri` and `shape` draws are affected
+ * (fills, strokes, circles, round-rects, analytic shadows, text, sprites);
+ * the segment stroker, gradient-radial, masked-gradient, text-quad, and
+ * path-shadow composite programs render normally in every mode.
  *
  * - `'normal'`. Shipping look.
  * - `'polygons'`. Cyan outlines around every fill's outer polygon.
  * - `'overdraw'`. Constant dim red under `lighter` blend. Hot regions accumulate.
- * - `'batch-color'`. Each coloredTri flush picks a distinct hue.
+ * - `'batch-color'`. Each flush picks a distinct hue.
  * - `'clip-mask'`. End-of-frame overlay of the inspected `BitmapMask`.
  */
 export type DebugRenderMode =

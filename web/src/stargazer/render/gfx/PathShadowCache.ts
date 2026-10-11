@@ -105,6 +105,17 @@ export interface PathShadowMask {
   localH: number
 }
 
+/** One live mask entry, flattened for the debug texture inspector. */
+export interface PathShadowMaskSummary {
+  width: number
+  height: number
+  bytes: number
+  /** Half-octave device-scale bucket this mask was baked for. */
+  bucket: number
+  lastUsedFrame: number
+  bakedFrame: number
+}
+
 interface CacheEntry {
   rt: RenderTarget
   texture: Texture
@@ -273,6 +284,27 @@ export class PathShadowCache {
     let total = 0
     for (const e of this.#entries.values()) total += e.bytes
     return total
+  }
+
+  /**
+   * Every live mask entry, for the debug texture inspector. No pixel
+   * preview: a mask has no CPU-side backing (unlike the sprite atlas or
+   * label page), and reading one back would need a GPU readback this
+   * inspector otherwise never pays for.
+   */
+  listMasks(): PathShadowMaskSummary[] {
+    const out: PathShadowMaskSummary[] = []
+    for (const e of this.#entries.values()) {
+      out.push({
+        width: e.rt.width,
+        height: e.rt.height,
+        bytes: e.bytes,
+        bucket: e.bucket,
+        lastUsedFrame: e.lastUsedFrame,
+        bakedFrame: e.bakedFrame,
+      })
+    }
+    return out
   }
 
   #createResources(): void {

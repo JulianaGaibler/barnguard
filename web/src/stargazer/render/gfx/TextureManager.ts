@@ -189,6 +189,21 @@ export interface TextureInspectorSnapshot {
     rowsWritten: number
   }
   /**
+   * Live path-shadow masks (`PathShadowCache`). Always empty from
+   * `TextureManager` itself, which has no reference to that cache; `GpuGfx`'s
+   * `textureInspector` getter fills this in from its own `PathShadowCache`
+   * before handing the snapshot to the debug HUD. No `canvas` preview, same
+   * reason as the ramp atlas, plus a mask is GPU-only to begin with.
+   */
+  shadowMasks: {
+    width: number
+    height: number
+    bytes: number
+    bucket: number
+    lastUsedFrame: number
+    bakedFrame: number
+  }[]
+  /**
    * Non-atlas images: 2D textures keyed by their own source in the live cache,
    * or the 3D material textures of a model source. `label` names a model
    * texture's role (`baseColor`, `normal`, …), and it's absent for 2D
@@ -1233,6 +1248,7 @@ export class TextureManager implements TextureInspector {
         used: this.#rampRowByKey.size,
         rowsWritten: this.#rampRowsWritten,
       },
+      shadowMasks: [],
       perSource,
       labels,
       labelCount: this.#labelCache.size,

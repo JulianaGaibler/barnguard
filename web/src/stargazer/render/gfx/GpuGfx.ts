@@ -45,6 +45,7 @@ import {
   scaleBucketIndex,
   StrokeOutlineBuffer,
   DEFAULT_MITER_LIMIT,
+  wouldFallBackToCenter,
 } from './strokeOutline'
 import { flattenQuadratic } from '../../assets/SvgPathContours'
 import { TextureManager, type TextureInspector } from './TextureManager'
@@ -117,6 +118,13 @@ export interface UnimplementedCounts {
    * silent-degradation draw to count, it just doesn't draw.
    */
   pathShadowFallback: number
+  /**
+   * A non-center `align` (or an outline-routed stroke's alignment) was
+   * refused on an open or zero-area contour and fell back to `'center'`
+   * (see `strokeOutline.ts`'s `resolveAlign`). Ticked on every occurrence,
+   * independent of the one-time console warning.
+   */
+  strokeAlignFallback: number
 }
 
 export class GpuGfx implements Gfx2D {
@@ -202,6 +210,7 @@ export class GpuGfx implements Gfx2D {
     strokePath2D: 0,
     shadowPath2D: 0,
     pathShadowFallback: 0,
+    strokeAlignFallback: 0,
   }
 
   /**
@@ -408,9 +417,20 @@ export class GpuGfx implements Gfx2D {
   /**
    * Read-only view of the texture caches for the debug inspector. Building the
    * snapshot has no standing cost, the debug panel calls it on demand.
+   * `TextureManager`'s own snapshot carries an always-empty `shadowMasks`
+   * (it has no reference to `PathShadowCache`), filled in here since this is
+   * the one place both are reachable together.
    */
   get textureInspector(): TextureInspector {
-    return this.#textureManager
+    const textureManager = this.#textureManager
+    const pathShadowCache = this.#pathShadowCache
+    return {
+      snapshot: () => ({
+        ...textureManager.snapshot(),
+        shadowMasks: pathShadowCache.listMasks(),
+      }),
+      renderLabelPreview: (key) => textureManager.renderLabelPreview(key),
+    }
   }
 
   /**
@@ -884,6 +904,46 @@ export class GpuGfx implements Gfx2D {
     if (closed && count >= 3) {
       const last = count - 1
       this.strokeLine(pts[last * 2], pts[last * 2 + 1], pts[0], pts[1], style)
+    }
+  }
+
+  /**
+   * `'polygons'` debug mode for a stroke that routed through the outline
+   * tessellator: every triangle edge of its actual output (core, joins, and
+   * fringe ring), not the source contour `#emitDebugPolygonOutline` draws for
+   * a fill. Deliberately not just the outer boundary: the join tessellation,
+   * the fringe ring, and a short-segment overlap (see `strokeOutline.ts`) are
+   * exactly what this mode exists to let you see.
+   */
+  #emitDebugOutlineMesh(outline: {
+    positions: readonly number[]
+    indices: readonly number[]
+  }): void {
+    const idx = outline.indices
+    if (idx.length < 3) return
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const det = Math.abs(t.a * t.d - t.b * t.c)
+    const scale = det > 1e-9 ? Math.sqrt(det) : 1
+    const style: GfxStrokeStyle = {
+      color: 'rgba(96, 165, 250, 0.75)',
+      width: 1 / scale,
+    }
+    const pos = outline.positions
+    const triCount = idx.length / 3
+    for (let i = 0; i < triCount; i++) {
+      const i0 = idx[i * 3]
+      const i1 = idx[i * 3 + 1]
+      const i2 = idx[i * 3 + 2]
+      const x0 = pos[i0 * 2]
+      const y0 = pos[i0 * 2 + 1]
+      const x1 = pos[i1 * 2]
+      const y1 = pos[i1 * 2 + 1]
+      const x2 = pos[i2 * 2]
+      const y2 = pos[i2 * 2 + 1]
+      this.strokeLine(x0, y0, x1, y1, style)
+      this.strokeLine(x1, y1, x2, y2, style)
+      this.strokeLine(x2, y2, x0, y0, style)
     }
   }
 
@@ -1450,6 +1510,10 @@ export class GpuGfx implements Gfx2D {
     style: GfxStrokeStyle,
   ): void {
     if (count < 2 || style.width <= 0) return
+    const align = style.align ?? 'center'
+    if (wouldFallBackToCenter(pts, count, closed, align)) {
+      this.unimplemented.strokeAlignFallback++
+    }
     const { scaleX, scaleY, scale } = this.#outlineScale()
     const buf = new StrokeOutlineBuffer()
     strokeOutline(
@@ -1457,7 +1521,7 @@ export class GpuGfx implements Gfx2D {
       count,
       {
         width: style.width,
-        align: style.align ?? 'center',
+        align,
         join: style.join ?? 'miter',
         cap: style.cap ?? 'round',
         miterLimit: style.miterLimit ?? DEFAULT_MITER_LIMIT,
@@ -1468,6 +1532,9 @@ export class GpuGfx implements Gfx2D {
       buf,
     )
     this.#coloredTri.fillOutlineTessellation(this.#ctx, buf, style.color)
+    if (this.#ctx.curDebugMode === 'polygons') {
+      this.#emitDebugOutlineMesh(buf)
+    }
   }
 
   strokePolyline(
@@ -1518,6 +1585,9 @@ export class GpuGfx implements Gfx2D {
     const join = style.join ?? 'miter'
     const cap = style.cap ?? 'round'
     const miterLimit = style.miterLimit ?? DEFAULT_MITER_LIMIT
+    if (wouldFallBackToCenter(pts, pts.length / 2, closed, align)) {
+      this.unimplemented.strokeAlignFallback++
+    }
     const key = `${style.width}|${align}|${join}|${cap}|${miterLimit}|${closed}|${scaleBucket}|${anisoBucket}|${getRegistrationEpoch(path)}|${contourIndex}`
     let buf = getCachedOutline(path, key)
     if (buf) {
@@ -1547,6 +1617,9 @@ export class GpuGfx implements Gfx2D {
       setCachedOutline(path, key, buf)
     }
     this.#coloredTri.fillOutlineTessellation(this.#ctx, buf, style.color)
+    if (this.#ctx.curDebugMode === 'polygons') {
+      this.#emitDebugOutlineMesh(buf)
+    }
   }
 
   strokePath2D(path: Path2D, style: GfxStrokeStyle): void {

@@ -18,7 +18,8 @@
 //
 // Bindings match batchLayout.ts: attributes at LOC_SHAPE_* (0..10), Frame at
 // FRAME_UBO_BINDING (0), u_texAtlas at unit 0, u_texLabel at unit 1, u_ramp
-// (the shared ramp atlas) at unit 2.
+// (the shared ramp atlas) at unit 2, ShapeParams (the debug-mode override) at
+// SHAPE_PARAMS_UBO_BINDING (9).
 
 struct Frame {
   proj: mat3x3<f32>,
@@ -67,6 +68,14 @@ fn clipCoverage(fragPos: vec2<f32>) -> f32 {
 @group(1) @binding(17) var u_texLabelSamp: sampler;
 @group(1) @binding(2) var u_ramp: texture_2d<f32>;
 @group(1) @binding(18) var u_rampSamp: sampler;
+
+// Per-run debug-mode override, the HUD's 'overdraw'/'batch-color' modes.
+// flags.x: 0 normal, 1 overdraw, 2 batch-color.
+struct ShapeParams {
+  debugColor: vec4<f32>,
+  flags: vec4<u32>,
+};
+@group(1) @binding(9) var<uniform> params: ShapeParams;
 
 // `max_inter_stage_shader_variables` is 16 locations on WebGPU (0..15). Every
 // shape kind's own data packs into a handful of generically-named vec4
@@ -368,5 +377,12 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     outColor = texel * in.colorFill;
   }
   outColor *= clipCoverage(in.pos.xy);
+  if (params.flags.x == 1u) {
+    // Dim premultiplied red. `lighter` blend (forced per-run, see
+    // `ShapeProgram.drawRun`) accumulates it into a heatmap.
+    outColor = vec4<f32>(0.05, 0.0, 0.0, 0.05);
+  } else if (params.flags.x == 2u) {
+    outColor = params.debugColor;
+  }
   return outColor;
 }

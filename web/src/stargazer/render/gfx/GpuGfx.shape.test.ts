@@ -68,4 +68,41 @@ describe('GpuGfx shape program', () => {
     expect(device.draws.length).toBe(1)
     expect(device.draws[0].instanceCount).toBe(100)
   })
+
+  describe('debug render modes', () => {
+    it("'overdraw' forces the shape draw onto the additive pipeline", async () => {
+      const { gfx, device } = makeGpuGfx()
+      await beginFrame(gfx, device)
+      gfx.setDebugRenderMode('overdraw')
+      gfx.fillCircle(20, 20, 8, '#ff8040')
+      gfx.fillRoundRect(40, 10, 30, 16, 4, '#8f74e7')
+      gfx.endFrame()
+      expect(device.draws.length).toBe(1)
+      expect(device.draws[0].blend).toBe('lighter')
+    })
+
+    it("'batch-color' still draws the normal (non-additive) pipeline", async () => {
+      const { gfx, device } = makeGpuGfx()
+      await beginFrame(gfx, device)
+      gfx.setDebugRenderMode('batch-color')
+      gfx.fillCircle(20, 20, 8, '#ff8040')
+      gfx.endFrame()
+      expect(device.draws.length).toBe(1)
+      expect(device.draws[0].blend).toBe('source-over')
+    })
+
+    it("returning to 'normal' restores the ordinary pipeline", async () => {
+      const { gfx, device } = makeGpuGfx()
+      await beginFrame(gfx, device)
+      gfx.setDebugRenderMode('overdraw')
+      gfx.fillCircle(0, 0, 4, '#fff')
+      gfx.setDebugRenderMode('normal')
+      gfx.fillCircle(20, 0, 4, '#fff')
+      gfx.endFrame()
+      // The mode switch flushes, so the two circles land in separate runs.
+      expect(device.draws.length).toBe(2)
+      expect(device.draws[0].blend).toBe('lighter')
+      expect(device.draws[1].blend).toBe('source-over')
+    })
+  })
 })

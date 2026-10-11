@@ -1,23 +1,23 @@
 /**
  * Tessellate a polyline's stroke into a filled, antialiased outline: exact
- * joins and caps, any alignment, no overlapping geometry in the ordinary
- * case. A stroke that is a fill composes with any paint (a flat color or a
- * gradient) for free, which the segment stroker (`programs/stroke.ts`)
- * cannot do, since it has no paint slot.
+ * joins and caps, any alignment, no overlapping geometry in the ordinary case.
+ * A stroke that is a fill composes with any paint (a flat color or a gradient)
+ * for free, which the segment stroker (`programs/stroke.ts`) cannot do, since
+ * it has no paint slot.
  *
  * Construction: build one (open contour) or two (closed contour: outer edge
  * plus the hole its inner edge cuts) simple boundary loops by offsetting the
  * input polyline with real joins, triangulate them with `earcut` (the same
  * library `fillPolyLinearGradient` already uses), then ring a one-vertex-wide
- * fringe of antialiasing around every loop, coverage 1 at the core edge
- * ramping to 0 outside it. No device, no allocation beyond the scratch
- * buffers below, so this runs equally well on or off the render thread.
+ * fringe of antialiasing around every loop, coverage 1 at the core edge ramping
+ * to 0 outside it. No device, no allocation beyond the scratch buffers below,
+ * so this runs equally well on or off the render thread.
  *
  * Degenerate geometry (a short segment or an acute inner corner forcing the
  * offset boundary to fold over itself) is not specially detected. `earcut`
  * still returns a triangulation, it is just one with visible overlap at that
- * corner. See the stroke-outline guide section for the accepted limitation
- * and the recorded coverage-pass follow-up.
+ * corner. See the stroke-outline guide section for the accepted limitation and
+ * the recorded coverage-pass follow-up.
  */
 
 import earcut from 'earcut'
@@ -35,9 +35,9 @@ export const DEFAULT_MITER_LIMIT = 4
 /** AA ramp width in device px, resolved per vertex against the local scale. */
 export const FRINGE_PX = 1.0
 /**
- * Half-octave cache-key bucketing for a device scale: a bin spans a factor
- * of `2**(1/SCALE_KEY_OCTAVE_STEPS)`. Tessellating at the bin's geometric
- * center (not the scale that first missed) bounds the in-bin error to
+ * Half-octave cache-key bucketing for a device scale: a bin spans a factor of
+ * `2**(1/SCALE_KEY_OCTAVE_STEPS)`. Tessellating at the bin's geometric center
+ * (not the scale that first missed) bounds the in-bin error to
  * `2**(0.5/SCALE_KEY_OCTAVE_STEPS)`, about 1.19x at the default of 2.
  */
 export const SCALE_KEY_OCTAVE_STEPS = 2
@@ -47,7 +47,10 @@ export function scaleBucketIndex(scale: number): number {
   return Math.round(Math.log2(Math.max(scale, 1e-6)) * SCALE_KEY_OCTAVE_STEPS)
 }
 
-/** The geometric-center scale of bucket `index`, for tessellating a cached variant. */
+/**
+ * The geometric-center scale of bucket `index`, for tessellating a cached
+ * variant.
+ */
 export function scaleBucketCenter(index: number): number {
   return 2 ** (index / SCALE_KEY_OCTAVE_STEPS)
 }
@@ -62,27 +65,32 @@ export interface StrokeOutlineOptions {
   miterLimit: number
   closed: boolean
   /**
-   * The transform's per-axis scale, used to solve the fringe width per
-   * vertex: a push along local normal `n` lands `|S·n|` device px away, so
-   * the fringe length is `FRINGE_PX / length(vec2(n.x*scaleX, n.y*scaleY))`.
-   * Not a pre-divided scalar, and not `sqrt(|det|)`: neither survives a
-   * strongly anisotropic transform (see the guide's anisotropy note).
+   * The transform's per-axis scale, used to solve the fringe width per vertex:
+   * a push along local normal `n` lands `|S·n|` device px away, so the fringe
+   * length is `FRINGE_PX / length(vec2(n.x*scaleX, n.y*scaleY))`. Not a
+   * pre-divided scalar, and not `sqrt(|det|)`: neither survives a strongly
+   * anisotropic transform (see the guide's anisotropy note).
    */
   fringeScale: { x: number; y: number }
   /**
-   * Device pixels per local unit, for adaptive arc flattening. The caller
-   * snaps this to the geometric center of its scale bucket, so a cached
-   * outline is never more than one quarter-octave from the scale it is
-   * drawn at.
+   * Device pixels per local unit, for adaptive arc flattening. The caller snaps
+   * this to the geometric center of its scale bucket, so a cached outline is
+   * never more than one quarter-octave from the scale it is drawn at.
    */
   scale: number
 }
 
 /** Where tessellated triangles land. Implement once, reuse for every path. */
 export interface StrokeOutlineSink {
-  /** Add a vertex at `(x, y)` with premultiplied-ramp coverage `0..1`. Returns its index. */
+  /**
+   * Add a vertex at `(x, y)` with premultiplied-ramp coverage `0..1`. Returns
+   * its index.
+   */
   vertex(x: number, y: number, coverage: number): number
-  /** Add one triangle by vertex index, in the order the sink expects for its winding. */
+  /**
+   * Add one triangle by vertex index, in the order the sink expects for its
+   * winding.
+   */
   triangle(a: number, b: number, c: number): void
 }
 
@@ -109,8 +117,8 @@ function dist(ax: number, ay: number, bx: number, by: number): number {
 }
 
 /**
- * Sanitize raw input before anything else. Every one of these is reachable
- * from ordinary SVG artwork (see the guide's stroke-outline section).
+ * Sanitize raw input before anything else. Every one of these is reachable from
+ * ordinary SVG artwork (see the guide's stroke-outline section).
  */
 function sanitize(
   pts: ArrayLike<number>,
@@ -156,9 +164,9 @@ let warnedNonCenterAlign = false
  * Resolve `align` against the input, falling back to `'center'` (with a
  * one-time dev warning) when the fallback alone keeps the border from
  * vanishing. An open contour has no inside: `'inside'`/`'outside'` are
- * meaningless on it. A closed contour with zero signed area (a bowtie) has
- * `w * sign(area)` equal to zero too, and "undefined, which side" is not a
- * defense when one of the two readings draws no border at all.
+ * meaningless on it. A closed contour with zero signed area (a bowtie) has `w *
+ * sign(area)` equal to zero too, and "undefined, which side" is not a defense
+ * when one of the two readings draws no border at all.
  */
 function resolveAlign(
   align: StrokeAlign,
@@ -176,7 +184,28 @@ function resolveAlign(
   return 'center'
 }
 
-/** Unit normal `(dir.y, -dir.x)`: outward for a CCW loop, standard "right of travel". */
+/**
+ * Whether `align` would fall back to `'center'` for this input, the same test
+ * {@link resolveAlign} runs, without tessellating or warning. `GpuGfx` calls
+ * this to tick the HUD's `strokeAlignFallback` counter on every occurrence,
+ * independent of the one-time console warning the real tessellation gives.
+ */
+export function wouldFallBackToCenter(
+  pts: ArrayLike<number>,
+  count: number,
+  closed: boolean,
+  align: StrokeAlign,
+): boolean {
+  if (align === 'center') return false
+  const { x, y, count: n } = sanitize(pts, count, closed)
+  if (!(closed && n >= 3)) return true
+  return Math.abs(signedArea(x, y, n)) <= EPS
+}
+
+/**
+ * Unit normal `(dir.y, -dir.x)`: outward for a CCW loop, standard "right of
+ * travel".
+ */
 function normalOf(dx: number, dy: number): [number, number] {
   const len = Math.hypot(dx, dy)
   if (len < EPS) return [0, 0]
@@ -184,11 +213,11 @@ function normalOf(dx: number, dy: number): [number, number] {
 }
 
 /**
- * The miter intersection of two offset lines meeting at `(px, py)`, offset
- * by signed distance `d` along each segment's own normal. Falls back to the
+ * The miter intersection of two offset lines meeting at `(px, py)`, offset by
+ * signed distance `d` along each segment's own normal. Falls back to the
  * segment-endpoint average when the directions are too close to opposite for
- * the intersection to be numerically meaningful (a near-reversal): this is
- * the accepted degenerate-overlap case, not a NaN.
+ * the intersection to be numerically meaningful (a near-reversal): this is the
+ * accepted degenerate-overlap case, not a NaN.
  */
 function miterPoint(
   px: number,
@@ -218,22 +247,36 @@ function miterPoint(
   return [px + bx * k, py + by * k]
 }
 
-/** Miter length in units of `|d|` (1 at a straight line, growing with sharpness). */
-function miterRatio(prevDx: number, prevDy: number, nextDx: number, nextDy: number): number {
+/**
+ * Miter length in units of `|d|` (1 at a straight line, growing with
+ * sharpness).
+ */
+function miterRatio(
+  prevDx: number,
+  prevDy: number,
+  nextDx: number,
+  nextDy: number,
+): number {
   const [pnx, pny] = normalOf(prevDx, prevDy)
   const [nnx, nny] = normalOf(nextDx, nextDy)
   const bLen = Math.hypot(pnx + nnx, pny + nny)
   return bLen < EPS ? Infinity : 2 / bLen
 }
 
-/** Adaptive angular step for a round join/cap of local radius `r` at device scale `scale`. */
+/**
+ * Adaptive angular step for a round join/cap of local radius `r` at device
+ * scale `scale`.
+ */
 function arcStep(r: number, scale: number): number {
   const rs = Math.max(r * scale, EPS)
   const cosArg = Math.max(-1, Math.min(1, 1 - ARC_TOL_PX / rs))
   return Math.max(ARC_STEP_MIN, Math.min(ARC_STEP_MAX, Math.acos(cosArg)))
 }
 
-/** Interior points of a circular arc from `(fromX,fromY)` to `(toX,toY)` around `(cx,cy)`, radius `r`, the short way. */
+/**
+ * Interior points of a circular arc from `(fromX,fromY)` to `(toX,toY)` around
+ * `(cx,cy)`, radius `r`, the short way.
+ */
 function arcPoints(
   cx: number,
   cy: number,
@@ -263,10 +306,10 @@ function arcPoints(
 /**
  * Append the join geometry between segment `(prevDx,prevDy)`'s offset end and
  * segment `(nextDx,nextDy)`'s offset start, meeting at original point
- * `(px,py)`, offset distance `d`. `isConvex` (this offset side bulges
- * outward at this joint) picks the join style; the concave side always
- * collapses to the exact miter intersection, which is what keeps that side
- * watertight rather than gapped.
+ * `(px,py)`, offset distance `d`. `isConvex` (this offset side bulges outward
+ * at this joint) picks the join style; the concave side always collapses to the
+ * exact miter intersection, which is what keeps that side watertight rather
+ * than gapped.
  */
 function appendJoin(
   out: number[],
@@ -321,10 +364,10 @@ function appendJoin(
 }
 
 /**
- * Build one offset polyline/loop at signed distance `d` along each
- * segment's own `(dir.y, -dir.x)` normal. Open (`!closed`) returns the
- * offset endpoints with interior joins only; closed wraps the join at the
- * seam too, with no start/end points of its own.
+ * Build one offset polyline/loop at signed distance `d` along each segment's
+ * own `(dir.y, -dir.x)` normal. Open (`!closed`) returns the offset endpoints
+ * with interior joins only; closed wraps the join at the seam too, with no
+ * start/end points of its own.
  */
 function buildOffsetLoop(
   x: number[],
@@ -396,7 +439,10 @@ function buildOffsetLoop(
   return out
 }
 
-/** A cap's extra geometry, connecting `sideAEnd` to `sideBEnd` around `(px,py)` facing `(dirX,dirY)` (pointing away from the contour). */
+/**
+ * A cap's extra geometry, connecting `sideAEnd` to `sideBEnd` around `(px,py)`
+ * facing `(dirX,dirY)` (pointing away from the contour).
+ */
 function appendCap(
   out: number[],
   px: number,
@@ -414,7 +460,16 @@ function appendCap(
   out.push(sideAEndX, sideAEndY)
   if (cap === 'round') {
     out.push(
-      ...arcPoints(px, py, sideAEndX, sideAEndY, sideBEndX, sideBEndY, halfW, scale),
+      ...arcPoints(
+        px,
+        py,
+        sideAEndX,
+        sideAEndY,
+        sideBEndX,
+        sideBEndY,
+        halfW,
+        scale,
+      ),
     )
   } else if (cap === 'square') {
     out.push(sideAEndX + dirX * halfW, sideAEndY + dirY * halfW)
@@ -424,12 +479,12 @@ function appendCap(
 }
 
 /**
- * Push every vertex of a closed loop along its own outward bisector normal
- * by the anisotropic fringe length. `direction` is `1` to push away from the
- * loop's own enclosed area (an outer boundary) or `-1` to push into it (a
- * hole boundary, so the fringe softens toward the hole rather than into the
- * filled band). Join style is always a plain averaged bevel: a fringe ring
- * is about a pixel wide, where the exact corner treatment is invisible.
+ * Push every vertex of a closed loop along its own outward bisector normal by
+ * the anisotropic fringe length. `direction` is `1` to push away from the
+ * loop's own enclosed area (an outer boundary) or `-1` to push into it (a hole
+ * boundary, so the fringe softens toward the hole rather than into the filled
+ * band). Join style is always a plain averaged bevel: a fringe ring is about a
+ * pixel wide, where the exact corner treatment is invisible.
  */
 function fringeLoop(
   loopX: number[],
@@ -469,7 +524,10 @@ function fringeLoop(
   return { x: outX, y: outY }
 }
 
-/** Triangulate `loop` (flat x,y) and emit its core triangles at coverage 1, then ring a fringe around it. */
+/**
+ * Triangulate `loop` (flat x,y) and emit its core triangles at coverage 1, then
+ * ring a fringe around it.
+ */
 function emitLoopWithFringe(
   out: StrokeOutlineSink,
   loopX: number[],
@@ -506,7 +564,10 @@ function emitLoopWithFringe(
   }
 }
 
-/** Emit the fringe quads between a core loop (coverage 1, already in the sink at `coreIdx`) and its pushed-out twin (coverage 0). */
+/**
+ * Emit the fringe quads between a core loop (coverage 1, already in the sink at
+ * `coreIdx`) and its pushed-out twin (coverage 0).
+ */
 function ringFringe(
   out: StrokeOutlineSink,
   n: number,
@@ -524,10 +585,28 @@ function ringFringe(
 }
 
 /**
- * Tessellate a stroke into `out`. Local coordinates in, local coordinates
- * out: the caller CPU-transforms the sink's vertices into device px, same as
- * any other streamed fill, so the expensive part (this function) is what a
- * per-path cache keys on.
+ * Tessellate a stroke into `out`. Local coordinates in, local coordinates out:
+ * the caller CPU-transforms the sink's vertices into device px, same as any
+ * other streamed fill, so the expensive part (this function) is what a per-path
+ * cache keys on.
+ *
+ * @example
+ *   const buf = new StrokeOutlineBuffer()
+ *   strokeOutline(
+ *     points,
+ *     count,
+ *     {
+ *       width: 3,
+ *       align: 'outside',
+ *       join: 'miter',
+ *       cap: 'round',
+ *       miterLimit: DEFAULT_MITER_LIMIT,
+ *       closed: true,
+ *       fringeScale: { x: scaleX, y: scaleY },
+ *       scale,
+ *     },
+ *     buf,
+ *   )
  */
 export function strokeOutline(
   pts: ArrayLike<number>,
@@ -546,8 +625,26 @@ export function strokeOutline(
 
   if (!closed) {
     // Only 'center' survives `resolveAlign` for an open contour.
-    const sideA = buildOffsetLoop(x, y, n, false, halfW, opts.join, opts.miterLimit, opts.scale)
-    const sideB = buildOffsetLoop(x, y, n, false, -halfW, opts.join, opts.miterLimit, opts.scale)
+    const sideA = buildOffsetLoop(
+      x,
+      y,
+      n,
+      false,
+      halfW,
+      opts.join,
+      opts.miterLimit,
+      opts.scale,
+    )
+    const sideB = buildOffsetLoop(
+      x,
+      y,
+      n,
+      false,
+      -halfW,
+      opts.join,
+      opts.miterLimit,
+      opts.scale,
+    )
     const loop: number[] = [...sideA]
     const lastDx = x[n - 1] - x[n - 2]
     const lastDy = y[n - 1] - y[n - 2]
@@ -566,7 +663,8 @@ export function strokeOutline(
       sideB[sideB.length - 2],
       sideB[sideB.length - 1],
     )
-    for (let i = sideB.length - 4; i >= 0; i -= 2) loop.push(sideB[i], sideB[i + 1])
+    for (let i = sideB.length - 4; i >= 0; i -= 2)
+      loop.push(sideB[i], sideB[i + 1])
     const firstDx = x[0] - x[1]
     const firstDy = y[0] - y[1]
     const firstLen = Math.hypot(firstDx, firstDy) || 1
@@ -597,8 +695,10 @@ export function strokeOutline(
   // Closed: the offset distance for each edge depends on alignment, signed
   // along the outward normal (`windingSign` makes "outward" absolute rather
   // than tied to `(dir.y,-dir.x)`'s own sign convention).
-  const outerDist = align === 'inside' ? 0 : align === 'outside' ? opts.width : halfW
-  const innerDist = align === 'inside' ? -opts.width : align === 'outside' ? 0 : -halfW
+  const outerDist =
+    align === 'inside' ? 0 : align === 'outside' ? opts.width : halfW
+  const innerDist =
+    align === 'inside' ? -opts.width : align === 'outside' ? 0 : -halfW
   const outerOffset = outerDist * windingSign
   const innerOffset = innerDist * windingSign
 
@@ -608,7 +708,16 @@ export function strokeOutline(
     outerX = x.slice()
     outerY = y.slice()
   } else {
-    const flat = buildOffsetLoop(x, y, n, true, outerOffset, opts.join, opts.miterLimit, opts.scale)
+    const flat = buildOffsetLoop(
+      x,
+      y,
+      n,
+      true,
+      outerOffset,
+      opts.join,
+      opts.miterLimit,
+      opts.scale,
+    )
     outerX = []
     outerY = []
     for (let i = 0; i < flat.length; i += 2) {
@@ -628,7 +737,16 @@ export function strokeOutline(
     innerFlatX = x.slice()
     innerFlatY = y.slice()
   } else {
-    const flat = buildOffsetLoop(x, y, n, true, innerOffset, opts.join, opts.miterLimit, opts.scale)
+    const flat = buildOffsetLoop(
+      x,
+      y,
+      n,
+      true,
+      innerOffset,
+      opts.join,
+      opts.miterLimit,
+      opts.scale,
+    )
     innerFlatX = []
     innerFlatY = []
     for (let i = 0; i < flat.length; i += 2) {

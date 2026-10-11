@@ -138,6 +138,8 @@ export const MESH_OBJECT_UBO_BINDING = 5
 export const POST_PARAMS_UBO_BINDING = 6
 /** 3D mesh per-frame shadow block (`u_shadowMat[]` + PCF params). */
 export const MESH_SHADOW_UBO_BINDING = 7
+/** `shape` per-run debug-mode override (dynamic-offset ring). */
+export const SHAPE_PARAMS_UBO_BINDING = 9
 
 /**
  * `Frame` UBO size in floats. std140 lays a `mat3` out as 3 vec4-aligned

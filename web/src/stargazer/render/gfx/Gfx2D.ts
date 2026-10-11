@@ -47,16 +47,22 @@ export interface GfxGradientStop {
 }
 
 /**
- * A linear gradient paint for a fill or a border. The axis runs from
- * `(x0, y0)` to `(x1, y1)` in the current transform's local space; a point
- * on that line reads `stops[0]`, a point past the far end reads the last
- * stop, same as CSS `linear-gradient`'s clamped ends.
+ * A linear gradient paint for a fill or a border. The axis runs from `(x0, y0)`
+ * to `(x1, y1)` in the current transform's local space; a point on that line
+ * reads `stops[0]`, a point past the far end reads the last stop, same as CSS
+ * `linear-gradient`'s clamped ends.
  *
  * @example
  *   gfx.fillRect(0, 0, 200, 80, {
  *     kind: 'linear',
- *     x0: 0, y0: 0, x1: 0, y1: 80,
- *     stops: [{ offset: 0, color: '#1d1d2b' }, { offset: 1, color: '#3a2d5c' }],
+ *     x0: 0,
+ *     y0: 0,
+ *     x1: 0,
+ *     y1: 80,
+ *     stops: [
+ *       { offset: 0, color: '#1d1d2b' },
+ *       { offset: 1, color: '#3a2d5c' },
+ *     ],
  *   })
  */
 export interface GfxLinearGradient {
@@ -70,9 +76,9 @@ export interface GfxLinearGradient {
 
 /**
  * Anything that can fill a shape beyond a flat color. One member today
- * (`'linear'`); a `'radial'` gradient is a predictable future addition,
- * which is why this is declared as its own union rather than folded directly
- * into {@link GfxFill}.
+ * (`'linear'`); a `'radial'` gradient is a predictable future addition, which
+ * is why this is declared as its own union rather than folded directly into
+ * {@link GfxFill}.
  */
 export type GfxPaint = GfxLinearGradient
 
@@ -140,19 +146,25 @@ export interface GfxStrokeStyle {
    * Border position relative to the path. Default `'center'`.
    *
    * @remarks
-   *   A non-center value routes the stroke through the outline tessellator
-   *   (see {@link GfxStrokeStyle.exactJoins}), which is a filled shape with
-   *   exact joins and no overlapping geometry, rather than the default
-   *   per-segment stroker. Needs a closed path with a well-defined winding;
-   *   on an open contour or a zero-area closed one it falls back to
-   *   `'center'` with a one-time console warning.
+   *   A non-center value routes the stroke through the outline tessellator (see
+   *   {@link GfxStrokeStyle.exactJoins}), which is a filled shape with exact
+   *   joins and no overlapping geometry, rather than the default per-segment
+   *   stroker. Needs a closed path with a well-defined winding; on an open
+   *   contour or a zero-area closed one it falls back to `'center'` with a
+   *   one-time console warning.
+   * @example
+   *   gfx.strokeRoundRect(0, 0, 240, 140, 16, {
+   *     color: '#1d1d2b',
+   *     width: 3,
+   *     align: 'outside',
+   *   })
    */
   align?: StrokeAlign
   /**
-   * Opt into the outline tessellator for a centered stroke, to get exact
-   * joins and caps (honouring {@link GfxStrokeStyle.cap} /
-   * {@link GfxStrokeStyle.join}) instead of the default per-segment
-   * stroker's round caps and join-free corners. Default `false`.
+   * Opt into the outline tessellator for a centered stroke, to get exact joins
+   * and caps (honouring {@link GfxStrokeStyle.cap} / {@link GfxStrokeStyle.join})
+   * instead of the default per-segment stroker's round caps and join-free
+   * corners. Default `false`.
    */
   exactJoins?: boolean
   /**
@@ -175,9 +187,16 @@ export type SolidStrokeStyle = GfxStrokeStyle & { color: string }
 /**
  * A CSS `box-shadow`-like drop shadow. A rect, rounded rect, or circle (via
  * `ShapeNode`) draws this analytically, no render target. An arbitrary path
- * (via `Path2DNode`) draws it from a cached blurred-coverage mask instead:
- * see the path-shadows guide for what that costs and what is free to
- * animate.
+ * (via `Path2DNode`) draws it from a cached blurred-coverage mask instead: see
+ * the path-shadows guide for what that costs and what is free to animate.
+ *
+ * @example
+ *   gfx.shadowRoundRect(0, 0, 240, 140, 16, {
+ *     color: 'rgba(20, 16, 40, 0.35)',
+ *     offsetY: 8,
+ *     blur: 32,
+ *   })
+ *   gfx.fillRoundRect(0, 0, 240, 140, 16, '#1c1c22')
  */
 export interface GfxShadowStyle {
   /** CSS color. A gradient shadow is a follow-up: see the open-points list. */
@@ -340,11 +359,11 @@ export interface Gfx2D {
     style: GfxStrokeStyle,
   ): void
   /**
-   * `fillRoundRect` + `strokeRoundRect` in one call: both paint into the
-   * same instance record, so a translucent stroke's antialiased edge
-   * composites against the fill in one fragment instead of double-blending
-   * against a separately drawn one underneath it. Prefer this over calling
-   * both separately whenever a shape has both.
+   * `fillRoundRect` + `strokeRoundRect` in one call: both paint into the same
+   * instance record, so a translucent stroke's antialiased edge composites
+   * against the fill in one fragment instead of double-blending against a
+   * separately drawn one underneath it. Prefer this over calling both
+   * separately whenever a shape has both.
    */
   fillAndStrokeRoundRect(
     x: number,
@@ -357,7 +376,10 @@ export interface Gfx2D {
   ): void
   /** Filled circle. `fill` is a CSS color or a gradient paint. */
   fillCircle(cx: number, cy: number, r: number, fill: GfxFill): void
-  /** `fillCircle` + `strokeCircle` in one call. See {@link Gfx2D.fillAndStrokeRoundRect}. */
+  /**
+   * `fillCircle` + `strokeCircle` in one call. See
+   * {@link Gfx2D.fillAndStrokeRoundRect}.
+   */
   fillAndStrokeCircle(
     cx: number,
     cy: number,
@@ -372,10 +394,10 @@ export interface Gfx2D {
    */
   fillConvexPoly(pts: ArrayLike<number>, count: number, fill: GfxFill): void
   /**
-   * Fill an opaque `Path2D` (SVG-derived geometry). `fill` is a CSS color or
-   * a gradient paint; a gradient fill always takes the slower streamed path
-   * (see {@link Gfx2D.fillPath2D}'s guide entry), never the retained one a
-   * solid color on a registered path can.
+   * Fill an opaque `Path2D` (SVG-derived geometry). `fill` is a CSS color or a
+   * gradient paint; a gradient fill always takes the slower streamed path (see
+   * {@link Gfx2D.fillPath2D}'s guide entry), never the retained one a solid
+   * color on a registered path can.
    */
   fillPath2D(path: Path2D, fill: GfxFill): void
   /**
@@ -440,22 +462,25 @@ export interface Gfx2D {
     style: GfxShadowStyle,
   ): void
   /** A drop shadow for a circle, drawn analytically (no render target). */
-  shadowCircle(
-    cx: number,
-    cy: number,
-    r: number,
-    style: GfxShadowStyle,
-  ): void
+  shadowCircle(cx: number, cy: number, r: number, style: GfxShadowStyle): void
   /**
    * A drop shadow for an arbitrary `Path2D`, from a cached blurred-coverage
-   * mask. `style.inset` composes with the path's own fill geometry (no
-   * stencil, no extra pass): draw it after the fill and before the border.
-   * Below `PathShadowCache`'s hard-shadow threshold, or while `quality.vector
+   * mask. `style.inset` composes with the path's own fill geometry (no stencil,
+   * no extra pass): draw it after the fill and before the border. Below
+   * `PathShadowCache`'s hard-shadow threshold, or while `quality.vector
    * .pathShadowsEnabled` is off, falls back to the path's own fill translated
-   * by `offsetX`/`offsetY` with no blur; an inset shadow has no such
-   * fallback (there is nothing to approximate it with) and is silently
-   * skipped in that case. A path needs a registered tessellation, same as
+   * by `offsetX`/`offsetY` with no blur; an inset shadow has no such fallback
+   * (there is nothing to approximate it with) and is silently skipped in that
+   * case. A path needs a registered tessellation, same as
    * {@link Gfx2D.fillPath2D}.
+   *
+   * @example
+   *   gfx.shadowPath2D(logoPath, {
+   *     color: 'rgba(20, 16, 40, 0.35)',
+   *     offsetY: 8,
+   *     blur: 32,
+   *   })
+   *   gfx.fillPath2D(logoPath, '#1c1c22')
    */
   shadowPath2D(path: Path2D, style: GfxShadowStyle): void
 

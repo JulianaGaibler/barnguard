@@ -12,6 +12,10 @@
     {
       "binding": 8,
       "glslName": "Clip_block_1Fragment"
+    },
+    {
+      "binding": 9,
+      "glslName": "ShapeParams_block_2Fragment"
     }
   ],
   "samplers": [

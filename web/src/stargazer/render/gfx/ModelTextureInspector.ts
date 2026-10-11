@@ -87,6 +87,7 @@ export class ModelTextureInspector implements TextureInspector {
         bindings: [],
       },
       rampAtlas: { width: 0, rows: 0, used: 0, rowsWritten: 0 },
+      shadowMasks: [],
       perSource,
       labels: [],
       labelCount: 0,

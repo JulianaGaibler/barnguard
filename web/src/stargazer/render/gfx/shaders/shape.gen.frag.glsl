@@ -18,6 +18,10 @@ struct Clip {
     float rrRadius;
     float clipPad;
 };
+struct ShapeParams {
+    vec4 debugColor;
+    uvec4 flags;
+};
 struct VOut {
     vec4 pos;
     int shapeType;
@@ -38,6 +42,8 @@ uniform highp sampler2D _group_1_binding_0_fs;
 uniform highp sampler2D _group_1_binding_1_fs;
 
 uniform highp sampler2D _group_1_binding_2_fs;
+
+layout(std140) uniform ShapeParams_block_2Fragment { ShapeParams _group_1_binding_9_fs; };
 
 flat in int _vs2fs_location0;
 smooth in vec2 _vs2fs_location1;
@@ -280,8 +286,18 @@ void main() {
     vec4 _e220 = outColor;
     float _e223 = clipCoverage(in_.pos.xy);
     outColor = (_e220 * _e223);
-    vec4 _e225 = outColor;
-    _fs2p_location0 = _e225;
+    uint _e228 = _group_1_binding_9_fs.flags.x;
+    if ((_e228 == 1u)) {
+        outColor = vec4(0.05, 0.0, 0.0, 0.05);
+    } else {
+        uint _e239 = _group_1_binding_9_fs.flags.x;
+        if ((_e239 == 2u)) {
+            vec4 _e244 = _group_1_binding_9_fs.debugColor;
+            outColor = _e244;
+        }
+    }
+    vec4 _e245 = outColor;
+    _fs2p_location0 = _e245;
     return;
 }
 
