@@ -1,5 +1,6 @@
 import { Renderer } from './Renderer'
 import { GpuGfx } from './gfx/GpuGfx'
+import type { GpuGfxStats } from './gfx/GpuBatchContext'
 import type { TextureInspector, TextureSource } from './gfx/TextureManager'
 import { WebGL2Device } from './gfx/webgl2/WebGL2Device'
 import { SceneTree } from '../scene/SceneTree'
@@ -709,18 +710,7 @@ export class Stage implements CameraHost {
    * switch counts come from the device after redundant-call elision, so they
    * reflect work actually done.
    */
-  get gpuStats(): {
-    drawCalls: number
-    programSwitches: number
-    textureBinds: number
-    blendSwitches: number
-    overflowWarns: number
-    sdfInstances: number
-    strokeInstances: number
-    roundRectInstances: number
-    shadowInstances: number
-    msaaSamples: number
-  } {
+  get gpuStats(): GpuGfxStats {
     return this.#screenGfx.stats
   }
 

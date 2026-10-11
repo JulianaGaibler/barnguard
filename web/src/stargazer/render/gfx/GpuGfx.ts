@@ -109,6 +109,14 @@ export interface UnimplementedCounts {
   strokePolyline: number
   strokePath2D: number
   shadowPath2D: number
+  /**
+   * An outset path shadow drew the hard (unblurred) silhouette because its
+   * mask was cold (this frame's first request), starved (budget exhausted),
+   * or disabled (`quality.vector.pathShadowsEnabled === false`). Does not
+   * cover an inset shadow skipped for the same reason, since that has no
+   * silent-degradation draw to count, it just doesn't draw.
+   */
+  pathShadowFallback: number
 }
 
 export class GpuGfx implements Gfx2D {
@@ -171,6 +179,14 @@ export class GpuGfx implements Gfx2D {
     roundRectInstances: 0,
     shadowInstances: 0,
     msaaSamples: 1,
+    outlineTessellations: 0,
+    outlineCacheHits: 0,
+    rampRowsWritten: 0,
+    maskBakes: 0,
+    maskBakeWork: 0,
+    maskBytes: 0,
+    poolHits: 0,
+    poolMisses: 0,
   }
   /** Tripwire counters. Ticked when a Gfx2D call reaches a no-op path. */
   readonly unimplemented: UnimplementedCounts = {
@@ -185,6 +201,7 @@ export class GpuGfx implements Gfx2D {
     strokePolyline: 0,
     strokePath2D: 0,
     shadowPath2D: 0,
+    pathShadowFallback: 0,
   }
 
   /**
@@ -577,6 +594,15 @@ export class GpuGfx implements Gfx2D {
     const dc = this.#device.deviceStats
     this.stats.programSwitches = dc.pipelineSwitches
     this.stats.textureBinds = dc.textureBinds
+    // Cumulative counters, copied from their owning cache/pool so a plain
+    // `{...stats}` spread (the HUD's own read) picks them up: see
+    // `GpuGfxStats`'s own fields for why these are cumulative, not per-frame.
+    this.stats.rampRowsWritten = this.#textureManager.rampRowsWritten
+    this.stats.maskBakes = this.#pathShadowCache.maskBakes
+    this.stats.maskBakeWork = this.#pathShadowCache.maskBakeWork
+    this.stats.maskBytes = this.#pathShadowCache.maskBytes
+    this.stats.poolHits = this.#pathShadowCache.pool.hits
+    this.stats.poolMisses = this.#pathShadowCache.pool.misses
     if (this.#present) {
       this.#device.present(
         this.#presentSource,
@@ -1197,7 +1223,10 @@ export class GpuGfx implements Gfx2D {
     const mask = this.#pathShadowCache.peek(req)
     if (!mask) {
       this.#pendingShadowBakes.set(this.#pathShadowCache.requestKey(req), req)
-      if (!inset) this.#hardPathShadow(path, style)
+      if (!inset) {
+        this.unimplemented.pathShadowFallback++
+        this.#hardPathShadow(path, style)
+      }
       return
     }
 
@@ -1491,7 +1520,10 @@ export class GpuGfx implements Gfx2D {
     const miterLimit = style.miterLimit ?? DEFAULT_MITER_LIMIT
     const key = `${style.width}|${align}|${join}|${cap}|${miterLimit}|${closed}|${scaleBucket}|${anisoBucket}|${getRegistrationEpoch(path)}|${contourIndex}`
     let buf = getCachedOutline(path, key)
-    if (!buf) {
+    if (buf) {
+      this.stats.outlineCacheHits++
+    } else {
+      this.stats.outlineTessellations++
       const uniformCenter = scaleBucketCenter(scaleBucket)
       const anisoCenter = scaleBucketCenter(anisoBucket)
       const bucketScaleX = uniformCenter * Math.sqrt(anisoCenter)

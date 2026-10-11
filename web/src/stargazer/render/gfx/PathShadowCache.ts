@@ -245,6 +245,9 @@ export class PathShadowCache {
 
   #frame = 0
   #workDoneThisFrame = 0
+  /** Cumulative since startup, for the debug HUD. */
+  #maskBakes = 0
+  #maskBakeWork = 0
 
   constructor(device: GfxDevice) {
     this.#device = device
@@ -255,6 +258,21 @@ export class PathShadowCache {
   /** This cache's own render-target pool, for `Stage`/`Viewport2DNode` to prune once per frame. */
   get pool(): RenderTargetPool {
     return this.#pool
+  }
+
+  /** Successful bakes since startup. */
+  get maskBakes(): number {
+    return this.#maskBakes
+  }
+  /** Total tap-work (§7.6) spent baking since startup. */
+  get maskBakeWork(): number {
+    return this.#maskBakeWork
+  }
+  /** Bytes currently held by live (retained) mask entries. */
+  get maskBytes(): number {
+    let total = 0
+    for (const e of this.#entries.values()) total += e.bytes
+    return total
   }
 
   #createResources(): void {
@@ -496,6 +514,8 @@ export class PathShadowCache {
     }
     this.#entries.set(exactKey, entry)
     this.#workDoneThisFrame += work
+    this.#maskBakes++
+    this.#maskBakeWork += work
     return entry
   }
 

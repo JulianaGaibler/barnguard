@@ -98,6 +98,27 @@ export interface GpuGfxStats {
   /** Analytic drop-shadow instances (`SHAPE_KIND_SHADOW`), this frame. */
   shadowInstances: number
   msaaSamples: number
+  // The remaining fields are cumulative since startup, not per-frame: each
+  // backs a cache whose activity is bursty (a bake, a tessellation, a ramp
+  // write), so a one-frame window reads mostly zero. A polling debug panel
+  // still shows a burst between two samples, the same reasoning
+  // `TextureManager`'s `labelEvictions` etc. use.
+  /** `strokeOutline` tessellations built (not served from cache). */
+  outlineTessellations: number
+  /** `strokeOutline` cache hits. */
+  outlineCacheHits: number
+  /** Gradient ramp-atlas rows actually (re)painted (an LRU touch doesn't count). */
+  rampRowsWritten: number
+  /** Path-shadow masks successfully baked. */
+  maskBakes: number
+  /** Total tap-work (§7.6) spent on path-shadow bakes. */
+  maskBakeWork: number
+  /** Bytes currently held by live path-shadow mask entries. */
+  maskBytes: number
+  /** Path-shadow bake scratch-target pool: reused-target hits. */
+  poolHits: number
+  /** Path-shadow bake scratch-target pool: new-target allocations. */
+  poolMisses: number
 }
 
 /**

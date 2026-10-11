@@ -49,9 +49,21 @@ export class RenderTargetPool {
   readonly #device: GfxDevice
   readonly #entries: PoolEntry[] = []
   readonly #usedKeysThisFrame = new Set<string>()
+  /** Cumulative since startup, for the debug HUD. */
+  #hits = 0
+  #misses = 0
 
   constructor(device: GfxDevice) {
     this.#device = device
+  }
+
+  /** `acquireTransient` calls that reused an existing target, since startup. */
+  get hits(): number {
+    return this.#hits
+  }
+  /** `acquireTransient` calls that allocated a new target, since startup. */
+  get misses(): number {
+    return this.#misses
   }
 
   /**
@@ -72,9 +84,11 @@ export class RenderTargetPool {
     for (const e of this.#entries) {
       if (!e.retained && !e.inUse && e.key === key) {
         e.inUse = true
+        this.#hits++
         return e.rt
       }
     }
+    this.#misses++
     const rt = this.#device.createRenderTarget({
       width: w,
       height: h,

@@ -4,6 +4,7 @@ import type { CameraView2D } from '../camera/CameraView2D'
 import type { Stage } from '../render/Stage'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { GfxBackend } from '../render/gfx/GfxDevice'
+import type { GpuGfxStats } from '../render/gfx/GpuBatchContext'
 import type { BitmapMask } from '../assets/BitmapMask'
 import { DebugCamera } from './DebugCamera'
 import { DebugCamera3D } from './DebugCamera3D'
@@ -102,21 +103,13 @@ export interface StageChip {
   isPrimary: boolean
 }
 
-/** Per-frame GPU pipeline counters, read from the WebGL2 backend for the HUD. */
-export interface DebugGpuStatsReadout {
-  drawCalls: number
-  programSwitches: number
-  textureBinds: number
-  blendSwitches: number
-  overflowWarns: number
-  sdfInstances: number
-  strokeInstances: number
-  roundRectInstances: number
-  /** Analytic drop-shadow instances this frame (`ShapeNode`'s `shadow`). */
-  shadowInstances: number
-  /** Effective MSAA sample count on the offscreen render target. `1` = off. */
-  msaaSamples: number
-}
+/**
+ * Per-frame GPU pipeline counters for the HUD. A direct alias of
+ * {@link GpuGfxStats} (the field `Stage.gpuStats`/`GpuGfx.stats` actually
+ * carry), kept as its own exported name so this module's public surface
+ * doesn't shift if that one's internal home does.
+ */
+export type DebugGpuStatsReadout = GpuGfxStats
 
 /**
  * One frame's worth of debug metrics for the active stage. Produced by

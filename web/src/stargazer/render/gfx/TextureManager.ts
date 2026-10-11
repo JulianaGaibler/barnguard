@@ -152,9 +152,9 @@ const LABEL_PACK_EVICT_LIMIT = 32
 /**
  * Read-only snapshot of the texture caches for the debug inspector. Built on
  * demand by {@link TextureManager.snapshot}, so nothing here runs unless the
- * inspector panel asks for it. Covers the three enumerable caches (atlas,
- * per-source, labels). The gradient-LUT and clip-mask caches are `WeakMap`s and
- * not enumerable, so they're omitted.
+ * inspector panel asks for it. Covers the four enumerable caches (atlas,
+ * ramp atlas, per-source, labels). The clip-mask cache is a `WeakMap` and
+ * not enumerable, so it's omitted.
  */
 export interface TextureInspectorSnapshot {
   atlas: {
@@ -173,6 +173,20 @@ export interface TextureInspectorSnapshot {
     canvas: CanvasImageSource | null
     /** One entry per bound sprite. `srcRect` is normalized `[u0, v0, u1, v1]`. */
     bindings: { srcRect: readonly [number, number, number, number] }[]
+  }
+  /**
+   * The shared gradient ramp atlas (see `ensureStopsRow`). No `canvas`
+   * preview: unlike the sprite atlas and label page, a row paints from a
+   * transient scratch canvas that is discarded immediately, so there is no
+   * CPU-side backing to draw without a GPU readback.
+   */
+  rampAtlas: {
+    width: number
+    rows: number
+    /** Rows currently holding a live gradient. */
+    used: number
+    /** Cumulative since startup. */
+    rowsWritten: number
   }
   /**
    * Non-atlas images: 2D textures keyed by their own source in the live cache,
@@ -322,6 +336,8 @@ export class TextureManager implements TextureInspector {
   /** 256x1 scratch canvas, reused across `ensureStopsRow` calls. */
   #rampRowCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
   #rampRowCtx: CanvasRenderingContext2D | null = null
+  /** Cumulative since startup: rows actually (re)painted, not LRU-touched. */
+  #rampRowsWritten = 0
 
   // Bitmap-mask clip textures, keyed by BitmapMask instance so a swap
   // (mask disposed / rebuilt) drops the stale texture with the mask.
@@ -667,9 +683,15 @@ export class TextureManager implements TextureInspector {
     const row = this.#allocRampRow(forceSubmit)
     if (row < 0) return -1
     if (!this.#paintRampRow(row, stops)) return -1
+    this.#rampRowsWritten++
     this.#rampRowByKey.set(key, row)
     this.#rampPinnedRows.add(row)
     return row
+  }
+
+  /** Ramp atlas rows actually painted since startup (an LRU touch doesn't count). */
+  get rampRowsWritten(): number {
+    return this.#rampRowsWritten
   }
 
   /**
@@ -1204,6 +1226,12 @@ export class TextureManager implements TextureInspector {
         full: this.#atlasFull,
         canvas: this.#atlasCanvas,
         bindings,
+      },
+      rampAtlas: {
+        width: GRADIENT_LUT_WIDTH,
+        rows: ATLAS_ROWS,
+        used: this.#rampRowByKey.size,
+        rowsWritten: this.#rampRowsWritten,
       },
       perSource,
       labels,

@@ -192,6 +192,11 @@
           tone={snap.labelScaleClamps > 0 ? 'warning' : 'default'}
         />
         <DebugRow label="Per-source images" value={snap.perSource.length} />
+        <DebugRow
+          label="Gradient ramp rows"
+          value={`${snap.rampAtlas.used} / ${snap.rampAtlas.rows}`}
+        />
+        <ProgressBar percentage={pct(snap.rampAtlas.used, snap.rampAtlas.rows)} />
       </DebugSection>
 
       <DebugSection title={`Atlas (${snap.atlas.width}×${snap.atlas.height})`}>

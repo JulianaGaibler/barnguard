@@ -185,6 +185,7 @@ export type {
   GfxBackend,
   ColorFormat,
   ShaderReflection,
+  TargetPixelFormat,
 } from './render/gfx/GfxDevice'
 export { selectGfxDevice } from './render/gfx/selectBackend'
 export type {

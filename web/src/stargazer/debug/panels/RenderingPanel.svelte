@@ -6,6 +6,7 @@
   } from '../DebugController'
   import type { DebugRenderMode } from '../../render/gfx/GpuGfx'
   import type { BackendPreference } from '../../render/gfx/selectBackend'
+  import { SHADOW_SIGMA_BUDGETS } from '../../render/VectorQuality'
   import {
     DebugSection,
     DebugRow,
@@ -30,6 +31,7 @@
   let renderOpen = $state(true)
   let gpuOpen = $state(true)
   let threeOpen = $state(true)
+  let vectorOpen = $state(true)
   let texturesOpen = $state(false)
 
   // Which backend the caller asked for, read from the app's `?gfx` convention.
@@ -76,6 +78,11 @@
   let aoIntensity = $state(1)
   let aoRadius = $state(0.6)
   let aoDirect = $state(0)
+  // 2D vector quality (engine.quality.vector), mirrored live like the rest.
+  let pathShadowsOn = $state(true)
+  let shadowSigmaBudget = $state<number>(SHADOW_SIGMA_BUDGETS[1])
+  let analyticShadowFrameOn = $state(true)
+  let ditherOn = $state(true)
 
   const RENDER_MODE_OPTIONS_2D: readonly DebugSelectOption<CombinedRenderMode>[] =
     [
@@ -148,6 +155,11 @@
     { value: 'medium', label: 'Medium (3×4)' },
     { value: 'high', label: 'High (4×6)' },
   ]
+  const SIGMA_BUDGET_OPTIONS: readonly DebugSelectOption<number>[] =
+    SHADOW_SIGMA_BUDGETS.map((v) => ({
+      value: v,
+      label: v === SHADOW_SIGMA_BUDGETS[0] ? `${v} (cheap)` : `${v}`,
+    }))
   $effect(() => {
     void revision
     const active = debug.activeStage
@@ -179,6 +191,14 @@
       if (ao.radius !== aoRadius) aoRadius = ao.radius
       if (ao.directStrength !== aoDirect) aoDirect = ao.directStrength
     }
+    const vq = q.vector
+    if (vq.pathShadowsEnabled !== pathShadowsOn)
+      pathShadowsOn = vq.pathShadowsEnabled
+    if (vq.shadowSigmaBudget !== shadowSigmaBudget)
+      shadowSigmaBudget = vq.shadowSigmaBudget
+    if (vq.analyticShadowFrame !== analyticShadowFrameOn)
+      analyticShadowFrameOn = vq.analyticShadowFrame
+    if (vq.dither !== ditherOn) ditherOn = vq.dither
   })
 
   function handleRenderModeChange(mode: CombinedRenderMode): void {
@@ -271,6 +291,30 @@
     debug.ambientOcclusion.radius = v
     aoRadius = debug.ambientOcclusion.radius
   }
+
+  function handlePathShadowsToggle(): void {
+    debug.quality.vector.pathShadowsEnabled = !pathShadowsOn
+    pathShadowsOn = debug.quality.vector.pathShadowsEnabled
+  }
+
+  function handleSigmaBudgetChange(v: number): void {
+    debug.quality.vector.shadowSigmaBudget = v
+    shadowSigmaBudget = debug.quality.vector.shadowSigmaBudget
+  }
+
+  function handleAnalyticShadowFrameToggle(): void {
+    debug.quality.vector.analyticShadowFrame = !analyticShadowFrameOn
+    analyticShadowFrameOn = debug.quality.vector.analyticShadowFrame
+  }
+
+  function handleDitherToggle(): void {
+    debug.quality.vector.dither = !ditherOn
+    ditherOn = debug.quality.vector.dither
+  }
+
+  function formatMaskBytes(bytes: number): string {
+    return bytes > 0 ? `${(bytes / (1024 * 1024)).toFixed(2)} MB` : '0'
+  }
 </script>
 
 <DebugSection title="Backend" bind:open={backendOpen}>
@@ -334,10 +378,65 @@
   <DebugRow label="SDF instances" value={stats.gpu.sdfInstances} />
   <DebugRow label="Stroke instances" value={stats.gpu.strokeInstances} />
   <DebugRow label="Round-rect instances" value={stats.gpu.roundRectInstances} />
+  <DebugRow label="Shadow instances" value={stats.gpu.shadowInstances} />
   <DebugRow
     label="Overflow warns"
     value={stats.gpu.overflowWarns}
     tone={stats.gpu.overflowWarns > 0 ? 'error' : 'default'}
+  />
+</DebugSection>
+
+<DebugSection title="Path shadows" bind:open={vectorOpen}>
+  <!-- Controls first, read-only stats below (same layout as "GPU" above).
+       Sigma budget, analytic-frame, and dither live under `quality.vector`
+       alongside `pathShadowsEnabled`: see the path-shadows guide. -->
+  <div class="debug-controls with-divider">
+    <DebugToggleGroup
+      label="Path shadows (cached blurred masks)"
+      active={pathShadowsOn}
+      onToggle={handlePathShadowsToggle}
+    >
+      <DebugSelect
+        label="Sigma budget"
+        value={shadowSigmaBudget}
+        options={SIGMA_BUDGET_OPTIONS}
+        onChange={handleSigmaBudgetChange}
+      />
+    </DebugToggleGroup>
+    <ToggleButton
+      active={analyticShadowFrameOn}
+      onToggle={handleAnalyticShadowFrameToggle}
+      label="Analytic shadow border-frame optimization"
+    />
+    <ToggleButton
+      active={ditherOn}
+      onToggle={handleDitherToggle}
+      label="Dither (gradients, analytic + path shadows)"
+    />
+  </div>
+  <!-- Cumulative since startup, not per-frame: see `GpuGfxStats`'s own doc
+       for why (bursty cache/bake activity reads as mostly zero per frame). -->
+  <DebugRow
+    label="Outline tessellations (cumulative)"
+    value={stats.gpu.outlineTessellations}
+  />
+  <DebugRow
+    label="Outline cache hits (cumulative)"
+    value={stats.gpu.outlineCacheHits}
+  />
+  <DebugRow
+    label="Ramp rows written (cumulative)"
+    value={stats.gpu.rampRowsWritten}
+  />
+  <DebugRow label="Mask bakes (cumulative)" value={stats.gpu.maskBakes} />
+  <DebugRow
+    label="Mask bake work (cumulative)"
+    value={stats.gpu.maskBakeWork}
+  />
+  <DebugRow label="Mask bytes (live)" value={formatMaskBytes(stats.gpu.maskBytes)} />
+  <DebugRow
+    label="Bake pool hits / misses (cumulative)"
+    value={`${stats.gpu.poolHits} / ${stats.gpu.poolMisses}`}
   />
 </DebugSection>
 

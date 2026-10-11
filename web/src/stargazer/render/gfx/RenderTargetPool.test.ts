@@ -13,6 +13,18 @@ describe('RenderTargetPool', () => {
     expect(device.renderTargets.length).toBe(1)
   })
 
+  it('tracks hits and misses', () => {
+    const device = new MockGfxDevice()
+    const pool = new RenderTargetPool(device)
+    const a = pool.acquireTransient(64, 64)
+    expect(pool.misses).toBe(1)
+    expect(pool.hits).toBe(0)
+    pool.release(a)
+    pool.acquireTransient(64, 64)
+    expect(pool.hits).toBe(1)
+    expect(pool.misses).toBe(1)
+  })
+
   it('allocates a second target for a key already claimed', () => {
     const device = new MockGfxDevice()
     const pool = new RenderTargetPool(device)
