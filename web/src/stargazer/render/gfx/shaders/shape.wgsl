@@ -68,30 +68,33 @@ fn clipCoverage(fragPos: vec2<f32>) -> f32 {
 @group(1) @binding(2) var u_ramp: texture_2d<f32>;
 @group(1) @binding(18) var u_rampSamp: sampler;
 
+// `max_inter_stage_shader_variables` is 16 locations on WebGPU (0..15). Every
+// shape kind's own data packs into a handful of generically-named vec4
+// slots instead of one named varying per field, reused differently per
+// kind (exactly how the instance record's own words already are). Each
+// kind's packing is documented at its `vs_main` branch and unpacked the
+// same way in `fs_main`.
 struct VOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) @interpolate(flat) shapeType: i32,
-  @location(1) @interpolate(flat) texIndex: f32,
-  @location(2) uv: vec2<f32>,                  // textured
-  @location(3) tint: vec4<f32>,                // textured
-  @location(4) worldPos: vec2<f32>,            // circle (device px)
-  @location(5) @interpolate(flat) center: vec2<f32>,  // circle
-  @location(6) @interpolate(flat) radius: f32,        // circle
-  @location(7) @interpolate(flat) dash: vec2<f32>,    // circle (dashStart, dashPeriod)
-  @location(8) local: vec2<f32>,               // round-rect (centered local)
-  // Not `half`: that is a reserved type name in Metal, and a varying called
-  // `half` translates to MSL that will not compile.
-  @location(9) @interpolate(flat) halfExt: vec2<f32>, // round-rect half extents / shadow true half extents
-  @location(10) @interpolate(flat) radii: vec4<f32>,  // round-rect / shadow radii
-  @location(11) @interpolate(flat) strokeWidth: f32,  // circle + round-rect
-  @location(12) @interpolate(flat) colorFill: vec4<f32>,
-  @location(13) @interpolate(flat) colorStroke: vec4<f32>,
-  @location(14) @interpolate(flat) paint: vec4<f32>,  // fill gradient: see the file header
-  @location(15) @interpolate(flat) strokeOffset: f32, // round-rect border alignment: 0 center, -w/2 inside, +w/2 outside
-  @location(16) @interpolate(flat) shadowOffset: vec2<f32>,
-  @location(17) @interpolate(flat) shadowSpread: f32,
-  @location(18) @interpolate(flat) shadowSigma: f32,
-  @location(19) @interpolate(flat) shadowInset: f32,
+  // Smooth (per-fragment interpolated): textured -> uv, circle -> worldPos
+  // (device px), round-rect/shadow -> local (centered local coords).
+  @location(1) varyingPos: vec2<f32>,
+  // Flat: textured -> tint, circle/round-rect/shadow -> fill color.
+  @location(2) @interpolate(flat) colorFill: vec4<f32>,
+  // Flat: circle/round-rect -> stroke color. Unused otherwise.
+  @location(3) @interpolate(flat) colorStroke: vec4<f32>,
+  // Flat: circle/round-rect -> fill gradient, see the file header. Unused otherwise.
+  @location(4) @interpolate(flat) paint: vec4<f32>,
+  // Flat, kind-specific: textured (texIndex, 0, 0, 0); circle (center.x,
+  // center.y, radius, strokeWidth); round-rect (halfExt.x, halfExt.y,
+  // strokeWidth, strokeOffset); shadow (halfExt.x, halfExt.y, sigma, inset).
+  @location(5) @interpolate(flat) paramsA: vec4<f32>,
+  // Flat: round-rect/shadow -> corner radii (tl, tr, br, bl). Unused otherwise.
+  @location(6) @interpolate(flat) radii: vec4<f32>,
+  // Flat, kind-specific: circle (dashStart, dashPeriod, _, _); shadow
+  // (offsetX, offsetY, spread, _). Unused otherwise.
+  @location(7) @interpolate(flat) paramsB: vec4<f32>,
 };
 
 @vertex
@@ -111,8 +114,6 @@ fn vs_main(
   var out: VOut;
   let shape = i32(a_shape.x + 0.5);
   out.shapeType = shape;
-  out.texIndex = a_shape.z;
-  out.colorFill = a_colorFill;
   out.colorStroke = a_colorStroke;
   out.paint = a_paint;
 
@@ -124,11 +125,10 @@ fn vs_main(
     let strokeWidth = a_params.y;
     let outerRadius = radius + strokeWidth * 0.5 + 1.0;
     p = center + (a_unit - vec2<f32>(0.5)) * 2.0 * outerRadius;
-    out.worldPos = p;
-    out.center = center;
-    out.radius = radius;
-    out.strokeWidth = strokeWidth;
-    out.dash = a_params.zw;
+    out.varyingPos = p;
+    out.colorFill = a_colorFill;
+    out.paramsA = vec4<f32>(center, radius, strokeWidth);
+    out.paramsB = vec4<f32>(a_params.zw, 0.0, 0.0);
   } else if (shape == 2) {
     // Round-rect: local centered space + affine. The quad must reach as far
     // as the fragment stage samples: the stroke coverage ramp reads up to
@@ -142,11 +142,10 @@ fn vs_main(
     let inflate = feather + abs(strokeOffset) + strokeWidth * 0.5;
     let local = (a_unit - vec2<f32>(0.5)) * 2.0 * (halfExt + inflate);
     p = a_mTranslate + a_mCol0 * local.x + a_mCol1 * local.y;
-    out.local = local;
-    out.halfExt = halfExt;
+    out.varyingPos = local;
+    out.colorFill = a_colorFill;
+    out.paramsA = vec4<f32>(halfExt, strokeWidth, strokeOffset);
     out.radii = a_radii;
-    out.strokeWidth = a_params.z;
-    out.strokeOffset = strokeOffset;
   } else if (shape == 3) {
     // Drop shadow: local centered space + affine, same walk as round-rect
     // (a circle's shadow is a round-rect shadow with uniform radii). The
@@ -163,18 +162,17 @@ fn vs_main(
     let quadHalfExt = max(trueHalfExt, shadowHalfExt + length(offset)) + pad;
     let local = (a_unit - vec2<f32>(0.5)) * 2.0 * quadHalfExt;
     p = a_mTranslate + a_mCol0 * local.x + a_mCol1 * local.y;
-    out.local = local;
-    out.halfExt = trueHalfExt;
+    out.varyingPos = local;
+    out.colorFill = a_colorFill;
+    out.paramsA = vec4<f32>(trueHalfExt, sigma, a_shape.w);
     out.radii = a_radii;
-    out.shadowOffset = offset;
-    out.shadowSpread = spread;
-    out.shadowSigma = sigma;
-    out.shadowInset = a_shape.w;
+    out.paramsB = vec4<f32>(offset, spread, 0.0);
   } else {
     // Textured: affine quad, sample srcRect × tint.
     p = a_mCol0 * a_unit.x + a_mCol1 * a_unit.y + a_mTranslate;
-    out.uv = mix(a_srcRect.xy, a_srcRect.zw, a_unit);
-    out.tint = a_colorFill;
+    out.varyingPos = mix(a_srcRect.xy, a_srcRect.zw, a_unit);
+    out.colorFill = a_colorFill;
+    out.paramsA = vec4<f32>(a_shape.z, 0.0, 0.0, 0.0);
   }
 
   let clip = frame.proj * vec3<f32>(p, 1.0);
@@ -269,8 +267,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   // Texture samples and SDF derivatives (fwidth) must run in uniform control
   // flow, but shapeType is a per-instance varying so the branches below are not
   // uniform. Evaluate all of them up front and let the branches select.
-  let atlasTexel = textureSample(u_texAtlas, u_texAtlasSamp, in.uv);
-  let labelTexel = textureSample(u_texLabel, u_texLabelSamp, in.uv);
+  // `varyingPos` doubles as the UV for textured instances only; the other
+  // kinds never sample these two, so what it holds for them is irrelevant.
+  let atlasTexel = textureSample(u_texAtlas, u_texAtlasSamp, in.varyingPos);
+  let labelTexel = textureSample(u_texLabel, u_texLabelSamp, in.varyingPos);
   // Gradient fill, sampled unconditionally alongside the two texture pages
   // above for the same reason: there is no per-run uniform here yet to
   // branch on (that lands with the analytic-shadow per-run block), so every
@@ -284,29 +284,36 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let gradV = (in.paint.w - 1.0 + 0.5) / 64.0;
   let rampTexel = textureSample(u_ramp, u_rampSamp, vec2<f32>(gradU, gradV));
   let fillColor = select(in.colorFill, rampTexel * in.colorFill.a, hasGradient);
-  let rrDist = sdRoundBox(in.local, in.halfExt, in.radii);
+  let halfExt = in.paramsA.xy;
+  let rrDist = sdRoundBox(in.varyingPos, halfExt, in.radii);
   let rrFillCoverage = coverage(rrDist);
-  let rrStrokeCoverage = coverage(abs(rrDist - in.strokeOffset) - in.strokeWidth * 0.5);
-  let circDelta = in.worldPos - in.center;
-  let circDist = length(circDelta) - in.radius;
+  let strokeWidth = in.paramsA.z;
+  let strokeOffset = in.paramsA.w;
+  let rrStrokeCoverage = coverage(abs(rrDist - strokeOffset) - strokeWidth * 0.5);
+  let center = in.paramsA.xy;
+  let radius = in.paramsA.z;
+  let circDelta = in.varyingPos - center;
+  let circDist = length(circDelta) - radius;
   let circFillCoverage = coverage(circDist);
-  let circStrokeCoverage = coverage(abs(circDist) - in.strokeWidth * 0.5);
+  let circStrokeCoverage = coverage(abs(circDist) - in.paramsA.w * 0.5);
 
   var outColor: vec4<f32>;
   if (in.shapeType == 1) {
-    // Circle SDF (distance + coverage precomputed above).
+    // Circle SDF (distance + coverage precomputed above). paramsA = (center,
+    // radius, strokeWidth), paramsB = (dashStart, dashPeriod, _, _).
+    let circStrokeWidth = in.paramsA.w;
     let fill = fillColor * circFillCoverage;
     var stroke = vec4<f32>(0.0);
-    if (in.strokeWidth > 0.0) {
+    if (circStrokeWidth > 0.0) {
       var strokeAlpha = circStrokeCoverage;
-      let dashPeriod = in.dash.y;
+      let dashPeriod = in.paramsB.y;
       if (dashPeriod > 0.0 && strokeAlpha > 0.0) {
-        let dashStart = in.dash.x;
+        let dashStart = in.paramsB.x;
         let dashOnLen = dashPeriod * 0.5;
         let angle = atan2(circDelta.y, circDelta.x);
         let TWO_PI = 6.28318530718;
         let wrap = select(angle, angle + TWO_PI, angle < 0.0);
-        let arcPos = wrap * in.radius;
+        let arcPos = wrap * radius;
         let s = dashStart + arcPos;
         let phase = s - dashPeriod * floor(s / dashPeriod);
         let off = smoothstep(dashOnLen - 0.5, dashOnLen + 0.5, phase);
@@ -319,10 +326,11 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
       discard;
     }
   } else if (in.shapeType == 2) {
-    // Round-rect SDF (distance + coverage precomputed above).
+    // Round-rect SDF (distance + coverage precomputed above). paramsA =
+    // (halfExt, strokeWidth, strokeOffset).
     let fill = fillColor * rrFillCoverage;
     var stroke = vec4<f32>(0.0);
-    if (in.strokeWidth > 0.0) {
+    if (strokeWidth > 0.0) {
       stroke = in.colorStroke * rrStrokeCoverage;
     }
     outColor = stroke + fill * (1.0 - stroke.a);
@@ -330,27 +338,34 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
       discard;
     }
   } else if (in.shapeType == 3) {
-    // Drop shadow. `in.colorFill` carries the shadow's own tint (the
-    // record has no separate stroke). Spread grows the shadow's own box
-    // only on corners that already had a radius: a spread square corner
-    // stays square, matching `box-shadow`.
+    // Drop shadow. paramsA = (true halfExt, sigma, inset), paramsB =
+    // (offsetX, offsetY, spread, _). `in.colorFill` carries the shadow's
+    // own tint (the record has no separate stroke). Spread grows the
+    // shadow's own box only on corners that already had a radius: a spread
+    // square corner stays square, matching `box-shadow`.
+    let trueHalfExt = in.paramsA.xy;
+    let sigma = in.paramsA.z;
+    let inset = in.paramsA.w;
+    let offset = in.paramsB.xy;
+    let spread = in.paramsB.z;
     let hasRadius = step(vec4<f32>(1e-6), in.radii);
-    let shadowRadii = hasRadius * max(in.radii + vec4<f32>(in.shadowSpread), vec4<f32>(0.0));
-    let shadowHalfExt = max(in.halfExt + in.shadowSpread, vec2<f32>(0.0));
-    let shadowLocal = in.local - in.shadowOffset;
-    let shadowCov = shadowCoverage(shadowLocal, shadowHalfExt, shadowRadii, in.shadowSigma);
-    let trueCoverage = coverage(sdRoundBox(in.local, in.halfExt, in.radii));
+    let shadowRadii = hasRadius * max(in.radii + vec4<f32>(spread), vec4<f32>(0.0));
+    let shadowHalfExt = max(trueHalfExt + spread, vec2<f32>(0.0));
+    let shadowLocal = in.varyingPos - offset;
+    let shadowCov = shadowCoverage(shadowLocal, shadowHalfExt, shadowRadii, sigma);
+    let trueCoverage = coverage(sdRoundBox(in.varyingPos, trueHalfExt, in.radii));
     // Outset: knocked out of the border box (CSS: "not painted inside the
     // border-box"). Inset: only inside it.
-    let mask = select(1.0 - trueCoverage, trueCoverage, in.shadowInset > 0.5);
+    let mask = select(1.0 - trueCoverage, trueCoverage, inset > 0.5);
     outColor = in.colorFill * (shadowCov * mask);
     if (outColor.a <= 0.0) {
       discard;
     }
   } else {
-    // Textured: both pages sampled above, selected here by texIndex × tint.
-    let texel = select(labelTexel, atlasTexel, in.texIndex < 0.5);
-    outColor = texel * in.tint;
+    // Textured: both pages sampled above, selected here by texIndex (in
+    // paramsA.x) × tint (in colorFill).
+    let texel = select(labelTexel, atlasTexel, in.paramsA.x < 0.5);
+    outColor = texel * in.colorFill;
   }
   outColor *= clipCoverage(in.pos.xy);
   return outColor;

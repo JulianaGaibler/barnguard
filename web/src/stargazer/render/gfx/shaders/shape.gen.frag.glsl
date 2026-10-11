@@ -21,25 +21,13 @@ struct Clip {
 struct VOut {
     vec4 pos;
     int shapeType;
-    float texIndex;
-    vec2 uv;
-    vec4 tint;
-    vec2 worldPos;
-    vec2 center;
-    float radius;
-    vec2 dash;
-    vec2 local;
-    vec2 halfExt;
-    vec4 radii;
-    float strokeWidth;
+    vec2 varyingPos;
     vec4 colorFill;
     vec4 colorStroke;
     vec4 paint;
-    float strokeOffset;
-    vec2 shadowOffset;
-    float shadowSpread;
-    float shadowSigma;
-    float shadowInset;
+    vec4 paramsA;
+    vec4 radii;
+    vec4 paramsB;
 };
 layout(std140) uniform Frame_block_0Fragment { Frame _group_0_binding_0_fs; };
 
@@ -52,25 +40,13 @@ uniform highp sampler2D _group_1_binding_1_fs;
 uniform highp sampler2D _group_1_binding_2_fs;
 
 flat in int _vs2fs_location0;
-flat in float _vs2fs_location1;
-smooth in vec2 _vs2fs_location2;
-smooth in vec4 _vs2fs_location3;
-smooth in vec2 _vs2fs_location4;
-flat in vec2 _vs2fs_location5;
-flat in float _vs2fs_location6;
-flat in vec2 _vs2fs_location7;
-smooth in vec2 _vs2fs_location8;
-flat in vec2 _vs2fs_location9;
-flat in vec4 _vs2fs_location10;
-flat in float _vs2fs_location11;
-flat in vec4 _vs2fs_location12;
-flat in vec4 _vs2fs_location13;
-flat in vec4 _vs2fs_location14;
-flat in float _vs2fs_location15;
-flat in vec2 _vs2fs_location16;
-flat in float _vs2fs_location17;
-flat in float _vs2fs_location18;
-flat in float _vs2fs_location19;
+smooth in vec2 _vs2fs_location1;
+flat in vec4 _vs2fs_location2;
+flat in vec4 _vs2fs_location3;
+flat in vec4 _vs2fs_location4;
+flat in vec4 _vs2fs_location5;
+flat in vec4 _vs2fs_location6;
+flat in vec4 _vs2fs_location7;
 layout(location = 0) out vec4 _fs2p_location0;
 
 float clipRoundBox(vec2 p_1, vec2 b, float rad) {
@@ -200,14 +176,14 @@ float shadowCoverage(vec2 p_3, vec2 halfExt_1, vec4 radii, float sigma_2) {
 }
 
 void main() {
-    VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2, _vs2fs_location3, _vs2fs_location4, _vs2fs_location5, _vs2fs_location6, _vs2fs_location7, _vs2fs_location8, _vs2fs_location9, _vs2fs_location10, _vs2fs_location11, _vs2fs_location12, _vs2fs_location13, _vs2fs_location14, _vs2fs_location15, _vs2fs_location16, _vs2fs_location17, _vs2fs_location18, _vs2fs_location19);
+    VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2, _vs2fs_location3, _vs2fs_location4, _vs2fs_location5, _vs2fs_location6, _vs2fs_location7);
     vec4 outColor = vec4(0.0);
     vec4 stroke = vec4(0.0);
     float strokeAlpha = 0.0;
     bool local = false;
     vec4 stroke_1 = vec4(0.0);
-    vec4 atlasTexel = texture(_group_1_binding_0_fs, vec2(in_.uv));
-    vec4 labelTexel = texture(_group_1_binding_1_fs, vec2(in_.uv));
+    vec4 atlasTexel = texture(_group_1_binding_0_fs, vec2(in_.varyingPos));
+    vec4 labelTexel = texture(_group_1_binding_1_fs, vec2(in_.varyingPos));
     bool hasGradient = (in_.paint.w > 0.5);
     vec2 _e15 = devicePos(in_.pos.xy);
     float gradT = clamp((dot(_e15, in_.paint.xy) - in_.paint.z), 0.0, 1.0);
@@ -215,86 +191,97 @@ void main() {
     float gradV = (((in_.paint.w - 1.0) + 0.5) / 64.0);
     vec4 rampTexel = texture(_group_1_binding_2_fs, vec2(vec2(gradU, gradV)));
     vec4 fillColor = (hasGradient ? (rampTexel * in_.colorFill.w) : in_.colorFill);
-    float _e49 = sdRoundBox(in_.local, in_.halfExt, in_.radii);
-    float _e50 = coverage(_e49);
-    float _e58 = coverage((abs((_e49 - in_.strokeOffset)) - (in_.strokeWidth * 0.5)));
-    vec2 circDelta = (in_.worldPos - in_.center);
-    float circDist = (length(circDelta) - in_.radius);
-    float _e65 = coverage(circDist);
-    float _e71 = coverage((abs(circDist) - (in_.strokeWidth * 0.5)));
+    vec2 halfExt_2 = in_.paramsA.xy;
+    float _e50 = sdRoundBox(in_.varyingPos, halfExt_2, in_.radii);
+    float _e51 = coverage(_e50);
+    float strokeWidth = in_.paramsA.z;
+    float strokeOffset = in_.paramsA.w;
+    float _e61 = coverage((abs((_e50 - strokeOffset)) - (strokeWidth * 0.5)));
+    vec2 center = in_.paramsA.xy;
+    float radius_1 = in_.paramsA.z;
+    vec2 circDelta = (in_.varyingPos - center);
+    float circDist = (length(circDelta) - radius_1);
+    float _e70 = coverage(circDist);
+    float _e77 = coverage((abs(circDist) - (in_.paramsA.w * 0.5)));
     if ((in_.shapeType == 1)) {
-        vec4 fill = (fillColor * _e65);
-        if ((in_.strokeWidth > 0.0)) {
-            strokeAlpha = _e71;
-            float dashPeriod = in_.dash.y;
+        float circStrokeWidth = in_.paramsA.w;
+        vec4 fill = (fillColor * _e70);
+        if ((circStrokeWidth > 0.0)) {
+            strokeAlpha = _e77;
+            float dashPeriod = in_.paramsB.y;
             if ((dashPeriod > 0.0)) {
-                float _e90 = strokeAlpha;
-                local = (_e90 > 0.0);
+                float _e97 = strokeAlpha;
+                local = (_e97 > 0.0);
             } else {
                 local = false;
             }
-            bool _e94 = local;
-            if (_e94) {
-                float dashStart = in_.dash.x;
+            bool _e101 = local;
+            if (_e101) {
+                float dashStart = in_.paramsB.x;
                 float dashOnLen = (dashPeriod * 0.5);
                 float angle = atan(circDelta.y, circDelta.x);
                 float wrap = ((angle < 0.0) ? (angle + 6.2831855) : angle);
-                float arcPos = (wrap * in_.radius);
+                float arcPos = (wrap * radius_1);
                 float s_1 = (dashStart + arcPos);
                 float phase = (s_1 - (dashPeriod * floor((s_1 / dashPeriod))));
                 float off = smoothstep((dashOnLen - 0.5), (dashOnLen + 0.5), phase);
-                float _e119 = strokeAlpha;
-                strokeAlpha = (_e119 * (1.0 - off));
+                float _e125 = strokeAlpha;
+                strokeAlpha = (_e125 * (1.0 - off));
             }
-            float _e124 = strokeAlpha;
-            stroke = (in_.colorStroke * _e124);
+            float _e130 = strokeAlpha;
+            stroke = (in_.colorStroke * _e130);
         }
-        vec4 _e126 = stroke;
-        float _e128 = stroke.w;
-        outColor = (_e126 + (fill * (1.0 - _e128)));
-        float _e134 = outColor.w;
-        if ((_e134 <= 0.0)) {
+        vec4 _e132 = stroke;
+        float _e134 = stroke.w;
+        outColor = (_e132 + (fill * (1.0 - _e134)));
+        float _e140 = outColor.w;
+        if ((_e140 <= 0.0)) {
             discard;
         }
     } else {
         if ((in_.shapeType == 2)) {
-            vec4 fill_1 = (fillColor * _e50);
-            if ((in_.strokeWidth > 0.0)) {
-                stroke_1 = (in_.colorStroke * _e58);
+            vec4 fill_1 = (fillColor * _e51);
+            if ((strokeWidth > 0.0)) {
+                stroke_1 = (in_.colorStroke * _e61);
             }
-            vec4 _e149 = stroke_1;
-            float _e151 = stroke_1.w;
-            outColor = (_e149 + (fill_1 * (1.0 - _e151)));
-            float _e157 = outColor.w;
-            if ((_e157 <= 0.0)) {
+            vec4 _e154 = stroke_1;
+            float _e156 = stroke_1.w;
+            outColor = (_e154 + (fill_1 * (1.0 - _e156)));
+            float _e162 = outColor.w;
+            if ((_e162 <= 0.0)) {
                 discard;
             }
         } else {
             if ((in_.shapeType == 3)) {
+                vec2 trueHalfExt = in_.paramsA.xy;
+                float sigma_3 = in_.paramsA.z;
+                float inset = in_.paramsA.w;
+                vec2 offset = in_.paramsB.xy;
+                float spread = in_.paramsB.z;
                 vec4 hasRadius = step(vec4(1e-6), in_.radii);
-                vec4 shadowRadii = (hasRadius * max((in_.radii + vec4(in_.shadowSpread)), vec4(0.0)));
-                vec2 shadowHalfExt = max((in_.halfExt + vec2(in_.shadowSpread)), vec2(0.0));
-                vec2 shadowLocal = (in_.local - in_.shadowOffset);
-                float _e186 = shadowCoverage(shadowLocal, shadowHalfExt, shadowRadii, in_.shadowSigma);
-                float _e190 = sdRoundBox(in_.local, in_.halfExt, in_.radii);
-                float _e191 = coverage(_e190);
-                float mask = ((in_.shadowInset > 0.5) ? _e191 : (1.0 - _e191));
-                outColor = (in_.colorFill * (_e186 * mask));
-                float _e202 = outColor.w;
-                if ((_e202 <= 0.0)) {
+                vec4 shadowRadii = (hasRadius * max((in_.radii + vec4(spread)), vec4(0.0)));
+                vec2 shadowHalfExt = max((trueHalfExt + vec2(spread)), vec2(0.0));
+                vec2 shadowLocal = (in_.varyingPos - offset);
+                float _e196 = shadowCoverage(shadowLocal, shadowHalfExt, shadowRadii, sigma_3);
+                float _e199 = sdRoundBox(in_.varyingPos, trueHalfExt, in_.radii);
+                float _e200 = coverage(_e199);
+                float mask = ((inset > 0.5) ? _e200 : (1.0 - _e200));
+                outColor = (in_.colorFill * (_e196 * mask));
+                float _e210 = outColor.w;
+                if ((_e210 <= 0.0)) {
                     discard;
                 }
             } else {
-                vec4 texel = ((in_.texIndex < 0.5) ? atlasTexel : labelTexel);
-                outColor = (texel * in_.tint);
+                vec4 texel = ((in_.paramsA.x < 0.5) ? atlasTexel : labelTexel);
+                outColor = (texel * in_.colorFill);
             }
         }
     }
-    vec4 _e211 = outColor;
-    float _e214 = clipCoverage(in_.pos.xy);
-    outColor = (_e211 * _e214);
-    vec4 _e216 = outColor;
-    _fs2p_location0 = _e216;
+    vec4 _e220 = outColor;
+    float _e223 = clipCoverage(in_.pos.xy);
+    outColor = (_e220 * _e223);
+    vec4 _e225 = outColor;
+    _fs2p_location0 = _e225;
     return;
 }
 
