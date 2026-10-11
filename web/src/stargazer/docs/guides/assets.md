@@ -93,9 +93,11 @@ allocation, so they are safe on the render path. `getPathContours(path)` reads
 back what was registered, and `releasePathTessellation(path)` drops it, which a
 node that registers a one-off retained path should call on teardown.
 
-A `strokePath2D` border (whatever its alignment) and a `Path2DNode`'s hard drop
-shadow both read the same registered contours, so a path without a registration
-draws neither, the same silent no-op `fillPath2D` has.
+A `strokePath2D` border (whatever its alignment) reads the registered
+contours, and a `Path2DNode`'s drop shadow reads the registered tessellation
+(the triangles its mask bakes from, or its own fill when it's below the hard
+threshold), so a path without a registration draws neither, the same silent
+no-op `fillPath2D` has.
 
 `tessellateContours` has no hole support: every contour triangulates as its own
 independent outer polygon. A shape with an enclave (a hole punched in it) fills

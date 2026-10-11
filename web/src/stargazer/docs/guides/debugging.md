@@ -95,6 +95,19 @@ inside a loop. See [Drawing](/guides/drawing#keeping-the-batch-intact).
 browser profiler's user-timing lane shows a per-node flame chart and a per-phase
 breakdown of the frame. Leave it off otherwise, since the marks themselves cost.
 
+The "Path shadows" section's counters are cumulative since startup, not
+per-frame (a bake or a tessellation is bursty enough that a one-frame window
+mostly reads zero). `Outline tessellations` climbing at a steady camera
+(nothing zooming, nothing re-registering) means a stroke-outline cache key is
+churning, usually a `strokePolyline` call, which can't cache at all: see
+[Drawing](/guides/drawing#borders-alignment-and-exact-joins). `Bake pool
+misses` tracking `Mask bakes` one-for-one past the first few frames means the
+pool's 32px size quantum isn't landing repeat bakes on the same bucket; a
+`Mask bytes` reading that keeps climbing without settling means the budget
+(`quality.vector.shadowMaskBudgetBytes`) is too generous for how many distinct
+path shadows the scene actually holds. See [path shadows](../path-shadows.md)
+for what each budget bounds.
+
 ## Demos
 
 `?demo=<name>` boots a sandbox scene instead of the app. They live in

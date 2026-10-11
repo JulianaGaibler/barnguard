@@ -15,10 +15,10 @@ import { walkTree } from '../scene/traverse'
 /**
  * A node this engine's own primitives (`ShapeNode`, `Path2DNode`,
  * `PolylineNode`) duck-type, same as `StageLayerRenderer`'s cull test:
- * `lineWidth` is a stroke half-width in node-space units, `cullMargin` folds
- * in whatever else can paint outside `debugBounds` (an outside-aligned
- * border, a shadow's offset/blur/spread), and `strokeSpace` says whether
- * either follows the camera's screen scale or stays in world units as-is.
+ * `lineWidth` is a stroke half-width in node-space units, `cullMargin` folds in
+ * whatever else can paint outside `debugBounds` (an outside-aligned border, a
+ * shadow's offset/blur/spread), and `strokeSpace` says whether either follows
+ * the camera's screen scale or stays in world units as-is.
  */
 interface CullMarginNode {
   lineWidth?: number

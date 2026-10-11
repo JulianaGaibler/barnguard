@@ -96,7 +96,10 @@ import type { GfxLinearGradient } from '@src/stargazer'
 
 const brand: GfxLinearGradient = {
   kind: 'linear',
-  x0: 0, y0: 0, x1: 0, y1: 140,
+  x0: 0,
+  y0: 0,
+  x1: 0,
+  y1: 140,
   stops: [
     { offset: 0, color: '#1d1d2b' },
     { offset: 1, color: '#3a2d5c' },
@@ -206,12 +209,23 @@ the border. An outset shadow is knocked out from under the shape (CSS: "not
 painted inside the border-box"), so a translucent fill does not show the shadow
 through itself.
 
-`Path2DNode`'s `shadow` option (an arbitrary path's drop shadow) is **hard
-only** today: `color`, `offsetX`, `offsetY` work, `blur`, `spread`, and `inset`
-do not. It draws the path's own fill, translated and tinted, under the real
-fill, the same thing a `box-shadow` reduces to once its blur radius is small
-enough to be invisible. A blurred, cached path shadow needs a mask render target
-this version does not build yet.
+`Path2DNode`'s `shadow` option (an arbitrary path's drop shadow, via
+`shadowPath2D`) works the same way, but a path has no closed-form signed
+distance the way a rect or circle does, so it's not analytic: the path's own
+triangles rasterize once into a small cached mask, which two blur passes turn
+into a coverage texture reused every frame after. `inset` works too, reading
+the same mask from inside `fillPath2D`'s own geometry, no extra pass.
+
+The bake can't run while the frame's main pass is open (a hard rule on WebGPU,
+which can't nest render passes), so it runs in a window before the _next_
+frame's `beginFrame`. The practical effect: a shadow's first frame, and any
+frame the bake budget is exhausted, draws the hard fallback above (translated,
+unblurred) instead of the real mask. An inset shadow has no such fallback and
+is skipped on those frames, since there's nothing to approximate it with.
+Offset is free to animate without rebaking; blur, spread, and a camera zoom
+that crosses a cache bucket are not. See
+[path shadows](../path-shadows.md) for the cache, its budget knobs, and what
+counts as a cache key.
 
 ## Transform, alpha, and blend
 
