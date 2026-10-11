@@ -18,9 +18,12 @@
 import type {
   Gfx2D,
   GfxClipShape,
+  GfxFill,
   GfxGradientStop,
+  GfxShadowStyle,
   GfxStrokeStyle,
   GfxTextStyle,
+  SolidStrokeStyle,
 } from './Gfx2D'
 import type { RenderTarget, TargetFormat, Texture, VBuffer } from './GfxDevice'
 import type { GfxDevice } from './GfxDevice'
@@ -28,16 +31,32 @@ import { depthStencilFormatOf } from './depthStencil'
 import { parseColor } from './parseColor'
 import type { GeometryHandle } from './GeometryHandle'
 import {
+  getCachedOutline,
   getContourClosed,
   getPathContours,
   getPathTessellation,
+  getRegistrationEpoch,
   registerPathTessellation,
+  setCachedOutline,
 } from './PathTessellationRegistry'
+import {
+  strokeOutline,
+  scaleBucketCenter,
+  scaleBucketIndex,
+  StrokeOutlineBuffer,
+  DEFAULT_MITER_LIMIT,
+} from './strokeOutline'
+import { flattenQuadratic } from '../../assets/SvgPathContours'
 import { TextureManager, type TextureInspector } from './TextureManager'
+import { VectorQuality } from '../VectorQuality'
 import { DEFAULT_LABEL_FONT, type LabelStyle } from './rasterizeLabel'
 import type { BitmapMask } from '../../assets/BitmapMask'
 import { rgbaTuple } from './packing'
-import { RING_SIZE } from './batchLayout'
+import {
+  CURVE_FLATTEN_MAX_POINTS,
+  CURVE_FLATTEN_TOL_PX,
+  RING_SIZE,
+} from './batchLayout'
 import {
   GpuBatchContext,
   type DebugRenderMode,
@@ -121,6 +140,7 @@ export class GpuGfx implements Gfx2D {
     sdfInstances: 0,
     strokeInstances: 0,
     roundRectInstances: 0,
+    shadowInstances: 0,
     msaaSamples: 1,
   }
   /** Tripwire counters. Ticked when a Gfx2D call reaches a no-op path. */
@@ -184,7 +204,12 @@ export class GpuGfx implements Gfx2D {
   constructor(
     canvas: HTMLCanvasElement,
     device: GfxDevice,
-    opts: { samples?: number; present?: boolean; stencil?: boolean } = {},
+    opts: {
+      samples?: number
+      present?: boolean
+      stencil?: boolean
+      vectorQuality?: VectorQuality
+    } = {},
   ) {
     this.#canvas = canvas
     this.#device = device
@@ -196,6 +221,7 @@ export class GpuGfx implements Gfx2D {
     this.#target = null as unknown as RenderTarget
     this.#textureManager = null as unknown as TextureManager
     this.#ctx = new GpuBatchContext(device, this.stats)
+    this.#ctx.vectorQuality = opts.vectorQuality ?? new VectorQuality()
     this.#ctx.registerProgram(this.#coloredTri)
     this.#ctx.registerProgram(this.#stroke)
     this.#ctx.registerProgram(this.#shape)
@@ -447,6 +473,7 @@ export class GpuGfx implements Gfx2D {
     this.stats.sdfInstances = 0
     this.stats.strokeInstances = 0
     this.stats.roundRectInstances = 0
+    this.stats.shadowInstances = 0
     this.#updateProjection(this.#targetWidth, this.#targetHeight)
     this.#ctx.stateStack.resetBase()
     this.#ctx.txStack.setBase(1, 0, 0, 1, 0, 0)
@@ -797,8 +824,8 @@ export class GpuGfx implements Gfx2D {
 
   // --- Gfx2D: fills --------------------------------------------------------
 
-  fillRect(x: number, y: number, w: number, h: number, color: string): void {
-    this.#coloredTri.fillRect(this.#ctx, x, y, w, h, color)
+  fillRect(x: number, y: number, w: number, h: number, fill: GfxFill): void {
+    this.#coloredTri.fillRect(this.#ctx, x, y, w, h, fill)
     if (this.#ctx.curDebugMode === 'polygons') {
       // Rect corners CCW starting from A. `emitDebugPolygonOutline`
       // handles the closing edge.
@@ -807,8 +834,8 @@ export class GpuGfx implements Gfx2D {
     }
   }
 
-  fillCircle(cx: number, cy: number, r: number, color: string): void {
-    this.#shape.fillCircle(this.#ctx, cx, cy, r, color)
+  fillCircle(cx: number, cy: number, r: number, fill: GfxFill): void {
+    this.#shape.fillCircle(this.#ctx, cx, cy, r, fill)
   }
 
   fillRoundRect(
@@ -817,10 +844,10 @@ export class GpuGfx implements Gfx2D {
     w: number,
     h: number,
     radii: RoundRectRadii,
-    color: string,
+    fill: GfxFill,
   ): void {
     const rr = resolveRadii(radii, w, h)
-    this.#shape.fillRoundRect(this.#ctx, x, y, w, h, rr, color)
+    this.#shape.fillRoundRect(this.#ctx, x, y, w, h, rr, fill)
   }
 
   strokeRoundRect(
@@ -832,17 +859,49 @@ export class GpuGfx implements Gfx2D {
     style: GfxStrokeStyle,
   ): void {
     const rr = resolveRadii(radii, w, h)
-    this.#shape.strokeRoundRect(this.#ctx, x, y, w, h, rr, style)
+    const color = this.#flattenStrokeColor(style.color)
+    this.#shape.strokeRoundRect(this.#ctx, x, y, w, h, rr, { ...style, color })
   }
 
-  fillConvexPoly(pts: ArrayLike<number>, count: number, color: string): void {
-    this.#coloredTri.fillConvexPoly(this.#ctx, pts, count, color)
+  fillAndStrokeRoundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: RoundRectRadii,
+    fill: GfxFill,
+    style: GfxStrokeStyle,
+  ): void {
+    const rr = resolveRadii(radii, w, h)
+    const color = this.#flattenStrokeColor(style.color)
+    this.#shape.fillAndStrokeRoundRect(this.#ctx, x, y, w, h, rr, fill, {
+      ...style,
+      color,
+    })
+  }
+
+  fillAndStrokeCircle(
+    cx: number,
+    cy: number,
+    r: number,
+    fill: GfxFill,
+    style: GfxStrokeStyle,
+  ): void {
+    const color = this.#flattenStrokeColor(style.color)
+    this.#shape.fillAndStrokeCircle(this.#ctx, cx, cy, r, fill, {
+      ...style,
+      color,
+    })
+  }
+
+  fillConvexPoly(pts: ArrayLike<number>, count: number, fill: GfxFill): void {
+    this.#coloredTri.fillConvexPoly(this.#ctx, pts, count, fill)
     if (this.#ctx.curDebugMode === 'polygons') {
       this.#emitDebugPolygonOutline(pts, count, true)
     }
   }
 
-  fillPath2D(path: Path2D, color: string): void {
+  fillPath2D(path: Path2D, fill: GfxFill): void {
     const geo = getPathTessellation(path)
     if (!geo) {
       // Direct-Path2D fallback. The triangulator needs the `d` string which
@@ -854,18 +913,21 @@ export class GpuGfx implements Gfx2D {
     }
     // Retained geometry GPU-transforms a once-uploaded static buffer, saving
     // the per-vertex CPU transform. The retained shader carries neither the
-    // bitmap clip mask's sampler nor the debug recolor, so those two fall back
-    // to the streamed path (identical pixels either way). The analytic clip is
-    // not one of them: the retained shader reads the same group-0 clip block,
-    // so `setClip` composes without giving up the fast path.
+    // bitmap clip mask's sampler, the debug recolor, nor a paint slot, so a
+    // bitmap clip, a non-normal debug mode, or a gradient fill all fall back
+    // to the streamed path (identical pixels either way, just a repeated
+    // per-vertex CPU transform). The analytic clip is not one of them: the
+    // retained shader reads the same group-0 clip block, so `setClip`
+    // composes without giving up the fast path.
     if (
+      typeof fill === 'string' &&
       geo.retained &&
       this.#ctx.stateStack.getClipMask() === null &&
       this.#ctx.curDebugMode === 'normal'
     ) {
-      this.#coloredTri.fillTessellationRetained(this.#ctx, geo, color)
+      this.#coloredTri.fillTessellationRetained(this.#ctx, geo, fill)
     } else {
-      this.#coloredTri.fillTessellation(this.#ctx, geo, color)
+      this.#coloredTri.fillTessellation(this.#ctx, geo, fill)
     }
     if (this.#ctx.curDebugMode === 'polygons') {
       // fillPath2D can render multiple sub-paths, walk the contour list
@@ -891,9 +953,11 @@ export class GpuGfx implements Gfx2D {
     stops: readonly GfxGradientStop[],
   ): void {
     if (r <= 0 || stops.length === 0) return
-    const lut = this.#textureManager.ensureStopsLut(stops)
-    if (!lut) return
-    const off = this.#gradientRadial.beginInstance(this.#ctx, lut)
+    const rampRow = this.#textureManager.ensureStopsRow(stops, () =>
+      this.#ctx.forceMidFrameSubmit(),
+    )
+    if (rampRow < 0) return
+    const off = this.#gradientRadial.beginInstance(this.#ctx)
     if (off < 0) return
     const slot = this.#ctx.curSlot
     this.#ctx.txStack.read(this.#ctx.txOut)
@@ -908,7 +972,7 @@ export class GpuGfx implements Gfx2D {
     f[off + 1] = dcy
     f[off + 2] = dr
     f[off + 3] = alpha
-    f[off + 4] = 0
+    f[off + 4] = rampRow
     f[off + 5] = 0
     this.#gradientRadial.commitInstance(slot)
   }
@@ -930,8 +994,10 @@ export class GpuGfx implements Gfx2D {
     // Axis-aligned assumption (same as drawImage): the background base
     // transform never rotates/skews.
     if (Math.abs(t.b) > 1e-9 || Math.abs(t.c) > 1e-9) return
-    const lut = this.#textureManager.ensureStopsLut(stops)
-    if (!lut) return
+    const rampRow = this.#textureManager.ensureStopsRow(stops, () =>
+      this.#ctx.forceMidFrameSubmit(),
+    )
+    if (rampRow < 0) return
     const entry = this.#textureManager.getOrCreateEntry(mask)
     if (entry === null) return
     let tex: Texture
@@ -950,7 +1016,7 @@ export class GpuGfx implements Gfx2D {
       u1 = 1
       v1 = 1
     }
-    const off = this.#maskedGradient.beginInstance(this.#ctx, tex, lut)
+    const off = this.#maskedGradient.beginInstance(this.#ctx, tex)
     if (off < 0) return
     const slot = this.#ctx.curSlot
     const dstX = t.a * dx + t.e
@@ -975,6 +1041,7 @@ export class GpuGfx implements Gfx2D {
     f[off + 9] = dcy
     f[off + 10] = dr
     f[off + 11] = alpha
+    f[off + 12] = rampRow
     this.#maskedGradient.commitInstance(slot)
   }
 
@@ -1004,10 +1071,50 @@ export class GpuGfx implements Gfx2D {
     }
   }
 
+  // --- Gfx2D: shadows --------------------------------------------------------
+
+  shadowRoundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: RoundRectRadii,
+    style: GfxShadowStyle,
+  ): void {
+    const rr = resolveRadii(radii, w, h)
+    this.#shape.shadowRoundRect(this.#ctx, x, y, w, h, rr, style)
+  }
+
+  shadowCircle(cx: number, cy: number, r: number, style: GfxShadowStyle): void {
+    this.#shape.shadowCircle(this.#ctx, cx, cy, r, style)
+  }
+
   // --- Gfx2D: strokes ------------------------------------------------------
 
+  /**
+   * A gradient stroke on a circle or round rect is not reachable in this
+   * version: `shape`'s paint slot (see `ShapeProgram`) serves the fill, and
+   * giving a second shape kind its own paint slot for the stroke is a
+   * follow-up, not something any caller needs yet. Falls back to the
+   * gradient's first stop as a flat color, which is a reasonable degraded
+   * look rather than a crash or a silently dropped stroke.
+   */
+  #flattenStrokeColor(color: GfxFill): string {
+    return typeof color === 'string' ? color : color.stops[0]?.color ?? '#000'
+  }
+
   strokeCircle(cx: number, cy: number, r: number, style: GfxStrokeStyle): void {
-    this.#shape.strokeCircle(this.#ctx, cx, cy, r, style)
+    const color = this.#flattenStrokeColor(style.color)
+    this.#shape.strokeCircle(this.#ctx, cx, cy, r, { ...style, color })
+  }
+
+  /** Whether `style` needs the outline tessellator rather than the segment stroker. */
+  #needsOutline(style: GfxStrokeStyle): boolean {
+    return (
+      (style.align !== undefined && style.align !== 'center') ||
+      style.exactJoins === true ||
+      typeof style.color !== 'string'
+    )
   }
 
   strokeLine(
@@ -1017,7 +1124,11 @@ export class GpuGfx implements Gfx2D {
     y1: number,
     style: GfxStrokeStyle,
   ): void {
-    this.#stroke.line(this.#ctx, x0, y0, x1, y1, style)
+    if (this.#needsOutline(style)) {
+      this.#strokeOutlineUncached([x0, y0, x1, y1], 2, false, style)
+      return
+    }
+    this.#stroke.line(this.#ctx, x0, y0, x1, y1, style as SolidStrokeStyle)
   }
 
   strokeQuadratic(
@@ -1029,15 +1140,45 @@ export class GpuGfx implements Gfx2D {
     y1: number,
     style: GfxStrokeStyle,
   ): void {
+    if (this.#needsOutline(style)) {
+      this.#ctx.txStack.read(this.#ctx.txOut)
+      const t = this.#ctx.txOut
+      const det = Math.abs(t.a * t.d - t.b * t.c)
+      const localTol = CURVE_FLATTEN_TOL_PX / (Math.sqrt(det) || 1)
+      const buf = new Float32Array(CURVE_FLATTEN_MAX_POINTS * 2)
+      buf[0] = x0
+      buf[1] = y0
+      const cursor = flattenQuadratic(x0, y0, cx, cy, x1, y1, localTol, buf, 2)
+      this.#strokeOutlineUncached(buf, cursor / 2, false, style)
+      return
+    }
     // Flattening turns one curve into many collinear segments, so a translucent
     // quadratic beads at every one of them. Segment count is not known until
     // the flattener runs, and a curve always has more than one.
-    if (!this.#strokeNeedsStencil(style, 2)) {
-      this.#stroke.quadratic(this.#ctx, x0, y0, cx, cy, x1, y1, style)
+    if (!this.#strokeNeedsStencil(style as SolidStrokeStyle, 2)) {
+      this.#stroke.quadratic(
+        this.#ctx,
+        x0,
+        y0,
+        cx,
+        cy,
+        x1,
+        y1,
+        style as SolidStrokeStyle,
+      )
       return
     }
     this.#ctx.beginStencilGroup()
-    this.#stroke.quadratic(this.#ctx, x0, y0, cx, cy, x1, y1, style)
+    this.#stroke.quadratic(
+      this.#ctx,
+      x0,
+      y0,
+      cx,
+      cy,
+      x1,
+      y1,
+      style as SolidStrokeStyle,
+    )
     this.#ctx.endStencilGroup()
   }
 
@@ -1050,10 +1191,52 @@ export class GpuGfx implements Gfx2D {
    * fully batched path. A single segment has no interior join and so cannot
    * overlap itself either.
    */
-  #strokeNeedsStencil(style: GfxStrokeStyle, segments: number): boolean {
+  #strokeNeedsStencil(style: SolidStrokeStyle, segments: number): boolean {
     if (segments < 2 || !this.#target.hasStencil) return false
     const alpha = this.#ctx.stateStack.getAlpha() * parseColor(style.color).a
     return alpha < 1
+  }
+
+  /** Current transform's per-axis device scale, for the outline tessellator. */
+  #outlineScale(): { scaleX: number; scaleY: number; scale: number } {
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const scaleX = Math.hypot(t.a, t.b)
+    const scaleY = Math.hypot(t.c, t.d)
+    return { scaleX, scaleY, scale: Math.sqrt(Math.abs(t.a * t.d - t.b * t.c)) }
+  }
+
+  /**
+   * Tessellate and draw a stroke outline with no caching: `strokePolyline`'s
+   * `pts` has no stable identity to key by (the caller mutates its buffer
+   * every frame), and `strokeLine`/`strokeQuadratic` are cheap one-or-few
+   * segment shapes where a cache would cost more than it saves.
+   */
+  #strokeOutlineUncached(
+    pts: ArrayLike<number>,
+    count: number,
+    closed: boolean,
+    style: GfxStrokeStyle,
+  ): void {
+    if (count < 2 || style.width <= 0) return
+    const { scaleX, scaleY, scale } = this.#outlineScale()
+    const buf = new StrokeOutlineBuffer()
+    strokeOutline(
+      pts,
+      count,
+      {
+        width: style.width,
+        align: style.align ?? 'center',
+        join: style.join ?? 'miter',
+        cap: style.cap ?? 'round',
+        miterLimit: style.miterLimit ?? DEFAULT_MITER_LIMIT,
+        closed,
+        fringeScale: { x: scaleX, y: scaleY },
+        scale,
+      },
+      buf,
+    )
+    this.#coloredTri.fillOutlineTessellation(this.#ctx, buf, style.color)
   }
 
   strokePolyline(
@@ -1061,16 +1244,75 @@ export class GpuGfx implements Gfx2D {
     count: number,
     style: GfxStrokeStyle,
   ): void {
+    if (this.#needsOutline(style)) {
+      this.#strokeOutlineUncached(pts, count, style.closed === true, style)
+      return
+    }
     // A closed polyline joins back to its first point, so it has one more
     // segment than an open one.
     const segments = style.closed === true ? count : count - 1
-    if (!this.#strokeNeedsStencil(style, segments)) {
-      this.#stroke.polyline(this.#ctx, pts, count, style)
+    const solidStyle = style as SolidStrokeStyle
+    if (!this.#strokeNeedsStencil(solidStyle, segments)) {
+      this.#stroke.polyline(this.#ctx, pts, count, solidStyle)
       return
     }
     this.#ctx.beginStencilGroup()
-    this.#stroke.polyline(this.#ctx, pts, count, style)
+    this.#stroke.polyline(this.#ctx, pts, count, solidStyle)
     this.#ctx.endStencilGroup()
+  }
+
+  /**
+   * Tessellate (or reuse the cached tessellation of) one contour's stroke
+   * outline. Keyed by the style signature, the half-octave scale and
+   * anisotropy buckets, and the path's registration epoch, so a re-parse at
+   * a new tolerance can't serve triangles built from stale contours.
+   * `dash` is not supported on the outline path and is ignored here: no
+   * caller combines it with a gradient color, a non-center alignment, or
+   * `exactJoins` today.
+   */
+  #strokeOutlineCached(
+    path: Path2D,
+    contourIndex: number,
+    pts: Float32Array,
+    closed: boolean,
+    style: GfxStrokeStyle,
+  ): void {
+    if (pts.length < 4 || style.width <= 0) return
+    const { scaleX, scaleY } = this.#outlineScale()
+    const uniformScale = Math.sqrt(scaleX * scaleY)
+    const anisotropy = scaleY > 0 ? scaleX / scaleY : 1
+    const scaleBucket = scaleBucketIndex(uniformScale)
+    const anisoBucket = scaleBucketIndex(anisotropy)
+    const align = style.align ?? 'center'
+    const join = style.join ?? 'miter'
+    const cap = style.cap ?? 'round'
+    const miterLimit = style.miterLimit ?? DEFAULT_MITER_LIMIT
+    const key = `${style.width}|${align}|${join}|${cap}|${miterLimit}|${closed}|${scaleBucket}|${anisoBucket}|${getRegistrationEpoch(path)}|${contourIndex}`
+    let buf = getCachedOutline(path, key)
+    if (!buf) {
+      const uniformCenter = scaleBucketCenter(scaleBucket)
+      const anisoCenter = scaleBucketCenter(anisoBucket)
+      const bucketScaleX = uniformCenter * Math.sqrt(anisoCenter)
+      const bucketScaleY = uniformCenter / Math.sqrt(anisoCenter)
+      buf = new StrokeOutlineBuffer()
+      strokeOutline(
+        pts,
+        pts.length / 2,
+        {
+          width: style.width,
+          align,
+          join,
+          cap,
+          miterLimit,
+          closed,
+          fringeScale: { x: bucketScaleX, y: bucketScaleY },
+          scale: uniformCenter,
+        },
+        buf,
+      )
+      setCachedOutline(path, key, buf)
+    }
+    this.#coloredTri.fillOutlineTessellation(this.#ctx, buf, style.color)
   }
 
   strokePath2D(path: Path2D, style: GfxStrokeStyle): void {
@@ -1083,6 +1325,14 @@ export class GpuGfx implements Gfx2D {
       this.unimplemented.strokePath2D++
       return
     }
+    if (this.#needsOutline(style)) {
+      for (let i = 0; i < contours.length; i++) {
+        const c = contours[i]
+        if (c.length / 2 < 2) continue
+        this.#strokeOutlineCached(path, i, c, getContourClosed(path, i), style)
+      }
+      return
+    }
     // Total across every contour, counted first: the whole path is one stroke
     // and so one stencil group, and a path holding a single segment needs no
     // group at all.
@@ -1092,14 +1342,15 @@ export class GpuGfx implements Gfx2D {
       if (count < 2) continue
       segments += getContourClosed(path, i) ? count : count - 1
     }
-    const stencil = this.#strokeNeedsStencil(style, segments)
+    const solidStyle = style as SolidStrokeStyle
+    const stencil = this.#strokeNeedsStencil(solidStyle, segments)
     if (stencil) this.#ctx.beginStencilGroup()
     for (let i = 0; i < contours.length; i++) {
       const c = contours[i]
       const count = c.length / 2
       if (count < 2) continue
       const closed = getContourClosed(path, i)
-      const perContourStyle: GfxStrokeStyle = { ...style, closed }
+      const perContourStyle: SolidStrokeStyle = { ...solidStyle, closed }
       this.#stroke.polyline(this.#ctx, c, count, perContourStyle)
     }
     if (stencil) this.#ctx.endStencilGroup()

@@ -340,9 +340,9 @@ describe('MeshRenderer', () => {
     expect(device.shadowCubeFaceBegins).toEqual([0, 1, 2, 3, 4, 5])
   })
 
-  it('skips the shadow pass when quality.shadowsEnabled is off', async () => {
+  it('skips the shadow pass when quality.meshShadowsEnabled is off', async () => {
     const device = new MockGfxDevice()
-    const quality = new RenderQuality({ shadowsEnabled: false })
+    const quality = new RenderQuality({ meshShadowsEnabled: false })
     const renderer = new MeshRenderer(device, TARGET, quality)
     await untilReady(renderer)
     const world = new SceneTree(new Node3D('world3d-root'))

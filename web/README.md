@@ -27,7 +27,7 @@ Engine-wide:
 
 | Param | Values | Effect |
 | --- | --- | --- |
-| `?display=<id>` | `arcade`, `stallwaechter` | Which display to boot. |
+| `?display=<id>` | `arcade`, `enterprise` | Which display to boot. |
 | `?debug=` | `hud`, `perf` | Opens the debug overlay. |
 | `?msaa=` | `0`, `2`, `4`, `8` | Multisample count, default 4. |
 | `?gfx=` | `webgpu`, `webgl2` | Forces a backend instead of picking one. |

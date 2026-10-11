@@ -5,7 +5,7 @@ describe('RenderQuality', () => {
   it('defaults to sensible values', () => {
     const q = new RenderQuality()
     expect(q.shadowMapSize).toBe(1024)
-    expect(q.shadowsEnabled).toBe(true)
+    expect(q.meshShadowsEnabled).toBe(true)
     expect(q.anisotropy).toBe(8)
     expect(q.shadowSoftness).toBe(4)
     expect(q.revision).toBe(0)
@@ -36,18 +36,18 @@ describe('RenderQuality', () => {
     expect(r).toBeGreaterThan(0)
     q.shadowMapSize = 2048 // same
     expect(q.revision).toBe(r)
-    q.shadowsEnabled = false
+    q.meshShadowsEnabled = false
     expect(q.revision).toBe(r + 1)
   })
 
   it('applies construction options', () => {
     const q = new RenderQuality({
       shadowMapSize: 4096,
-      shadowsEnabled: false,
+      meshShadowsEnabled: false,
       anisotropy: 4,
     })
     expect(q.shadowMapSize).toBe(4096)
-    expect(q.shadowsEnabled).toBe(false)
+    expect(q.meshShadowsEnabled).toBe(false)
     expect(q.anisotropy).toBe(4)
     expect(q.revision).toBe(0)
   })

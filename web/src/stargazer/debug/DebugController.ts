@@ -112,6 +112,8 @@ export interface DebugGpuStatsReadout {
   sdfInstances: number
   strokeInstances: number
   roundRectInstances: number
+  /** Analytic drop-shadow instances this frame (`ShapeNode`'s `shadow`). */
+  shadowInstances: number
   /** Effective MSAA sample count on the offscreen render target. `1` = off. */
   msaaSamples: number
 }

@@ -1,15 +1,18 @@
 // Pure CPU-side packing helpers shared by the GPU draw programs: CSS color →
-// premultiplied unorm8×4, dash resolution, and vertex writers.
+// premultiplied unorm8×4, dash resolution, vertex writers, and paint
+// resolution (the one place that tells a flat color from a gradient).
 
 import { parseColor, type RGBA } from './parseColor'
+import type { GfxFill, GfxLinearGradient } from './Gfx2D'
 
 /**
- * Parse a CSS color and pack it into a little-endian premultiplied `unorm8×4`
- * (byte 0 = R … byte 3 = A), folding `alpha` (the current draw alpha) into the
- * result. WebGL's `UNSIGNED_BYTE` reader consumes the bytes in memory order.
+ * Pack an already-parsed color into a little-endian premultiplied `unorm8×4`
+ * (byte 0 = R … byte 3 = A), folding `alpha` (the current draw alpha, times
+ * anything else the caller wants to fold in, e.g. a fringe vertex's
+ * coverage) into the result. WebGL's `UNSIGNED_BYTE` reader consumes the
+ * bytes in memory order.
  */
-export function packColor(css: string, alpha: number): number {
-  const rgba = parseColor(css)
+export function packRgba(rgba: RGBA, alpha: number): number {
   const a01 = alpha * rgba.a
   const r = Math.max(0, Math.min(255, Math.round(rgba.r * a01 * 255)))
   const g = Math.max(0, Math.min(255, Math.round(rgba.g * a01 * 255)))
@@ -18,8 +21,55 @@ export function packColor(css: string, alpha: number): number {
   return (a << 24) | (b << 16) | (g << 8) | r
 }
 
+/** Parse a CSS color and pack it, see {@link packRgba}. */
+export function packColor(css: string, alpha: number): number {
+  return packRgba(parseColor(css), alpha)
+}
+
 export function rgbaTuple(c: RGBA): readonly [number, number, number, number] {
   return [c.r, c.g, c.b, c.a]
+}
+
+/** A fill resolved to what it actually is. The one place that discriminates. */
+export type ResolvedPaint =
+  | { kind: 'solid'; packedColor: number }
+  | { kind: 'gradient'; paint: GfxLinearGradient }
+
+/**
+ * Tell a flat color from a gradient paint. `alpha` (the current draw alpha)
+ * folds into `packedColor` for the solid case; a gradient's stops carry their
+ * own alpha already, so the caller applies `alpha` separately as a per-run
+ * multiplier (the ramp can't bake it: the atlas row is shared by content, not
+ * by caller).
+ */
+export function resolvePaint(fill: GfxFill, alpha: number): ResolvedPaint {
+  if (typeof fill === 'string') {
+    return { kind: 'solid', packedColor: packColor(fill, alpha) }
+  }
+  return { kind: 'gradient', paint: fill }
+}
+
+/**
+ * Device-space axis projection for a linear gradient (WebRender's
+ * formulation): `t` at device-px fragment position `p` is
+ * `clamp(dot(p, scaleDir) - startOffset, 0, 1)`. `x0,y0,x1,y1` must already
+ * be in device px (the caller transforms the gradient's local endpoints the
+ * same way it transforms the geometry).
+ */
+export function gradientAxis(
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+): { scaleDirX: number; scaleDirY: number; startOffset: number } {
+  const dx = x1 - x0
+  const dy = y1 - y0
+  const len2 = dx * dx + dy * dy
+  const invLen2 = len2 > 0 ? 1 / len2 : 0
+  const scaleDirX = dx * invLen2
+  const scaleDirY = dy * invLen2
+  const startOffset = x0 * scaleDirX + y0 * scaleDirY
+  return { scaleDirX, scaleDirY, startOffset }
 }
 
 /**

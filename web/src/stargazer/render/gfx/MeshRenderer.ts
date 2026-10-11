@@ -796,7 +796,7 @@ export class MeshRenderer {
    */
   renderShadows(root: Node): void {
     this.#shadowByLight.clear()
-    if (!this.#ready || !this.#quality.shadowsEnabled) return
+    if (!this.#ready || !this.#quality.meshShadowsEnabled) return
     const size = this.#quality.shadowMapSize
     if (size !== this.#shadowResolution) {
       if (this.#shadowArray) this.#device.deleteShadowArray(this.#shadowArray)

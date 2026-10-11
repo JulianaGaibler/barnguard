@@ -1,0 +1,15 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 6,
+      "glslName": "Params_block_0Fragment"
+    }
+  ],
+  "samplers": [
+    {
+      "binding": 0,
+      "glslName": "_group_0_binding_0_fs"
+    }
+  ]
+}

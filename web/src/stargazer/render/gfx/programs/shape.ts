@@ -8,16 +8,17 @@
 // A per-source image or an oversized dedicated label has its own texture, which
 // this program does not bind, so `GpuGfx` routes those to the textQuad program.
 
-import type { GfxStrokeStyle } from '../Gfx2D'
+import type { GfxFill, GfxShadowStyle, SolidStrokeStyle } from '../Gfx2D'
 import type { ResolvedRadii } from '../roundRectRadii'
 import { RingStream } from '../RingStream'
-import { packColor, resolveDash } from '../packing'
+import { gradientAxis, packColor, resolveDash, resolvePaint } from '../packing'
 import {
   LOC_SHAPE_COLORFILL,
   LOC_SHAPE_COLORSTROKE,
   LOC_SHAPE_MCOL0,
   LOC_SHAPE_MCOL1,
   LOC_SHAPE_MTRANSLATE,
+  LOC_SHAPE_PAINT,
   LOC_SHAPE_PARAMS,
   LOC_SHAPE_RADII,
   LOC_SHAPE_KIND,
@@ -27,6 +28,7 @@ import {
   SHAPE_INSTANCE_STRIDE,
   SHAPE_KIND_CIRCLE,
   SHAPE_KIND_ROUNDRECT,
+  SHAPE_KIND_SHADOW,
   SHAPE_KIND_TEXTURED,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
@@ -46,12 +48,13 @@ import {
   warmupBlendPipelines,
 } from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
+import type { TransformOut } from '../TransformStack'
 import shapeWgsl from '../shaders/shape.wgsl?raw'
 import shapeVertSrc from '../shaders/shape.gen.vert.glsl?raw'
 import shapeFragSrc from '../shaders/shape.gen.frag.glsl?raw'
 import shapeReflect from '../shaders/shape.reflect.json'
 
-/** Word offsets into the 24-word shape instance record. */
+/** Word offsets into the 28-word shape instance record. */
 const W_MCOL0 = 0
 const W_MCOL1 = 2
 const W_TRANSLATE = 4
@@ -61,6 +64,27 @@ const W_RADII = 14
 const W_SRCRECT = 18
 const W_COLORFILL = 22
 const W_COLORSTROKE = 23
+const W_PAINT = 24 // fill gradient: (scaleDirX, scaleDirY, startOffset, rampRow + 1)
+
+/**
+ * `style.align` resolved to a signed `strokeOffset` (0 center, `-width/2`
+ * inside, `+width/2` outside), clamped so an inside stroke wider than the
+ * box can't push past its center and invert the band.
+ */
+function strokeOffsetFor(
+  style: SolidStrokeStyle,
+  w: number,
+  h: number,
+): number {
+  const maxOffset = Math.max(0, Math.min(w, h) * 0.5 - 1e-3)
+  const raw =
+    style.align === 'inside'
+      ? -style.width * 0.5
+      : style.align === 'outside'
+        ? style.width * 0.5
+        : 0
+  return Math.max(-maxOffset, Math.min(maxOffset, raw))
+}
 
 export class ShapeProgram implements GpuProgram {
   readonly kind = 'shape' as const
@@ -70,8 +94,11 @@ export class ShapeProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
-  /** (atlas → (label → bind group)), the fixed atlas + label page textures. */
-  #bindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
+  /** (atlas → (label → (ramp atlas → bind group))), the fixed textures this program binds. */
+  #bindGroups = new WeakMap<
+    Texture,
+    WeakMap<Texture, WeakMap<Texture, BindGroup>>
+  >()
 
   get stream(): RingStream {
     return this.#stream
@@ -97,6 +124,7 @@ export class ShapeProgram implements GpuProgram {
     this.#materialLayout = device.createBindGroupLayout([
       { binding: 0, type: 'texture-2d' },
       { binding: 1, type: 'texture-2d' },
+      { binding: 2, type: 'texture-2d' },
     ])
     this.#bindGroups = new WeakMap()
     const s = SHAPE_INSTANCE_STRIDE
@@ -115,6 +143,7 @@ export class ShapeProgram implements GpuProgram {
           { location: LOC_SHAPE_SRCRECT, format: 'float32x4', offset: 72 },
           { location: LOC_SHAPE_COLORFILL, format: 'unorm8x4', offset: 88 },
           { location: LOC_SHAPE_COLORSTROKE, format: 'unorm8x4', offset: 92 },
+          { location: LOC_SHAPE_PAINT, format: 'float32x4', offset: 96 },
         ],
       },
     ]
@@ -129,11 +158,15 @@ export class ShapeProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
-    // Fixed-unit textures: atlas on 0, label page on 1. Non-textured shapes
-    // ignore them. A placeholder fills a slot before its texture exists.
+    // Fixed-unit textures: atlas on 0, label page on 1, ramp atlas on 2.
+    // Non-textured shapes ignore the first two; a shape with no gradient
+    // ignores the third. A placeholder fills a slot before its texture
+    // exists.
     const atlas = ctx.textureManager.getAtlasTexture() ?? ctx.placeholderTexture
     const label =
       ctx.textureManager.getLabelPageTexture() ?? ctx.placeholderTexture
+    const ramp =
+      ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
     drawInstancedRun(
       ctx,
       this.#pipelines,
@@ -141,7 +174,7 @@ export class ShapeProgram implements GpuProgram {
       this.#stream,
       SHAPE_INSTANCE_STRIDE,
       run,
-      this.#bindGroupFor(ctx, atlas, label),
+      this.#bindGroupFor(ctx, atlas, label, ramp),
     )
   }
 
@@ -149,19 +182,26 @@ export class ShapeProgram implements GpuProgram {
     ctx: GpuBatchContext,
     atlas: Texture,
     label: Texture,
+    ramp: Texture,
   ): BindGroup {
     let byLabel = this.#bindGroups.get(atlas)
     if (!byLabel) {
       byLabel = new WeakMap()
       this.#bindGroups.set(atlas, byLabel)
     }
-    let bg = byLabel.get(label)
+    let byRamp = byLabel.get(label)
+    if (!byRamp) {
+      byRamp = new WeakMap()
+      byLabel.set(label, byRamp)
+    }
+    let bg = byRamp.get(ramp)
     if (!bg) {
       bg = ctx.device.createBindGroup(this.#materialLayout, [
         { binding: 0, resource: { texture: atlas } },
         { binding: 1, resource: { texture: label } },
+        { binding: 2, resource: { texture: ramp } },
       ])
-      byLabel.set(label, bg)
+      byRamp.set(ramp, bg)
     }
     return bg
   }
@@ -169,6 +209,44 @@ export class ShapeProgram implements GpuProgram {
   #reserve(ctx: GpuBatchContext): number {
     ctx.beginBatch('shape')
     return ctx.reserveInstance(this.#stream)
+  }
+
+  /**
+   * Resolve `fill` against the already-read current transform `t`: a packed
+   * fill color plus the four `a_paint` words (zero when solid, so a
+   * §2.2-zeroed record reads as "no gradient"). `null` only when a gradient
+   * needs a ramp row and the atlas cannot give it (headless, no 2D context);
+   * the caller should then skip the draw rather than fill with garbage.
+   */
+  #resolveFillPaint(
+    ctx: GpuBatchContext,
+    fill: GfxFill,
+    t: TransformOut,
+  ): { packedFill: number; paint: [number, number, number, number] } | null {
+    const alpha = ctx.stateStack.getAlpha()
+    const resolved = resolvePaint(fill, alpha)
+    if (resolved.kind === 'solid') {
+      return { packedFill: resolved.packedColor, paint: [0, 0, 0, 0] }
+    }
+    const g = resolved.paint
+    const rampRow = ctx.textureManager.ensureStopsRow(g.stops, () =>
+      ctx.forceMidFrameSubmit(),
+    )
+    if (rampRow < 0) return null
+    const dx0 = t.a * g.x0 + t.c * g.y0 + t.e
+    const dy0 = t.b * g.x0 + t.d * g.y0 + t.f
+    const dx1 = t.a * g.x1 + t.c * g.y1 + t.e
+    const dy1 = t.b * g.x1 + t.d * g.y1 + t.f
+    const axis = gradientAxis(dx0, dy0, dx1, dy1)
+    // Alpha-only: rgb is unused in gradient mode (the fragment samples the
+    // ramp instead), so the draw's own alpha rides in this channel rather
+    // than needing a separate per-instance opacity field.
+    const packedFill =
+      (Math.max(0, Math.min(255, Math.round(alpha * 255))) << 24) >>> 0
+    return {
+      packedFill,
+      paint: [axis.scaleDirX, axis.scaleDirY, axis.startOffset, rampRow + 1],
+    }
   }
 
   // --- high-level emitters (CPU-side transform math → shape records) --------
@@ -179,11 +257,13 @@ export class ShapeProgram implements GpuProgram {
     cx: number,
     cy: number,
     r: number,
-    color: string,
+    fill: GfxFill,
   ): void {
     if (r <= 0) return
     ctx.txStack.read(ctx.txOut)
     const t = ctx.txOut
+    const resolved = this.#resolveFillPaint(ctx, fill, t)
+    if (!resolved) return
     const dcx = t.a * cx + t.c * cy + t.e
     const dcy = t.b * cx + t.d * cy + t.f
     const det = Math.abs(t.a * t.d - t.b * t.c)
@@ -194,10 +274,11 @@ export class ShapeProgram implements GpuProgram {
       dcy,
       dr,
       0,
-      packColor(color, ctx.stateStack.getAlpha()),
+      resolved.packedFill,
       0,
       0,
       0,
+      resolved.paint,
     )
   }
 
@@ -207,7 +288,7 @@ export class ShapeProgram implements GpuProgram {
     cx: number,
     cy: number,
     r: number,
-    style: GfxStrokeStyle,
+    style: SolidStrokeStyle,
   ): void {
     if (r <= 0 || style.width <= 0) return
     ctx.txStack.read(ctx.txOut)
@@ -229,6 +310,43 @@ export class ShapeProgram implements GpuProgram {
     )
   }
 
+  /**
+   * `fillCircle` + `strokeCircle` in one record, for a node that sets both:
+   * see `fillAndStrokeRoundRect`'s doc for why that matters for a
+   * translucent stroke.
+   */
+  fillAndStrokeCircle(
+    ctx: GpuBatchContext,
+    cx: number,
+    cy: number,
+    r: number,
+    fill: GfxFill,
+    style: SolidStrokeStyle,
+  ): void {
+    if (r <= 0) return
+    ctx.txStack.read(ctx.txOut)
+    const t = ctx.txOut
+    const resolved = this.#resolveFillPaint(ctx, fill, t)
+    if (!resolved) return
+    const dcx = t.a * cx + t.c * cy + t.e
+    const dcy = t.b * cx + t.d * cy + t.f
+    const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
+    const strokeWidth = style.width > 0 ? style.width * scale : 0
+    const dashInfo = strokeWidth > 0 ? resolveDash(style.dash) : null
+    this.circle(
+      ctx,
+      dcx,
+      dcy,
+      r * scale,
+      strokeWidth,
+      resolved.packedFill,
+      strokeWidth > 0 ? packColor(style.color, ctx.stateStack.getAlpha()) : 0,
+      dashInfo?.dashStart ?? 0,
+      dashInfo?.dashPeriod ?? 0,
+      resolved.paint,
+    )
+  }
+
   /** `Gfx2D.fillRoundRect` via the shape record (local extents + affine). */
   fillRoundRect(
     ctx: GpuBatchContext,
@@ -237,23 +355,18 @@ export class ShapeProgram implements GpuProgram {
     w: number,
     h: number,
     radii: ResolvedRadii,
-    color: string,
+    fill: GfxFill,
   ): void {
     if (w <= 0 || h <= 0) return
-    this.#roundRectRecord(
-      ctx,
-      x,
-      y,
-      w,
-      h,
-      radii,
-      0,
-      packColor(color, ctx.stateStack.getAlpha()),
-      0,
-    )
+    this.#roundRectRecord(ctx, x, y, w, h, radii, 0, 0, fill, 0)
   }
 
-  /** `Gfx2D.strokeRoundRect` via the shape record. */
+  /**
+   * `Gfx2D.strokeRoundRect` via the shape record. `style.align` becomes a
+   * per-instance `strokeOffset` (0 center, `-width/2` inside, `+width/2`
+   * outside), clamped so an inside stroke wider than the box can't invert
+   * the band.
+   */
   strokeRoundRect(
     ctx: GpuBatchContext,
     x: number,
@@ -261,7 +374,7 @@ export class ShapeProgram implements GpuProgram {
     w: number,
     h: number,
     radii: ResolvedRadii,
-    style: GfxStrokeStyle,
+    style: SolidStrokeStyle,
   ): void {
     if (w <= 0 || h <= 0 || style.width <= 0) return
     this.#roundRectRecord(
@@ -272,8 +385,41 @@ export class ShapeProgram implements GpuProgram {
       h,
       radii,
       style.width,
-      0,
+      strokeOffsetFor(style, w, h),
+      null,
       packColor(style.color, ctx.stateStack.getAlpha()),
+    )
+  }
+
+  /**
+   * `fillRoundRect` + `strokeRoundRect` in one record, for a node that sets
+   * both: the shader composites fill under stroke in one fragment only when
+   * they share an instance, otherwise a translucent stroke's own AA ramp
+   * double-blends against the separately-drawn fill underneath it.
+   */
+  fillAndStrokeRoundRect(
+    ctx: GpuBatchContext,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: ResolvedRadii,
+    fill: GfxFill,
+    style: SolidStrokeStyle,
+  ): void {
+    if (w <= 0 || h <= 0) return
+    const strokeWidth = style.width > 0 ? style.width : 0
+    this.#roundRectRecord(
+      ctx,
+      x,
+      y,
+      w,
+      h,
+      radii,
+      strokeWidth,
+      strokeWidth > 0 ? strokeOffsetFor(style, w, h) : 0,
+      fill,
+      strokeWidth > 0 ? packColor(style.color, ctx.stateStack.getAlpha()) : 0,
     )
   }
 
@@ -285,11 +431,20 @@ export class ShapeProgram implements GpuProgram {
     h: number,
     radii: ResolvedRadii,
     strokeWidth: number,
-    packedFill: number,
+    strokeOffset: number,
+    fill: GfxFill | null,
     packedStroke: number,
   ): void {
     ctx.txStack.read(ctx.txOut)
     const t = ctx.txOut
+    let packedFill = 0
+    let paint: [number, number, number, number] = [0, 0, 0, 0]
+    if (fill !== null) {
+      const resolved = this.#resolveFillPaint(ctx, fill, t)
+      if (!resolved) return
+      packedFill = resolved.packedFill
+      paint = resolved.paint
+    }
     const cx = x + w * 0.5
     const cy = y + h * 0.5
     const tx = t.a * cx + t.c * cy + t.e
@@ -309,9 +464,11 @@ export class ShapeProgram implements GpuProgram {
       h * 0.5,
       feather,
       strokeWidth,
+      strokeOffset,
       radii,
       packedFill,
       packedStroke,
+      paint,
     )
   }
 
@@ -329,20 +486,43 @@ export class ShapeProgram implements GpuProgram {
     packedStroke: number,
     dashStart: number,
     dashPeriod: number,
+    paint: readonly [number, number, number, number] = [0, 0, 0, 0],
   ): void {
     const off = this.#reserve(ctx)
     if (off < 0) return
     const f = this.#stream.floatView
     const u = this.#stream.uintView
+    // Every word of the record is written, including the ones this kind does
+    // not use. `RingStream` never clears a slice between frames, so a word
+    // left stale here is a previous frame's data for a kind that reads it.
+    f[off + W_MCOL0] = 0
+    f[off + W_MCOL0 + 1] = 0
+    f[off + W_MCOL1] = 0
+    f[off + W_MCOL1 + 1] = 0
     f[off + W_TRANSLATE] = dcx
     f[off + W_TRANSLATE + 1] = dcy
     f[off + W_SHAPE] = SHAPE_KIND_CIRCLE
+    f[off + W_SHAPE + 1] = 0
+    f[off + W_SHAPE + 2] = 0
+    f[off + W_SHAPE + 3] = 0
     f[off + W_PARAMS] = radius
     f[off + W_PARAMS + 1] = strokeWidth
     f[off + W_PARAMS + 2] = dashStart
     f[off + W_PARAMS + 3] = dashPeriod
+    f[off + W_RADII] = 0
+    f[off + W_RADII + 1] = 0
+    f[off + W_RADII + 2] = 0
+    f[off + W_RADII + 3] = 0
+    f[off + W_SRCRECT] = 0
+    f[off + W_SRCRECT + 1] = 0
+    f[off + W_SRCRECT + 2] = 0
+    f[off + W_SRCRECT + 3] = 0
     u[off + W_COLORFILL] = packedFill >>> 0
     u[off + W_COLORSTROKE] = packedStroke >>> 0
+    f[off + W_PAINT] = paint[0]
+    f[off + W_PAINT + 1] = paint[1]
+    f[off + W_PAINT + 2] = paint[2]
+    f[off + W_PAINT + 3] = paint[3]
     this.#stream.commitInstance(ctx.curSlot)
     ctx.stats.sdfInstances++
   }
@@ -363,9 +543,11 @@ export class ShapeProgram implements GpuProgram {
     halfH: number,
     feather: number,
     strokeWidth: number,
+    strokeOffset: number,
     radii: ResolvedRadii,
     packedFill: number,
     packedStroke: number,
+    paint: readonly [number, number, number, number] = [0, 0, 0, 0],
   ): void {
     const off = this.#reserve(ctx)
     if (off < 0) return
@@ -379,15 +561,26 @@ export class ShapeProgram implements GpuProgram {
     f[off + W_TRANSLATE + 1] = ty
     f[off + W_SHAPE] = SHAPE_KIND_ROUNDRECT
     f[off + W_SHAPE + 1] = feather
+    f[off + W_SHAPE + 2] = 0
+    f[off + W_SHAPE + 3] = 0
     f[off + W_PARAMS] = halfW
     f[off + W_PARAMS + 1] = halfH
     f[off + W_PARAMS + 2] = strokeWidth
+    f[off + W_PARAMS + 3] = strokeOffset
     f[off + W_RADII] = radii[0]
     f[off + W_RADII + 1] = radii[1]
     f[off + W_RADII + 2] = radii[2]
     f[off + W_RADII + 3] = radii[3]
+    f[off + W_SRCRECT] = 0
+    f[off + W_SRCRECT + 1] = 0
+    f[off + W_SRCRECT + 2] = 0
+    f[off + W_SRCRECT + 3] = 0
     u[off + W_COLORFILL] = packedFill >>> 0
     u[off + W_COLORSTROKE] = packedStroke >>> 0
+    f[off + W_PAINT] = paint[0]
+    f[off + W_PAINT + 1] = paint[1]
+    f[off + W_PAINT + 2] = paint[2]
+    f[off + W_PAINT + 3] = paint[3]
     this.#stream.commitInstance(ctx.curSlot)
     ctx.stats.roundRectInstances++
   }
@@ -430,6 +623,189 @@ export class ShapeProgram implements GpuProgram {
     f[off + W_SRCRECT + 2] = u1
     f[off + W_SRCRECT + 3] = v1
     u[off + W_COLORFILL] = packedTint >>> 0
+    // The fragment stage's gradient sample reads a_paint unconditionally
+    // (same reason the atlas/label textures are sampled unconditionally:
+    // shapeType is a per-instance varying, not uniform control flow), even
+    // though a textured instance's output never factors it in. Zero it per
+    // the §2.2 discipline rather than relying on that being true forever.
+    f[off + W_PAINT] = 0
+    f[off + W_PAINT + 1] = 0
+    f[off + W_PAINT + 2] = 0
+    f[off + W_PAINT + 3] = 0
     this.#stream.commitInstance(ctx.curSlot)
+  }
+
+  /**
+   * A drop shadow for a rounded rect's (or, via uniform radii, a circle's)
+   * border box. `affine` is the local→device columns + translate (same as
+   * `roundRect`), `halfW`/`halfH`/`radii` describe the TRUE border box (for
+   * the outset knockout / inset guard), and `sigma`/`spread`/`offsetX`/
+   * `offsetY` are already in the same local units, pre-converted by the
+   * caller.
+   */
+  shadow(
+    ctx: GpuBatchContext,
+    ax: number,
+    ay: number,
+    cx2: number,
+    cy2: number,
+    tx: number,
+    ty: number,
+    halfW: number,
+    halfH: number,
+    radii: ResolvedRadii,
+    sigma: number,
+    spread: number,
+    offsetX: number,
+    offsetY: number,
+    inset: boolean,
+    packedColor: number,
+  ): void {
+    const off = this.#reserve(ctx)
+    if (off < 0) return
+    const f = this.#stream.floatView
+    const u = this.#stream.uintView
+    f[off + W_MCOL0] = ax
+    f[off + W_MCOL0 + 1] = ay
+    f[off + W_MCOL1] = cx2
+    f[off + W_MCOL1 + 1] = cy2
+    f[off + W_TRANSLATE] = tx
+    f[off + W_TRANSLATE + 1] = ty
+    f[off + W_SHAPE] = SHAPE_KIND_SHADOW
+    f[off + W_SHAPE + 1] = 0
+    f[off + W_SHAPE + 2] = 0
+    f[off + W_SHAPE + 3] = inset ? 1 : 0
+    f[off + W_PARAMS] = halfW
+    f[off + W_PARAMS + 1] = halfH
+    f[off + W_PARAMS + 2] = 0
+    f[off + W_PARAMS + 3] = 0 // strokeOffset: always center until a node exposes border alignment
+    f[off + W_RADII] = radii[0]
+    f[off + W_RADII + 1] = radii[1]
+    f[off + W_RADII + 2] = radii[2]
+    f[off + W_RADII + 3] = radii[3]
+    f[off + W_SRCRECT] = sigma
+    f[off + W_SRCRECT + 1] = spread
+    f[off + W_SRCRECT + 2] = offsetX
+    f[off + W_SRCRECT + 3] = offsetY
+    u[off + W_COLORFILL] = packedColor >>> 0
+    u[off + W_COLORSTROKE] = 0
+    f[off + W_PAINT] = 0
+    f[off + W_PAINT + 1] = 0
+    f[off + W_PAINT + 2] = 0
+    f[off + W_PAINT + 3] = 0
+    this.#stream.commitInstance(ctx.curSlot)
+    ctx.stats.shadowInstances++
+  }
+
+  /**
+   * Resolve a `GfxShadowStyle` + the shape's own border box into the device
+   * ingredients `shadow` needs, converting back to local units (the shadow
+   * geometry, like round-rect, is evaluated in local space via the affine).
+   * `halfW`/`halfH` are local; everything on `style` already follows
+   * `strokeSpace` (same convention as `GfxStrokeStyle.width`), hence device
+   * px, which is why the sigma clamp (deliberately a CSS deviation: past it
+   * the integral cannot resolve the shape) happens before the conversion
+   * back.
+   */
+  #resolveShadow(
+    t: TransformOut,
+    halfW: number,
+    halfH: number,
+    style: GfxShadowStyle,
+  ): {
+    sigma: number
+    spread: number
+    offsetX: number
+    offsetY: number
+  } {
+    const scaleX = Math.hypot(t.a, t.b)
+    const scaleY = Math.hypot(t.c, t.d)
+    const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c)) || 1e-4
+    const sigmaDeviceRaw = (style.blur ?? 0) / 2
+    const sigmaMaxDevice =
+      2 * Math.max(0, Math.min(halfW * scaleX, halfH * scaleY))
+    const sigmaDevice = Math.min(sigmaDeviceRaw, sigmaMaxDevice)
+    return {
+      sigma: sigmaDevice / scale,
+      spread: (style.spread ?? 0) / scale,
+      offsetX: (style.offsetX ?? 0) / Math.max(scaleX, 1e-4),
+      offsetY: (style.offsetY ?? 0) / Math.max(scaleY, 1e-4),
+    }
+  }
+
+  /** `Gfx2D`-level primitive behind `ShapeNode`'s rounded-rect/box shadow. */
+  shadowRoundRect(
+    ctx: GpuBatchContext,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: ResolvedRadii,
+    style: GfxShadowStyle,
+  ): void {
+    if (w <= 0 || h <= 0) return
+    ctx.txStack.read(ctx.txOut)
+    const t = ctx.txOut
+    const halfW = w * 0.5
+    const halfH = h * 0.5
+    const resolved = this.#resolveShadow(t, halfW, halfH, style)
+    const cx = x + halfW
+    const cy = y + halfH
+    const tx = t.a * cx + t.c * cy + t.e
+    const ty = t.b * cx + t.d * cy + t.f
+    const alpha = ctx.stateStack.getAlpha()
+    this.shadow(
+      ctx,
+      t.a,
+      t.b,
+      t.c,
+      t.d,
+      tx,
+      ty,
+      halfW,
+      halfH,
+      radii,
+      resolved.sigma,
+      resolved.spread,
+      resolved.offsetX,
+      resolved.offsetY,
+      style.inset === true,
+      packColor(style.color, alpha),
+    )
+  }
+
+  /** `Gfx2D`-level primitive behind `ShapeNode`'s circle shadow. */
+  shadowCircle(
+    ctx: GpuBatchContext,
+    cx: number,
+    cy: number,
+    r: number,
+    style: GfxShadowStyle,
+  ): void {
+    if (r <= 0) return
+    ctx.txStack.read(ctx.txOut)
+    const t = ctx.txOut
+    const resolved = this.#resolveShadow(t, r, r, style)
+    const tx = t.a * cx + t.c * cy + t.e
+    const ty = t.b * cx + t.d * cy + t.f
+    const alpha = ctx.stateStack.getAlpha()
+    this.shadow(
+      ctx,
+      t.a,
+      t.b,
+      t.c,
+      t.d,
+      tx,
+      ty,
+      r,
+      r,
+      [r, r, r, r],
+      resolved.sigma,
+      resolved.spread,
+      resolved.offsetX,
+      resolved.offsetY,
+      style.inset === true,
+      packColor(style.color, alpha),
+    )
   }
 }

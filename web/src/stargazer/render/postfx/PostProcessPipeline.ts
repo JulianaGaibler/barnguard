@@ -19,6 +19,12 @@ const LOC_UV = 1
 const VERTEX_STRIDE = 16
 /** Sampler unit for the input texture `u_tex`. */
 const U_TEX = 0
+/**
+ * Frames a pass's GPU resources survive after the last effect stopped listing
+ * it, so an effect that cycles between pass lists does not pay a recompile each
+ * time. A few seconds at 60 Hz.
+ */
+const PASS_GPU_GRACE_FRAMES = 240
 
 /** Clip-space corners of the fullscreen triangle. */
 const TRI_POS: ReadonlyArray<readonly [number, number]> = [
@@ -68,6 +74,8 @@ interface PassGpu {
    */
   pipelines: Map<ColorFormat, Pipeline>
   pending: Set<ColorFormat>
+  /** Consecutive frames no registered effect has listed this pass. */
+  unseenFrames: number
 }
 
 /** A pooled render target and whether it is claimed this frame. */
@@ -200,21 +208,30 @@ export class PostProcessPipeline {
     }
 
     this.#usedKeys.clear()
-    const ctx: PostPassContext = {
-      width: w,
-      height: h,
-      texelW: 1 / w,
-      texelH: 1 / h,
-      time: this.#time,
-      dt: opts.dt,
-    }
+    const uvYDown = device.ndc.textureTopDown
 
     let read = source
     for (const effect of this.#effects) {
       if (!effect.enabled) continue
       for (const pass of effect.passes) {
         const gpu = this.#passGpu.get(pass)!
-        const dst = this.#acquire(w, h, cs)
+        const scale = pass.scale ?? 1
+        const dstW = Math.max(1, Math.floor(w * scale))
+        const dstH = Math.max(1, Math.floor(h * scale))
+        const dst = this.#acquire(dstW, dstH, cs)
+        const ctx: PostPassContext = {
+          width: dstW,
+          height: dstH,
+          texelW: 1 / dstW,
+          texelH: 1 / dstH,
+          inputWidth: read.width,
+          inputHeight: read.height,
+          inputTexelW: 1 / read.width,
+          inputTexelH: 1 / read.height,
+          uvYDown,
+          time: this.#time,
+          dt: opts.dt,
+        }
         // Write this pass's params, then bind (input texture + params).
         if (gpu.paramsUbo && gpu.staging && pass.writeParams) {
           gpu.staging.fill(0)
@@ -307,6 +324,7 @@ export class PostProcessPipeline {
         staging: hasParams ? new Float32Array(pass.paramsBytes / 4) : null,
         pipelines: new Map(),
         pending: new Set(),
+        unseenFrames: 0,
       }
       this.#passGpu.set(pass, gpu)
     }
@@ -380,6 +398,34 @@ export class PostProcessPipeline {
       if (!this.#usedKeys.has(p.key)) {
         this.#device.deleteRenderTarget(p.rt)
         this.#pool.splice(i, 1)
+      }
+    }
+    // An effect that rebuilds its `passes` array (e.g. when a parameter like
+    // a blur's level count changes) orphans the old PostPass objects. Their
+    // GPU resources would otherwise leak, one shader module and uniform
+    // buffer at a time. Called only here, after this frame's last pass has
+    // drawn and presented, so a pass list swapped mid-run can never free a
+    // module still bound by a draw this frame.
+    //
+    // Freeing on the first unseen frame would punish an effect that cycles
+    // between pass lists: recompiling drops the whole chain back to
+    // presenting an unprocessed frame (see `run`), so a parameter animated
+    // across a rebuild would flash. The grace period keeps a recently-used
+    // pass warm long enough to come back for free.
+    if (this.#passGpu.size > 0) {
+      const live = new Set<PostPass>()
+      for (const effect of this.#effects) {
+        for (const pass of effect.passes) live.add(pass)
+      }
+      for (const [pass, gpu] of this.#passGpu) {
+        if (live.has(pass)) {
+          gpu.unseenFrames = 0
+          continue
+        }
+        if (++gpu.unseenFrames <= PASS_GPU_GRACE_FRAMES) continue
+        this.#device.deleteShaderModule(gpu.shader)
+        if (gpu.paramsUbo) this.#device.deleteUniformBuffer(gpu.paramsUbo)
+        this.#passGpu.delete(pass)
       }
     }
   }

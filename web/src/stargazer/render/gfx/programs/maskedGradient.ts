@@ -1,12 +1,13 @@
 // Masked-radial-gradient program: `Gfx2D.fillMaskedRadialGradient` (the arcade
-// launcher's drifting clouds). Mask silhouette on texture unit 0, gradient LUT
-// on unit 1. The mask/LUT lookups live on `GpuGfx` (need `TextureManager`).
+// launcher's drifting clouds). Mask silhouette on texture unit 0, ramp atlas
+// on unit 1. The mask/atlas lookups live on `GpuGfx` (need `TextureManager`).
 // This program owns the shader/VAO/stream plumbing and the buffer write.
 
 import { RingStream } from '../RingStream'
 import {
   LOC_MASKGRAD_DST,
   LOC_MASKGRAD_GRAD,
+  LOC_MASKGRAD_RAMPROW,
   LOC_MASKGRAD_SRC,
   LOC_MASKGRAD_UNIT,
   MASKED_GRAD_BUFFER_BYTES,
@@ -42,7 +43,7 @@ export class MaskedGradientProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
-  /** (mask → (lut → bind group)), both textures vary per run. */
+  /** (mask → (atlas → bind group)). The mask varies per draw, the atlas is a fixed texture. */
   #bindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
 
   get stream(): RingStream {
@@ -80,6 +81,7 @@ export class MaskedGradientProgram implements GpuProgram {
           { location: LOC_MASKGRAD_DST, format: 'float32x4', offset: 0 },
           { location: LOC_MASKGRAD_SRC, format: 'float32x4', offset: 16 },
           { location: LOC_MASKGRAD_GRAD, format: 'float32x4', offset: 32 },
+          { location: LOC_MASKGRAD_RAMPROW, format: 'float32', offset: 48 },
         ],
       },
     ]
@@ -93,29 +95,31 @@ export class MaskedGradientProgram implements GpuProgram {
     })
   }
 
-  #bindGroupFor(ctx: GpuBatchContext, mask: Texture, lut: Texture): BindGroup {
-    let byLut = this.#bindGroups.get(mask)
-    if (!byLut) {
-      byLut = new WeakMap()
-      this.#bindGroups.set(mask, byLut)
+  #bindGroupFor(ctx: GpuBatchContext, mask: Texture, atlas: Texture): BindGroup {
+    let byAtlas = this.#bindGroups.get(mask)
+    if (!byAtlas) {
+      byAtlas = new WeakMap()
+      this.#bindGroups.set(mask, byAtlas)
     }
-    let bg = byLut.get(lut)
+    let bg = byAtlas.get(atlas)
     if (!bg) {
       bg = ctx.device.createBindGroup(this.#materialLayout, [
         { binding: 0, resource: { texture: mask } },
-        { binding: 1, resource: { texture: lut } },
+        { binding: 1, resource: { texture: atlas } },
       ])
-      byLut.set(lut, bg)
+      byAtlas.set(atlas, bg)
     }
     return bg
   }
 
   /**
-   * Begin (or continue) the `maskedGradient` batch for `(mask, lut)` and
-   * reserve one instance record. Returns the word offset, or `-1` on overflow.
+   * Begin (or continue) the `maskedGradient` batch for `mask` and reserve one
+   * instance record. The ramp atlas is a fixed texture and does not enter the
+   * batch key, only the mask does. Returns the word offset, or `-1` on
+   * overflow.
    */
-  beginInstance(ctx: GpuBatchContext, mask: Texture, lut: Texture): number {
-    ctx.beginBatch('maskedGradient', { texture: mask, lut })
+  beginInstance(ctx: GpuBatchContext, mask: Texture): number {
+    ctx.beginBatch('maskedGradient', { texture: mask })
     return ctx.reserveInstance(this.#stream)
   }
 
@@ -128,11 +132,10 @@ export class MaskedGradientProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
-    // Mask silhouette on unit 0, gradient LUT on unit 1, both required.
-    const material =
-      run.texture && run.lut
-        ? this.#bindGroupFor(ctx, run.texture, run.lut)
-        : null
+    const atlas = ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
+    const material = run.texture
+      ? this.#bindGroupFor(ctx, run.texture, atlas)
+      : null
     drawInstancedRun(
       ctx,
       this.#pipelines,

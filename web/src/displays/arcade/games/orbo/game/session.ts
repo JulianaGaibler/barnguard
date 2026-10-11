@@ -1,5 +1,5 @@
 /**
- * Orbo turn state machine. Mirrors the stallwaechter convention:
+ * Orbo turn state machine. Mirrors the enterprise display's convention:
  * `startGame(host)` builds the scene and returns a `GameSession` control
  * surface with a typed event emitter. Ports the reference `_gameLogic.ts`
  * rules, queues, turn rotation with empty-skip, zone processing, and the

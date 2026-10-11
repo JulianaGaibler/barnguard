@@ -33,6 +33,9 @@ const isDemoRun = params.has('demo')
 // `?fonts` is the type specimen: a dev surface for judging the shipped faces
 // and the role each is bound to. Like the demo stage, it is not a display.
 const isFontRun = params.has('fonts')
+// `?backdrop` previews the Enterprise brand background composite (blur,
+// slice shift, grain) in isolation. Also not a display.
+const isBackdropRun = params.has('backdrop')
 const displayId = params.get('display')
 
 function knownDisplayLinks(): DisplayLink[] {
@@ -43,10 +46,11 @@ function knownDisplayLinks(): DisplayLink[] {
 }
 
 /**
- * Pick the surface to mount: the demo stage when `?demo=` is present, otherwise
- * the display named by `?display=`. A missing or unknown display id renders a
- * landing / error page. There is no default fallback, so a mis-configured kiosk
- * fails loudly instead of quietly booting into the wrong event.
+ * Pick the surface to mount: a dev surface (`?demo=`, `?fonts`, `?backdrop`)
+ * when present, otherwise the display named by `?display=`. A missing or
+ * unknown display id renders a landing / error page. There is no default
+ * fallback, so a mis-configured kiosk fails loudly instead of quietly booting
+ * into the wrong event.
  */
 async function boot(): Promise<void> {
   if (isFontRun) {
@@ -55,6 +59,13 @@ async function boot(): Promise<void> {
       await import('@src/dev/FontSpecimen.svelte')
     await preloadFonts()
     mount(FontSpecimen, { target: target! })
+    return
+  }
+  if (isBackdropRun) {
+    startUiScale()
+    const { default: BackdropPreview } =
+      await import('@src/displays/enterprise/background/BackdropPreview.svelte')
+    mount(BackdropPreview, { target: target! })
     return
   }
   if (isDemoRun) {

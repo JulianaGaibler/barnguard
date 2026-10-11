@@ -22,8 +22,8 @@
   let page = $state(0) // 0-indexed
 
   // The log holds every display's games. Only show the currently active
-  // display's own games here (arcade sees only arcade games, stallwaechter
-  // only stallwaechter games, etc).
+  // display's own games here (arcade sees only arcade games, enterprise
+  // only enterprise games, etc).
   const displayGames = $derived(
     $gamesLive.games.filter((g) => g.display === $activeDisplay?.id),
   )

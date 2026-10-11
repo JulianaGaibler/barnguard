@@ -5,7 +5,7 @@
 
 use crate::config::Config;
 use crate::store::load_games;
-use crate::types::{DisplayHighScores, GameDetails, DISPLAY_ARCADE, DISPLAY_STALLWAECHTER};
+use crate::types::{DisplayHighScores, GameDetails, DISPLAY_ARCADE, DISPLAY_ENTERPRISE};
 use std::error::Error;
 
 pub fn show_config() -> Result<(), Box<dyn Error>> {
@@ -83,7 +83,7 @@ pub fn list_games(limit: usize, offset: usize, json: bool) -> Result<(), Box<dyn
     );
     for g in &slice {
         let (state, reason) = match &g.details {
-            GameDetails::Stallwaechter(d) => (d.state_id.as_str(), d.reason.to_string()),
+            GameDetails::Enterprise(d) => (d.state_id.as_str(), d.reason.to_string()),
             GameDetails::Arcade(d) => (
                 d.game_id.as_str(),
                 match &d.winner {
@@ -109,7 +109,7 @@ pub fn list_games(limit: usize, offset: usize, json: bool) -> Result<(), Box<dyn
 pub fn high_scores(json: bool) -> Result<(), Box<dyn Error>> {
     let cfg = Config::load()?;
     let games = load_games(&cfg.data_dir)?;
-    let all: Vec<DisplayHighScores> = [DISPLAY_STALLWAECHTER, DISPLAY_ARCADE]
+    let all: Vec<DisplayHighScores> = [DISPLAY_ENTERPRISE, DISPLAY_ARCADE]
         .into_iter()
         .map(|d| DisplayHighScores::from_games(d, &games))
         .collect();
@@ -120,8 +120,8 @@ pub fn high_scores(json: bool) -> Result<(), Box<dyn Error>> {
     }
     for hs in all {
         match hs {
-            DisplayHighScores::Stallwaechter(hs) => {
-                println!("display: {DISPLAY_STALLWAECHTER}");
+            DisplayHighScores::Enterprise(hs) => {
+                println!("display: {DISPLAY_ENTERPRISE}");
                 println!("overall: {}", hs.overall);
                 if hs.by_state.is_empty() {
                     println!("(no per-state entries)");

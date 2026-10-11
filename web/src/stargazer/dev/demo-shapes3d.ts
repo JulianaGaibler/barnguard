@@ -88,7 +88,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     clearColor: '#141018',
     msaaSamples: 4,
     debug: 'hud',
-    quality: { shadowsEnabled: true, shadowMapSize: 2048, shadowSoftness: 1 },
+    quality: { meshShadowsEnabled: true, shadowMapSize: 2048, shadowSoftness: 1 },
   })
   attach?.(host)
 

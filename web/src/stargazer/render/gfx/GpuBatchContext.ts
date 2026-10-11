@@ -16,6 +16,7 @@ import type { GpuGeometry } from './GeometryHandle'
 import type { GfxBlend } from './Gfx2D'
 import type { BitmapMask } from '../../assets/BitmapMask'
 import type { TextureManager } from './TextureManager'
+import type { VectorQuality } from '../VectorQuality'
 import {
   CLIP_UBO_BINDING,
   CLIP_UBO_BYTES,
@@ -60,6 +61,7 @@ export interface DrawRun {
   clip: ResolvedClip | null
   texture: import('./GfxDevice').Texture | null
   lut: import('./GfxDevice').Texture | null
+  paint: ResolvedGradientPaint | null
   debugMode: DebugRenderMode
   /** Monotonic index for the `'batch-color'` hue, fixed at record time. */
   debugBatchIndex: number
@@ -92,7 +94,41 @@ export interface GpuGfxStats {
   sdfInstances: number
   strokeInstances: number
   roundRectInstances: number
+  /** Analytic drop-shadow instances (`SHAPE_KIND_SHADOW`), this frame. */
+  shadowInstances: number
   msaaSamples: number
+}
+
+/**
+ * `coloredTri`'s resolved per-run gradient paint: a device-space axis
+ * projection (see `strokeOutline`'s WebRender-derived note in `coloredTri.ts`)
+ * plus the atlas row and the draw's own alpha (the ramp can't bake a per-draw
+ * alpha, since a row is shared by content, not by caller). `null` is a solid
+ * fill. Compared by value, not by reference: two draws resolving to the same
+ * five numbers may share a run, and any difference, including two distinct
+ * gradients back to back, forces a break so each gets its own `DrawParams`.
+ */
+export interface ResolvedGradientPaint {
+  scaleDirX: number
+  scaleDirY: number
+  startOffset: number
+  rampRow: number
+  opacity: number
+}
+
+function paintEquals(
+  a: ResolvedGradientPaint | null,
+  b: ResolvedGradientPaint | null,
+): boolean {
+  if (a === b) return true
+  if (a === null || b === null) return false
+  return (
+    a.scaleDirX === b.scaleDirX &&
+    a.scaleDirY === b.scaleDirY &&
+    a.startOffset === b.startOffset &&
+    a.rampRow === b.rampRow &&
+    a.opacity === b.opacity
+  )
 }
 
 /** Batch key fields a program's flush needs to bind before drawing. */
@@ -100,6 +136,7 @@ export interface BatchKey {
   texture?: import('./GfxDevice').Texture | null
   lut?: import('./GfxDevice').Texture | null
   clipMask?: BitmapMask | null
+  paint?: ResolvedGradientPaint | null
 }
 
 export class GpuBatchContext {
@@ -147,6 +184,7 @@ export class GpuBatchContext {
   readonly txOut: TransformOut = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
 
   textureManager!: TextureManager
+  vectorQuality!: VectorQuality
 
   /** Unit-quad template shared by every instanced program. */
   unitQuadBuffer!: import('./GfxDevice').VBuffer
@@ -168,6 +206,7 @@ export class GpuBatchContext {
   curBatch: BatchKind = 'none'
   curTexture: import('./GfxDevice').Texture | null = null
   curLut: import('./GfxDevice').Texture | null = null
+  curPaint: ResolvedGradientPaint | null = null
   curBlend: GfxBlend = 'source-over'
   curClipMask: BitmapMask | null = null
   curClip: ResolvedClip | null = null
@@ -309,6 +348,11 @@ export class GpuBatchContext {
     const sameTexture = !('texture' in key) || this.curTexture === key.texture
     const sameLut = !('lut' in key) || this.curLut === key.lut
     const sameMask = !('clipMask' in key) || this.curClipMask === key.clipMask
+    // Compared by value: the atlas texture never changes between a solid fill
+    // and a gradient fill (or between two different gradients), but the
+    // per-run paint `coloredTri` draws through `DrawParams` does, and two
+    // draws merged into one run would share a single `DrawParams` slice.
+    const samePaint = !('paint' in key) || paintEquals(this.curPaint, key.paint ?? null)
     // Clip is global like blend, pulled from the state stack, so every program
     // breaks its batch when the analytic clip changes.
     const wantClip = this.stateStack.getClip()
@@ -319,6 +363,7 @@ export class GpuBatchContext {
       sameTexture &&
       sameLut &&
       sameMask &&
+      samePaint &&
       sameClip
     )
       return
@@ -329,6 +374,7 @@ export class GpuBatchContext {
     if ('texture' in key) this.curTexture = key.texture ?? null
     if ('lut' in key) this.curLut = key.lut ?? null
     if ('clipMask' in key) this.curClipMask = key.clipMask ?? null
+    if ('paint' in key) this.curPaint = key.paint ?? null
   }
 
   /** Record the active batch's pending range as a `DrawRun` (nothing draws). */
@@ -395,6 +441,7 @@ export class GpuBatchContext {
       clip: null,
       texture: null,
       lut: null,
+      paint: null,
       debugMode: this.curDebugMode,
       debugBatchIndex: this.debugBatchCounter++,
       geometry,
@@ -417,6 +464,7 @@ export class GpuBatchContext {
         clip: this.curClip,
         texture: this.curTexture,
         lut: this.curLut,
+        paint: this.curPaint,
         debugMode: this.curDebugMode,
         debugBatchIndex: this.debugBatchCounter++,
       })
@@ -449,6 +497,12 @@ export class GpuBatchContext {
     }
     this.stats.blendSwitches = blendSwitches
     this.#drawRuns.length = 0
+    // Every run queued before this call has now been replayed, so a texture
+    // evicted earlier this frame (or an earlier overflow submit within it) is
+    // safe to reuse now. This runs on every `submitFrame` call, not only the
+    // frame's final one: `#overflowSubmit` calls this mid-frame too, and a row
+    // pinned there must not wait for the frame's true end to be recyclable.
+    this.textureManager.flushRampRowPins()
     // Indices into the list are meaningless once it is emptied.
     this.#stencilGroupStart = -1
   }
@@ -478,6 +532,18 @@ export class GpuBatchContext {
   }
 
   /**
+   * Force everything recorded so far this frame to submit and replay now,
+   * mid-frame, rather than waiting for the frame's own end. The active
+   * batch's state survives the call, so the interrupted emit resumes as if
+   * nothing happened. Reaches for this only when something needs the replay
+   * to have already happened, such as `TextureManager.ensureStopsRow`
+   * recycling a ramp-atlas row while every row is pinned.
+   */
+  forceMidFrameSubmit(): void {
+    this.#overflowSubmit()
+  }
+
+  /**
    * Buffer full mid-frame: record the active run, submit + replay everything
    * pending into the open pass, then orphan every stream's GPU buffer and
    * restart its cursor. The active batch's marker + state are preserved so the
@@ -504,6 +570,7 @@ export class GpuBatchContext {
     const blend = this.curBlend
     const texture = this.curTexture
     const lut = this.curLut
+    const paint = this.curPaint
     const clipMask = this.curClipMask
     const clip = this.curClip
     this.submitFrame()
@@ -515,6 +582,7 @@ export class GpuBatchContext {
     this.curBlend = blend
     this.curTexture = texture
     this.curLut = lut
+    this.curPaint = paint
     this.curClipMask = clipMask
     this.curClip = clip
     // Reopen the group so the rest of the stroke gets its own reset runs.

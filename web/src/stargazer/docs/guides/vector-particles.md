@@ -78,7 +78,7 @@ for (let i = 0; i < count; i++) {
 }
 ```
 
-`OrbExplodeNode` (orbo) and `DebrisBurstNode` (stallwaechter) both use this pattern for their evenly-spaced-with-jitter and cone emission modes. Read either for a complete worked example with dual spin fields and a triangle/line shape mix.
+`OrbExplodeNode` (orbo) and `DebrisBurstNode` (enterprise) both use this pattern for their evenly-spaced-with-jitter and cone emission modes. Read either for a complete worked example with dual spin fields and a triangle/line shape mix.
 
 ## Reading state
 

@@ -16,7 +16,7 @@ use crate::events::EventHub;
 use crate::log::LogHub;
 use crate::types::{
     now_ms, DisplayHighScores, GameRecord, LeaderboardEntry, NewGame, NewLeaderboardEntry,
-    ServerEvent, DISPLAY_ARCADE, DISPLAY_STALLWAECHTER,
+    ServerEvent, DISPLAY_ARCADE, DISPLAY_ENTERPRISE,
 };
 use serde_json::Value as JsonValue;
 use std::fs::{self, File};
@@ -27,20 +27,32 @@ use uuid::Uuid;
 
 const GAMES_FILE: &str = "games.json";
 
-/// One-shot migration: legacy `games.json` records had the Stallwächter shape
-/// flat at the top level (no `display` discriminator). Inject
-/// `"display": "stallwaechter"` on any object that lacks it so the tagged-enum
-/// deserializer accepts it. New records always carry the tag.
+/// One-shot migration covering two generations of `games.json` shapes:
+/// records from before the display carried a `display` discriminator at all
+/// (flat at the top level), and records tagged `"display": "stallwaechter"`
+/// from before that display was renamed to `enterprise`. The deserializer's
+/// `#[serde(alias = "stallwaechter")]` on `GameDetails::Enterprise` already
+/// accepts the old tag at read time, so this rewrite is not required for
+/// correctness, only so the file converges to the current tag on save.
 fn migrate_legacy_games_json(bytes: &[u8]) -> io::Result<Vec<u8>> {
     let mut value: JsonValue = serde_json::from_slice(bytes).map_err(io::Error::other)?;
     if let JsonValue::Array(items) = &mut value {
         for item in items {
             if let JsonValue::Object(map) = item {
-                if !map.contains_key("display") {
-                    map.insert(
-                        "display".to_string(),
-                        JsonValue::String(DISPLAY_STALLWAECHTER.to_string()),
-                    );
+                match map.get("display") {
+                    None => {
+                        map.insert(
+                            "display".to_string(),
+                            JsonValue::String(DISPLAY_ENTERPRISE.to_string()),
+                        );
+                    }
+                    Some(JsonValue::String(tag)) if tag == "stallwaechter" => {
+                        map.insert(
+                            "display".to_string(),
+                            JsonValue::String(DISPLAY_ENTERPRISE.to_string()),
+                        );
+                    }
+                    Some(_) => {}
                 }
             }
         }
@@ -109,7 +121,7 @@ impl GameLogController {
         // The details variant already tells us which display's high scores to
         // compare against, so snapshot only those before inserting.
         let display = match &new.details {
-            crate::types::NewGameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+            crate::types::NewGameDetails::Enterprise(_) => DISPLAY_ENTERPRISE,
             crate::types::NewGameDetails::Arcade(_) => DISPLAY_ARCADE,
         };
         let prev = DisplayHighScores::from_games(display, &guard);
@@ -320,8 +332,9 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult<T> {
 }
 
 /// Same as [`read_json`], but first passes the raw bytes through
-/// [`migrate_legacy_games_json`] so legacy Stallwächter records (missing the
-/// `display` discriminator) still deserialize.
+/// [`migrate_legacy_games_json`] so legacy game records (missing the
+/// `display` discriminator, or tagged with the display's old id) still
+/// deserialize.
 fn read_json_migrated<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult<T> {
     match fs::read(path) {
         Ok(bytes) => {
@@ -410,16 +423,30 @@ mod tests {
     use super::*;
     use crate::events::EventHub;
     use crate::types::{
-        GameDetails, GameEndReason, NewArcadeDetails, NewGameDetails, NewStallwaechterDetails,
+        GameDetails, GameEndReason, NewArcadeDetails, NewGameDetails, NewEnterpriseDetails,
         DISPLAY_ARCADE,
     };
     use tempfile::TempDir;
 
-    fn stall_new(state: &str, reason: GameEndReason, score: u32, duration_ms: u32) -> NewGame {
+    #[test]
+    fn migrate_rewrites_legacy_display_tag_and_fills_missing() {
+        let input = br#"[
+            {"id":"a","tsMs":0,"score":1,"durationMs":0,"display":"stallwaechter","stateId":"bayern","reason":"collision","wasOverallHigh":false,"wasStateHigh":false},
+            {"id":"b","tsMs":0,"score":2,"durationMs":0,"stateId":"hessen","reason":"collision","wasOverallHigh":false,"wasStateHigh":false}
+        ]"#;
+        let migrated = migrate_legacy_games_json(input).unwrap();
+        let value: JsonValue = serde_json::from_slice(&migrated).unwrap();
+        let items = value.as_array().unwrap();
+        for item in items {
+            assert_eq!(item["display"], JsonValue::String(DISPLAY_ENTERPRISE.to_string()));
+        }
+    }
+
+    fn enterprise_new(state: &str, reason: GameEndReason, score: u32, duration_ms: u32) -> NewGame {
         NewGame {
             score,
             duration_ms,
-            details: NewGameDetails::Stallwaechter(NewStallwaechterDetails {
+            details: NewGameDetails::Enterprise(NewEnterpriseDetails {
                 state_id: state.into(),
                 reason,
                 escape_heading_rad: None,
@@ -453,34 +480,34 @@ mod tests {
         let store = GameLogController::load(dir.path(), &log, events);
 
         let first = store
-            .push(stall_new("bayern", GameEndReason::Collision, 100, 5000))
+            .push(enterprise_new("bayern", GameEndReason::Collision, 100, 5000))
             .unwrap();
-        let GameDetails::Stallwaechter(fd) = &first.details else {
-            panic!("expected Stallwaechter details")
+        let GameDetails::Enterprise(fd) = &first.details else {
+            panic!("expected Enterprise details")
         };
         assert!(fd.was_overall_high);
         assert!(fd.was_state_high);
 
         let second = store
-            .push(stall_new("bayern", GameEndReason::Collision, 50, 3000))
+            .push(enterprise_new("bayern", GameEndReason::Collision, 50, 3000))
             .unwrap();
-        let GameDetails::Stallwaechter(sd) = &second.details else {
-            panic!("expected Stallwaechter details")
+        let GameDetails::Enterprise(sd) = &second.details else {
+            panic!("expected Enterprise details")
         };
         assert!(!sd.was_overall_high);
         assert!(!sd.was_state_high);
 
         let third = store
-            .push(stall_new("hessen", GameEndReason::ExitedGermany, 75, 4000))
+            .push(enterprise_new("hessen", GameEndReason::ExitedGermany, 75, 4000))
             .unwrap();
-        let GameDetails::Stallwaechter(td) = &third.details else {
-            panic!("expected Stallwaechter details")
+        let GameDetails::Enterprise(td) = &third.details else {
+            panic!("expected Enterprise details")
         };
         assert!(!td.was_overall_high); // 75 < 100
         assert!(td.was_state_high); // new state, > 0
 
-        let DisplayHighScores::Stallwaechter(hs) = store.high_scores(DISPLAY_STALLWAECHTER) else {
-            panic!("expected Stallwaechter high scores")
+        let DisplayHighScores::Enterprise(hs) = store.high_scores(DISPLAY_ENTERPRISE) else {
+            panic!("expected Enterprise high scores")
         };
         assert_eq!(hs.overall, 100);
         assert_eq!(hs.by_state.get("bayern").copied(), Some(100));
@@ -522,7 +549,7 @@ mod tests {
         let (log, events) = hub();
         let store = GameLogController::load(dir.path(), &log, events.clone());
         let rec = store
-            .push(stall_new("berlin", GameEndReason::Collision, 42, 1000))
+            .push(enterprise_new("berlin", GameEndReason::Collision, 42, 1000))
             .unwrap();
         assert!(store.delete(rec.id).unwrap());
 
@@ -557,7 +584,7 @@ mod tests {
         let store = GameLogController::load(dir.path(), &log, events);
         for i in 0..5 {
             store
-                .push(stall_new("bayern", GameEndReason::Collision, i, 1000))
+                .push(enterprise_new("bayern", GameEndReason::Collision, i, 1000))
                 .unwrap();
         }
         // Newest-first: scores should be 4,3,2,1,0.

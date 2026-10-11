@@ -21,6 +21,9 @@ import { createEmitter, type Emitter } from '../events/Emitter'
 import { StageLayerRenderer } from './StageLayerRenderer'
 import { PhysicsWorld, type PhysicsWorldConfig } from '../physics/PhysicsWorld'
 
+const MIN_RENDER_SCALE = 0.1
+const MAX_RENDER_SCALE = 2
+
 /**
  * Construction options for a {@link Stage}. Every field is optional. A stage
  * starts with no camera. Add a {@link CameraNode2D} and call `makeCurrent()`.
@@ -64,6 +67,14 @@ export interface StageOptions {
    * `canvas.getContext('webgl2')`) via `MockGfxDevice`. Not for app code.
    */
   gpuDevice?: import('./gfx/GfxDevice').GfxDevice
+  /**
+   * Multiplies `devicePixelRatio` before every resize, shrinking the canvas
+   * backing store (the CSS size is unchanged, so the browser upscales). Default
+   * `1`. Clamped to `[0.1, 2]`. A per-machine quality knob for a stage whose
+   * whole render cost (scene, post-processing) scales with pixel count, cheaper
+   * than tuning any one effect's own resolution.
+   */
+  renderScale?: number
 }
 
 /**
@@ -131,6 +142,7 @@ export class Stage implements CameraHost {
   #resizeObserver: ResizeObserver | null = null
   #disposed = false
   #active = true
+  readonly #renderScale: number
 
   /** On-canvas rendering surface. */
   readonly #screenGfx: GpuGfx
@@ -181,6 +193,10 @@ export class Stage implements CameraHost {
     this.canvas = canvas
     this.name = opts.name
     this.#onResize = opts.onResize
+    this.#renderScale = Math.min(
+      MAX_RENDER_SCALE,
+      Math.max(MIN_RENDER_SCALE, opts.renderScale ?? 1),
+    )
     this.renderer = new Renderer({
       canvas,
       clearColor: opts.clearColor,
@@ -191,7 +207,7 @@ export class Stage implements CameraHost {
     const rect = canvas.getBoundingClientRect()
     const initialCssW = rect.width || canvas.clientWidth || 1
     const initialCssH = rect.height || canvas.clientHeight || 1
-    const initialDpr = window.devicePixelRatio || 1
+    const initialDpr = (window.devicePixelRatio || 1) * this.#renderScale
     this.renderer.resize(initialCssW, initialCssH, initialDpr)
     this.#device = opts.gpuDevice ?? new WebGL2Device(canvas)
     this.#screenGfx = new GpuGfx(canvas, this.#device, {
@@ -201,6 +217,7 @@ export class Stage implements CameraHost {
       // later without re-warming every 2D pipeline. Dropped again if the stage
       // turns on depth for a 3D pass (see `GpuGfx.enableDepth`).
       stencil: true,
+      vectorQuality: engine.quality.vector,
     })
     this.#screenGfx.setInternalSize(
       this.renderer.pixelSize.w,
@@ -694,6 +711,7 @@ export class Stage implements CameraHost {
     sdfInstances: number
     strokeInstances: number
     roundRectInstances: number
+    shadowInstances: number
     msaaSamples: number
   } {
     return this.#screenGfx.stats
@@ -810,7 +828,7 @@ export class Stage implements CameraHost {
     const cssW = rect.width
     const cssH = rect.height
     if (cssW === 0 || cssH === 0) return
-    const dpr = window.devicePixelRatio
+    const dpr = window.devicePixelRatio * this.#renderScale
     if (
       cssW === this.renderer.cssSize.w &&
       cssH === this.renderer.cssSize.h &&

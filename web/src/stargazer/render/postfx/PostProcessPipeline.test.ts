@@ -4,8 +4,36 @@ import { MockGfxDevice } from '../gfx/webgl2/mockGfxDevice'
 import { ChromaticAberration } from './effects/ChromaticAberration'
 import { Vignette } from './effects/Vignette'
 import { VignetteBlur } from './effects/VignetteBlur'
-import type { RenderTarget } from '../gfx/GfxDevice'
+import { DualKawaseBlur } from './effects/DualKawaseBlur'
+import { FilmGrain } from './effects/FilmGrain'
+import { postShader } from './PostEffect'
+import type { PostEffect, PostPass, PostPassContext } from './PostEffect'
+import type { RenderTarget, ShaderReflection } from '../gfx/GfxDevice'
 import { Engine } from '../../engine/Engine'
+
+const EMPTY_REFLECTION: ShaderReflection = {
+  attributes: [],
+  uniformBlocks: [],
+  samplers: [],
+}
+
+/** A minimal pass for tests that don't care about real shader content. */
+function testPass(opts: Partial<PostPass> = {}): PostPass {
+  return {
+    shader: postShader('', '', '', EMPTY_REFLECTION),
+    paramsBytes: 0,
+    ...opts,
+  }
+}
+
+/** A `PostEffect` whose `passes` can be swapped after construction. */
+class TestEffect implements PostEffect {
+  enabled = true
+  passes: PostPass[]
+  constructor(passes: PostPass[]) {
+    this.passes = passes
+  }
+}
 
 /**
  * A resolved single-sample source, as the pipeline now receives (the screen's
@@ -222,6 +250,60 @@ describe('PostProcessPipeline', () => {
     expect(device.deletedRenderTargets).toBeGreaterThan(deletedBefore)
   })
 
+  it('a pass with scale acquires a smaller pooled target', async () => {
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    pp.add(new TestEffect([testPass({ scale: 0.5 })]))
+    await warmRun(pp, device, makeSource(device, 64, 32), FRAME)
+    const halfSize = device.renderTargets.filter(
+      (r) => r.width === 32 && r.height === 16,
+    )
+    expect(halfSize.length).toBeGreaterThan(0)
+  })
+
+  it('reports source and destination sizes separately across a scale change', async () => {
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    const contexts: PostPassContext[] = []
+    const capture = (scale?: number): PostPass =>
+      testPass({
+        scale,
+        paramsBytes: 16,
+        writeParams: (ctx) => {
+          contexts.push(ctx)
+        },
+      })
+    pp.add(new TestEffect([capture(0.5), capture(1)]))
+    await warmRun(pp, device, makeSource(device, 64, 32), FRAME)
+
+    expect(contexts).toHaveLength(2)
+    const [down, up] = contexts
+    expect([down.width, down.height]).toEqual([32, 16])
+    expect([down.inputWidth, down.inputHeight]).toEqual([64, 32])
+    // The second pass reads the first pass's half-size output.
+    expect([up.width, up.height]).toEqual([64, 32])
+    expect([up.inputWidth, up.inputHeight]).toEqual([32, 16])
+  })
+
+  it('a rebuilt pass list releases the old passes GPU resources', async () => {
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    const effect = new TestEffect([testPass({ paramsBytes: 16 })])
+    pp.add(effect)
+    const source = makeSource(device)
+    await warmRun(pp, device, source, FRAME)
+
+    effect.passes = [testPass({ paramsBytes: 16 })]
+    await warmRun(pp, device, source, FRAME)
+    // Held through the grace period, so a cycling effect gets its passes back
+    // without a recompile.
+    expect(device.deletedShaderModules).toBe(0)
+
+    for (let i = 0; i < 260; i++) pp.run(source, FRAME)
+    expect(device.deletedShaderModules).toBeGreaterThan(0)
+    expect(device.deletedUniformBuffers).toBeGreaterThan(0)
+  })
+
   it('rebuilds GPU resources after a context restore', async () => {
     const device = new MockGfxDevice()
     const pp = new PostProcessPipeline(device)
@@ -266,6 +348,153 @@ describe('post-fx effect params', () => {
     const e = new VignetteBlur({ strength: 8 })
     expect(e.strength).toBe(8)
     expect(e.passes).toHaveLength(2)
+  })
+  it('DualKawaseBlur defaults to a 4-level, 8-pass chain', () => {
+    const e = new DualKawaseBlur()
+    expect(e.levels).toBe(4)
+    expect(e.passes).toHaveLength(8)
+  })
+  it('FilmGrain defaults', () => {
+    const e = new FilmGrain()
+    expect(e.enabled).toBe(true)
+    expect(e.cellPx).toBe(2)
+    expect(e.density).toBe(0.5)
+    expect(e.opacity).toBeCloseTo(0.15)
+    expect(e.hz).toBe(0) // static unless asked for
+    expect(e.passes).toHaveLength(1)
+  })
+})
+
+describe('FilmGrain', () => {
+  const CTX: PostPassContext = {
+    width: 1,
+    height: 1,
+    texelW: 1,
+    texelH: 1,
+    inputWidth: 1,
+    inputHeight: 1,
+    inputTexelW: 1,
+    inputTexelH: 1,
+    uvYDown: true,
+    time: 0,
+    dt: 0,
+  }
+
+  it('writes cellPx, density, opacity, and tint into params', async () => {
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    pp.add(
+      new FilmGrain({
+        cellPx: 4,
+        density: 0.3,
+        opacity: 0.2,
+        tint: '#ff0000',
+      }),
+    )
+    await warmRun(pp, device, makeSource(device), FRAME)
+    const params = paramUploads(device, 32)
+    expect(params).toHaveLength(1)
+    expect(params[0][0]).toBe(4)
+    expect(params[0][1]).toBeCloseTo(0.3)
+    expect(params[0][2]).toBeCloseTo(0.2)
+    expect([params[0][4], params[0][5], params[0][6]]).toEqual([1, 0, 0])
+  })
+
+  it('advances the frame index at hz and wraps modulo 1024', () => {
+    const grain = new FilmGrain({ hz: 10 })
+    const out = new Float32Array(8)
+    grain.passes[0].writeParams!({ ...CTX, time: 2.37 }, out)
+    expect(out[3]).toBe(23)
+    grain.passes[0].writeParams!({ ...CTX, time: 200 }, out)
+    expect(out[3]).toBe(2000 % 1024)
+  })
+
+  it('freezes the frame index when hz is 0', () => {
+    const grain = new FilmGrain({ hz: 0 })
+    const out = new Float32Array(8)
+    grain.passes[0].writeParams!({ ...CTX, time: 999 }, out)
+    expect(out[3]).toBe(0)
+  })
+})
+
+describe('DualKawaseBlur', () => {
+  it('builds 2*levels passes, halving scale down then back up to 1', () => {
+    const blur = new DualKawaseBlur({ levels: 3 })
+    expect(blur.passes.map((p) => p.scale)).toEqual([
+      0.5, 0.25, 0.125, 0.25, 0.5, 1,
+    ])
+  })
+
+  it('clamps levels to the supported range', () => {
+    expect(new DualKawaseBlur({ levels: 0 }).levels).toBe(1)
+    expect(new DualKawaseBlur({ levels: 99 }).levels).toBe(6)
+  })
+
+  it('down passes read the destination texel, up passes the source one', () => {
+    const blur = new DualKawaseBlur({ levels: 2, offset: 3 })
+    const ctx: PostPassContext = {
+      width: 10,
+      height: 20,
+      texelW: 1 / 10,
+      texelH: 1 / 20,
+      inputWidth: 100,
+      inputHeight: 200,
+      inputTexelW: 1 / 100,
+      inputTexelH: 1 / 200,
+      uvYDown: true,
+      time: 0,
+      dt: 0,
+    }
+    const downOut = new Float32Array(4)
+    blur.passes[0].writeParams!(ctx, downOut)
+    expect(downOut[0]).toBeCloseTo(1 / 10)
+    expect(downOut[1]).toBeCloseTo(1 / 20)
+    expect(downOut[2]).toBe(3)
+
+    const finalUp = blur.passes[blur.passes.length - 1]
+    const upOut = new Float32Array(4)
+    finalUp.writeParams!(ctx, upOut)
+    expect(upOut[0]).toBeCloseTo(1 / 100)
+    expect(upOut[1]).toBeCloseTo(1 / 200)
+  })
+
+  it('downsamples through pooled half/quarter targets and back to full size', async () => {
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    pp.add(new DualKawaseBlur({ levels: 2 }))
+    await warmRun(pp, device, makeSource(device, 64, 32), FRAME)
+    const sizes = device.renderTargets.map((r) => `${r.width}x${r.height}`)
+    expect(sizes).toContain('32x16')
+    expect(sizes).toContain('16x8')
+    expect(device.presents[0].dstWidth).toBe(FRAME.canvasW)
+    expect(device.presents[0].dstHeight).toBe(FRAME.canvasH)
+  })
+
+  it('reuses pass objects across a levels change', () => {
+    const blur = new DualKawaseBlur({ levels: 6 })
+    const deep = new Set(blur.passes)
+    blur.levels = 2
+    // Every pass of the shallower chain is one the deeper chain already used,
+    // so the pipeline's compiled resources for them stay valid.
+    for (const pass of blur.passes) expect(deep.has(pass)).toBe(true)
+  })
+
+  it('changing levels never drops a frame once the deepest chain is warm', async () => {
+    const device = new MockGfxDevice()
+    const pp = new PostProcessPipeline(device)
+    const blur = new DualKawaseBlur({ levels: 6 })
+    pp.add(blur)
+    const source = makeSource(device, 64, 32)
+    await warmRun(pp, device, source, FRAME)
+
+    // A recompile makes `run` present the source unmodified, which reads as
+    // the whole effect flashing off for a frame.
+    for (const levels of [5, 4, 3, 2, 1, 2, 3, 4, 5, 6]) {
+      blur.levels = levels
+      device.reset()
+      pp.run(source, FRAME)
+      expect(fullscreenDraws(device), `levels ${levels}`).toBe(levels * 2)
+    }
   })
 })
 

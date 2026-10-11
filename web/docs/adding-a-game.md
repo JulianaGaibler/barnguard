@@ -596,6 +596,13 @@ uncovered.
 `src/core/ui/BackgroundLayer.svelte` is the app-level DOM backdrop and is
 display-level, not game-level. A game does not touch it.
 
+A display whose backdrop needs its own shader effects (a blur, a custom
+composite) runs it through stargazer's post-processing pipeline on its own
+stage, not through a game node. See the
+[post-processing guide](/guides/post-processing) for the `PostEffect`
+contract, and `src/displays/enterprise/background/` for a worked example
+(`DualKawaseBlur` + a display-authored shader + `FilmGrain`).
+
 ### Fonts
 
 Faces are declared in `src/styles/fonts.scss` and gated at boot by

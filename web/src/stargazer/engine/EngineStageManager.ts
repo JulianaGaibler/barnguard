@@ -47,6 +47,7 @@ export class EngineStageManager {
       msaaSamples: opts.msaaSamples ?? engine.msaaSamples,
       gpuDevice: opts.gpuDevice,
       onResize: opts.onResize,
+      renderScale: opts.renderScale,
     })
     this.#_stages.add(stage)
     this.#_attachedCanvases.add(canvas)

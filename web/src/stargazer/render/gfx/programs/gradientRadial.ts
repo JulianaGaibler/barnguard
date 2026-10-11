@@ -1,7 +1,8 @@
-// Radial-gradient program: `Gfx2D.fillCircleRadialGradient`. The gradient LUT
+// Radial-gradient program: `Gfx2D.fillCircleRadialGradient`. The ramp atlas
 // lookup lives on `GpuGfx` (needs `TextureManager`). This program owns the
-// shader/VAO/stream plumbing and the buffer write. The LUT is bound as
-// `ctx.curTexture` (this program has no second texture, unlike `maskedGradient`).
+// shader/VAO/stream plumbing and the buffer write. The atlas is a fixed
+// texture (see `TextureManager.getRampAtlasTexture`), so unlike the mask in
+// `maskedGradient`, nothing here varies the bind group per draw.
 
 import { RingStream } from '../RingStream'
 import {
@@ -9,6 +10,7 @@ import {
   GRADIENT_INSTANCE_STRIDE,
   LOC_GRAD_CENTER,
   LOC_GRAD_RADALPHA,
+  LOC_GRAD_RAMPROW,
   LOC_GRAD_UNIT,
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
@@ -41,6 +43,7 @@ export class GradientRadialProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
+  /** One bind group per atlas-texture identity (placeholder, then the real atlas once it exists). */
   #bindGroups = new WeakMap<Texture, BindGroup>()
 
   get stream(): RingStream {
@@ -76,6 +79,7 @@ export class GradientRadialProgram implements GpuProgram {
         attributes: [
           { location: LOC_GRAD_CENTER, format: 'float32x2', offset: 0 },
           { location: LOC_GRAD_RADALPHA, format: 'float32x2', offset: 8 },
+          { location: LOC_GRAD_RAMPROW, format: 'float32', offset: 16 },
         ],
       },
     ]
@@ -101,11 +105,13 @@ export class GradientRadialProgram implements GpuProgram {
   }
 
   /**
-   * Begin (or continue) the `gradientRadial` batch for `lut` and reserve one
-   * instance record. Returns the word offset, or `-1` on overflow.
+   * Begin (or continue) the `gradientRadial` batch and reserve one instance
+   * record. The atlas is a fixed texture, so distinct gradients (distinct
+   * rows) never break the batch, only a switch away from this program does.
+   * Returns the word offset, or `-1` on overflow.
    */
-  beginInstance(ctx: GpuBatchContext, lut: Texture): number {
-    ctx.beginBatch('gradientRadial', { texture: lut })
+  beginInstance(ctx: GpuBatchContext): number {
+    ctx.beginBatch('gradientRadial')
     return ctx.reserveInstance(this.#stream)
   }
 
@@ -118,7 +124,7 @@ export class GradientRadialProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
-    const material = run.texture ? this.#bindGroupFor(ctx, run.texture) : null
+    const atlas = ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
     drawInstancedRun(
       ctx,
       this.#pipelines,
@@ -126,7 +132,7 @@ export class GradientRadialProgram implements GpuProgram {
       this.#stream,
       GRADIENT_INSTANCE_STRIDE,
       run,
-      material,
+      this.#bindGroupFor(ctx, atlas),
     )
   }
 }

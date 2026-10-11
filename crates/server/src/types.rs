@@ -220,14 +220,14 @@ pub enum ServerEvent {
 // Web-facing state & game log
 // ---------------------------------------------------------------------------
 
-/// Stable id for the Stallwächter display. Used as the `display` tag on
+/// Stable id for the Enterprise display. Used as the `display` tag on
 /// records + high scores. Future displays get their own constants alongside.
-pub const DISPLAY_STALLWAECHTER: &str = "stallwaechter";
+pub const DISPLAY_ENTERPRISE: &str = "enterprise";
 
 /// Stable id for the Arcade display (hosts Jezzball, Connect Four, Orbo).
 pub const DISPLAY_ARCADE: &str = "arcade";
 
-/// Why a Stallwächter round ended. JSON: `snake_case` (`"collision"`,
+/// Why an Enterprise round ended. JSON: `snake_case` (`"collision"`,
 /// `"exited_germany"`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -252,7 +252,10 @@ impl fmt::Display for GameEndReason {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum GameDetails {
-    Stallwaechter(StallwaechterDetails),
+    /// Accepts the legacy `stallwaechter` tag too, so records written before
+    /// the display's rename still deserialize.
+    #[serde(alias = "stallwaechter")]
+    Enterprise(EnterpriseDetails),
     Arcade(ArcadeDetails),
 }
 
@@ -261,7 +264,7 @@ impl GameDetails {
     /// so filtering / grouping code doesn't have to string-match.
     pub fn display_id(&self) -> &'static str {
         match self {
-            GameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+            GameDetails::Enterprise(_) => DISPLAY_ENTERPRISE,
             GameDetails::Arcade(_) => DISPLAY_ARCADE,
         }
     }
@@ -295,12 +298,12 @@ pub struct ArcadeDetails {
     pub player_name: Option<String>,
 }
 
-/// Stallwächter-specific game details. `state_id` is the ISO code (lowercase);
+/// Enterprise-specific game details. `state_id` is the ISO code (lowercase);
 /// high-score flags are snapshotted at record-creation time so reprints stay
 /// 1:1 with the original badge even after a later game surpasses this score.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StallwaechterDetails {
+pub struct EnterpriseDetails {
     pub state_id: String,
     pub reason: GameEndReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -336,7 +339,7 @@ impl GameRecord {
 
 /// Client-supplied payload for `POST /api/games`. Same envelope + details
 /// shape as [`GameRecord`], but the server assigns `id`, `ts_ms`, and (for
-/// Stallwächter) the `was*High` flags.
+/// Enterprise) the `was*High` flags.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewGame {
@@ -351,13 +354,16 @@ pub struct NewGame {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum NewGameDetails {
-    Stallwaechter(NewStallwaechterDetails),
+    /// Accepts the legacy `stallwaechter` tag too, so a stale client that
+    /// hasn't picked up the display rename still posts successfully.
+    #[serde(alias = "stallwaechter")]
+    Enterprise(NewEnterpriseDetails),
     Arcade(NewArcadeDetails),
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewStallwaechterDetails {
+pub struct NewEnterpriseDetails {
     pub state_id: String,
     pub reason: GameEndReason,
     #[serde(default)]
@@ -387,13 +393,13 @@ impl NewGame {
             details,
         } = self;
         let full = match details {
-            NewGameDetails::Stallwaechter(d) => {
-                let DisplayHighScores::Stallwaechter(s) = prev else {
-                    panic!("prev high scores variant didn't match Stallwaechter details")
+            NewGameDetails::Enterprise(d) => {
+                let DisplayHighScores::Enterprise(s) = prev else {
+                    panic!("prev high scores variant didn't match Enterprise details")
                 };
                 let was_overall_high = score > s.overall;
                 let was_state_high = score > s.by_state.get(&d.state_id).copied().unwrap_or(0);
-                GameDetails::Stallwaechter(StallwaechterDetails {
+                GameDetails::Enterprise(EnterpriseDetails {
                     state_id: d.state_id,
                     reason: d.reason,
                     escape_heading_rad: d.escape_heading_rad,
@@ -430,15 +436,30 @@ impl NewGame {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum DisplayHighScores {
-    Stallwaechter(StallwaechterHighScores),
+    Enterprise(EnterpriseHighScores),
     Arcade(ArcadeHighScores),
+}
+
+/// `display` query params and path segments come from outside the process
+/// (URL parameters, stale bookmarks, a kiosk config that hasn't picked up a
+/// rename), so a display id that no longer resolves is an expected input, not
+/// a programmer error. Map the legacy `stallwaechter` id, from before this
+/// display was renamed to `enterprise`, onto its current id before any
+/// lookup, the same tolerance [`GameDetails::Enterprise`]'s `serde(alias)`
+/// gives the stored record shape.
+fn canonical_display_id(display: &str) -> &str {
+    if display == "stallwaechter" {
+        DISPLAY_ENTERPRISE
+    } else {
+        display
+    }
 }
 
 impl DisplayHighScores {
     pub fn empty_for(display: &str) -> Self {
-        match display {
-            DISPLAY_STALLWAECHTER => {
-                DisplayHighScores::Stallwaechter(StallwaechterHighScores::default())
+        match canonical_display_id(display) {
+            DISPLAY_ENTERPRISE => {
+                DisplayHighScores::Enterprise(EnterpriseHighScores::default())
             }
             DISPLAY_ARCADE => DisplayHighScores::Arcade(ArcadeHighScores::default()),
             other => panic!("unknown display id: {other}"),
@@ -449,12 +470,12 @@ impl DisplayHighScores {
     /// matches `display` contribute. The rest are silently skipped, so
     /// callers can pass the whole log without prefiltering.
     pub fn from_games(display: &str, games: &[GameRecord]) -> Self {
-        match display {
-            DISPLAY_STALLWAECHTER => {
+        match canonical_display_id(display) {
+            DISPLAY_ENTERPRISE => {
                 let mut overall = 0u32;
                 let mut by_state: HashMap<String, u32> = HashMap::new();
                 for g in games {
-                    if let GameDetails::Stallwaechter(d) = &g.details {
+                    if let GameDetails::Enterprise(d) = &g.details {
                         if g.score > overall {
                             overall = g.score;
                         }
@@ -464,7 +485,7 @@ impl DisplayHighScores {
                         }
                     }
                 }
-                DisplayHighScores::Stallwaechter(StallwaechterHighScores { overall, by_state })
+                DisplayHighScores::Enterprise(EnterpriseHighScores { overall, by_state })
             }
             DISPLAY_ARCADE => {
                 let mut by_game: HashMap<String, u32> = HashMap::new();
@@ -485,7 +506,7 @@ impl DisplayHighScores {
 
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StallwaechterHighScores {
+pub struct EnterpriseHighScores {
     pub overall: u32,
     pub by_state: HashMap<String, u32>,
 }
@@ -553,8 +574,8 @@ impl NewLeaderboardEntry {
 mod tests {
     use super::*;
 
-    fn stall_details(state: &str) -> StallwaechterDetails {
-        StallwaechterDetails {
+    fn enterprise_details(state: &str) -> EnterpriseDetails {
+        EnterpriseDetails {
             state_id: state.into(),
             reason: GameEndReason::Collision,
             escape_heading_rad: None,
@@ -569,8 +590,24 @@ mod tests {
             ts_ms: 0,
             score,
             duration_ms: 0,
-            details: GameDetails::Stallwaechter(stall_details(state)),
+            details: GameDetails::Enterprise(enterprise_details(state)),
         }
+    }
+
+    #[test]
+    fn high_scores_accept_legacy_stallwaechter_id() {
+        let games = vec![record("bayern", 100)];
+        let DisplayHighScores::Enterprise(hs) =
+            DisplayHighScores::from_games("stallwaechter", &games)
+        else {
+            panic!("expected Enterprise high scores")
+        };
+        assert_eq!(hs.overall, 100);
+        let DisplayHighScores::Enterprise(empty) = DisplayHighScores::empty_for("stallwaechter")
+        else {
+            panic!("expected Enterprise high scores")
+        };
+        assert_eq!(empty.overall, 0);
     }
 
     #[test]
@@ -581,21 +618,21 @@ mod tests {
             record("bayern", 150),
             record("hessen", 200),
         ];
-        let DisplayHighScores::Stallwaechter(hs) =
-            DisplayHighScores::from_games(DISPLAY_STALLWAECHTER, &games)
+        let DisplayHighScores::Enterprise(hs) =
+            DisplayHighScores::from_games(DISPLAY_ENTERPRISE, &games)
         else {
-            panic!("expected Stallwaechter high scores")
+            panic!("expected Enterprise high scores")
         };
         assert_eq!(hs.overall, 250);
         assert_eq!(hs.by_state.get("bayern").copied(), Some(150));
         assert_eq!(hs.by_state.get("hessen").copied(), Some(250));
     }
 
-    fn stall_new(state: &str, score: u32) -> NewGame {
+    fn enterprise_new(state: &str, score: u32) -> NewGame {
         NewGame {
             score,
             duration_ms: 5_000,
-            details: NewGameDetails::Stallwaechter(NewStallwaechterDetails {
+            details: NewGameDetails::Enterprise(NewEnterpriseDetails {
                 state_id: state.into(),
                 reason: GameEndReason::Collision,
                 escape_heading_rad: None,
@@ -605,13 +642,13 @@ mod tests {
 
     #[test]
     fn new_game_flags_are_strict_greater_than() {
-        let prev = DisplayHighScores::Stallwaechter(StallwaechterHighScores {
+        let prev = DisplayHighScores::Enterprise(EnterpriseHighScores {
             overall: 100,
             by_state: [("bayern".to_string(), 50)].into_iter().collect(),
         });
-        let rec = stall_new("bayern", 100).into_record(&prev);
-        let GameDetails::Stallwaechter(d) = &rec.details else {
-            panic!("expected Stallwaechter details")
+        let rec = enterprise_new("bayern", 100).into_record(&prev);
+        let GameDetails::Enterprise(d) = &rec.details else {
+            panic!("expected Enterprise details")
         };
         // Equalling the overall best does NOT trigger the star.
         assert!(!d.was_overall_high);
@@ -620,10 +657,10 @@ mod tests {
 
     #[test]
     fn new_game_flags_first_ever_beats_zero() {
-        let prev = DisplayHighScores::empty_for(DISPLAY_STALLWAECHTER);
-        let rec = stall_new("sachsen", 1).into_record(&prev);
-        let GameDetails::Stallwaechter(d) = &rec.details else {
-            panic!("expected Stallwaechter details")
+        let prev = DisplayHighScores::empty_for(DISPLAY_ENTERPRISE);
+        let rec = enterprise_new("sachsen", 1).into_record(&prev);
+        let GameDetails::Enterprise(d) = &rec.details else {
+            panic!("expected Enterprise details")
         };
         assert!(d.was_overall_high);
         assert!(d.was_state_high);
@@ -706,11 +743,11 @@ mod tests {
         let json = serde_json::to_string(&rec).unwrap();
         // Top-level object carries envelope + flattened display tag +
         // per-display fields (no nested `details` object).
-        assert!(json.contains(r#""display":"stallwaechter""#));
+        assert!(json.contains(r#""display":"enterprise""#));
         assert!(json.contains(r#""stateId":"bayern""#));
         assert!(!json.contains(r#""details":"#));
         let round: GameRecord = serde_json::from_str(&json).unwrap();
-        assert_eq!(round.display_id(), DISPLAY_STALLWAECHTER);
+        assert_eq!(round.display_id(), DISPLAY_ENTERPRISE);
     }
 
     fn new_leaderboard(name: &str) -> NewLeaderboardEntry {
@@ -734,5 +771,12 @@ mod tests {
     #[test]
     fn leaderboard_name_truncates_to_six_chars() {
         assert_eq!(new_leaderboard("TOOLONG").normalized_name(), "toolon");
+    }
+
+    #[test]
+    fn game_record_accepts_legacy_stallwaechter_tag() {
+        let json = r#"{"id":"3fa1f167-71c0-4a6d-9b1b-000000000000","tsMs":0,"score":42,"durationMs":0,"display":"stallwaechter","stateId":"bayern","reason":"collision","wasOverallHigh":false,"wasStateHigh":false}"#;
+        let rec: GameRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(rec.display_id(), DISPLAY_ENTERPRISE);
     }
 }

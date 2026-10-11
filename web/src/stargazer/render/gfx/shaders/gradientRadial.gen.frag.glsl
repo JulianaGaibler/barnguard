@@ -22,6 +22,7 @@ struct VOut {
     vec4 pos;
     vec2 uv;
     float alpha;
+    float rampRow;
 };
 layout(std140) uniform Frame_block_0Fragment { Frame _group_0_binding_0_fs; };
 
@@ -31,6 +32,7 @@ uniform highp sampler2D _group_1_binding_0_fs;
 
 smooth in vec2 _vs2fs_location0;
 flat in float _vs2fs_location1;
+flat in float _vs2fs_location2;
 layout(location = 0) out vec4 _fs2p_location0;
 
 float clipRoundBox(vec2 p, vec2 b, float rad) {
@@ -68,14 +70,16 @@ float clipCoverage(vec2 fragPos) {
 }
 
 void main() {
-    VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1);
+    VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2);
     float t = (length((in_.uv - vec2(0.5))) * 2.0);
     if ((t > 1.0)) {
         discard;
     }
-    vec4 c = texture(_group_1_binding_0_fs, vec2(vec2(t, 0.5)));
-    float _e18 = clipCoverage(in_.pos.xy);
-    _fs2p_location0 = (c * (in_.alpha * _e18));
+    float u = ((t * 0.99609375) + 0.001953125);
+    float v = ((in_.rampRow + 0.5) / 64.0);
+    vec4 c = texture(_group_1_binding_0_fs, vec2(vec2(u, v)));
+    float _e26 = clipCoverage(in_.pos.xy);
+    _fs2p_location0 = (c * (in_.alpha * _e26));
     return;
 }
 

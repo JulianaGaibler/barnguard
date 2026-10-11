@@ -273,7 +273,7 @@
 
   // Mirror the booth-menu debug toggle into the engine's debug controller, and
   // reflect keyboard (Y) toggles back so the menu label stays in sync, the
-  // same two-way wiring stallwaechter uses.
+  // same two-way wiring the enterprise display uses.
   $effect(() => {
     if (!host) return
     host.debug.setHudVisible($debugHudVisible)

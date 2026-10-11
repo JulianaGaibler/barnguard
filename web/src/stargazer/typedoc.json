@@ -63,8 +63,7 @@
     "TextureSource",
     "PointerTarget",
     "GltfDoc",
-    "RenderTarget",
-    "ShaderReflection"
+    "RenderTarget"
   ],
   "cleanJsdocTheme": {
     "siteName": "Stargazer",

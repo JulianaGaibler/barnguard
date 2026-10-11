@@ -1,11 +1,16 @@
 // Radial-gradient program. A quad centered on the gradient
-// origin, size = 2·radius. The fragment stage samples the `u_stops` 1D LUT at
-// t = length(uv - 0.5)·2.
+// origin, size = 2·radius. The fragment stage samples row `a_rampRow` of the
+// shared ramp atlas at t = length(uv - 0.5)·2.
 //
-// @location / @binding numbers match batchLayout.ts: a_unit/a_center/a_radAlpha
-// at LOC_GRAD_UNIT/CENTER/RADALPHA (0/1/2), Frame UBO at FRAME_UBO_BINDING (0),
-// u_stops at texture unit 0. The projection matrix already maps device px →
-// clip with the Y-flip, so shaders are generated with --keep-coordinate-space.
+// `u_stops` is the atlas every gradient-capable program shares, so which row
+// an instance reads never changes which texture is bound: a batch of
+// differently-colored gradients still draws in one call.
+//
+// @location / @binding numbers match batchLayout.ts:
+// a_unit/a_center/a_radAlpha/a_rampRow at LOC_GRAD_UNIT/CENTER/RADALPHA/RAMPROW
+// (0/1/2/3), Frame UBO at FRAME_UBO_BINDING (0), u_stops at texture unit 0. The
+// projection matrix already maps device px → clip with the Y-flip, so shaders
+// are generated with --keep-coordinate-space.
 //
 // Sampler-binding convention: naga folds a texture and its sampler into one
 // GLSL `sampler2D` named after the texture, and the reflection records only the
@@ -59,6 +64,7 @@ struct VOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) uv: vec2<f32>,
   @location(1) @interpolate(flat) alpha: f32,
+  @location(2) @interpolate(flat) rampRow: f32,
 };
 
 @vertex
@@ -66,6 +72,7 @@ fn vs_main(
   @location(0) a_unit: vec2<f32>,
   @location(1) a_center: vec2<f32>,
   @location(2) a_radAlpha: vec2<f32>,
+  @location(3) a_rampRow: f32,
 ) -> VOut {
   var out: VOut;
   let radius = a_radAlpha.x;
@@ -74,6 +81,7 @@ fn vs_main(
   out.pos = vec4<f32>(clip.xy, 0.0, 1.0);
   out.uv = a_unit;
   out.alpha = a_radAlpha.y;
+  out.rampRow = a_rampRow;
   return out;
 }
 
@@ -83,7 +91,14 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   if (t > 1.0) {
     discard;
   }
-  // Sample horizontally through the LUT, y = 0.5 reads the center row.
-  let c = textureSample(u_stops, u_stopsSamp, vec2<f32>(t, 0.5));
+  // Sample horizontally through the LUT, y = 0.5 reads the center row of
+  // atlas row `rampRow`. `wrap: 'clamp'` addresses texel centers, so t = 0 or
+  // 1 unmapped would land a half texel past the first/last center and read a
+  // flat half-texel band from clamping. Remapping onto [0.5/256, 255.5/256]
+  // lands exactly on them.
+  let u = t * (255.0 / 256.0) + 0.5 / 256.0;
+  // ATLAS_ROWS must match TextureManager.ts.
+  let v = (in.rampRow + 0.5) / 64.0;
+  let c = textureSample(u_stops, u_stopsSamp, vec2<f32>(u, v));
   return c * (in.alpha * clipCoverage(in.pos.xy));
 }

@@ -12,6 +12,18 @@
  */
 
 import type { GeometryHandle } from './GeometryHandle'
+import type { StrokeOutlineBuffer } from './strokeOutline'
+
+/**
+ * Per-path LRU of tessellated stroke outlines (one per distinct style +
+ * scale bucket), bounded per path rather than globally: a `WeakMap` cannot be
+ * iterated, so a global budget has nothing to sweep. The number of live
+ * registered paths is already bounded by the app.
+ */
+export const OUTLINE_VARIANTS_PER_PATH = 8
+
+const pathToOutlines = new WeakMap<Path2D, Map<string, StrokeOutlineBuffer>>()
+const pathToEpoch = new WeakMap<Path2D, number>()
 
 /**
  * Index-count at or above which a tessellation auto-opts into the retained GPU
@@ -52,6 +64,51 @@ export function registerPathTessellation(
     // shorter/absent is treated as `true` by `getContourClosed`.
     pathToContourClosed.set(path, closed ?? contours.map(() => true))
   }
+  // Re-registering the same Path2D object (a re-parse at a new tolerance)
+  // must invalidate any cached stroke outline built from the old contours.
+  // `strokePath2D` re-walks `getPathContours` every frame, so without this
+  // an outline cache would be the one place that stays staler than the
+  // registration.
+  pathToEpoch.set(path, (pathToEpoch.get(path) ?? 0) + 1)
+}
+
+/** Bumped on every `registerPathTessellation` call for `path`. Part of the outline cache key. */
+export function getRegistrationEpoch(path: Path2D): number {
+  return pathToEpoch.get(path) ?? 0
+}
+
+/**
+ * Look up a cached stroke outline for `path` by exact key (style signature +
+ * scale bucket + registration epoch, built by the caller), or `undefined` on
+ * a miss.
+ */
+export function getCachedOutline(
+  path: Path2D,
+  key: string,
+): StrokeOutlineBuffer | undefined {
+  return pathToOutlines.get(path)?.get(key)
+}
+
+/**
+ * Cache `outline` for `path` under `key`. Evicts the oldest entry (insertion
+ * order) past {@link OUTLINE_VARIANTS_PER_PATH}, per path rather than
+ * globally.
+ */
+export function setCachedOutline(
+  path: Path2D,
+  key: string,
+  outline: StrokeOutlineBuffer,
+): void {
+  let byKey = pathToOutlines.get(path)
+  if (!byKey) {
+    byKey = new Map()
+    pathToOutlines.set(path, byKey)
+  }
+  byKey.set(key, outline)
+  if (byKey.size > OUTLINE_VARIANTS_PER_PATH) {
+    const oldest = byKey.keys().next().value as string | undefined
+    if (oldest !== undefined) byKey.delete(oldest)
+  }
 }
 
 /**
@@ -65,6 +122,8 @@ export function releasePathTessellation(path: Path2D): void {
   pathToGeometry.delete(path)
   pathToContours.delete(path)
   pathToContourClosed.delete(path)
+  pathToOutlines.delete(path)
+  pathToEpoch.delete(path)
 }
 
 /** Fetch the triangulated geometry, or `undefined` if the path isn't registered. */

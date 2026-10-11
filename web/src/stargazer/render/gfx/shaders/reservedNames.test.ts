@@ -8,12 +8,39 @@
 // and every draw using that pipeline failed on macOS while every other platform
 // was unaffected. Translators are supposed to mangle these, and not all of them
 // do, so the names are checked here instead of relied upon.
+//
+// Scanned from `src` down, so this covers every shader module in the engine
+// and every display that authors its own.
 
 import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-const DIR = join(import.meta.dirname, '.')
+const HERE = dirname(fileURLToPath(import.meta.url))
+
+/** Walk up from this test file to the `src` directory that contains it. */
+function findSrcRoot(from: string): string {
+  let dir = from
+  while (dirname(dir) !== dir) {
+    if (dir.endsWith('/src')) return dir
+    dir = dirname(dir)
+  }
+  throw new Error(`could not find an ancestor "src" directory from ${from}`)
+}
+
+/** Recursively collect every file under `dir` whose name matches `suffix`. */
+function collectFiles(dir: string, suffix: string): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...collectFiles(full, suffix))
+    else if (entry.name.endsWith(suffix)) out.push(full)
+  }
+  return out
+}
+
+const SRC_ROOT = findSrcRoot(HERE)
 
 /**
  * Reserved in Metal or HLSL and unsafe as a WGSL struct member or variable.
@@ -82,7 +109,7 @@ const RESERVED = new Set([
   'auto',
 ])
 
-const shaders = readdirSync(DIR).filter((f) => f.endsWith('.wgsl'))
+const shaders = collectFiles(SRC_ROOT, '.wgsl')
 
 /**
  * Struct member declarations: an optional run of attributes, then `name:`.
@@ -110,7 +137,7 @@ describe('WGSL identifiers are portable', () => {
   })
 
   it.each(shaders)('%s uses no reserved target-language names', (file) => {
-    const source = readFileSync(join(DIR, file), 'utf8')
+    const source = readFileSync(file, 'utf8')
     const offenders = memberNames(source).filter((m) => RESERVED.has(m.name))
     expect(
       offenders.map((o) => `${file}:${o.line} "${o.name}"`),

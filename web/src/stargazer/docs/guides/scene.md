@@ -6,8 +6,8 @@ A `SceneTree` belongs to a `Stage` and holds one tree of both 2D (`Node2D`) and 
 
 Everything in the scene is a `Node2D`: a transform, a parent, children, and optional behaviors. Use it directly as a transform-only container to group children. The drawable primitives extend it:
 
-- `ShapeNode`, a circle or rect with optional fill and stroke. Circles hit-test as circles, and rects fall back to their bounding box.
-- `Path2DNode`, an arbitrary `Path2D` fill or stroke. It hit-tests via `isPointInPath`, or a bounding circle when `hitMode: 'circle'`.
+- `ShapeNode`, a circle or rect with optional fill, stroke, and drop shadow. Circles hit-test as circles, and rects fall back to their bounding box.
+- `Path2DNode`, an arbitrary `Path2D` fill, stroke, or (hard-only) drop shadow. It hit-tests via `isPointInPath`, or a bounding circle when `hitMode: 'circle'`.
 - `PolylineNode`, an append-only polyline backed by a `Float32Array`, with optional quadratic-Bézier smoothing.
 - `TextNode`, a run of text rasterized to a glyph texture. See its API reference for options.
 - `ParticleEmitterNode` and `VectorParticleNode`. See [Particles](/guides/particles).
@@ -190,6 +190,8 @@ const track = new Path2DNode({
 ```
 
 The default (`strokeSpace: 'screen'`) mirrors how CSS `stroke-width` behaves under an SVG viewport transform. A node that overrides `draw` does the same thing by hand, passing `width: cssPx * camera.strokeSpaceScale()` in its stroke style. See [Drawing](/guides/drawing#style-is-per-call) and [Camera](/guides/camera#stroke-space-scale).
+
+`ShapeNode`'s and `Path2DNode`'s `shadow` option follows the same `strokeSpace` setting as `lineWidth`: a shadow's `offsetX`/`offsetY`/`blur`/`spread` stay visually constant across zoom by default, same reasoning as the stroke width next to them.
 
 ## Scene lifecycle
 

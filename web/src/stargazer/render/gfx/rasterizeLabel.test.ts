@@ -15,7 +15,7 @@ import {
 /**
  * Stub measure context that records the style it was given and returns canned
  * metrics. Mirrors the ctx-stub pattern in
- * `displays/stallwaechter/label.test.ts`.
+ * `displays/enterprise/label.test.ts`.
  */
 function stubCtx(metrics: Partial<TextMetrics>): {
   ctx: LabelMeasureCtx

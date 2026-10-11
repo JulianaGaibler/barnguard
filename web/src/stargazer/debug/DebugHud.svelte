@@ -87,6 +87,7 @@
       sdfInstances: 0,
       strokeInstances: 0,
       roundRectInstances: 0,
+      shadowInstances: 0,
       msaaSamples: 1,
     },
     backend: 'webgl2',

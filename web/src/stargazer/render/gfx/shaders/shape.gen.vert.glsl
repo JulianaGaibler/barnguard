@@ -34,6 +34,12 @@ struct VOut {
     float strokeWidth;
     vec4 colorFill;
     vec4 colorStroke;
+    vec4 paint;
+    float strokeOffset;
+    vec2 shadowOffset;
+    float shadowSpread;
+    float shadowSigma;
+    float shadowInset;
 };
 layout(std140) uniform Frame_block_0Vertex { Frame _group_0_binding_0_vs; };
 
@@ -47,6 +53,7 @@ layout(location = 6) in vec4 _p2vs_location6;
 layout(location = 7) in vec4 _p2vs_location7;
 layout(location = 8) in vec4 _p2vs_location8;
 layout(location = 9) in vec4 _p2vs_location9;
+layout(location = 10) in vec4 _p2vs_location10;
 flat out int _vs2fs_location0;
 flat out float _vs2fs_location1;
 smooth out vec2 _vs2fs_location2;
@@ -61,10 +68,23 @@ flat out vec4 _vs2fs_location10;
 flat out float _vs2fs_location11;
 flat out vec4 _vs2fs_location12;
 flat out vec4 _vs2fs_location13;
+flat out vec4 _vs2fs_location14;
+flat out float _vs2fs_location15;
+flat out vec2 _vs2fs_location16;
+flat out float _vs2fs_location17;
+flat out float _vs2fs_location18;
+flat out float _vs2fs_location19;
 
 float clipRoundBox(vec2 p_1, vec2 b, float rad) {
     vec2 q = ((abs(p_1) - b) + vec2(rad));
     return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
+}
+
+vec2 devicePos(vec2 fragPos) {
+    float _e4 = _group_0_binding_0_vs.targetH;
+    float _e9 = _group_0_binding_0_vs.fragYFlip;
+    float fy = ((_e9 > 0.5) ? (_e4 - fragPos.y) : fragPos.y);
+    return vec2(fragPos.x, fy);
 }
 
 float sdRoundBox(vec2 p_2, vec2 b_1, vec4 r) {
@@ -72,6 +92,36 @@ float sdRoundBox(vec2 p_2, vec2 b_1, vec4 r) {
     float radius = ((p_2.y > 0.0) ? rr.y : rr.x);
     vec2 q_1 = ((abs(p_2) - b_1) + vec2(radius));
     return ((min(max(q_1.x, q_1.y), 0.0) + length(max(q_1, vec2(0.0)))) - radius);
+}
+
+float shadowErf(float x) {
+    float y = 0.0;
+    float s = sign(x);
+    float a = abs(x);
+    y = (1.0 + ((0.278393 + ((0.230389 + ((0.000972 + (0.078108 * a)) * a)) * a)) * a));
+    float _e17 = y;
+    float _e18 = y;
+    y = (_e17 * _e18);
+    float _e20 = y;
+    float _e21 = y;
+    return (s - (s / (_e20 * _e21)));
+}
+
+float shadowGaussian(float x_1, float sigma) {
+    return (exp((-((x_1 * x_1)) / ((2.0 * sigma) * sigma))) / (2.5066283 * sigma));
+}
+
+float shadowBoxX(float x_2, float y_1, float sigma_1, float cornerL, float cornerR, vec2 halfExt) {
+    float deltaL = min(((halfExt.y - cornerL) - abs(y_1)), 0.0);
+    float curvedL = ((halfExt.x - cornerL) + sqrt(max(0.0, ((cornerL * cornerL) - (deltaL * deltaL)))));
+    float deltaR = min(((halfExt.y - cornerR) - abs(y_1)), 0.0);
+    float curvedR = ((halfExt.x - cornerR) + sqrt(max(0.0, ((cornerR * cornerR) - (deltaR * deltaR)))));
+    float invSigma = (0.70710677 / sigma_1);
+    float _e40 = shadowErf(((x_2 + curvedL) * invSigma));
+    float intHi = (0.5 + (0.5 * _e40));
+    float _e47 = shadowErf(((x_2 - curvedR) * invSigma));
+    float intLo = (0.5 + (0.5 * _e47));
+    return (intHi - intLo);
 }
 
 void main() {
@@ -85,60 +135,93 @@ void main() {
     vec4 a_srcRect = _p2vs_location7;
     vec4 a_colorFill = _p2vs_location8;
     vec4 a_colorStroke = _p2vs_location9;
-    VOut out_ = VOut(vec4(0.0), 0, 0.0, vec2(0.0), vec4(0.0), vec2(0.0), vec2(0.0), 0.0, vec2(0.0), vec2(0.0), vec2(0.0), vec4(0.0), 0.0, vec4(0.0), vec4(0.0));
+    vec4 a_paint = _p2vs_location10;
+    VOut out_ = VOut(vec4(0.0), 0, 0.0, vec2(0.0), vec4(0.0), vec2(0.0), vec2(0.0), 0.0, vec2(0.0), vec2(0.0), vec2(0.0), vec4(0.0), 0.0, vec4(0.0), vec4(0.0), vec4(0.0), 0.0, vec2(0.0), 0.0, 0.0, 0.0);
     vec2 p = vec2(0.0);
     int shape = int((a_shape.x + 0.5));
     out_.shapeType = shape;
     out_.texIndex = a_shape.z;
     out_.colorFill = a_colorFill;
     out_.colorStroke = a_colorStroke;
+    out_.paint = a_paint;
     if ((shape == 1)) {
         float radius_1 = a_params.x;
         float strokeWidth = a_params.y;
         float outerRadius = ((radius_1 + (strokeWidth * 0.5)) + 1.0);
         p = (a_mTranslate + (((a_unit - vec2(0.5)) * 2.0) * outerRadius));
-        vec2 _e38 = p;
-        out_.worldPos = _e38;
+        vec2 _e40 = p;
+        out_.worldPos = _e40;
         out_.center = a_mTranslate;
         out_.radius = radius_1;
         out_.strokeWidth = strokeWidth;
         out_.dash = a_params.zw;
     } else {
         if ((shape == 2)) {
-            vec2 halfExt = a_params.xy;
+            vec2 halfExt_2 = a_params.xy;
             float feather = a_shape.y;
-            vec2 local_1 = (((a_unit - vec2(0.5)) * 2.0) * (halfExt + vec2(feather)));
+            float strokeWidth_1 = a_params.z;
+            float strokeOffset = a_params.w;
+            float inflate = ((feather + abs(strokeOffset)) + (strokeWidth_1 * 0.5));
+            vec2 local_1 = (((a_unit - vec2(0.5)) * 2.0) * (halfExt_2 + vec2(inflate)));
             p = ((a_mTranslate + (a_mCol0_ * local_1.x)) + (a_mCol1_ * local_1.y));
             out_.local = local_1;
-            out_.halfExt = halfExt;
+            out_.halfExt = halfExt_2;
             out_.radii = a_radii;
             out_.strokeWidth = a_params.z;
+            out_.strokeOffset = strokeOffset;
         } else {
-            p = (((a_mCol0_ * a_unit.x) + (a_mCol1_ * a_unit.y)) + a_mTranslate);
-            out_.uv = mix(a_srcRect.xy, a_srcRect.zw, a_unit);
-            out_.tint = a_colorFill;
+            if ((shape == 3)) {
+                vec2 halfExt_3 = a_params.xy;
+                float strokeOffset_1 = a_params.w;
+                float sigma_3 = max(a_srcRect.x, 0.0);
+                float spread = a_srcRect.y;
+                vec2 offset = a_srcRect.zw;
+                vec2 trueHalfExt = (halfExt_3 + vec2(strokeOffset_1));
+                vec2 shadowHalfExt = max((trueHalfExt + vec2(spread)), vec2(0.0));
+                float pad = (3.0 * sigma_3);
+                vec2 quadHalfExt = (max(trueHalfExt, (shadowHalfExt + vec2(length(offset)))) + vec2(pad));
+                vec2 local_2 = (((a_unit - vec2(0.5)) * 2.0) * quadHalfExt);
+                p = ((a_mTranslate + (a_mCol0_ * local_2.x)) + (a_mCol1_ * local_2.y));
+                out_.local = local_2;
+                out_.halfExt = trueHalfExt;
+                out_.radii = a_radii;
+                out_.shadowOffset = offset;
+                out_.shadowSpread = spread;
+                out_.shadowSigma = sigma_3;
+                out_.shadowInset = a_shape.w;
+            } else {
+                p = (((a_mCol0_ * a_unit.x) + (a_mCol1_ * a_unit.y)) + a_mTranslate);
+                out_.uv = mix(a_srcRect.xy, a_srcRect.zw, a_unit);
+                out_.tint = a_colorFill;
+            }
         }
     }
-    mat3x3 _e80 = _group_0_binding_0_vs.proj;
-    vec2 _e81 = p;
-    vec3 clip = (_e80 * vec3(_e81, 1.0));
+    mat3x3 _e134 = _group_0_binding_0_vs.proj;
+    vec2 _e135 = p;
+    vec3 clip = (_e134 * vec3(_e135, 1.0));
     out_.pos = vec4(clip.xy, 0.0, 1.0);
-    VOut _e90 = out_;
-    gl_Position = _e90.pos;
-    _vs2fs_location0 = _e90.shapeType;
-    _vs2fs_location1 = _e90.texIndex;
-    _vs2fs_location2 = _e90.uv;
-    _vs2fs_location3 = _e90.tint;
-    _vs2fs_location4 = _e90.worldPos;
-    _vs2fs_location5 = _e90.center;
-    _vs2fs_location6 = _e90.radius;
-    _vs2fs_location7 = _e90.dash;
-    _vs2fs_location8 = _e90.local;
-    _vs2fs_location9 = _e90.halfExt;
-    _vs2fs_location10 = _e90.radii;
-    _vs2fs_location11 = _e90.strokeWidth;
-    _vs2fs_location12 = _e90.colorFill;
-    _vs2fs_location13 = _e90.colorStroke;
+    VOut _e144 = out_;
+    gl_Position = _e144.pos;
+    _vs2fs_location0 = _e144.shapeType;
+    _vs2fs_location1 = _e144.texIndex;
+    _vs2fs_location2 = _e144.uv;
+    _vs2fs_location3 = _e144.tint;
+    _vs2fs_location4 = _e144.worldPos;
+    _vs2fs_location5 = _e144.center;
+    _vs2fs_location6 = _e144.radius;
+    _vs2fs_location7 = _e144.dash;
+    _vs2fs_location8 = _e144.local;
+    _vs2fs_location9 = _e144.halfExt;
+    _vs2fs_location10 = _e144.radii;
+    _vs2fs_location11 = _e144.strokeWidth;
+    _vs2fs_location12 = _e144.colorFill;
+    _vs2fs_location13 = _e144.colorStroke;
+    _vs2fs_location14 = _e144.paint;
+    _vs2fs_location15 = _e144.strokeOffset;
+    _vs2fs_location16 = _e144.shadowOffset;
+    _vs2fs_location17 = _e144.shadowSpread;
+    _vs2fs_location18 = _e144.shadowSigma;
+    _vs2fs_location19 = _e144.shadowInset;
     return;
 }
 

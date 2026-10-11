@@ -55,10 +55,10 @@ describe('TextureManager drawImage texture sampling', () => {
     expect(optsFor(device, 0).anisotropy).toBeUndefined()
   })
 
-  it('leaves a gradient LUT unmipped, since it is never minified', () => {
+  it('leaves the ramp atlas unmipped, since it is never minified', () => {
     const device = new MockGfxDevice()
     const tm = new TextureManager(device)
-    expect(tm.ensureStopsLut(stops)).not.toBeNull()
+    expect(tm.ensureStopsRow(stops, () => {})).toBeGreaterThanOrEqual(0)
     expect(device.textureOpts).toHaveLength(1)
     expect(optsFor(device, 0).mipmap).toBeFalsy()
   })

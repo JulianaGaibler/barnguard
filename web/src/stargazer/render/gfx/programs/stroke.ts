@@ -11,7 +11,7 @@ import type {
   StencilState,
   VertexBufferLayout,
 } from '../GfxDevice'
-import type { GfxStrokeStyle } from '../Gfx2D'
+import type { SolidStrokeStyle } from '../Gfx2D'
 import { flattenQuadratic } from '../../../assets/SvgPathContours'
 import { RingStream } from '../RingStream'
 import { packColor, resolveDash } from '../packing'
@@ -177,7 +177,7 @@ export class StrokeProgram implements GpuProgram {
     y0: number,
     x1: number,
     y1: number,
-    style: GfxStrokeStyle,
+    style: SolidStrokeStyle,
   ): void {
     if (style.width <= 0) return
     ctx.txStack.read(ctx.txOut)
@@ -214,7 +214,7 @@ export class StrokeProgram implements GpuProgram {
     cy: number,
     x1: number,
     y1: number,
-    style: GfxStrokeStyle,
+    style: SolidStrokeStyle,
   ): void {
     if (style.width <= 0) return
     // Local tolerance: pixel tolerance divided by current transform scale.
@@ -237,7 +237,7 @@ export class StrokeProgram implements GpuProgram {
     ctx: GpuBatchContext,
     pts: ArrayLike<number>,
     count: number,
-    style: GfxStrokeStyle,
+    style: SolidStrokeStyle,
   ): void {
     if (count < 2 || style.width <= 0) return
     // Optional midpoint-quadratic smoothing.
@@ -316,7 +316,7 @@ export class StrokeProgram implements GpuProgram {
     ctx: GpuBatchContext,
     pts: ArrayLike<number>,
     count: number,
-    style: GfxStrokeStyle,
+    style: SolidStrokeStyle,
   ): void {
     if (count < 2) return
     ctx.txStack.read(ctx.txOut)

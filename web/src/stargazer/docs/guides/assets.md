@@ -93,6 +93,15 @@ allocation, so they are safe on the render path. `getPathContours(path)` reads
 back what was registered, and `releasePathTessellation(path)` drops it, which a
 node that registers a one-off retained path should call on teardown.
 
+A `strokePath2D` border (whatever its alignment) and a `Path2DNode`'s hard drop
+shadow both read the same registered contours, so a path without a registration
+draws neither, the same silent no-op `fillPath2D` has.
+
+`tessellateContours` has no hole support: every contour triangulates as its own
+independent outer polygon. A shape with an enclave (a hole punched in it) fills
+wrong the same way whether it is a plain fill, a border, or a shadow, because
+all three start from the same triangulation.
+
 Large, long-lived geometry auto-opts into a retained upload: the triangles go to
 static GPU buffers once and each frame draws them with a model matrix, rather
 than transforming every vertex on the CPU. The threshold is 1500 indices, which

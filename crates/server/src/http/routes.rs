@@ -5,7 +5,7 @@ use crate::config::Config;
 use crate::queue::{CancelOutcome, ReprintError};
 use crate::types::{
     JobMeta, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus, ServerEvent,
-    DISPLAY_STALLWAECHTER,
+    DISPLAY_ENTERPRISE,
 };
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -328,7 +328,7 @@ pub async fn games_delete(State(st): State<AppState>, Path(id): Path<String>) ->
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HighScoresQuery {
-    /// Which display to compute high scores for. Defaults to Stallwächter,
+    /// Which display to compute high scores for. Defaults to Enterprise,
     /// which is the only display shipping today.
     pub display: Option<String>,
 }
@@ -338,7 +338,7 @@ pub async fn games_high_scores(
     State(st): State<AppState>,
     Query(q): Query<HighScoresQuery>,
 ) -> impl IntoResponse {
-    let display = q.display.as_deref().unwrap_or(DISPLAY_STALLWAECHTER);
+    let display = q.display.as_deref().unwrap_or(DISPLAY_ENTERPRISE);
     Json(st.games.high_scores(display))
 }
 

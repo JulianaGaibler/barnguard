@@ -164,7 +164,7 @@
     if (debug.smoothTimestep !== smoothTimestep)
       smoothTimestep = debug.smoothTimestep
     const q = debug.quality
-    if (q.shadowsEnabled !== shadowsOn) shadowsOn = q.shadowsEnabled
+    if (q.meshShadowsEnabled !== shadowsOn) shadowsOn = q.meshShadowsEnabled
     if (q.shadowMapSize !== shadowSize) shadowSize = q.shadowMapSize
     if (q.anisotropy !== anisotropy) anisotropy = q.anisotropy
     if (q.shadowSoftness !== shadowSoftness) shadowSoftness = q.shadowSoftness
@@ -226,8 +226,8 @@
   }
 
   function handleShadowsToggle(): void {
-    debug.quality.shadowsEnabled = !shadowsOn
-    shadowsOn = debug.quality.shadowsEnabled
+    debug.quality.meshShadowsEnabled = !shadowsOn
+    shadowsOn = debug.quality.meshShadowsEnabled
   }
 
   function handleShadowSizeChange(v: number): void {

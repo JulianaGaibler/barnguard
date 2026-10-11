@@ -181,7 +181,11 @@ export {
 export type { RenderQualityOptions } from './render/RenderQuality'
 export { Fog } from './render/Fog'
 export type { FogOptions, FogMode } from './render/Fog'
-export type { GfxBackend, ColorFormat } from './render/gfx/GfxDevice'
+export type {
+  GfxBackend,
+  ColorFormat,
+  ShaderReflection,
+} from './render/gfx/GfxDevice'
 export { selectGfxDevice } from './render/gfx/selectBackend'
 export type {
   BackendPreference,
@@ -201,6 +205,10 @@ export { Vignette } from './render/postfx/effects/Vignette'
 export type { VignetteOptions } from './render/postfx/effects/Vignette'
 export { VignetteBlur } from './render/postfx/effects/VignetteBlur'
 export type { VignetteBlurOptions } from './render/postfx/effects/VignetteBlur'
+export { DualKawaseBlur } from './render/postfx/effects/DualKawaseBlur'
+export type { DualKawaseBlurOptions } from './render/postfx/effects/DualKawaseBlur'
+export { FilmGrain } from './render/postfx/effects/FilmGrain'
+export type { FilmGrainOptions } from './render/postfx/effects/FilmGrain'
 export { AmbientOcclusion } from './render/gfx/ao/AmbientOcclusion'
 export type { AoPreset } from './render/gfx/ao/AmbientOcclusion'
 export type {
@@ -208,9 +216,29 @@ export type {
   GfxBlend,
   GfxClipShape,
   GfxStrokeStyle,
+  SolidStrokeStyle,
   GfxTextStyle,
   GfxGradientStop,
+  GfxLinearGradient,
+  GfxPaint,
+  GfxFill,
+  GfxShadowStyle,
 } from './render/gfx/Gfx2D'
+export {
+  strokeOutline,
+  StrokeOutlineBuffer,
+  DEFAULT_MITER_LIMIT,
+} from './render/gfx/strokeOutline'
+export type {
+  StrokeAlign,
+  StrokeOutlineOptions,
+  StrokeOutlineSink,
+} from './render/gfx/strokeOutline'
+export { VectorQuality, SHADOW_SIGMA_BUDGETS } from './render/VectorQuality'
+export type {
+  VectorQualityOptions,
+  PathShadowFallback,
+} from './render/VectorQuality'
 export { resolveRadii } from './render/gfx/roundRectRadii'
 export type { RoundRectRadii, ResolvedRadii } from './render/gfx/roundRectRadii'
 export type { GeometryHandle } from './render/gfx/GeometryHandle'

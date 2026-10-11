@@ -16,6 +16,7 @@
 
 import type { BitmapMask } from '../../assets/BitmapMask'
 import type { RoundRectRadii } from './roundRectRadii'
+import type { StrokeAlign } from './strokeOutline'
 
 /**
  * Compositing mode. Maps to `ctx.globalCompositeOperation`. The GPU backend
@@ -46,6 +47,39 @@ export interface GfxGradientStop {
 }
 
 /**
+ * A linear gradient paint for a fill or a border. The axis runs from
+ * `(x0, y0)` to `(x1, y1)` in the current transform's local space; a point
+ * on that line reads `stops[0]`, a point past the far end reads the last
+ * stop, same as CSS `linear-gradient`'s clamped ends.
+ *
+ * @example
+ *   gfx.fillRect(0, 0, 200, 80, {
+ *     kind: 'linear',
+ *     x0: 0, y0: 0, x1: 0, y1: 80,
+ *     stops: [{ offset: 0, color: '#1d1d2b' }, { offset: 1, color: '#3a2d5c' }],
+ *   })
+ */
+export interface GfxLinearGradient {
+  kind: 'linear'
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  stops: readonly GfxGradientStop[]
+}
+
+/**
+ * Anything that can fill a shape beyond a flat color. One member today
+ * (`'linear'`); a `'radial'` gradient is a predictable future addition,
+ * which is why this is declared as its own union rather than folded directly
+ * into {@link GfxFill}.
+ */
+export type GfxPaint = GfxLinearGradient
+
+/** Anything that can fill or stroke a shape: a CSS color, or a {@link GfxPaint}. */
+export type GfxFill = string | GfxPaint
+
+/**
  * Per-call text style for `fillText`. Mirrors the Canvas text properties.
  *
  * On the GPU backend `color` is baked into the rasterized glyph bitmap (so
@@ -73,13 +107,28 @@ export interface GfxTextStyle {
  * by the caller (see the `width`/`dash` note on `Gfx2D`).
  */
 export interface GfxStrokeStyle {
-  /** CSS color string. */
-  color: string
+  /** CSS color, or a gradient paint. */
+  color: GfxFill
   /** Width in the current transform space (what `ctx.lineWidth` expects). */
   width: number
-  /** Line cap. Default `'butt'`. */
+  /**
+   * Line cap. Default `'butt'`.
+   *
+   * @remarks
+   *   Only the outline path (see {@link GfxStrokeStyle.align} /
+   *   {@link GfxStrokeStyle.exactJoins}) honours this. The default segment
+   *   stroker draws every cap round, unconditionally, whatever this says.
+   */
   cap?: CanvasLineCap
-  /** Line join. Default `'miter'`. */
+  /**
+   * Line join. Default `'miter'`.
+   *
+   * @remarks
+   *   Only the outline path honours this (see {@link GfxStrokeStyle.cap}'s
+   *   remark). The default segment stroker emits no join geometry at all: a
+   *   `'miter'` request (the default) draws no join, relying on adjacent
+   *   segment quads to cover a gentle corner.
+   */
   join?: CanvasLineJoin
   /** Dash pattern in the current transform space. Omit/empty = solid. */
   dash?: readonly number[]
@@ -87,6 +136,61 @@ export interface GfxStrokeStyle {
   smoothing?: 'none' | 'quadratic'
   /** `strokePolyline` only, close the path back to the first point. */
   closed?: boolean
+  /**
+   * Border position relative to the path. Default `'center'`.
+   *
+   * @remarks
+   *   A non-center value routes the stroke through the outline tessellator
+   *   (see {@link GfxStrokeStyle.exactJoins}), which is a filled shape with
+   *   exact joins and no overlapping geometry, rather than the default
+   *   per-segment stroker. Needs a closed path with a well-defined winding;
+   *   on an open contour or a zero-area closed one it falls back to
+   *   `'center'` with a one-time console warning.
+   */
+  align?: StrokeAlign
+  /**
+   * Opt into the outline tessellator for a centered stroke, to get exact
+   * joins and caps (honouring {@link GfxStrokeStyle.cap} /
+   * {@link GfxStrokeStyle.join}) instead of the default per-segment
+   * stroker's round caps and join-free corners. Default `false`.
+   */
+  exactJoins?: boolean
+  /**
+   * Miter length limit before falling back to a bevel, as a multiple of the
+   * stroke's half-width. Only read on the outline path. Default `4` (SVG's
+   * `stroke-miterlimit` default, not `CanvasRenderingContext2D.miterLimit`'s
+   * default of `10`).
+   */
+  miterLimit?: number
+}
+
+/**
+ * A {@link GfxStrokeStyle} whose color has been confirmed to be a flat CSS
+ * color, never a gradient. The segment stroker (`programs/stroke.ts`) has no
+ * paint slot, so it can only ever draw this narrowed style; the routing
+ * decision that produces one lives in `GpuGfx`.
+ */
+export type SolidStrokeStyle = GfxStrokeStyle & { color: string }
+
+/**
+ * A CSS `box-shadow`-like drop shadow. A rect, rounded rect, or circle (via
+ * `ShapeNode`) draws this analytically, no render target. An arbitrary path
+ * (via `Path2DNode`) draws it from a cached blurred-coverage mask instead:
+ * see the path-shadows guide for what that costs and what is free to
+ * animate.
+ */
+export interface GfxShadowStyle {
+  /** CSS color. A gradient shadow is a follow-up: see the open-points list. */
+  color: string
+  /** Offset, in the same space as `lineWidth` (see `strokeSpace`). Default 0. */
+  offsetX?: number
+  offsetY?: number
+  /** CSS `box-shadow` blur. Sigma is half this. Default 0. */
+  blur?: number
+  /** Grow (or shrink, when negative) the shadow shape. Default 0. */
+  spread?: number
+  /** Draw inside the shape instead of behind it. Default false. */
+  inset?: boolean
 }
 
 /**
@@ -198,14 +302,15 @@ export interface Gfx2D {
 
   // --- fills ---------------------------------------------------------------
 
-  /** Filled axis-aligned rectangle. */
-  fillRect(x: number, y: number, w: number, h: number, color: string): void
+  /** Filled axis-aligned rectangle. `fill` is a CSS color or a gradient paint. */
+  fillRect(x: number, y: number, w: number, h: number, fill: GfxFill): void
 
   /**
    * Filled axis-aligned rounded rectangle. `radii` is the CSS `border-radius`
    * shorthand: a single number, or 1 to 4 numbers (`[all]`, `[tl&br, tr&bl]`,
    * `[tl, tr&bl, br]`, `[tl, tr, br, bl]`). Over-large radii are clamped
-   * proportionally, matching `CanvasRenderingContext2D.roundRect`.
+   * proportionally, matching `CanvasRenderingContext2D.roundRect`. `fill` is a
+   * CSS color or a gradient paint.
    *
    * @example
    *   gfx.fillRoundRect(0, 0, 480, 320, 24, '#1c1c22') // uniform corners
@@ -218,7 +323,7 @@ export interface Gfx2D {
     w: number,
     h: number,
     radii: RoundRectRadii,
-    color: string,
+    fill: GfxFill,
   ): void
 
   /**
@@ -234,16 +339,45 @@ export interface Gfx2D {
     radii: RoundRectRadii,
     style: GfxStrokeStyle,
   ): void
-  /** Filled circle. */
-  fillCircle(cx: number, cy: number, r: number, color: string): void
+  /**
+   * `fillRoundRect` + `strokeRoundRect` in one call: both paint into the
+   * same instance record, so a translucent stroke's antialiased edge
+   * composites against the fill in one fragment instead of double-blending
+   * against a separately drawn one underneath it. Prefer this over calling
+   * both separately whenever a shape has both.
+   */
+  fillAndStrokeRoundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: RoundRectRadii,
+    fill: GfxFill,
+    style: GfxStrokeStyle,
+  ): void
+  /** Filled circle. `fill` is a CSS color or a gradient paint. */
+  fillCircle(cx: number, cy: number, r: number, fill: GfxFill): void
+  /** `fillCircle` + `strokeCircle` in one call. See {@link Gfx2D.fillAndStrokeRoundRect}. */
+  fillAndStrokeCircle(
+    cx: number,
+    cy: number,
+    r: number,
+    fill: GfxFill,
+    style: GfxStrokeStyle,
+  ): void
   /**
    * Filled convex polygon from interleaved `[x0,y0,x1,y1,…]` points. `count` is
    * the number of POINTS (so `pts` holds `2*count` numbers). Closes
-   * automatically.
+   * automatically. `fill` is a CSS color or a gradient paint.
    */
-  fillConvexPoly(pts: ArrayLike<number>, count: number, color: string): void
-  /** Fill an opaque `Path2D` (SVG-derived geometry). */
-  fillPath2D(path: Path2D, color: string): void
+  fillConvexPoly(pts: ArrayLike<number>, count: number, fill: GfxFill): void
+  /**
+   * Fill an opaque `Path2D` (SVG-derived geometry). `fill` is a CSS color or
+   * a gradient paint; a gradient fill always takes the slower streamed path
+   * (see {@link Gfx2D.fillPath2D}'s guide entry), never the retained one a
+   * solid color on a registered path can.
+   */
+  fillPath2D(path: Path2D, fill: GfxFill): void
   /**
    * Filled circle whose interior is a radial gradient from centre (`offset 0`)
    * to rim (`offset 1`).
@@ -288,6 +422,29 @@ export interface Gfx2D {
     y1: number,
     colorStart: string,
     colorEnd: string,
+  ): void
+
+  // --- shadows ---------------------------------------------------------------
+
+  /**
+   * A drop shadow for a rounded rect's border box, drawn analytically (no
+   * render target). `radii` follows the same shorthand as
+   * {@link Gfx2D.fillRoundRect}.
+   */
+  shadowRoundRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radii: RoundRectRadii,
+    style: GfxShadowStyle,
+  ): void
+  /** A drop shadow for a circle, drawn analytically (no render target). */
+  shadowCircle(
+    cx: number,
+    cy: number,
+    r: number,
+    style: GfxShadowStyle,
   ): void
 
   // --- strokes -------------------------------------------------------------

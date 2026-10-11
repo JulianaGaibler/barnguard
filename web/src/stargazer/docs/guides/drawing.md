@@ -65,6 +65,13 @@ Fills: `fillRect`, `fillRoundRect`, `fillCircle`, `fillConvexPoly`,
 Strokes: `strokeLine`, `strokeCircle`, `strokeRoundRect`, `strokePolyline`,
 `strokeQuadratic`, `strokePath2D`.
 
+Combined (fill and stroke in one call, so a translucent border composites
+against the fill instead of double-blending over it): `fillAndStrokeRoundRect`,
+`fillAndStrokeCircle`.
+
+Shadows: `shadowRoundRect`, `shadowCircle` (analytic, no render target). See
+[Drop shadows](#drop-shadows).
+
 Everything else: `drawImage`, `fillText`, `warmText`.
 
 `fillRoundRect` and `strokeRoundRect` take the CSS `border-radius` shorthand, so
@@ -78,6 +85,133 @@ need a registered tessellation. A `Path2D` you built by hand silently draws
 nothing and ticks a counter in the debug HUD. See [Assets](/guides/assets).
 
 Text is its own subject. See [Text](/guides/text).
+
+## Gradients
+
+`fillRect`, `fillRoundRect`, `fillCircle`, `fillConvexPoly`, `fillPath2D`, and a
+stroke's `color`, all accept a CSS color string or a linear gradient:
+
+```ts
+import type { GfxLinearGradient } from '@src/stargazer'
+
+const brand: GfxLinearGradient = {
+  kind: 'linear',
+  x0: 0, y0: 0, x1: 0, y1: 140,
+  stops: [
+    { offset: 0, color: '#1d1d2b' },
+    { offset: 1, color: '#3a2d5c' },
+  ],
+}
+gfx.fillRoundRect(0, 0, 240, 140, 16, brand)
+gfx.strokeRoundRect(0, 0, 240, 140, 16, { color: brand, width: 2 })
+```
+
+The axis runs from `(x0, y0)` to `(x1, y1)` in the current transform's local
+space, the same convention `rotate`/`scale` already follow. A point on the line
+reads `stops[0]`, a point past the far end reads the last stop, matching CSS
+`linear-gradient`'s clamped ends.
+
+Every gradient in a frame shares one small atlas texture, so drawing ten
+differently-colored gradients costs ten draw calls for the ten shapes, not ten
+extra texture binds around them. Reusing the same `stops` array across frames
+(a module-level constant, not a literal rebuilt every call) skips re-uploading
+it; a fresh array with the same content still dedupes, just with one extra
+string join.
+
+A gradient fill on a `fillPath2D` call always takes the slower per-vertex-CPU-
+transform path, never the retained upload a solid color on a large static path
+gets. Reach for a gradient on a large path only if the retained path wasn't
+carrying its weight anyway.
+
+Only `kind: 'linear'` exists today. A gradient stroke on `strokeCircle` or
+`strokeRoundRect` (as opposed to a path's border, which does support it; see
+below) falls back to the gradient's first stop as a flat color.
+
+## Borders: alignment and exact joins
+
+A stroke is centered by default, the same half-in-half-out band Canvas draws,
+and it is quick: no extra geometry, one instance per segment. Set `align` to
+move it:
+
+```ts
+gfx.strokeRoundRect(0, 0, 240, 140, 16, {
+  color: '#1d1d2b',
+  width: 3,
+  align: 'outside', // 'center' (default) | 'inside' | 'outside'
+})
+```
+
+On `strokeRoundRect`/`strokeCircle` this is still the analytic SDF, just offset,
+so it costs nothing extra. On `strokeLine`, `strokeQuadratic`, `strokePolyline`,
+and `strokePath2D`, a non-center `align`, an explicit `exactJoins: true`, or a
+gradient `color` all route the stroke through a different renderer: it
+tessellates the border into a filled outline with exact miter, round, or bevel
+joins and caps, instead of the default per-segment renderer's round caps and
+join-free corners (adjacent segment quads just overlap enough to cover a gentle
+bend).
+
+```ts
+gfx.strokePolyline(points, count, {
+  color: '#1d1d2b',
+  width: 3,
+  join: 'miter',
+  miterLimit: 4, // SVG's stroke-miterlimit default, not Canvas's 10
+  exactJoins: true,
+})
+```
+
+`align !== 'center'` needs a closed contour with a well-defined winding: an open
+polyline has no inside, and a self-crossing (bowtie) shape has no winding to
+read. Either falls back to `'center'` with a one-time console warning rather
+than drawing nothing.
+
+The tessellation for a `strokePath2D` call is cached per path, keyed by style and
+a half-octave device-scale bucket, so a zoom sweep retessellates only a handful
+of times, not every frame. `strokePolyline` cannot be cached: its `pts` buffer
+has no stable identity and the caller mutates it every frame anyway. Register a
+`Path2D` instead if you need a cached aligned border.
+
+A dashed outline border splits into independent dash runs, each with its own
+caps, which is also cached. An **animated** dash phase re-tessellates every
+frame doing that, so it stays on the default per-segment renderer, where the
+phase is a shader uniform instead of geometry.
+
+A short segment or an acute inner corner can still make the tessellated
+boundary overlap itself, the same way an offset curve always can. The result is
+a slightly darker patch under a translucent border at that one corner, not a
+crash or a hole. Rounding a sharp join, or widening the segment, both avoid it.
+
+## Drop shadows
+
+A rect, rounded rect, or circle (via `shadowRoundRect`/`shadowCircle`, or
+`ShapeNode`'s `shadow` option) gets an analytic shadow: no render target, no
+cache, no bake latency, same cost every frame.
+
+```ts
+gfx.shadowRoundRect(0, 0, 240, 140, 16, {
+  color: 'rgba(20, 16, 40, 0.35)',
+  offsetY: 8,
+  blur: 32,
+})
+```
+
+`offsetX`/`offsetY`/`blur`/`spread` follow `strokeSpace`, the same convention as
+`lineWidth`: resolve them against `camera.strokeSpaceScale()` yourself, same as
+a stroke width. `blur` is CSS's blur radius; the shadow's Gaussian sigma is half
+of it. `inset: true` draws it inside the shape instead of behind it, matching
+CSS `box-shadow`'s `inset`.
+
+Draw order matches CSS: outset shadows, then the fill, then inset shadows, then
+the border. An outset shadow is knocked out from under the shape (CSS: "not
+painted inside the border-box"), so a translucent fill does not show the shadow
+through itself.
+
+`Path2DNode`'s `shadow` option (an arbitrary path's drop shadow) is **hard
+only** today: `color`, `offsetX`, `offsetY` work, `blur`, `spread`, and `inset`
+do not. It draws the path's own fill, translated and tinted, under the real
+fill, the same thing a `box-shadow` reduces to once its blur radius is small
+enough to be invisible. A blurred, cached path shadow needs a mask render target
+this version does not build yet.
 
 ## Transform, alpha, and blend
 
@@ -200,7 +334,10 @@ the same reason, animate such a shape in by scaling it rather than fading it.
 
 A translucent multi-segment stroke is the one case the engine deduplicates for
 you, using the stencil buffer, so a dashed translucent polyline does not bead at
-its joins.
+its joins. An outline-tessellated border (see [Borders](#borders-alignment-and-
+exact-joins)) is a single fill, so it never needs deduplicating in the ordinary
+case; the one exception is the short-segment/acute-corner overlap noted there,
+which the stencil path does not have either way.
 
 That path needs stencil bits, which a stage's target carries alongside the depth
 a 3D pass uses, so a scene can hold 3D content and translucent multi-segment

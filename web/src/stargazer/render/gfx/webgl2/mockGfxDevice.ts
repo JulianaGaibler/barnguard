@@ -146,6 +146,8 @@ export class MockGfxDevice implements GfxDevice {
     dstHeight: number
   }[] = []
   deletedRenderTargets = 0
+  deletedShaderModules = 0
+  deletedUniformBuffers = 0
 
   readonly deviceStats: DeviceStats = {
     pipelineSwitches: 0,
@@ -218,7 +220,7 @@ export class MockGfxDevice implements GfxDevice {
     return s
   }
   deleteShaderModule(_s: ShaderModule): void {
-    /* noop */
+    this.deletedShaderModules++
   }
   createPipeline(desc: PipelineDesc): Promise<Pipeline> {
     const p = { __gfxPipeline: undefined as never, desc } as MockPipeline
@@ -338,7 +340,7 @@ export class MockGfxDevice implements GfxDevice {
     /* noop */
   }
   deleteUniformBuffer(_b: UBuffer): void {
-    /* noop */
+    this.deletedUniformBuffers++
   }
 
   // --- index buffers --------------------------------------------------------
@@ -664,6 +666,8 @@ export class MockGfxDevice implements GfxDevice {
     this.boundTargets.length = 0
     this.presents.length = 0
     this.deletedRenderTargets = 0
+    this.deletedShaderModules = 0
+    this.deletedUniformBuffers = 0
     this.shadowLayerBegins.length = 0
     this.shadowCubeFaceBegins.length = 0
     this.shadowPassEnds = 0

@@ -23,6 +23,7 @@ struct VOut {
     vec2 uv;
     vec2 worldPos;
     vec4 grad;
+    float rampRow;
 };
 layout(std140) uniform Frame_block_0Fragment { Frame _group_0_binding_0_fs; };
 
@@ -35,6 +36,7 @@ uniform highp sampler2D _group_1_binding_1_fs;
 smooth in vec2 _vs2fs_location0;
 smooth in vec2 _vs2fs_location1;
 flat in vec4 _vs2fs_location2;
+flat in float _vs2fs_location3;
 layout(location = 0) out vec4 _fs2p_location0;
 
 float clipRoundBox(vec2 p, vec2 b, float rad) {
@@ -72,14 +74,16 @@ float clipCoverage(vec2 fragPos) {
 }
 
 void main() {
-    VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2);
+    VOut in_ = VOut(gl_FragCoord, _vs2fs_location0, _vs2fs_location1, _vs2fs_location2, _vs2fs_location3);
     vec4 _e4 = texture(_group_1_binding_0_fs, vec2(in_.uv));
     float maskA = _e4.w;
     float radius = max(in_.grad.z, 0.0001);
     float t = clamp((distance(in_.worldPos, in_.grad.xy) / radius), 0.0, 1.0);
-    vec4 stopColor = texture(_group_1_binding_1_fs, vec2(vec2(t, 0.5)));
-    float _e28 = clipCoverage(in_.pos.xy);
-    _fs2p_location0 = (stopColor * ((maskA * in_.grad.w) * _e28));
+    float u = ((t * 0.99609375) + 0.001953125);
+    float v = ((in_.rampRow + 0.5) / 64.0);
+    vec4 stopColor = texture(_group_1_binding_1_fs, vec2(vec2(u, v)));
+    float _e36 = clipCoverage(in_.pos.xy);
+    _fs2p_location0 = (stopColor * ((maskA * in_.grad.w) * _e36));
     return;
 }
 

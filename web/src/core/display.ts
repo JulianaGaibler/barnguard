@@ -69,8 +69,8 @@ export interface DisplayManifest {
    * every game (`GameMeta.leaderboards`), e.g. `['jezzball']`, since the
    * leaderboard is scoped per arcade game and a game with modes that do not
    * compare keeps one board per mode. Empty/omitted gates the attendant
-   * BoothMenu's "Leaderboard" panel toggle off entirely, since Stallwächter has
-   * no name-entry concept.
+   * BoothMenu's "Leaderboard" panel toggle off entirely, since the enterprise
+   * display has no name-entry concept.
    */
   leaderboardIds?: string[]
   /**

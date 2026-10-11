@@ -30,16 +30,19 @@ export const SDF_INSTANCE_STRIDE = 32
  */
 export const ROUNDRECT_INSTANCE_STRIDE = 64
 /**
- * Gradient-radial instance layout: center.xy + (radius, alpha) + pad(f32×2) = 6
- * words = 24 B.
+ * Gradient-radial instance layout: center.xy + (radius, alpha) + rampRow +
+ * pad = 6 words = 24 B. `rampRow` indexes the shared ramp atlas (see
+ * `TextureManager.ensureStopsRow`).
  */
 export const GRADIENT_INSTANCE_STRIDE = 24
 
 /**
  * Masked-radial-gradient instance layout: dst.xyzw (f32×4) + srcRect.xyzw
- * (f32×4) + grad(centerX, centerY, radius, alpha) (f32×4) = 12 words = 48 B.
+ * (f32×4) + grad(centerX, centerY, radius, alpha) (f32×4) + rampRow (f32) =
+ * 13 words = 52 B. `rampRow` indexes the shared ramp atlas, same as
+ * `gradientRadial`.
  */
-export const MASKED_GRAD_INSTANCE_STRIDE = 48
+export const MASKED_GRAD_INSTANCE_STRIDE = 52
 
 /**
  * Text-quad instance layout: mCol0.xy + mCol1.xy + mTranslate.xy (affine,
@@ -53,7 +56,7 @@ export const TEXT_QUAD_INSTANCE_STRIDE = 44
  * Shape-program instance layout: one instanced program covering circles,
  * round-rects, and textured quads (text + atlas sprites). All shapes expand the
  * same unit quad. A per-instance `shapeType` selects the vertex positioning +
- * fragment SDF/texture math. Layout (96 B = 24 words):
+ * fragment SDF/texture math. Layout (112 B = 28 words):
  *
  * - MCol0.xy + mCol1.xy + mTranslate.xy, affine (f32×6, offset 0)
  * - Shape = (shapeType, feather, texIndex, pad) (f32×4, offset 24)
@@ -62,13 +65,28 @@ export const TEXT_QUAD_INSTANCE_STRIDE = 44
  * - Radii = round-rect (tl, tr, br, bl) (f32×4, offset 56)
  * - SrcRect = textured (u0, v0, u1, v1) (f32×4, offset 72)
  * - ColorFill(u8×4, offset 88) + colorStroke(u8×4, offset 92)
+ * - Paint = fill gradient (f32×4, offset 96): `(scaleDirX, scaleDirY,
+ *   startOffset, rampRow + 1)`, zero meaning no gradient (a §2.2-zeroed slot
+ *   is then safe). A dedicated attribute rather than reusing `a_srcRect`,
+ *   which a gradient-tinted textured instance would still need. The fill's
+ *   opacity rides in `a_colorFill`'s alpha channel (rgb unused in gradient
+ *   mode), so no separate per-instance opacity field is needed. The stroke
+ *   has no paint slot: a gradient `strokeCircle`/`strokeRoundRect` flattens
+ *   to its first stop (see `GpuGfx.#flattenStrokeColor`).
  */
-export const SHAPE_INSTANCE_STRIDE = 96
-export const SHAPE_BUFFER_BYTES = 512 * 1024 // 512 KB → ~5.4k instances
+export const SHAPE_INSTANCE_STRIDE = 112
+export const SHAPE_BUFFER_BYTES = 640 * 1024 // 640 KB → ~5.8k instances
 /** Shape `shapeType` discriminants (must match `shape.{vert,frag}.glsl`). */
 export const SHAPE_KIND_TEXTURED = 0
 export const SHAPE_KIND_CIRCLE = 1
 export const SHAPE_KIND_ROUNDRECT = 2
+/**
+ * An analytic drop shadow (Evan Wallace's erf-based Gaussian integral over a
+ * rounded box). Uses the round-rect vertex path: a circle's shadow is a
+ * round-rect shadow with uniform radii, same as the fill/stroke kinds treat
+ * a circle as a special case of a rounded box.
+ */
+export const SHAPE_KIND_SHADOW = 3
 /**
  * Shape `texIndex` values: which fixed-unit texture a textured instance
  * samples.
@@ -178,10 +196,12 @@ export const LOC_ROUNDRECT_COLORSTROKE = 7
 export const LOC_GRAD_UNIT = 0
 export const LOC_GRAD_CENTER = 1
 export const LOC_GRAD_RADALPHA = 2
+export const LOC_GRAD_RAMPROW = 3
 export const LOC_MASKGRAD_UNIT = 0
 export const LOC_MASKGRAD_DST = 1
 export const LOC_MASKGRAD_SRC = 2
 export const LOC_MASKGRAD_GRAD = 3
+export const LOC_MASKGRAD_RAMPROW = 4
 export const LOC_TEXT_UNIT = 0
 export const LOC_TEXT_MCOL0 = 1
 export const LOC_TEXT_MCOL1 = 2
@@ -198,6 +218,7 @@ export const LOC_SHAPE_RADII = 6
 export const LOC_SHAPE_SRCRECT = 7
 export const LOC_SHAPE_COLORFILL = 8
 export const LOC_SHAPE_COLORSTROKE = 9
+export const LOC_SHAPE_PAINT = 10
 
 /** Pixel tolerance for CPU curve flattening (device px). */
 export const CURVE_FLATTEN_TOL_PX = 0.5

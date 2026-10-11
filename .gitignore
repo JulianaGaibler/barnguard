@@ -11,6 +11,10 @@ build
 /web/dist/*
 !/web/dist/.gitkeep
 
+# Output of `npm --prefix web run build:portable` (relative asset paths, for
+# dropping into any folder of any static web server).
+/web/dist-portable
+
 # Generated stargazer API docs (built on demand via `npm run docs:stargazer`).
 /web/src/stargazer/site
 

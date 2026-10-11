@@ -75,6 +75,8 @@ export interface EngineOptions {
    * instead of acquiring a real WebGL2 context. See `StageOptions.gpuDevice`.
    */
   gpuDevice?: GfxDevice
+  /** Forwarded to the primary stage. See `StageOptions.renderScale`. */
+  renderScale?: number
 }
 
 /**
@@ -192,6 +194,7 @@ export class Engine {
       msaaSamples: this.msaaSamples,
       physics: opts.physics,
       gpuDevice: opts.gpuDevice,
+      renderScale: opts.renderScale,
       onResize: (info) => {
         // Only the primary stage's resize emits on the engine event bus.
         // Secondary stages resize silently.

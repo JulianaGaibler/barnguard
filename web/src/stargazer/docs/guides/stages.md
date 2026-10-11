@@ -52,6 +52,12 @@ color.
 - `name?: string`. Label in the debug HUD's stage selector.
 - `onResize?: (info) => void`. Fires after the stage has resized its backing
   store and re-fitted its cameras.
+- `renderScale?: number`. Default `1`, clamped to `[0.1, 2]`. Multiplies
+  `devicePixelRatio` before every resize, so the whole stage (scene, any 3D
+  pass, post-processing) renders at a fraction of its device pixels while the
+  CSS size, and so the on-screen size, stays put. A per-machine quality knob
+  for a stage whose cost scales with pixel count, cheaper than tuning any one
+  effect's own resolution.
 
 `attachStage` throws if the canvas is already attached, the primary canvas
 included. One stage per canvas.

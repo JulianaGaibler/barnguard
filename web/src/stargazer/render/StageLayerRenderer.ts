@@ -135,14 +135,25 @@ export class StageLayerRenderer {
 
     // Stroke half-width in world units (0 for non-stroked nodes). Screen-space
     // strokes (the default) scale by `strokeScale`, world-space strokes are
-    // already in world units.
-    const strokeNode = node as { lineWidth?: number; strokeSpace?: string }
+    // already in world units. `cullMargin` (an outside-aligned border, a
+    // shadow's offset/blur/spread) follows the same node-space convention and
+    // the same conversion, so a `ShapeNode` adds it on top rather than
+    // needing its own units.
+    const strokeNode = node as {
+      lineWidth?: number
+      strokeSpace?: string
+      cullMargin?: number
+    }
     const lw = strokeNode.lineWidth ?? 0
-    const worldStrokeHalf =
-      lw > 0
-        ? (strokeNode.strokeSpace === 'world' ? lw : lw * strokeScale) * 0.5
+    const extra = strokeNode.cullMargin ?? 0
+    const raw = lw * 0.5 + extra
+    const worldMargin =
+      raw > 0
+        ? strokeNode.strokeSpace === 'world'
+          ? raw
+          : raw * strokeScale
         : 0
-    const m = worldStrokeHalf + CULL_AA_PAD_WORLD
+    const m = worldMargin + CULL_AA_PAD_WORLD
 
     return (
       maxX < visLeft - m ||

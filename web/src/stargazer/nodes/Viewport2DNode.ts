@@ -124,7 +124,11 @@ export class Viewport2DNode extends Node3D {
     if (!this.#gpu) {
       // samples: 1 so the target is a sampleable color texture. The 2D pipeline
       // is analytically anti-aliased, so it stays crisp without MSAA.
-      this.#gpu = new GpuGfx(canvas, device, { samples: 1, present: false })
+      this.#gpu = new GpuGfx(canvas, device, {
+        samples: 1,
+        present: false,
+        vectorQuality: this.engine?.quality.vector,
+      })
       this.#gpu.setInternalSize(this.#width, this.#height)
     }
     const gpu = this.#gpu

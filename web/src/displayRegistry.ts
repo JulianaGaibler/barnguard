@@ -11,8 +11,7 @@ import type { DisplayManifest } from '@src/core/display'
  * URL param, the server `display` tag, and the SSE / games.json key.
  */
 export const displayRegistry: Record<string, () => Promise<DisplayManifest>> = {
-  stallwaechter: () =>
-    import('./displays/stallwaechter').then((m) => m.stallwaechter),
+  enterprise: () => import('./displays/enterprise').then((m) => m.enterprise),
   arcade: () => import('./displays/arcade').then((m) => m.arcade),
 }
 

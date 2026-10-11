@@ -13,15 +13,41 @@ import { fileURLToPath } from 'node:url'
  *
  * Nothing else catches this. It type-checks, it lints, and WebGPU is fine
  * because groups keep the numbers apart there.
+ *
+ * Scanned from `src` down, so this covers every shader module in the engine and
+ * every display that authors its own.
  */
 const HERE = dirname(fileURLToPath(import.meta.url))
+
+/** Walk up from this test file to the `src` directory that contains it. */
+function findSrcRoot(from: string): string {
+  let dir = from
+  while (dirname(dir) !== dir) {
+    if (dir.endsWith('/src')) return dir
+    dir = dirname(dir)
+  }
+  throw new Error(`could not find an ancestor "src" directory from ${from}`)
+}
+
+/** Recursively collect every file under `dir` whose name matches `suffix`. */
+function collectFiles(dir: string, suffix: string): string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name)
+    if (entry.isDirectory()) out.push(...collectFiles(full, suffix))
+    else if (entry.name.endsWith(suffix)) out.push(full)
+  }
+  return out
+}
+
+const SRC_ROOT = findSrcRoot(HERE)
 
 interface Reflection {
   uniformBlocks: { binding: number; glslName: string }[]
   samplers: { binding: number; glslName: string }[]
 }
 
-const files = readdirSync(HERE).filter((f) => f.endsWith('.reflect.json'))
+const files = collectFiles(SRC_ROOT, '.reflect.json')
 
 describe('shader reflection', () => {
   it('finds reflection sidecars to check', () => {
@@ -29,7 +55,7 @@ describe('shader reflection', () => {
   })
 
   it.each(files)('%s gives each uniform block a unique binding', (file) => {
-    const r = JSON.parse(readFileSync(join(HERE, file), 'utf8')) as Reflection
+    const r = JSON.parse(readFileSync(file, 'utf8')) as Reflection
     // One block can legitimately appear twice, once per stage (`Frame` is read
     // by both), so collapse by name before looking for collisions.
     const byName = new Map<string, number>()

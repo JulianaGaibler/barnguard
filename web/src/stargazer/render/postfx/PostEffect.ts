@@ -1,10 +1,14 @@
 /**
  * Per-frame context handed to a {@link PostPass}'s {@link PostPass.writeParams}
- * callback. Sizes are the device-pixel dimensions of the target the pass draws
- * into (the full frame for the built-in effects). `texelW`/`texelH` are their
- * reciprocals, ready for neighbor-sampling offsets. `time` accumulates seconds
- * across the pipeline's life for animated effects. `dt` is the current frame's
- * delta.
+ * callback. `width`/`height` are the device-pixel dimensions of the target this
+ * pass draws INTO (the full frame unless {@link PostPass.scale} shrinks it).
+ * `inputWidth`/`inputHeight` are the dimensions of the texture this pass reads
+ * FROM, the previous pass's output (or the frame itself for the first pass of
+ * the chain). The two agree for a full-resolution pass, and diverge for a
+ * downsample or upsample step. `texelW`/`texelH` and
+ * `inputTexelW`/`inputTexelH` are the matching reciprocals, ready for
+ * neighbor-sampling offsets. `time` accumulates seconds across the pipeline's
+ * life for animated effects. `dt` is the current frame's delta.
  */
 export interface PostPassContext {
   width: number
@@ -13,6 +17,22 @@ export interface PostPassContext {
   texelW: number
   /** `1 / height`. */
   texelH: number
+  /** Width of the texture this pass samples from. */
+  inputWidth: number
+  /** Height of the texture this pass samples from. */
+  inputHeight: number
+  /** `1 / inputWidth`. */
+  inputTexelW: number
+  /** `1 / inputHeight`. */
+  inputTexelH: number
+  /**
+   * True when `a_uv.y` grows downward on screen (WebGPU), false when it grows
+   * upward (WebGL2). The built-in effects are radially symmetric and never need
+   * this; a pass with a directional or anchored parameter (an angle, an
+   * off-center position) reads it to normalize that parameter to one convention
+   * on both backends.
+   */
+  uvYDown: boolean
   /** Seconds accumulated since the pipeline started. */
   time: number
   /** Current frame delta, in seconds. */
@@ -61,6 +81,15 @@ export interface PostPass {
   readonly shader: PostShaderSource
   /** Std140 byte size of the pass's `Params` block. `0` for a pass with none. */
   readonly paramsBytes: number
+  /**
+   * Fraction of the frame's device-pixel size this pass renders at, applied
+   * independently to width and height and floored: `max(1, floor(frameSize *
+   * scale))`. Default `1` (full resolution). Always relative to the frame size
+   * the pipeline was given this run, never to the previous pass's output, so a
+   * chain of passes can each request an absolute fraction (a downsample chain's
+   * `2 ** -(i + 1)` at every level) without compounding rounding error.
+   */
+  readonly scale?: number
   /**
    * Write this pass's params into `out` (a `Float32Array` view over the params
    * block) each frame, reading the effect's live fields, so parameters can be

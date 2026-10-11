@@ -48,10 +48,21 @@ export const ATLAS_TILE_SIZE = ATLAS_TILE_CORE + 2 * ATLAS_TILE_PADDING // 66
 export const ATLAS_WIDTH = 1024
 export const ATLAS_HEIGHT = 1024
 
-/** Radial-gradient LUT: 256 texels smooth enough for every stop the game uses. */
+/** Ramp width: 256 texels smooth enough for every stop any caller uses. */
 const GRADIENT_LUT_WIDTH = 256
-/** Max distinct gradient LUTs cached before LRU eviction. */
-const STOPS_LUT_CACHE_MAX = 64
+/**
+ * Ramp atlas row count. One `256 x ATLAS_ROWS` texture holds every distinct
+ * gradient in use; beyond this many simultaneously live ramps, the
+ * least-recently-touched row is recycled.
+ */
+export const ATLAS_ROWS = 64
+
+/** A fresh free-row list, high index first so `.pop()` yields row 0 first. */
+function initialFreeRampRows(): number[] {
+  const rows: number[] = []
+  for (let r = ATLAS_ROWS - 1; r >= 0; r--) rows.push(r)
+  return rows
+}
 
 /** Marker property `getParticleSprite` sets on returned canvases. */
 export const PARTICLE_ATLAS_MARKER = '__isParticleAtlasCandidate' as const
@@ -288,12 +299,29 @@ export class TextureManager implements TextureInspector {
   // Per-source (fallback) ----------------------------------------------
   #textureBySource = new Map<CanvasImageSource, Texture>()
 
-  // Gradient LUTs ------------------------------------------------------
-  // Content-keyed LRU is the sole texture owner, deleting on eviction so a new
-  // stops array built each frame can't leak a texture per frame. A ref→key
-  // WeakMap in front skips the key rebuild for module-constant stops arrays.
-  #stopsKeyByRef = new WeakMap<readonly GfxGradientStop[], string>()
-  #stopsLutByKey = new Map<string, Texture>()
+  // Gradient ramp atlas --------------------------------------------------
+  // One shared `256 x ATLAS_ROWS` texture: every distinct stops array gets a
+  // row instead of a dedicated texture, so a draw that samples a ramp never
+  // changes which texture is bound (no batch break in or out). A ref→key
+  // WeakMap in front skips the key rebuild for a module-constant stops array.
+  #rampKeyByRef = new WeakMap<readonly GfxGradientStop[], string>()
+  // Row LRU, in insertion order (re-inserted on touch, same as the atlas/label
+  // caches elsewhere in this file). Value is the row index.
+  #rampRowByKey = new Map<string, number>()
+  #rampAtlasTex: Texture | null = null
+  // All rows start free, popped low-to-high. The atlas texture itself is
+  // allocated lazily (on first paint), independent of this list.
+  #rampFreeRows: number[] = initialFreeRampRows()
+  // Rows allocated or touched this frame are pinned: a `DrawRun` already
+  // recorded this frame may carry one of these rows, and it is not replayed
+  // until `GpuBatchContext.submitFrame` runs. Recycling a pinned row would
+  // overwrite the ramp a pending draw still reads. `flushRampRowPins` is
+  // called once that replay has happened, which is also the point it becomes
+  // safe to recycle a pinned row (see `#evictRampRow`).
+  #rampPinnedRows = new Set<number>()
+  /** 256x1 scratch canvas, reused across `ensureStopsRow` calls. */
+  #rampRowCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
+  #rampRowCtx: CanvasRenderingContext2D | null = null
 
   // Bitmap-mask clip textures, keyed by BitmapMask instance so a swap
   // (mask disposed / rebuilt) drops the stale texture with the mask.
@@ -337,6 +365,16 @@ export class TextureManager implements TextureInspector {
     return this.#labelPageTex
   }
 
+  /**
+   * The gradient ramp atlas texture, or `null` until the first gradient.
+   * Exposed so `coloredTri`, `shape`, `gradientRadial` and `maskedGradient`
+   * can bind it at a fixed unit, the same way `getAtlasTexture` exposes the
+   * sprite atlas.
+   */
+  getRampAtlasTexture(): Texture | null {
+    return this.#rampAtlasTex
+  }
+
   // --- lifecycle -------------------------------------------------------
 
   /**
@@ -372,9 +410,16 @@ export class TextureManager implements TextureInspector {
     // Drop per-source + gradient + mask caches, cheap to regenerate. The GL
     // textures died with the context, so don't call deleteTexture.
     this.#textureBySource = new Map()
-    this.#stopsKeyByRef = new WeakMap()
-    this.#stopsLutByKey = new Map()
     this.#maskTextureCache = new WeakMap()
+    // The ramp atlas has no CPU-side backing (each row paints from a
+    // transient canvas and is discarded), unlike the particle atlas above, so
+    // it cannot be rebuilt in place. Drop it; rows repopulate lazily as each
+    // stops array is next requested.
+    this.#rampKeyByRef = new WeakMap()
+    this.#rampRowByKey = new Map()
+    this.#rampAtlasTex = null
+    this.#rampFreeRows = initialFreeRampRows()
+    this.#rampPinnedRows = new Set()
 
     // Label page: recreate the texture from the surviving backing canvas in
     // one upload and keep the packed layout, so on-screen text doesn't have to
@@ -586,60 +631,126 @@ export class TextureManager implements TextureInspector {
     this.#atlasTex = tex
   }
 
-  // --- gradient LUT ----------------------------------------------------
+  // --- gradient ramp atlas ----------------------------------------------
 
-  ensureStopsLut(stops: readonly GfxGradientStop[]): Texture | null {
+  /**
+   * Look up (or build) the atlas row holding `stops`'s premultiplied ramp.
+   * Returns the row index, or `-1` if a 2D context isn't available (a
+   * headless environment). The row is pinned until `flushRampRowPins` runs,
+   * so the caller's own draw and every draw already recorded this frame may
+   * read it safely.
+   *
+   * `forceSubmit` runs, at most once, only if every row is pinned when a new
+   * ramp needs one. It must replay (and thereby unpin, via
+   * `flushRampRowPins`) everything recorded so far this frame -
+   * `GpuBatchContext.forceMidFrameSubmit` is the real implementation. Only
+   * reachable with `ATLAS_ROWS` distinct ramps alive within a single frame.
+   */
+  ensureStopsRow(
+    stops: readonly GfxGradientStop[],
+    forceSubmit: () => void,
+  ): number {
     // Fast path: reuse the key for a constant stops array (skips the join).
-    let key = this.#stopsKeyByRef.get(stops)
+    let key = this.#rampKeyByRef.get(stops)
     if (key === undefined) {
       key = stops.map((s) => `${s.offset}:${s.color}`).join('|')
-      this.#stopsKeyByRef.set(stops, key)
+      this.#rampKeyByRef.set(stops, key)
     }
-    const hit = this.#stopsLutByKey.get(key)
-    if (hit) {
+    const hit = this.#rampRowByKey.get(key)
+    if (hit !== undefined) {
       // LRU touch.
-      this.#stopsLutByKey.delete(key)
-      this.#stopsLutByKey.set(key, hit)
+      this.#rampRowByKey.delete(key)
+      this.#rampRowByKey.set(key, hit)
+      this.#rampPinnedRows.add(hit)
       return hit
     }
-    let lutCanvas: HTMLCanvasElement | OffscreenCanvas
-    if (typeof OffscreenCanvas !== 'undefined') {
-      lutCanvas = new OffscreenCanvas(GRADIENT_LUT_WIDTH, 1)
-    } else {
-      lutCanvas = document.createElement('canvas')
-      lutCanvas.width = GRADIENT_LUT_WIDTH
-      lutCanvas.height = 1
+    const row = this.#allocRampRow(forceSubmit)
+    if (row < 0) return -1
+    if (!this.#paintRampRow(row, stops)) return -1
+    this.#rampRowByKey.set(key, row)
+    this.#rampPinnedRows.add(row)
+    return row
+  }
+
+  /**
+   * A free row, or the least-recently-touched unpinned row, recycled. If
+   * every row is pinned, forces a submit (which unpins them all) and retries
+   * once, which is always sufficient.
+   */
+  #allocRampRow(forceSubmit: () => void): number {
+    if (this.#rampFreeRows.length > 0) return this.#rampFreeRows.pop() as number
+    const evicted = this.#evictLruRampRow()
+    if (evicted >= 0) return evicted
+    forceSubmit()
+    return this.#evictLruRampRow()
+  }
+
+  /** The oldest unpinned row (Map iterates in insertion order), or `-1`. */
+  #evictLruRampRow(): number {
+    for (const [key, row] of this.#rampRowByKey) {
+      if (this.#rampPinnedRows.has(row)) continue
+      this.#rampRowByKey.delete(key)
+      return row
     }
-    const ctx = lutCanvas.getContext('2d') as CanvasRenderingContext2D | null
-    if (!ctx) return null
-    const grad = ctx.createLinearGradient(0, 0, GRADIENT_LUT_WIDTH, 0)
+    return -1
+  }
+
+  /**
+   * Rasterize `stops` into a reused 256x1 scratch canvas and sub-upload it
+   * into atlas row `row`, allocating the atlas texture itself on first use.
+   */
+  #paintRampRow(row: number, stops: readonly GfxGradientStop[]): boolean {
+    if (!this.#rampRowCanvas) {
+      if (typeof OffscreenCanvas !== 'undefined') {
+        this.#rampRowCanvas = new OffscreenCanvas(GRADIENT_LUT_WIDTH, 1)
+      } else {
+        this.#rampRowCanvas = document.createElement('canvas')
+        this.#rampRowCanvas.width = GRADIENT_LUT_WIDTH
+        this.#rampRowCanvas.height = 1
+      }
+      this.#rampRowCtx = this.#rampRowCanvas.getContext(
+        '2d',
+      ) as CanvasRenderingContext2D | null
+    }
+    const ctx = this.#rampRowCtx
+    if (!ctx) return false
+    // Texel i is rasterized at pixel center i + 0.5. Building the gradient
+    // line from texel-center to texel-center (0.5 to WIDTH - 0.5) maps texel
+    // 0 to stop(0) and the last texel to stop(1) exactly, instead of stopping
+    // just short of both ends. The full-width `fillRect` below still covers
+    // every texel; canvas clamps the gradient past its own line.
+    const grad = ctx.createLinearGradient(0.5, 0, GRADIENT_LUT_WIDTH - 0.5, 0)
     for (const stop of stops) {
       grad.addColorStop(Math.max(0, Math.min(1, stop.offset)), stop.color)
     }
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, GRADIENT_LUT_WIDTH, 1)
-    const tex = this.#device.createTexture2D({
-      width: GRADIENT_LUT_WIDTH,
-      height: 1,
-      filter: 'linear',
-      wrap: 'clamp',
-    })
-    this.#device.updateTexture2D(tex, lutCanvas as TexImageSource, {
-      flipY: false,
-      premultiply: true,
-    })
-    this.#stopsLutByKey.set(key, tex)
-    // Evict the least-recently-used LUT (Map iterates in insertion order).
-    if (this.#stopsLutByKey.size > STOPS_LUT_CACHE_MAX) {
-      const oldest = this.#stopsLutByKey.keys().next().value as
-        string | undefined
-      if (oldest !== undefined) {
-        const victim = this.#stopsLutByKey.get(oldest)
-        this.#stopsLutByKey.delete(oldest)
-        if (victim) this.#device.deleteTexture(victim)
-      }
+    if (!this.#rampAtlasTex) {
+      this.#rampAtlasTex = this.#device.createTexture2D({
+        width: GRADIENT_LUT_WIDTH,
+        height: ATLAS_ROWS,
+        filter: 'linear',
+        wrap: 'clamp',
+      })
     }
-    return tex
+    this.#device.updateTextureSubImage2D(
+      this.#rampAtlasTex,
+      0,
+      row,
+      this.#rampRowCanvas as TexImageSource,
+      { flipY: false, premultiply: true },
+    )
+    return true
+  }
+
+  /**
+   * Unpin every row touched this frame. Safe once the draw runs recorded
+   * against this frame's slot have been replayed (after
+   * `GpuBatchContext.submitFrame`, including a mid-frame overflow submit, not
+   * only the final one), never before.
+   */
+  flushRampRowPins(): void {
+    this.#rampPinnedRows.clear()
   }
 
   // --- bitmap-mask clip texture ---------------------------------------
