@@ -10,6 +10,9 @@
  * {@link flattenCubic} / {@link flattenQuadratic} subdividers, then
  * {@link tessellateContours}, then {@link registerPathTessellation}.
  *
+ * {@link deepestInteriorPoint} anchors a marker or label on a shape whose
+ * centroid is not inside it.
+ *
  * @module assets
  */
 export { AssetLoader } from '../assets/AssetLoader'
@@ -22,6 +25,8 @@ export {
   flattenSvgPath,
   tessellateContours,
 } from '../assets/SvgPathContours'
+export { deepestInteriorPoint } from '../assets/PolygonInterior'
+export type { Contour } from '../assets/PolygonInterior'
 export {
   getPathContours,
   registerPathTessellation,

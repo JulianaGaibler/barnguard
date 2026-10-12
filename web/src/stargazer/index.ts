@@ -442,6 +442,8 @@ export {
   flattenSvgPath,
   tessellateContours,
 } from './assets/SvgPathContours'
+export { deepestInteriorPoint } from './assets/PolygonInterior'
+export type { Contour } from './assets/PolygonInterior'
 export {
   getPathContours,
   registerPathTessellation,
