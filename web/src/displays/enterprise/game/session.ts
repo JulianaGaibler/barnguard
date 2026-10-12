@@ -107,12 +107,24 @@ export type SessionState =
 export interface GameSession {
   readonly events: Emitter<GameEvents>
   readonly stateIds: readonly RegionId[]
+  /**
+   * Pickable regions whose on-screen size at the idle framing is below
+   * `SMALL_REGION_PX`, so tapping them is unreliable. A list in the UI is what
+   * makes these reachable, and it is empty on a map whose regions are all
+   * comfortably tappable.
+   */
+  readonly smallRegionIds: readonly RegionId[]
   /** Currently in view, read-only for Svelte overlays. */
   readonly state: SessionState
   readonly selectedStateId: RegionId | null
   readonly score: number
   /** True while the session is in a state where a state can be tapped. */
   acceptsStateTap(): boolean
+  /**
+   * Select `id` as though it had been tapped, for a UI that offers regions the
+   * map cannot practically be tapped on. Ignored once a round is live.
+   */
+  selectRegion(id: RegionId): void
   /**
    * Start a round for the currently-selected state (called from the pre-game
    * card).
@@ -176,6 +188,13 @@ const STATE_GLOW: readonly GfxShadowStyle[] = [
 ]
 
 const CAMERA_TWEEN_SEC = 0.6
+
+/**
+ * A region narrower or shorter than this on screen, at the idle framing, goes
+ * in the corner list instead of relying on a tap. Roughly a fingertip: below it
+ * a player is aiming at something smaller than the border drawn around it.
+ */
+const SMALL_REGION_PX = 24
 
 /** Session reason to the wire value the server stores. */
 const WIRE_REASON: Record<GameOverReason, WireGameEndReason> = {
@@ -311,6 +330,28 @@ export async function startGame(
    */
   function selectableIds(): RegionId[] {
     return map.regions.filter((r) => r.selectable).map((r) => r.id)
+  }
+
+  /**
+   * Pickable regions too small to tap at the idle framing, measured rather than
+   * listed: the artwork decides which regions these are, and a hardcoded list
+   * would rot the next time the map is redrawn.
+   */
+  function smallRegionIdsNow(): RegionId[] {
+    const view = map.idleView
+    const size = host.engine.primaryStage.renderer.cssSize
+    if (view.width <= 0 || view.height <= 0 || size.h <= 0) return []
+    // The idle framing is fit into the canvas, so the scale is whichever axis
+    // constrains it.
+    const scale = Math.min(size.w / view.width, size.h / view.height)
+    return map.regions
+      .filter((r) => r.selectable)
+      .filter(
+        (r) =>
+          r.shape.bounds.width * scale < SMALL_REGION_PX ||
+          r.shape.bounds.height * scale < SMALL_REGION_PX,
+      )
+      .map((r) => r.id)
   }
 
   // --- Scene build ---------------------------------------------------------
@@ -825,6 +866,9 @@ export async function startGame(
     get stateIds() {
       return selectableIds()
     },
+    get smallRegionIds() {
+      return smallRegionIdsNow()
+    },
     get state() {
       return sessionState
     },
@@ -837,6 +881,7 @@ export async function startGame(
     acceptsStateTap(): boolean {
       return sessionState === 'idle'
     },
+    selectRegion: onStateTap,
     startRound,
     cancelSelection,
     reset,

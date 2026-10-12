@@ -1,5 +1,6 @@
 <script lang="ts">
   import StateConfirmCard from './StateConfirmCard.svelte'
+  import SmallRegionList from './SmallRegionList.svelte'
   import GameOverOverlay from './GameOverOverlay.svelte'
   import AttendantControls from '@src/core/attendant/AttendantControls.svelte'
   import PauseOverlay from './PauseOverlay.svelte'
@@ -55,6 +56,11 @@
   let activeRegionId = $state<RegionId | null>(null)
   /** The loaded map, needed to resolve region names in this screen's copy. */
   let map = $state<MapDescriptor | null>(null)
+  /**
+   * Regions the corner list offers. Read once the session is ready rather than
+   * derived, since it depends on the canvas size at that moment.
+   */
+  let smallRegionIds = $state<readonly string[]>([])
   let gameOverPayload = $state<GameOverPayload | null>(null)
   let loadError = $state<string | null>(null)
   /**
@@ -108,6 +114,7 @@
       activeMap.set({ id: loaded.id, i18nNamespace: loaded.i18nNamespace })
       const s = await startGame(h, loaded)
       session = s
+      smallRegionIds = s.smallRegionIds
       s.events.on('stateSelected', (payload) => {
         selectedStateId.set(payload.stateId)
       })
@@ -145,6 +152,7 @@
     session = null
     host = null
     map = null
+    smallRegionIds = []
     activeMap.set(null)
   }
 
@@ -280,6 +288,14 @@
     </div>
   {/if}
 
+  {#if session && !isRoundActive && !$selectedStateId && !gameOverPayload}
+    <SmallRegionList
+      regionIds={smallRegionIds}
+      mapId={map?.id ?? DEFAULT_MAP_ID}
+      onPick={(id) => session?.selectRegion(id)}
+    />
+  {/if}
+
   {#if $selectedStateId && host}
     <StateConfirmCard
       stateId={$selectedStateId}
@@ -330,6 +346,13 @@
     height: 100%
     width: 100%
     overflow: hidden
+    // Bottom-right stack: the mission copy sits at the bottom, the region
+    // list above it. They cannot share a flex parent, because the copy renders
+    // behind the transparent canvas while the list has to take taps in front
+    // of it, so the two anchor to the same inset instead.
+    --corner-inset: var(--space-80)
+    // Height reserved for the mission copy: three lines at its own size.
+    --corner-copy-height: 6rem
 
   .game__canvas
     position: absolute
@@ -388,8 +411,8 @@
 
   .game__backdrop-mission
     position: absolute
-    inset-inline-end: var(--space-80)
-    inset-block-end: var(--space-80)
+    inset-inline-end: var(--corner-inset)
+    inset-block-end: var(--corner-inset)
     max-width: 25%
     color: var(--color-text-inverse)
     font-size: 1.5rem
