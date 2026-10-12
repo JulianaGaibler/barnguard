@@ -5,20 +5,10 @@
   import { activeDisplay } from '@src/core/display'
   import ConfirmButton from '@src/core/ui/ConfirmButton.svelte'
   import DisplaySettings from '@src/core/attendant/DisplaySettings.svelte'
-  import { theme } from '@src/core/theme'
-  import {
-    coverScreen,
-    setCoverMode,
-    setCoverText,
-    setCoverVisible,
-    type CoverMode,
-  } from '@src/stores/coverScreen'
   import {
     DebugSection,
-    DebugSelect,
     DraggableWindow,
     ToggleButton,
-    type DebugSelectItem,
   } from '@src/stargazer/debug/ui'
   import {
     boothMenuState,
@@ -181,36 +171,6 @@
         </div>
       </div>
     {/if}
-
-    <ToggleButton
-      active={$coverScreen.visible}
-      onToggle={() => setCoverVisible(!$coverScreen.visible)}
-      label="Cover screen"
-    />
-    <DebugSelect
-      label="Message"
-      value={$coverScreen.mode}
-      onChange={(v) => setCoverMode(v)}
-      options={[
-        {
-          value: 'brand',
-          label: $theme?.cover.headline ?? 'Brand headline',
-        },
-        { value: 'backSoon', label: 'Wir sind gleich wieder da' },
-        { divider: true },
-        { value: 'custom', label: 'Custom text…' },
-      ] satisfies DebugSelectItem<CoverMode>[]}
-    />
-    {#if $coverScreen.mode === 'custom'}
-      <textarea
-        class="cover-textarea"
-        value={$coverScreen.customText}
-        oninput={(e) =>
-          setCoverText((e.currentTarget as HTMLTextAreaElement).value)}
-        placeholder="Type the cover message…"
-        rows="3"
-      ></textarea>
-    {/if}
   </DebugSection>
 
   <DisplaySettings />
@@ -273,32 +233,6 @@
   .row__actions
     display: flex
     gap: 4px
-
-  // Free-text field for the cover-screen custom message. Mirrors
-  // `DebugSelect`'s outer chrome so the two controls read as members of the
-  // same family. There's no shared text-input primitive in `debug-ui/`, so
-  // the styling is duplicated by hand.
-  .cover-textarea
-    display: block
-    width: 100%
-    box-sizing: border-box
-    margin-block-start: 4px
-    padding-block-start: 6px
-    padding-block-end: 6px
-    padding-inline-start: 8px
-    padding-inline-end: 8px
-    resize: vertical
-    background: rgba(255, 255, 255, 0.05)
-    border: 1px solid rgba(255, 255, 255, 0.18)
-    border-radius: 4px
-    color: #fff
-    font: inherit
-    font-size: 11px
-
-    &:focus
-      outline: none
-      border-color: rgba(255, 255, 255, 0.5)
-      background: rgba(255, 255, 255, 0.1)
 
   // Landmark photo for the "Selected state" section. Fixed height so the
   // section's overall footprint stays predictable regardless of the source

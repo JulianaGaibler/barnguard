@@ -12,7 +12,6 @@ import {
 } from './game-log'
 import { enterpriseTheme } from './theme'
 import GameScreen from './overlays/GameScreen.svelte'
-import Wave from './decor/Wave.svelte'
 import SelectedStatePreview from './attendant/SelectedStatePreview.svelte'
 import { enterpriseLocales, ENTERPRISE_DEFAULT_LANGUAGE } from './i18n'
 import { renderLabel, type LabelInput } from './label'
@@ -62,7 +61,6 @@ export const enterprise: DisplayManifest = {
   name: 'Firefox Enterprise',
   theme: enterpriseTheme,
   root: GameScreen,
-  backdrop: Wave,
   attendantPanel: SelectedStatePreview,
   locales: enterpriseLocales,
   defaultLanguage: ENTERPRISE_DEFAULT_LANGUAGE,

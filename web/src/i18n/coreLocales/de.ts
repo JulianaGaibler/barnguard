@@ -21,7 +21,4 @@ export const de: CoreMessages = {
     printError: 'Druck fehlgeschlagen',
     retry: 'Erneut drucken',
   },
-  cover: {
-    backSoon: 'Wir sind gleich wieder da',
-  },
 }

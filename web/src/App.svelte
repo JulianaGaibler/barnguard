@@ -6,8 +6,6 @@
     initBoothMenuToggle,
   } from '@src/core/attendant/boothMenuToggle'
   import { startActivityTracking } from '@src/core/activity'
-  import { coverScreen } from '@src/stores/coverScreen'
-  import CoverScreen from '@src/core/attendant/CoverScreen.svelte'
   import BoothMenu from '@src/core/attendant/BoothMenu.svelte'
   import PrinterPanel from '@src/core/attendant/PrinterPanel.svelte'
   import GamesPanel from '@src/core/attendant/GamesPanel.svelte'
@@ -54,10 +52,6 @@
 <DisplayRoot />
 
 <TopBar />
-
-{#if $coverScreen.visible}
-  <CoverScreen />
-{/if}
 
 <BoothMenu />
 <PrinterPanel />

@@ -6,6 +6,11 @@ import type { CoreMessages, Messages } from '@src/i18n'
  * shape, and display components import a `t` store typed to it.
  */
 export interface EnterpriseMessages extends CoreMessages {
+  /** The attendant's off-duty cover screen (see `attendant/CoverScreen.svelte`). */
+  cover: {
+    /** "We'll be right back" preset headline. */
+    backSoon: string
+  }
   /** The public-facing game screen shown to visitors. */
   game: {
     title: string

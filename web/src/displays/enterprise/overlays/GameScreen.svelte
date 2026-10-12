@@ -18,7 +18,9 @@
     debugHudVisible,
     setDebugHudVisible,
   } from '@src/core/attendant/boothMenuToggle'
-  import { coverScreen } from '@src/stores/coverScreen'
+  import { coverScreen } from '@src/displays/enterprise/attendant/coverState'
+  import CoverScreen from '@src/displays/enterprise/attendant/CoverScreen.svelte'
+  import Backdrop from '@src/displays/enterprise/background/Backdrop.svelte'
   import type { GameEvents } from '@src/displays/enterprise/game'
 
   type GameOverPayload = GameEvents['gameOver']
@@ -211,23 +213,29 @@
 
 <main class="game">
   <!--
-    Backdrop text sits BEFORE the canvas in DOM order so the transparent
-    canvas draws on top, the text reads through as a muted background
-    layer while the map + packets composite over it. No z-index needed:
-    document order controls the stacking within `.game`.
+    The brand backdrop canvas, the backdrop text, and the transparent game
+    canvas draw in that order, furthest back first. No z-index needed:
+    document order controls the stacking within `.game`. The text reads
+    through the transparent game canvas as a muted layer while the map +
+    packets composite over it, and both canvases sit together in one
+    `{#key}` block so a WebGPU device-loss remount rebuilds them as a pair.
   -->
-  <div class="game__backdrop" class:game__backdrop--active={isRoundActive}>
-    {#if backdropLeftText}
-      <span class="game__backdrop-headline">{backdropLeftText}</span>
-    {/if}
-    {#if isRoundActive}
-      <span class="game__backdrop-score">{scoreDisplay}</span>
-    {:else if backdropRightText}
-      <span class="game__backdrop-mission">{backdropRightText}</span>
-    {/if}
-  </div>
-
   {#key canvasKey}
+    {#if host}
+      <Backdrop engine={host.engine} />
+    {/if}
+
+    <div class="game__backdrop" class:game__backdrop--active={isRoundActive}>
+      {#if backdropLeftText}
+        <span class="game__backdrop-headline">{backdropLeftText}</span>
+      {/if}
+      {#if isRoundActive}
+        <span class="game__backdrop-score">{scoreDisplay}</span>
+      {:else if backdropRightText}
+        <span class="game__backdrop-mission">{backdropRightText}</span>
+      {/if}
+    </div>
+
     <canvas
       class="game__canvas"
       use:mountEngine={{
@@ -291,6 +299,10 @@
 
 {#if host}
   <DebugHud debug={host.debug} />
+{/if}
+
+{#if $coverScreen.visible}
+  <CoverScreen />
 {/if}
 
 <style lang="sass">

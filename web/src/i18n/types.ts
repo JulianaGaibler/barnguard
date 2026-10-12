@@ -36,10 +36,6 @@ export interface CoreMessages {
     printError: string
     retry: string
   }
-  cover: {
-    /** "We'll be right back" preset headline. */
-    backSoon: string
-  }
 }
 
 /**

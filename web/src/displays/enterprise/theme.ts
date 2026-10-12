@@ -1,7 +1,4 @@
 import type { Theme } from '@src/core/theme'
-import enterpriseLogo from './assets/enterprise-logo.svg?url'
-import mozillaLogo from './assets/mozilla-logo.svg?url'
-import flames from './assets/flames.svg?url'
 
 /**
  * Baden-Württemberg gold/black palette + Firefox / Mozilla branding. The
@@ -36,22 +33,14 @@ export const enterpriseTheme: Theme = {
     actionSecondaryDisabled: 'rgba(28, 28, 28, 0.35)',
 
     inputBg: '#f2f0e9',
-    // Navy backdrop the gradient wave (see `decor/Wave.svelte`) sits on.
-    appBackdrop:
-      'linear-gradient(299deg, #243b67 19.93%, #223663 75.96%), #263860',
+    // Pre-boot fallback only: the engine's own backdrop stage paints over
+    // this the moment it renders its first frame (see
+    // `background/Backdrop.svelte`).
+    appBackdrop: '#FDCC9B',
     shadowCard:
       '0 0.3125rem 2.5rem #0000001a, inset 0 0.125rem 0 -0.0625rem #ffffff80',
     gradientResult:
       'linear-gradient(75deg, #FFEB49 -30.28%, #F60 119.37%, #FB2872 232.27%)',
   },
-  assets: {
-    topBarPrimary: enterpriseLogo,
-    topBarSecondary: mozillaLogo,
-    coverLogo: enterpriseLogo,
-    coverAccent: flames,
-  },
-  cover: {
-    backgroundColor: '#0d1c40',
-    headline: 'Mehr Kontrolle über Datenflüsse und digitale Arbeit',
-  },
+  assets: {},
 }

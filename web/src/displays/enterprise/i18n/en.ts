@@ -8,6 +8,9 @@ export const en: EnterpriseMessages = {
     // TODO: placeholder copy, pending final Enterprise brand text.
     title: 'Firefox Enterprise',
   },
+  cover: {
+    backSoon: 'We’ll be right back',
+  },
   game: {
     title: 'Welcome to Firefox Enterprise',
     subtitle: 'Route your data safely across the network.',

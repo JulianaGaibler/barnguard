@@ -117,11 +117,10 @@ export interface DisplayManifest {
   }
   /**
    * Optional decorative component painted full-bleed behind everything, on top
-   * of the `appBackdrop` palette role (see `BackgroundLayer.svelte`) and,
-   * dimmed, behind the off-duty `CoverScreen`. This is where a display's
-   * branded chrome, such as a gradient shape or a texture, belongs, so it never
-   * leaks into displays that want a plain backdrop. Omit for a flat
-   * background.
+   * of the `appBackdrop` palette role (see `BackgroundLayer.svelte`). This is
+   * where a display's branded chrome, such as a gradient shape or a texture,
+   * belongs, so it never leaks into displays that want a plain backdrop. Omit
+   * for a flat background.
    */
   backdrop?: Component
   /**

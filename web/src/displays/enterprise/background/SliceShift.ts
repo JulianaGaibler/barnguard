@@ -19,9 +19,16 @@ export interface SliceShiftOptions {
   /**
    * Column width, in render-target pixels. The caller converts from CSS pixels
    * (`cssWidth * devicePixelRatio * renderScale`), the same convention as
-   * `FilmGrain.cellPx`. Figma default `100`.
+   * `FilmGrain.cellPx`. Figma default `100`. Ignored while `columns` is set.
    */
   barWidth?: number
+  /**
+   * Column count for the frame, recomputing `barWidth` from the frame's own
+   * width every frame so the count holds across a resize or a `renderScale`
+   * change. Overrides `barWidth` while set. `null` (default) uses `barWidth` as
+   * a fixed pixel width instead.
+   */
+  columns?: number | null
 }
 
 /**
@@ -44,8 +51,10 @@ export class SliceShift implements PostEffect {
   centerX: number
   /** Anchor Y, in percent of the frame height. Tweakable live. */
   centerY: number
-  /** Column width, in render-target pixels. Tweakable live. */
+  /** Column width, in render-target pixels. Ignored while `columns` is set. */
   barWidth: number
+  /** Column count, recomputing `barWidth` from the frame width. Tweakable live. */
+  columns: number | null
   readonly passes: readonly PostPass[]
 
   constructor(opts: SliceShiftOptions = {}) {
@@ -55,6 +64,7 @@ export class SliceShift implements PostEffect {
     this.centerX = opts.centerX ?? 50
     this.centerY = opts.centerY ?? 50
     this.barWidth = opts.barWidth ?? 100
+    this.columns = opts.columns ?? null
     this.passes = [
       {
         shader: postShader(vertSrc, fragSrc, wgsl, reflect as ShaderReflection),
@@ -66,6 +76,8 @@ export class SliceShift implements PostEffect {
           const angleDeg = ctx.uvYDown ? this.angle : -this.angle
           const centerY = ctx.uvYDown ? this.centerY : 100 - this.centerY
           const a = (-angleDeg * Math.PI) / 180
+          const barWidth =
+            this.columns !== null ? ctx.width / this.columns : this.barWidth
 
           out[0] = Math.cos(a)
           out[1] = Math.sin(a)
@@ -73,7 +85,7 @@ export class SliceShift implements PostEffect {
           out[3] = ctx.height
           out[4] = this.centerX
           out[5] = centerY
-          out[6] = Math.max(Math.abs(this.barWidth), 0.0001)
+          out[6] = Math.max(Math.abs(barWidth), 0.0001)
           out[7] = this.shift * 0.01
         },
       },

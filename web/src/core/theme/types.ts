@@ -1,9 +1,9 @@
 /**
- * Per-display theme: color roles + branded imagery + cover chrome. Every
- * display module exports one. The palette is an OVERRIDE set: `applyTheme`
- * writes each provided role to `:root` as a `--color-*` custom property, and
- * any role left out keeps the neutral default from `styles/scale.sass`. So a
- * theme only lists what differs, and no `var(--color-*)` is ever undefined.
+ * Per-display theme: color roles + branded imagery. Every display module
+ * exports one. The palette is an OVERRIDE set: `applyTheme` writes each
+ * provided role to `:root` as a `--color-*` custom property, and any role left
+ * out keeps the neutral default from `styles/scale.sass`. So a theme only lists
+ * what differs, and no `var(--color-*)` is ever undefined.
  *
  * Keys are camelCase and map to kebab-case CSS variables (e.g. `textSecondary`
  * → `--color-text-secondary`, `shadowCard` → `--color-shadow-card`).
@@ -86,31 +86,14 @@ export interface ThemeFonts {
 }
 
 /**
- * Branded imagery the core chrome (TopBar, CoverScreen) paints. Each is a
- * resolved asset URL (`import x from '…?url'`), never a path string.
+ * Branded imagery the core chrome (TopBar) paints. Each is a resolved asset URL
+ * (`import x from '…?url'`), never a path string.
  */
 export interface ThemeAssets {
   /** Primary logo shown top-left (falsy → not rendered). */
   topBarPrimary?: string
   /** Secondary logo shown top-right (falsy → not rendered). */
   topBarSecondary?: string
-  /**
-   * Cover-screen logo, typically a larger vector version of `topBarPrimary`
-   * (falsy → not rendered).
-   */
-  coverLogo?: string
-  /** Cover-screen decorative overlay (falsy → not rendered). */
-  coverAccent?: string
-}
-
-/**
- * Cover-screen chrome: solid backdrop + brand headline shown behind the
- * off-duty card.
- */
-export interface ThemeCover {
-  backgroundColor: string
-  /** Brand headline behind the off-duty card, omit for none. */
-  headline?: string
 }
 
 export interface Theme {
@@ -121,5 +104,4 @@ export interface Theme {
    */
   fonts?: ThemeFonts
   assets: ThemeAssets
-  cover: ThemeCover
 }

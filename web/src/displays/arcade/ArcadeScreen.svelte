@@ -34,7 +34,6 @@
   import { msSinceInput, pokeActivity } from '@src/core/activity'
   import { fontScope, themeScope } from '@src/core/ui/themeScope'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
-  import { applyTheme } from '@src/core/theme'
   import { daemonConfig } from '@src/stores/daemonConfig'
   import { arcadeNightPalette, arcadeTheme } from './theme'
   import { rgbaStr } from './background/palette'
@@ -46,7 +45,7 @@
     zonedMinutesToEpochMs,
     zonedWallClockToEpochMs,
   } from './background/dayCycle'
-  import { skyIsDark, skyTimeOverride, skyTopColor } from './uiState'
+  import { skyIsDark, skyTimeOverride } from './uiState'
   import type { GameModule } from './games/GameModule'
   import { ArcadeCamera } from './games/arcadeCamera'
   import { ArcadeBackdrop } from './games/arcadeBackdrop'
@@ -301,16 +300,6 @@
       zonedMinutesToEpochMs(minutes, where.timeZone),
       where,
     )
-  })
-
-  // Mirror the sky into the DOM surfaces that are sky. Spreading `arcadeTheme`
-  // keeps every other role present, since `applyPalette` only ever sets custom
-  // properties and never removes one a previous theme left behind.
-  $effect(() => {
-    applyTheme({
-      ...arcadeTheme,
-      cover: { ...arcadeTheme.cover, backgroundColor: $skyTopColor },
-    })
   })
 
   // Return the booth to its opening state once the visitor in front of it has

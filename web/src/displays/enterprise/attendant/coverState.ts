@@ -1,5 +1,6 @@
 /**
- * Operator-driven "cover screen" state.
+ * Operator-driven "cover screen" state, owned entirely by the enterprise
+ * display.
  *
  * A branded full-viewport takeover the attendant can flip on to hide the game
  * (break, tech pause, event lulls). Two headline modes: a localized preset
@@ -12,14 +13,13 @@ import { writable } from 'svelte/store'
 /**
  * Cover-screen headline modes:
  *
- * - `brand`: the active display's branded headline (default). Sourced from the
- *   theme, so each display renders its own marketing copy.
+ * - `brand`: {@link BRAND_HEADLINE} (default).
  * - `backSoon`: casual "we'll be right back" copy for breaks / event lulls.
  * - `custom`: operator-authored free text.
  */
 export type CoverMode = 'brand' | 'backSoon' | 'custom'
 
-export interface CoverScreenState {
+export interface CoverState {
   visible: boolean
   mode: CoverMode
   /**
@@ -31,20 +31,20 @@ export interface CoverScreenState {
   customText: string
 }
 
-const INITIAL: CoverScreenState = {
+/** The booth's branded tagline, shown behind the off-duty card in `brand` mode. */
+export const BRAND_HEADLINE =
+  'Mehr Kontrolle über Datenflüsse und digitale Arbeit'
+
+const INITIAL: CoverState = {
   visible: false,
   mode: 'brand',
   customText: '',
 }
 
-export const coverScreen = writable<CoverScreenState>(INITIAL)
+export const coverScreen = writable<CoverState>(INITIAL)
 
 export function setCoverVisible(visible: boolean): void {
   coverScreen.update((s) => ({ ...s, visible }))
-}
-
-export function toggleCover(): void {
-  coverScreen.update((s) => ({ ...s, visible: !s.visible }))
 }
 
 export function setCoverMode(mode: CoverMode): void {

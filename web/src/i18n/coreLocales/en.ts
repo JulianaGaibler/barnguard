@@ -17,7 +17,4 @@ export const en: CoreMessages = {
     printError: 'Print failed',
     retry: 'Retry print',
   },
-  cover: {
-    backSoon: 'We’ll be right back',
-  },
 }

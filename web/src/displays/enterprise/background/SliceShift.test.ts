@@ -37,6 +37,29 @@ describe('SliceShift', () => {
     expect(out[7]).toBeCloseTo(0.5) // shift * 0.01
   })
 
+  it('derives barWidth from columns, overriding a fixed barWidth', () => {
+    const e = new SliceShift({ barWidth: 999, columns: 11 })
+    const out = new Float32Array(8)
+    e.passes[0].writeParams!(ctx(true), out)
+    expect(out[6]).toBeCloseTo(100 / 11) // ctx.width / columns
+  })
+
+  it('recomputes the column width as the frame width changes', () => {
+    const e = new SliceShift({ columns: 10 })
+    const out = new Float32Array(8)
+    e.passes[0].writeParams!(ctx(true), out)
+    expect(out[6]).toBeCloseTo(10) // 100 / 10
+    e.passes[0].writeParams!({ ...ctx(true), width: 200 }, out)
+    expect(out[6]).toBeCloseTo(20) // 200 / 10, same column count
+  })
+
+  it('falls back to barWidth when columns is null', () => {
+    const e = new SliceShift({ barWidth: 25, columns: null })
+    const out = new Float32Array(8)
+    e.passes[0].writeParams!(ctx(true), out)
+    expect(out[6]).toBe(25)
+  })
+
   it('angle 0 leaves the rotation identity on both backends', () => {
     const e = new SliceShift({ angle: 0 })
     const out = new Float32Array(8)

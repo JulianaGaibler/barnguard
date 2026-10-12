@@ -6,8 +6,12 @@ import {
   createEmitter,
   easings,
   ignoreAbort,
+  registerPathTessellation,
+  tessellateContours,
   type EngineHost,
   type Emitter,
+  type GfxLinearGradient,
+  type GfxShadowStyle,
   type Rect,
   type Vec2,
 } from '@src/stargazer'
@@ -118,22 +122,49 @@ export interface GameSession {
 // still small enough that inlining is clear.
 // -----------------------------------------------------------------------------
 
-const COLOR_STATE_FILL = '#354a6e'
-// Lighter shade used on the selected state during highlight. Every state
-// stays at the muted alpha (uniform apparent opacity across the map), the
-// selected one distinguishes itself by color, not opacity.
-const COLOR_STATE_FILL_SELECTED = '#8692a8'
-// Strokes are OPAQUE, pre-blended equivalents of a semi-transparent cream
-// (`rgb(253, 246, 227)`) over their backdrop. A translucent cream stacks
-// wherever geometry overlaps, at shared state borders, tripoints, and
-// outline-over-state-stroke, reading as brighter dots on the transparent
-// canvas. An opaque line drawn over an opaque line is idempotent, so the dots
-// disappear while non-overlapping segments look identical.
-//   pre-blend = cream * a + backdrop * (1 - a)
-// State stroke: a = 0.85 over the state fill `#354a6e`.
-const COLOR_STATE_STROKE = '#dfdcd1'
-// Country outline: a = 0.95 over the background gradient blue (~`#243b67`).
-const COLOR_OUTLINE = '#f2eddd'
+// State fill: a vertical white glass gradient, hoisted as module constants so
+// every state's gradient reuses the same stops array (a fresh array with the
+// same content still dedupes against the shared ramp atlas, just with an
+// extra string join). Each state builds its own `GfxLinearGradient` from
+// these stops against its own bounds, since a gradient's axis is a rect in
+// local space and every state has a different one.
+const FILL_STOPS: GfxLinearGradient['stops'] = [
+  { offset: 0, color: 'rgba(255, 255, 255, 0.5)' },
+  { offset: 1, color: 'rgba(255, 255, 255, 0.8)' },
+]
+// Selected-state fill: every state stays at the same muted node alpha
+// (`tweenStaticAlpha` below dims every state uniformly), so the selected one
+// distinguishes itself by a brighter gradient, not a different opacity
+// multiplier.
+const FILL_STOPS_SELECTED: GfxLinearGradient['stops'] = [
+  { offset: 0, color: 'rgba(255, 255, 255, 0.75)' },
+  { offset: 1, color: 'rgba(255, 255, 255, 1)' },
+]
+// Every state's border is one glow along a single combined path (see
+// `buildStateBorderNode`) rather than each state stroking its own contour:
+// sixteen separately stroked borders would draw every interior, shared edge
+// twice, stacking a translucent stroke's alpha there above the coastline's.
+const BORDER_COLOR = 'rgba(255, 255, 255, 0.9)'
+const BORDER_WIDTH = 3
+// Two stacked inset glows along each state's own border, in map units because
+// the state nodes carry `strokeSpace: 'world'`. A path shadow's mask is cached
+// per blur radius in local units, so a screen-space radius re-keys all 32
+// masks at every camera scale and rebakes them through a camera tween. Map
+// units hold the radius still, and the glow stays the same fraction of the
+// country at any canvas size.
+//
+// The radii are the brand's 36.138 px and 20.077 px over the 1080 / 888 scale
+// the full-country view resolves to in a 1920 x 1080 frame, which is the size
+// the brand composition is drawn at. They are fixed rather than derived from
+// the live camera because `strokeSpaceScale()` reads the screen transform and
+// returns 1 until the first resize settles, so reading it during the scene
+// build would bake a wrong radius on whichever boot happened to be early. The
+// glow is a fixed fraction of the country, so it measures 36 px at idle only
+// on a 1080-tall stage.
+const STATE_GLOW: readonly GfxShadowStyle[] = [
+  { color: 'rgba(255, 255, 255, 0.5)', blur: 29.714, inset: true },
+  { color: 'rgba(255, 255, 255, 0.4)', blur: 16.508, inset: true },
+]
 
 const FULL_VIEW: Rect = { x: 0, y: 0, width: 661, height: 888 }
 // Upper- and lower-half framings share the same width (whole country) but
@@ -188,7 +219,11 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   const assets = await loadGameAssets()
 
   const stateNodes = new Map<StateId, Path2DNode>()
-  const outlineNode = buildOutlineNode(assets)
+  const stateFillGradients = new Map<
+    StateId,
+    { normal: GfxLinearGradient; selected: GfxLinearGradient }
+  >()
+  const stateBorderNode = buildStateBorderNode(assets)
   const packetLayer = new Node2D('packet-layer')
   const pathLayer = new Node2D('path-layer')
   const handleLayer = new Node2D('handle-layer')
@@ -258,12 +293,36 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     for (const info of STATES) {
       const entry = assets.states.paths.get(info.id)
       if (!entry) continue
+      // The gradient axis is a rect in the path's own local space, so each
+      // state builds its own from its own bounds rather than sharing one
+      // across the map.
+      const top = entry.bounds.y
+      const bottom = entry.bounds.y + entry.bounds.height
+      const gradients = {
+        normal: {
+          kind: 'linear',
+          x0: 0,
+          y0: top,
+          x1: 0,
+          y1: bottom,
+          stops: FILL_STOPS,
+        },
+        selected: {
+          kind: 'linear',
+          x0: 0,
+          y0: top,
+          x1: 0,
+          y1: bottom,
+          stops: FILL_STOPS_SELECTED,
+        },
+      } satisfies { normal: GfxLinearGradient; selected: GfxLinearGradient }
+      stateFillGradients.set(info.id, gradients)
       const node = new Path2DNode({
         id: `state:${info.id}`,
         path: entry.path,
-        fill: COLOR_STATE_FILL,
-        stroke: COLOR_STATE_STROKE,
-        lineWidth: 1,
+        fill: gradients.normal,
+        shadow: STATE_GLOW,
+        strokeSpace: 'world',
         hitMode: 'fill',
         debugBounds: entry.bounds,
       })
@@ -273,7 +332,9 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
       stateNodes.set(info.id, node)
     }
 
-    if (outlineNode) mapGroup.add(outlineNode)
+    // The combined state-border path draws after every state's fill and
+    // inset shadows, see `buildStateBorderNode`.
+    if (stateBorderNode) mapGroup.add(stateBorderNode)
 
     // Country grid overlay sits above the static state fills but under
     // the dynamic path / packet layers. Its own `renderLayer =
@@ -388,17 +449,15 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   // --- Highlight bookkeeping ---------------------------------------------
   //
-  // State fills live on `renderLayer: 'static'`, which the engine bakes
-  // once and blits every frame while the camera is idle. Alpha tweens on
-  // static nodes are therefore INVISIBLE unless we promote the node to
-  // `'above-static'` (drawn per-frame) for the tween's duration and
-  // demote back to `'static'` on completion. Setting `renderLayer` to /
-  // from `'static'` invalidates `scene.staticInvalid`, so the demote
-  // triggers exactly one re-bake with the final alpha value.
+  // State fills live on `renderLayer: 'static'`, drawn in one pass in list
+  // order alongside the border path and every other state. A state tweening
+  // its own alpha promotes to `'above-static'` for the tween's duration, a
+  // separate pass drawn after `'static'`, so the transition reads on top of
+  // its siblings instead of interleaved among them in whatever order the
+  // static list happens to hold. It demotes back to `'static'` on completion.
   //
-  // The same treatment applies to the outline path. Nodes whose alpha is
-  // already at target skip the promote-tween-demote dance entirely so
-  // we don't churn the static bake for a no-op.
+  // Nodes whose alpha is already at target skip the promote-tween-demote
+  // dance entirely since there is nothing to keep clear of the backdrop.
 
   function tweenStaticAlpha(
     node: Path2DNode,
@@ -419,20 +478,21 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   function highlightState(id: StateId): void {
     // Every state dims to the same muted alpha. The selected one gets a
-    // lighter fill so it reads distinctly by color, not by opacity.
+    // brighter gradient so it reads distinctly by color, not by opacity.
     for (const [otherId, node] of stateNodes) {
-      node.fill = otherId === id ? COLOR_STATE_FILL_SELECTED : COLOR_STATE_FILL
+      const gradients = stateFillGradients.get(otherId)
+      if (gradients)
+        node.fill = otherId === id ? gradients.selected : gradients.normal
       tweenStaticAlpha(node, 0.35, 0.4)
     }
-    if (outlineNode) tweenStaticAlpha(outlineNode, 0.6, 0.4)
   }
 
   function clearHighlight(): void {
-    for (const node of stateNodes.values()) {
-      node.fill = COLOR_STATE_FILL
+    for (const [id, node] of stateNodes) {
+      const gradients = stateFillGradients.get(id)
+      if (gradients) node.fill = gradients.normal
       tweenStaticAlpha(node, 1, 0.35)
     }
-    if (outlineNode) tweenStaticAlpha(outlineNode, 1, 0.35)
   }
 
   // --- Session methods ----------------------------------------------------
@@ -749,17 +809,38 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 // Helpers
 // -----------------------------------------------------------------------------
 
-function buildOutlineNode(assets: GameAssets): Path2DNode | null {
-  for (const entry of assets.outline.paths.values()) {
-    const node = new Path2DNode({
-      id: 'outline',
-      path: entry.path,
-      stroke: COLOR_OUTLINE,
-      lineWidth: 1.5,
-      hitMode: 'none',
-    })
-    node.renderLayer = 'static'
-    return node
+/**
+ * One `Path2D` combining every state's own contour, stroked once rather than
+ * each state stroking its own: sixteen separately stroked borders would draw
+ * every shared interior edge twice, stacking a translucent stroke's alpha there
+ * above the coastline's, and a later state's translucent fill would cover the
+ * outer half of an earlier state's centered stroke. One path means one stencil
+ * group, so every edge composites exactly once.
+ */
+function buildStateBorderNode(assets: GameAssets): Path2DNode | null {
+  const combined = new Path2D()
+  const combinedContours: Float32Array[] = []
+  let any = false
+  for (const info of STATES) {
+    const entry = assets.states.paths.get(info.id)
+    if (!entry) continue
+    combined.addPath(entry.path)
+    if (entry.contours) combinedContours.push(...entry.contours)
+    any = true
   }
-  return null
+  if (!any) return null
+  registerPathTessellation(
+    combined,
+    tessellateContours(combinedContours),
+    combinedContours,
+  )
+  const node = new Path2DNode({
+    id: 'state-borders',
+    path: combined,
+    stroke: BORDER_COLOR,
+    lineWidth: BORDER_WIDTH,
+    hitMode: 'none',
+  })
+  node.renderLayer = 'static'
+  return node
 }

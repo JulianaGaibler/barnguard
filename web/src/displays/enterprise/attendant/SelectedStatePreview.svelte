@@ -3,7 +3,20 @@
   import { selectedStateId } from '@src/stores/gameSelection'
   import { STATE_PHOTOS } from '@src/displays/enterprise/game/data/statePhotos'
   import type { StateId } from '@src/displays/enterprise/game'
-  import { DebugSection } from '@src/stargazer/debug/ui'
+  import {
+    DebugSection,
+    DebugSelect,
+    ToggleButton,
+    type DebugSelectItem,
+  } from '@src/stargazer/debug/ui'
+  import {
+    coverScreen,
+    setCoverMode,
+    setCoverText,
+    setCoverVisible,
+    BRAND_HEADLINE,
+    type CoverMode,
+  } from './coverState'
 
   // The store carries an opaque id, narrow to the display's StateId here.
   const id = $derived($selectedStateId as StateId | null)
@@ -35,6 +48,35 @@
   </DebugSection>
 {/if}
 
+<DebugSection title="Cover screen" open>
+  <ToggleButton
+    active={$coverScreen.visible}
+    onToggle={() => setCoverVisible(!$coverScreen.visible)}
+    label="Cover screen"
+  />
+  <DebugSelect
+    label="Message"
+    value={$coverScreen.mode}
+    onChange={(v) => setCoverMode(v)}
+    options={[
+      { value: 'brand', label: BRAND_HEADLINE },
+      { value: 'backSoon', label: 'Wir sind gleich wieder da' },
+      { divider: true },
+      { value: 'custom', label: 'Custom text…' },
+    ] satisfies DebugSelectItem<CoverMode>[]}
+  />
+  {#if $coverScreen.mode === 'custom'}
+    <textarea
+      class="cover-textarea"
+      value={$coverScreen.customText}
+      oninput={(e) =>
+        setCoverText((e.currentTarget as HTMLTextAreaElement).value)}
+      placeholder="Type the cover message…"
+      rows="3"
+    ></textarea>
+  {/if}
+</DebugSection>
+
 <style lang="sass">
   .state-photo
     width: 100%
@@ -54,4 +96,30 @@
   .dim
     color: var(--color-text-secondary)
     font-weight: 400
+
+  // Free-text field for the cover-screen custom message. Mirrors
+  // `DebugSelect`'s outer chrome so the two controls read as members of the
+  // same family. There's no shared text-input primitive in `debug-ui/`, so
+  // the styling is duplicated by hand.
+  .cover-textarea
+    display: block
+    width: 100%
+    box-sizing: border-box
+    margin-block-start: 4px
+    padding-block-start: 6px
+    padding-block-end: 6px
+    padding-inline-start: 8px
+    padding-inline-end: 8px
+    resize: vertical
+    background: rgba(255, 255, 255, 0.05)
+    border: 1px solid rgba(255, 255, 255, 0.18)
+    border-radius: 4px
+    color: #fff
+    font: inherit
+    font-size: 11px
+
+    &:focus
+      outline: none
+      border-color: rgba(255, 255, 255, 0.5)
+      background: rgba(255, 255, 255, 0.1)
 </style>

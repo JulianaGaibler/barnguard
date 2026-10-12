@@ -1,5 +1,4 @@
 import type { Theme, ThemePalette } from '@src/core/theme'
-import arcadeLogo from './assets/arcade-logo.svg?url'
 
 /**
  * Light, sunset-tinted arcade chrome. The engine paints the animated
@@ -45,10 +44,6 @@ export const arcadeTheme: Theme = {
   },
   assets: {
     // No core top-bar logo, the launcher renders its own header.
-    coverLogo: arcadeLogo,
-  },
-  cover: {
-    backgroundColor: '#eac6f2',
   },
 }
 
