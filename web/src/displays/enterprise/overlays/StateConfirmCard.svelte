@@ -1,26 +1,31 @@
 <script lang="ts">
   import Button from '@src/core/ui/Button.svelte'
-  import { t } from '@src/displays/enterprise/i18n'
+  import {
+    t,
+    regionName,
+    type RegionNamespace,
+  } from '@src/displays/enterprise/i18n'
   import {
     DISPLAY_ID,
     fetchEnterpriseHighScores as fetchHighScores,
     type EnterpriseHighScores as HighScores,
   } from '@src/displays/enterprise/game-log'
-  import type { StateId } from '@src/displays/enterprise/game/data/states'
+  import type { RegionId } from '@src/displays/enterprise/game'
   import { mountTutorialStage } from '@src/displays/enterprise/game/tutorial/mountTutorialStage'
   import type { EngineHost } from '@src/stargazer'
   import waveUrl from '@src/displays/enterprise/assets/confirm-wave-card.svg?url'
-  import { STATE_PHOTOS } from '@src/displays/enterprise/game/data/statePhotos'
   import { fly } from 'svelte/transition'
   import { cubicOut } from 'svelte/easing'
 
   interface Props {
-    stateId: StateId
+    stateId: RegionId
+    /** The map's i18n namespace, so the region resolves its own name. */
+    regionNamespace: RegionNamespace
     host: EngineHost
     onConfirm: () => void
   }
 
-  const { stateId, host, onConfirm }: Props = $props()
+  const { stateId, regionNamespace, host, onConfirm }: Props = $props()
 
   // Refetched every time this card mounts (or `stateId` changes) so the
   // numbers reflect any recent attendant-side deletes / wipes without the
@@ -45,10 +50,9 @@
     }
   })
 
-  const stateName = $derived($t.states[stateId])
+  const stateName = $derived(regionName($t, regionNamespace, stateId))
   const stateHigh = $derived(highScores.byState[stateId] ?? 0)
   const overallHigh = $derived(highScores.overall)
-  const photo = $derived(STATE_PHOTOS[stateId])
 
   /** Substitute `{state}` in the labelled string with the state's ISO id. */
   function stateHighLabel(pattern: string, id: string): string {
@@ -77,14 +81,6 @@
       ></canvas>
     </section>
     <section class="confirm-card confirm-card--main">
-      {#key stateId}
-        <img
-          class="confirm-card__state-photo"
-          src={photo.url}
-          alt=""
-          aria-hidden="true"
-        />
-      {/key}
       <img class="confirm-card__wave" src={waveUrl} alt="" aria-hidden="true" />
       <div class="confirm-card__body">
         <h2 class="confirm-card__state">{stateName}</h2>
@@ -173,28 +169,6 @@
     user-select: none
     -webkit-user-drag: none
 
-  .confirm-card__state-photo
-    // Fills the main card behind everything else, `cover`-sized so the
-    // landscape crops cleanly at any card size. Opacity fades 0 → 0.5
-    // over 2 s via the `state-photo-fade-in` animation below.
-    // `{#key stateId}` in the template forces a remount on state change
-    // so the animation replays for the next photo.
-    position: absolute
-    inset: 0
-    width: 100%
-    height: 100%
-    object-fit: cover
-    opacity: 0
-    animation: state-photo-fade-in 2s ease-out forwards
-    pointer-events: none
-    user-select: none
-    -webkit-user-drag: none
-
-  @keyframes state-photo-fade-in
-    from
-      opacity: 0
-    to
-      opacity: 0.5
 
   .confirm-card__tutorial-canvas
     display: block

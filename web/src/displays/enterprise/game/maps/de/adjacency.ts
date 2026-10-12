@@ -1,4 +1,4 @@
-import type { StateId } from './states'
+import type { StateId } from './regions'
 
 /**
  * Hand-authored neighbor graph for the German states. Used by `fireStateRipple`

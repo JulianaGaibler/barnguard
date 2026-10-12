@@ -1,8 +1,7 @@
 <script lang="ts">
-  import { t } from '@src/displays/enterprise/i18n'
+  import { t, regionName } from '@src/displays/enterprise/i18n'
   import { selectedStateId } from '@src/stores/gameSelection'
-  import { STATE_PHOTOS } from '@src/displays/enterprise/game/data/statePhotos'
-  import type { StateId } from '@src/displays/enterprise/game'
+  import { activeMap } from '@src/displays/enterprise/activeMap'
   import {
     DebugSection,
     DebugSelect,
@@ -18,32 +17,29 @@
     type CoverMode,
   } from './coverState'
 
-  // The store carries an opaque id, narrow to the display's StateId here.
-  const id = $derived($selectedStateId as StateId | null)
-  const selectedPhoto = $derived(id !== null ? STATE_PHOTOS[id] : null)
+  // The store carries an opaque id. Its name resolves against whichever map
+  // the running session loaded, since the same id string means nothing on
+  // another map.
+  const id = $derived($selectedStateId)
+  const name = $derived(
+    id !== null && $activeMap !== null
+      ? regionName($t, $activeMap.i18nNamespace, id)
+      : null,
+  )
 </script>
 
-{#if id !== null && selectedPhoto !== null}
-  <DebugSection title="Selected state" open>
-    <img
-      class="state-photo"
-      src={selectedPhoto.url}
-      alt={selectedPhoto.location}
-    />
+{#if id !== null}
+  <DebugSection title="Selected region" open>
     <div class="debug-row">
-      <span class="label">State</span>
+      <span class="label">Region</span>
       <span class="state-name"
-        >{$t.states[id]}
+        >{name ?? id}
         <span class="dim">({id})</span></span
       >
     </div>
     <div class="debug-row">
-      <span class="label">Landmark</span>
-      <span>{selectedPhoto.location}</span>
-    </div>
-    <div class="debug-row">
-      <span class="label">Photo</span>
-      <span class="dim">{selectedPhoto.photographer}</span>
+      <span class="label">Map</span>
+      <span class="dim">{$activeMap?.id ?? 'unknown'}</span>
     </div>
   </DebugSection>
 {/if}
@@ -78,12 +74,6 @@
 </DebugSection>
 
 <style lang="sass">
-  .state-photo
-    width: 100%
-    height: auto
-    border-radius: 4px
-    margin-bottom: 8px
-    display: block
   .debug-row
     display: flex
     justify-content: space-between

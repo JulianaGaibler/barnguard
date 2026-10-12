@@ -17,7 +17,7 @@ import { enterpriseLocales, ENTERPRISE_DEFAULT_LANGUAGE } from './i18n'
 import { renderLabel, type LabelInput } from './label'
 import type { EnterpriseMessages } from './i18n/types'
 import { squarePxFrom } from '@src/core/print/canvas'
-import type { StateId } from './game'
+import { namespaceForMap } from './game'
 
 /**
  * Translate a persisted `GameRecord` (server shape) into a `LabelInput` (the
@@ -28,7 +28,9 @@ async function recordToLabelInput(record: GameRecord): Promise<LabelInput> {
   const highScores = await fetchEnterpriseHighScores()
   return {
     reason: narrow.reason === 'exited_germany' ? 'exitedGermany' : 'collision',
-    stateId: narrow.stateId as StateId,
+    stateId: narrow.stateId,
+    // Records carry no map id yet, and every existing one is a German round.
+    regionNamespace: namespaceForMap(undefined),
     score: narrow.score,
     isOverallHigh: narrow.wasOverallHigh,
     isStateHigh: narrow.wasStateHigh,
@@ -82,6 +84,7 @@ export const enterprise: DisplayManifest = {
   async renderPreviewLabel(ctx: PreviewLabelContext): Promise<Blob> {
     const input: LabelInput = {
       reason: 'exitedGermany',
+      regionNamespace: namespaceForMap(undefined),
       stateId: 'BE',
       score: 42,
       isOverallHigh: ctx.highScore,

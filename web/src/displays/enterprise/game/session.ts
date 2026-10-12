@@ -15,8 +15,9 @@ import {
   type Rect,
   type Vec2,
 } from '@src/stargazer'
-import { loadGameAssets, type GameAssets } from './assets'
-import { STATES, findState, type StateId } from './data/states'
+import { loadGameAssets } from './assets'
+import { findRegion, type MapDescriptor, type RegionId } from './maps'
+import { rippleLayers } from './maps/ripple'
 import { EpicenterNode } from './nodes/EpicenterNode'
 import { PacketNode } from './nodes/PacketNode'
 import {
@@ -49,19 +50,19 @@ export type GameOverReason = 'exitedGermany' | 'collision'
 
 export interface GameEvents {
   /** Assets loaded and the map is on screen. */
-  ready: { stateIds: readonly StateId[] }
+  ready: { stateIds: readonly RegionId[] }
   /** User tapped a state, awaiting `startRound()` or `cancelSelection()`. */
-  stateSelected: { stateId: StateId }
+  stateSelected: { stateId: RegionId }
   /** `cancelSelection` was called before the round started. */
   selectionCanceled: void
   /** `startRound` fired and the round is in progress. */
-  roundStarted: { stateId: StateId }
+  roundStarted: { stateId: RegionId }
   /** A packet reached the epicenter and scored. `total` is the current score. */
   packetScored: { total: number }
   /** The round ended. */
   gameOver: {
     reason: GameOverReason
-    stateId: StateId
+    stateId: RegionId
     score: number
     /** High-score outcome, used by the game-over card to celebrate. */
     isOverallHigh: boolean
@@ -97,10 +98,10 @@ export type SessionState =
 
 export interface GameSession {
   readonly events: Emitter<GameEvents>
-  readonly stateIds: readonly StateId[]
+  readonly stateIds: readonly RegionId[]
   /** Currently in view, read-only for Svelte overlays. */
   readonly state: SessionState
-  readonly selectedStateId: StateId | null
+  readonly selectedStateId: RegionId | null
   readonly score: number
   /** True while the session is in a state where a state can be tapped. */
   acceptsStateTap(): boolean
@@ -166,15 +167,17 @@ const STATE_GLOW: readonly GfxShadowStyle[] = [
   { color: 'rgba(255, 255, 255, 0.4)', blur: 16.508, inset: true },
 ]
 
-const FULL_VIEW: Rect = { x: 0, y: 0, width: 661, height: 888 }
-// Upper- and lower-half framings share the same width (whole country) but
-// crop to a smaller vertical slice so the pre-game card fits below without
-// obscuring the selected state. The lower half is bottom-anchored to the
-// new 888-tall map so the camera doesn't show empty space past the coast.
-const UPPER_HALF: Rect = { x: 0, y: -30, width: 661, height: 560 }
-const LOWER_HALF: Rect = { x: 0, y: 328, width: 661, height: 560 }
-
 const CAMERA_TWEEN_SEC = 0.6
+
+/**
+ * Canvas aspect, which a map needs to fit a play framing to the live viewport.
+ * Falls back to 16:9 before the first resize settles, the same window in which
+ * `strokeSpaceScale()` reports 1.
+ */
+function canvasAspect(host: EngineHost): number {
+  const size = host.engine.primaryStage.renderer.cssSize
+  return size.h > 0 ? size.w / size.h : 16 / 9
+}
 
 // -----------------------------------------------------------------------------
 // startGame
@@ -187,7 +190,7 @@ const CAMERA_TWEEN_SEC = 0.6
  * momentary daemon hiccup.
  */
 async function persistFinishedGame(input: {
-  stateId: StateId
+  stateId: RegionId
   reason: WireGameEndReason
   score: number
   durationMs: number
@@ -214,37 +217,45 @@ async function persistFinishedGame(input: {
   }
 }
 
-export async function startGame(host: EngineHost): Promise<GameSession> {
+export async function startGame(
+  host: EngineHost,
+  map: MapDescriptor,
+): Promise<GameSession> {
   const events = createEmitter<GameEvents>()
   const assets = await loadGameAssets()
+  // The failure boundary, which the map owns. Germany reads its coastline,
+  // Europe bounds the view's left and right edges.
+  const playAreaMask = map.playAreaMask({
+    viewport: () => camera?.viewport ?? map.idleView,
+  })
 
-  const stateNodes = new Map<StateId, Path2DNode>()
+  const stateNodes = new Map<RegionId, Path2DNode>()
   const stateFillGradients = new Map<
-    StateId,
+    RegionId,
     { normal: GfxLinearGradient; selected: GfxLinearGradient }
   >()
-  const stateBorderNode = buildStateBorderNode(assets)
+  const stateBorderNode = buildStateBorderNode(map)
   const packetLayer = new Node2D('packet-layer')
   const pathLayer = new Node2D('path-layer')
   const handleLayer = new Node2D('handle-layer')
   const activePackets: PacketNode[] = []
   const gridOverlay = new GridOverlayNode({
-    mask: assets.mask,
-    cellSizeWorld: TUNING.wahlkreise.grid.cellSizeWorld,
+    mask: map.geometry.landMask,
+    cellSizeWorld: map.gridCellWorld,
   })
   gridOverlay.attachWarnSource({
     activePackets: () => activePackets,
-    mask: () => assets.mask,
+    mask: () => map.geometry.landMask,
     isPlaying: () => sessionState === 'playing',
   })
   // Register the mask with the debug controller so the `'clip-mask'` HUD
   // render mode can visualise it. Safe to call unconditionally, the
   // controller stores the reference, and nothing draws unless the mode is
   // active.
-  host.debug.setInspectedMask(assets.mask)
+  host.debug.setInspectedMask(map.geometry.landMask)
 
   let sessionState: SessionState = 'loading'
-  let selectedStateId: StateId | null = null
+  let selectedStateId: RegionId | null = null
   let score = 0
   let epicenter: EpicenterNode | null = null
   // The game's 2D camera, created explicitly in the scene build below.
@@ -262,7 +273,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   const spawnController = new SpawnController(
     {
       isPlaying: () => sessionState === 'playing',
-      mask: () => assets.mask,
+      mask: () => map.geometry.landMask,
       epicenter: () => epicenter,
       activePackets: () => activePackets,
       // Spawn only inside the current game-camera viewport so packets never
@@ -270,7 +281,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
       // which half the camera frames would let packets grow outside the
       // visible area. Rejection sampling still trims out the
       // letterbox-inside-country via `mask.contains(pt, inset=minDistFromBorder)`.
-      spawnBounds: () => camera?.viewport ?? FULL_VIEW,
+      spawnBounds: () => camera?.viewport ?? map.idleView,
       spawnPacket,
     },
     (seconds, signal) => host.engine.wait(seconds, signal),
@@ -281,7 +292,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   await host.loadScene((scene) => {
     // The game's 2D camera, framing the full 661×888 country.
     const cam = new CameraNode2D('enterprise-camera')
-    cam.setViewport(FULL_VIEW)
+    cam.setViewport(map.idleView)
     scene.root.add(cam)
     cam.makeCurrent()
     camera = cam
@@ -290,8 +301,8 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     mapGroup.renderLayer = 'static'
     scene.root.add(mapGroup)
 
-    for (const info of STATES) {
-      const entry = assets.states.paths.get(info.id)
+    for (const info of map.regions) {
+      const entry = map.geometry.regions.paths.get(info.id)
       if (!entry) continue
       // The gradient axis is a rect in the path's own local space, so each
       // state builds its own from its own bounds rather than sharing one
@@ -371,7 +382,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   )
 
   // --- Tap handler --------------------------------------------------------
-  function onStateTap(id: StateId): void {
+  function onStateTap(id: RegionId): void {
     // From idle, always start a fresh selection.
     if (sessionState === 'idle') {
       void selectState(id)
@@ -388,9 +399,9 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
   }
 
   // --- CameraView2D framing -----------------------------------------------------
-  async function selectState(id: StateId): Promise<void> {
-    const info = findState(id)
-    if (!info.half) return // geometry not filled, should never happen
+  async function selectState(id: RegionId): Promise<void> {
+    const info = findRegion(map, id)
+    if (!info) return
 
     // Retargeting mid-selection, tear down the previous state's
     // epicenter before building the new one so we never leak a ring.
@@ -403,19 +414,19 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // Ripple flashes through the neighbour graph starting at the newly-
     // selected state so the choice reads as "energising the map from
     // here outward". Fire-and-forget, pulses self-clean.
-    fireStateRipple(id, stateNodes)
+    fireStateRipple(rippleLayers(map, id), stateNodes)
 
-    // Show the epicenter at the capital, breathing. The cone opens
-    // toward the midpoint of `FULL_VIEW` (Germany's viewBox centre) so
-    // the axis always points into the interior.
-    if (info.capitalWorld) {
-      const germanyCentre: Vec2 = {
-        x: FULL_VIEW.x + FULL_VIEW.width / 2,
-        y: FULL_VIEW.y + FULL_VIEW.height / 2,
+    // Show the epicenter at the region's start point, breathing. The cone
+    // opens toward the midpoint of the idle view (the map's own centre) so the
+    // axis always points into the interior.
+    {
+      const mapCentre: Vec2 = {
+        x: map.idleView.x + map.idleView.width / 2,
+        y: map.idleView.y + map.idleView.height / 2,
       }
       epicenter = new EpicenterNode({
-        center: info.capitalWorld,
-        approachReference: germanyCentre,
+        center: info.startPoint,
+        approachReference: mapCentre,
         apexIcon: assets.firefoxLogo,
       })
       epicenter.transform.alpha = 0
@@ -428,7 +439,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
         .catch(ignoreAbort)
     }
 
-    const target = info.half === 'upper' ? UPPER_HALF : LOWER_HALF
+    const target = map.playViewFor(info, canvasAspect(host))
     await animateCameraTo(target)
     if (sessionState === 'zoomingIn') sessionState = 'preGame'
   }
@@ -476,7 +487,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
       .catch(ignoreAbort)
   }
 
-  function highlightState(id: StateId): void {
+  function highlightState(id: RegionId): void {
     // Every state dims to the same muted alpha. The selected one gets a
     // brighter gradient so it reads distinctly by color, not by opacity.
     for (const [otherId, node] of stateNodes) {
@@ -502,7 +513,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     events.emit('selectionCanceled', undefined)
     disposeEpicenter()
     clearHighlight()
-    await animateCameraTo(FULL_VIEW)
+    await animateCameraTo(map.idleView)
     if (sessionState === 'zoomingOut') sessionState = 'idle'
     selectedStateId = null
   }
@@ -536,8 +547,8 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
         hooks: {
           isPlaying: () => sessionState === 'playing',
           epicenter: () => epicenter,
-          gameViewport: () => camera?.viewport ?? FULL_VIEW,
-          mask: () => assets.mask,
+          gameViewport: () => camera?.viewport ?? map.idleView,
+          mask: () => playAreaMask,
           onExitedGermany: (p, exitPos, exitHeading) =>
             onPacketExited(p, exitPos, exitHeading),
           onCaptured: (p) => onPacketCaptured(p),
@@ -654,7 +665,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 
   function endRound(
     reason: GameOverReason,
-    stateId: StateId,
+    stateId: RegionId,
     escapeHeadingRad?: number,
   ): void {
     sessionState = 'gameOver'
@@ -743,7 +754,7 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
     // round. `warnAlpha` is an integrated state array, must be cleared
     // explicitly, `clearGameplayNodes` only walks layers.
     gridOverlay.reset()
-    await animateCameraTo(FULL_VIEW)
+    await animateCameraTo(map.idleView)
     if (sessionState === 'zoomingOut') sessionState = 'idle'
     selectedStateId = null
     score = 0
@@ -810,19 +821,19 @@ export async function startGame(host: EngineHost): Promise<GameSession> {
 // -----------------------------------------------------------------------------
 
 /**
- * One `Path2D` combining every state's own contour, stroked once rather than
- * each state stroking its own: sixteen separately stroked borders would draw
- * every shared interior edge twice, stacking a translucent stroke's alpha there
- * above the coastline's, and a later state's translucent fill would cover the
- * outer half of an earlier state's centered stroke. One path means one stencil
+ * One `Path2D` combining every region's own contour, stroked once rather than
+ * each region stroking its own: separately stroked borders would draw every
+ * shared interior edge twice, stacking a translucent stroke's alpha there above
+ * the coastline's, and a later region's translucent fill would cover the outer
+ * half of an earlier region's centered stroke. One path means one stencil
  * group, so every edge composites exactly once.
  */
-function buildStateBorderNode(assets: GameAssets): Path2DNode | null {
+function buildStateBorderNode(map: MapDescriptor): Path2DNode | null {
   const combined = new Path2D()
   const combinedContours: Float32Array[] = []
   let any = false
-  for (const info of STATES) {
-    const entry = assets.states.paths.get(info.id)
+  for (const info of map.regions) {
+    const entry = map.geometry.regions.paths.get(info.id)
     if (!entry) continue
     combined.addPath(entry.path)
     if (entry.contours) combinedContours.push(...entry.contours)

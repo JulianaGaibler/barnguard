@@ -1,7 +1,7 @@
 /**
- * Enterprise's game-over label. Renders the German-states scoreboard (state
- * photo behind a wave, big score, "Punkte" caption, high-score pill, Firefox
- * Enterprise logo) to a JPEG for the label printer.
+ * Enterprise's game-over label. Renders the scoreboard (region name, big score,
+ * "Punkte" caption, high-score pill, Firefox Enterprise logo) to a JPEG for the
+ * label printer.
  *
  * Composed on a standalone OffscreenCanvas, NOT the live WebGL canvas (created
  * without `preserveDrawingBuffer`, readback is blank). Also gives pixel-exact
@@ -16,14 +16,13 @@
 
 import { get } from 'svelte/store'
 import { fontMetrics } from '@src/stargazer'
-import type { GameOverReason, StateId } from './game'
+import type { GameOverReason, RegionId } from './game'
 import type { EnterpriseHighScores as HighScores } from './game-log'
 import type { EnterpriseMessages } from './i18n/types'
-import { STATE_PHOTOS } from './game/data/statePhotos'
+import { regionName, type RegionNamespace } from './i18n/regionName'
 import { daemonConfig, DEFAULT_LABEL_URL } from '@src/stores/daemonConfig'
 import {
   drawCssGradient,
-  drawMaskedImage,
   loadImage,
   roundRectPath,
   type Ctx2D,
@@ -44,7 +43,9 @@ const FONT_TEXT = 'Mozilla Text'
 /** Everything the label needs, exactly the `gameOver` payload plus a time. */
 export interface LabelInput {
   reason: GameOverReason
-  stateId: StateId
+  stateId: RegionId
+  /** The map's i18n namespace, so the region resolves its own name. */
+  regionNamespace: RegionNamespace
   score: number
   isOverallHigh: boolean
   isStateHigh: boolean
@@ -68,16 +69,14 @@ export interface LabelRenderOptions {
 interface LabelAssets {
   wave: HTMLImageElement
   logo: HTMLImageElement
-  photo: HTMLImageElement
 }
 
-async function loadAssets(stateId: StateId): Promise<LabelAssets> {
-  const [wave, logo, photo] = await Promise.all([
+async function loadAssets(): Promise<LabelAssets> {
+  const [wave, logo] = await Promise.all([
     loadImage(waveUrl),
     loadImage(firefoxLogoUrl),
-    loadImage(STATE_PHOTOS[stateId].url),
   ])
-  return { wave, logo, photo }
+  return { wave, logo }
 }
 
 /**
@@ -96,7 +95,7 @@ export async function renderLabel(
   const height = opts.height ?? opts.size
 
   const [assets] = await Promise.all([
-    loadAssets(input.stateId),
+    loadAssets(),
     // Boot already awaited these; re-awaiting is cheap and keeps the renderer
     // correct if it is ever driven outside the normal boot path.
     preloadFonts(),
@@ -175,28 +174,7 @@ export function drawLabel(
   drawCssGradient(ctx, w, h, 75, COL.gradient)
 
   const waveH = edge * R.waveHeightPct
-  const waveGap = edge * R.waveGap
   const blueWaveY = h - waveH
-  const maskWaveY = blueWaveY - waveGap
-  if (assets) {
-    drawMaskedImage(
-      ctx,
-      w,
-      h,
-      assets.wave,
-      0,
-      maskWaveY,
-      w,
-      waveH,
-      assets.photo,
-      0,
-      maskWaveY,
-      w,
-      h - maskWaveY,
-      0.66,
-    )
-  }
-
   if (assets) {
     ctx.drawImage(assets.wave, 0, blueWaveY, w, waveH)
   }
@@ -209,7 +187,11 @@ export function drawLabel(
   ctx.font = `700 ${headerPx}px "${FONT_TEXT}", sans-serif`
 
   ctx.textAlign = 'left'
-  ctx.fillText(messages.states[input.stateId], pad, headerY)
+  ctx.fillText(
+    regionName(messages, input.regionNamespace, input.stateId),
+    pad,
+    headerY,
+  )
 
   ctx.textAlign = 'right'
   ctx.fillText(labelUrl, w - pad, headerY)

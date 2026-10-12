@@ -1,12 +1,12 @@
 import { PointerBehavior, type PointerHandlers } from '@src/stargazer'
-import type { StateId } from '../data/states'
+import type { RegionId } from '../maps/types'
 
 /**
  * Callback the behavior fires when a state is tapped. Session-scoped.
  * `GameSession` provides the emit closure and enforces `session.state ===
  * 'idle'` gating so mid-zoom taps are dropped.
  */
-export type OnStateTap = (id: StateId) => void
+export type OnStateTap = (id: RegionId) => void
 
 /**
  * Attached to every state's `Path2DNode` (hitMode: 'fill'). Forwards a tap to
@@ -15,10 +15,10 @@ export type OnStateTap = (id: StateId) => void
  * currently-selected state and animate accordingly.
  */
 export class StateSelectionBehavior extends PointerBehavior {
-  readonly #stateId: StateId
+  readonly #stateId: RegionId
   readonly #onTap: OnStateTap
 
-  constructor(stateId: StateId, onTap: OnStateTap) {
+  constructor(stateId: RegionId, onTap: OnStateTap) {
     super()
     this.#stateId = stateId
     this.#onTap = onTap

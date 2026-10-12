@@ -50,6 +50,7 @@ function stubCtx(): { ctx: CanvasRenderingContext2D; texts: string[] } {
 const base: LabelInput = {
   reason: 'collision',
   stateId: 'BW',
+  regionNamespace: 'states',
   score: 42,
   isOverallHigh: false,
   isStateHigh: false,

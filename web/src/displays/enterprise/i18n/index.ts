@@ -25,3 +25,4 @@ export const t: Readable<EnterpriseMessages> =
   coreT as unknown as Readable<EnterpriseMessages>
 
 export type { EnterpriseMessages } from './types'
+export { regionName, type RegionNamespace } from './regionName'

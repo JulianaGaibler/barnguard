@@ -1,6 +1,8 @@
 <script lang="ts">
   import { t } from '@src/displays/enterprise/i18n'
-  import type { GameOverReason, StateId } from '@src/displays/enterprise/game'
+  import type { GameOverReason, RegionId } from '@src/displays/enterprise/game'
+  import { activeMap } from '@src/displays/enterprise/activeMap'
+  import { namespaceForMap } from '@src/displays/enterprise/game'
   import type { EnterpriseHighScores as HighScores } from '@src/displays/enterprise/game-log'
   import type { EngineHost } from '@src/stargazer'
   import { mountGameOverStage } from '@src/displays/enterprise/game/gameOver/mountGameOverStage'
@@ -17,7 +19,7 @@
 
   interface Props {
     reason: GameOverReason
-    stateId: StateId
+    stateId: RegionId
     score: number
     isOverallHigh: boolean
     isStateHigh: boolean
@@ -174,6 +176,7 @@
       const input: LabelInput = {
         reason,
         stateId,
+        regionNamespace: namespaceForMap($activeMap?.id),
         score,
         isOverallHigh,
         isStateHigh,

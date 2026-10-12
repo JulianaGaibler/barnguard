@@ -14,4 +14,13 @@ export {
   type GameSession,
   type SessionState,
 } from './session'
-export type { StateId } from './data/states'
+export {
+  DEFAULT_MAP_ID,
+  knownMapIds,
+  loadMap,
+  resolveMapId,
+  namespaceForMap,
+  type MapDescriptor,
+  type RegionId,
+  type RegionInfo,
+} from './maps'

@@ -1,38 +1,32 @@
 import { Path2DNode, easings, ignoreAbort } from '@src/stargazer'
-import { bfsLayers } from '../data/adjacency'
-import type { StateId } from '../data/states'
+import type { RegionId } from '../maps/types'
 import { TUNING } from '../data/tuning'
 
 /**
- * Fire a ripple that flashes through the state graph in BFS order from
- * `origin`. Every state's fill flashes bright then fades, the origin at `t =
- * 0`, each subsequent BFS layer offset by
- * `TUNING.stateRipple.delayPerLayerSec`.
+ * Fire a ripple that flashes outward across the map. Every region's fill
+ * flashes bright then fades, offset by `layers`, which holds the ripple depth
+ * per region (`maps/ripple.ts` derives it from the map's neighbour graph, or
+ * from distance when it has none).
  *
  * The flash is rendered as a temporary overlay `Path2DNode` cloned from the
- * state's own path, mounted on `'above-static'` so it doesn't churn the map's
+ * region's own path, mounted on `'above-static'` so it doesn't churn the map's
  * static bake. Each overlay auto-destroys once its rise + fall tweens complete
- * (`riseSec` in, `fallSec` out, ~600 ms per state total).
+ * (`riseSec` in, `fallSec` out, ~600 ms per region total).
  *
- * Called from `session` on state selection, collision, and border breach. Fires
- * in the background, the returned promise never rejects. Individual per-state
+ * Called from `session` on region selection, collision, and border breach.
+ * Fires in the background, the returned promise never rejects. Individual
  * pulses swallow `AbortError` via `ignoreAbort` so a mid-round teardown doesn't
  * produce console noise.
  */
 export function fireStateRipple(
-  origin: StateId,
-  stateNodes: ReadonlyMap<StateId, Path2DNode>,
+  layers: ReadonlyMap<RegionId, number>,
+  regionNodes: ReadonlyMap<RegionId, Path2DNode>,
 ): void {
-  // Depth cap sized well above the graph's diameter so every reachable
-  // state gets a chance to ripple. 20 is comfortably beyond the six or so
-  // hops that Germany's neighbour graph actually spans.
-  const layers = bfsLayers(origin, 20)
-  layers.set(origin, 0)
   const cfg = TUNING.stateRipple
-  for (const [stateId, depth] of layers) {
-    const stateNode = stateNodes.get(stateId)
-    if (!stateNode) continue
-    void pulseState(stateNode, depth * cfg.delayPerLayerSec)
+  for (const [regionId, depth] of layers) {
+    const regionNode = regionNodes.get(regionId)
+    if (!regionNode) continue
+    void pulseState(regionNode, depth * cfg.delayPerLayerSec)
   }
 }
 

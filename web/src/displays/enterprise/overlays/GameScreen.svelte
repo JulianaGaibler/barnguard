@@ -5,15 +5,19 @@
   import PauseOverlay from './PauseOverlay.svelte'
   import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
-  import { t } from '@src/displays/enterprise/i18n'
+  import { t, regionName } from '@src/displays/enterprise/i18n'
   import { goToScreen } from '@src/stores/appState'
   import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
   import { mountEngine, ignoreAbort, type EngineHost } from '@src/stargazer'
   import {
     startGame,
+    loadMap,
+    resolveMapId,
     type GameSession,
-    type StateId,
+    type MapDescriptor,
+    type RegionId,
   } from '@src/displays/enterprise/game'
+  import { activeMap } from '@src/displays/enterprise/activeMap'
   import {
     debugHudVisible,
     setDebugHudVisible,
@@ -47,7 +51,9 @@
   let host = $state<EngineHost | null>(null)
   let offFontChange: (() => void) | null = null
   let session = $state<GameSession | null>(null)
-  let activeStateId = $state<StateId | null>(null)
+  let activeRegionId = $state<RegionId | null>(null)
+  /** The loaded map, needed to resolve region names in this screen's copy. */
+  let map = $state<MapDescriptor | null>(null)
   let gameOverPayload = $state<GameOverPayload | null>(null)
   let loadError = $state<string | null>(null)
   /**
@@ -90,7 +96,16 @@
     try {
       host = h
       offFontChange = invalidateTextOnFontLoad(h.engine)
-      const s = await startGame(h)
+      // `?map=` picks the map, defaulting in code so a kiosk URL that
+      // predates it still boots. An unknown value throws into the catch below
+      // and shows as a load error, rather than quietly running another map.
+      const mapId = resolveMapId(
+        new URLSearchParams(window.location.search).get('map'),
+      )
+      const loaded = await loadMap(mapId)
+      map = loaded
+      activeMap.set({ id: loaded.id, i18nNamespace: loaded.i18nNamespace })
+      const s = await startGame(h, loaded)
       session = s
       s.events.on('stateSelected', (payload) => {
         selectedStateId.set(payload.stateId)
@@ -100,7 +115,7 @@
       })
       s.events.on('roundStarted', (payload) => {
         selectedStateId.set(null)
-        activeStateId = payload.stateId
+        activeRegionId = payload.stateId
         score = 0
         goToScreen('playing')
       })
@@ -113,7 +128,7 @@
       })
       s.events.on('reset', () => {
         gameOverPayload = null
-        activeStateId = null
+        activeRegionId = null
         score = 0
         goToScreen('idle')
       })
@@ -128,6 +143,8 @@
     session?.destroy()
     session = null
     host = null
+    map = null
+    activeMap.set(null)
   }
 
   function confirmSelection(): void {
@@ -139,7 +156,7 @@
     // around until `session.reset()`'s camera zoom completes (~600 ms)
     // and only THEN begins to fade, which reads as a stuck card. The
     // `'reset'` event listener still fires later and re-clears this
-    // (harmlessly, since it's already null) alongside `activeStateId`
+    // (harmlessly, since it's already null) alongside `activeRegionId`
     // and the screen change, which are timed to the zoom's completion.
     gameOverPayload = null
     session?.reset().catch(ignoreAbort)
@@ -163,12 +180,12 @@
   //                          to 2 digits so single-digit scores read
   //                          "01", "02", … which matches the mock)
   //
-  // `activeStateId` is the pivot, it's non-null only during / after a
+  // `activeRegionId` is the pivot, it's non-null only during / after a
   // round, which is exactly when we want the state-name + score pair.
-  const isRoundActive = $derived(activeStateId !== null)
+  const isRoundActive = $derived(activeRegionId !== null)
   const backdropLeftText = $derived(
-    isRoundActive && activeStateId !== null
-      ? $t.states[activeStateId]
+    isRoundActive && activeRegionId !== null
+      ? regionName($t, map?.i18nNamespace ?? 'states', activeRegionId)
       : session !== null && !loadError && $selectedStateId === null
         ? // Hide the "pick a state" prompt once a state is selected, the
           // confirm card takes over the choice at that point and the
@@ -264,7 +281,8 @@
 
   {#if $selectedStateId && host}
     <StateConfirmCard
-      stateId={$selectedStateId as StateId}
+      stateId={$selectedStateId}
+      regionNamespace={map?.i18nNamespace ?? 'states'}
       {host}
       onConfirm={confirmSelection}
     />
@@ -291,7 +309,7 @@
   {#if host}
     <AttendantControls
       {paused}
-      showPause={activeStateId !== null && gameOverPayload === null}
+      showPause={activeRegionId !== null && gameOverPayload === null}
       onTogglePause={togglePause}
     />
   {/if}

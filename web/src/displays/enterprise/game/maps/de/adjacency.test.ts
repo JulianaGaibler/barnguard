@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ADJACENCY, bfsDepth, bfsLayers } from './adjacency'
-import { STATE_IDS, type StateId } from './states'
+import { STATE_IDS, type StateId } from './regions'
 
 describe('ADJACENCY', () => {
   it('has an entry for every state', () => {
