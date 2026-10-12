@@ -33,7 +33,7 @@ import { fireStateRipple } from './animations/stateRipple'
 import { GridOverlayNode } from './nodes/GridOverlayNode'
 import { SpawnController } from './spawn/SpawnController'
 import {
-  DISPLAY_ID,
+  emptyHighScores,
   fetchEnterpriseHighScores,
   recordEnterpriseGame,
   type GameEndReason as WireGameEndReason,
@@ -46,7 +46,12 @@ import { TUNING } from './data/tuning'
 // Public API
 // -----------------------------------------------------------------------------
 
-export type GameOverReason = 'exitedGermany' | 'collision'
+/**
+ * Why the round ended, in the session's own vocabulary. `'leftPlayArea'` is the
+ * screen-edge loss a map whose play area is bounded by the view uses, as
+ * against `'exitedGermany'` for crossing a coastline.
+ */
+export type GameOverReason = 'exitedGermany' | 'leftPlayArea' | 'collision'
 
 export interface GameEvents {
   /** Assets loaded and the map is on screen. */
@@ -169,6 +174,13 @@ const STATE_GLOW: readonly GfxShadowStyle[] = [
 
 const CAMERA_TWEEN_SEC = 0.6
 
+/** Session reason to the wire value the server stores. */
+const WIRE_REASON: Record<GameOverReason, WireGameEndReason> = {
+  exitedGermany: 'exited_germany',
+  leftPlayArea: 'left_play_area',
+  collision: 'collision',
+}
+
 /**
  * Canvas aspect, which a map needs to fit a play framing to the live viewport.
  * Falls back to 16:9 before the first resize settles, the same window in which
@@ -190,6 +202,7 @@ function canvasAspect(host: EngineHost): number {
  * momentary daemon hiccup.
  */
 async function persistFinishedGame(input: {
+  mapId: string
   stateId: RegionId
   reason: WireGameEndReason
   score: number
@@ -200,6 +213,7 @@ async function persistFinishedGame(input: {
     const record = await recordEnterpriseGame({
       score: input.score,
       durationMs: input.durationMs,
+      mapId: input.mapId,
       stateId: input.stateId,
       reason: input.reason,
       escapeHeadingRad: input.escapeHeadingRad,
@@ -212,7 +226,7 @@ async function persistFinishedGame(input: {
     console.warn('[session] failed to persist game to server', e)
     return {
       record: null,
-      highScores: { display: DISPLAY_ID, overall: 0, byState: {} },
+      highScores: emptyHighScores(),
     }
   }
 }
@@ -690,10 +704,10 @@ export async function startGame(
       Math.round(performance.now() - roundStartedAtMs),
     )
     roundStartedAtMs = 0
-    const wireReason: WireGameEndReason =
-      reason === 'exitedGermany' ? 'exited_germany' : 'collision'
+    const wireReason: WireGameEndReason = WIRE_REASON[reason]
     const finalScore = score
     const persistPromise = persistFinishedGame({
+      mapId: map.id,
       stateId,
       reason: wireReason,
       score: finalScore,

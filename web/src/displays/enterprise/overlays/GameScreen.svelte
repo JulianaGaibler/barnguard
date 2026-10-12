@@ -13,6 +13,7 @@
     startGame,
     loadMap,
     resolveMapId,
+    DEFAULT_MAP_ID,
     type GameSession,
     type MapDescriptor,
     type RegionId,
@@ -282,7 +283,7 @@
   {#if $selectedStateId && host}
     <StateConfirmCard
       stateId={$selectedStateId}
-      regionNamespace={map?.i18nNamespace ?? 'states'}
+      mapId={map?.id ?? DEFAULT_MAP_ID}
       {host}
       onConfirm={confirmSelection}
     />

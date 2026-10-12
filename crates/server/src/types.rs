@@ -228,12 +228,19 @@ pub const DISPLAY_ENTERPRISE: &str = "enterprise";
 pub const DISPLAY_ARCADE: &str = "arcade";
 
 /// Why an Enterprise round ended. JSON: `snake_case` (`"collision"`,
-/// `"exited_germany"`).
+/// `"exited_germany"`, `"left_play_area"`).
+///
+/// [`GameEndReason::ExitedGermany`] and [`GameEndReason::LeftPlayArea`] both
+/// mean the packet got away, and are kept apart because the maps lose
+/// differently: on the German map a packet is lost by crossing the coastline,
+/// on a map whose play area is bounded by the view it is lost by leaving the
+/// screen. Keeping the German variant also leaves every stored record readable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GameEndReason {
     Collision,
     ExitedGermany,
+    LeftPlayArea,
 }
 
 impl fmt::Display for GameEndReason {
@@ -241,8 +248,18 @@ impl fmt::Display for GameEndReason {
         match self {
             GameEndReason::Collision => f.write_str("collision"),
             GameEndReason::ExitedGermany => f.write_str("exited_germany"),
+            GameEndReason::LeftPlayArea => f.write_str("left_play_area"),
         }
     }
+}
+
+/// The map a record with no `mapId` belongs to. Records written before the
+/// display carried more than one map have no id, and every one of those was a
+/// German round. Mirrors `MAP_ID_DE` on the web side.
+pub const MAP_DE: &str = "de";
+
+fn default_map_id() -> String {
+    MAP_DE.to_string()
 }
 
 /// Display-specific detail payload. Envelope fields (id/ts/score/duration) live
@@ -298,21 +315,32 @@ pub struct ArcadeDetails {
     pub player_name: Option<String>,
 }
 
-/// Enterprise-specific game details. `state_id` is the ISO code (lowercase);
-/// high-score flags are snapshotted at record-creation time so reprints stay
+/// Enterprise-specific game details. `state_id` is the region's own id within
+/// its map (an ISO code), and is only meaningful alongside `map_id`: `"BY"` is
+/// a German state and `"FRA"` a European country, and the same string could
+/// mean different regions on two maps. The field keeps its original name so
+/// every stored record still deserializes.
+///
+/// High-score flags are snapshotted at record-creation time so reprints stay
 /// 1:1 with the original badge even after a later game surpasses this score.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnterpriseDetails {
+    /// Which map this round was played on, e.g. `"de"`. An open string, like
+    /// the arcade's `game_id`, so a new map starts logging with no server
+    /// change.
+    #[serde(default = "default_map_id")]
+    pub map_id: String,
     pub state_id: String,
     pub reason: GameEndReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escape_heading_rad: Option<f32>,
-    /// True if this score was the overall best (for this display) at the
-    /// moment it was recorded.
+    /// True if this score was the best on its own map at the moment it was
+    /// recorded. Scoped per map rather than per display, since two maps are
+    /// different games to a player and one number cannot describe both.
     pub was_overall_high: bool,
-    /// True if this score was the best for its state at the moment it was
-    /// recorded.
+    /// True if this score was the best for its region, on its own map, at the
+    /// moment it was recorded.
     pub was_state_high: bool,
 }
 
@@ -364,6 +392,9 @@ pub enum NewGameDetails {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewEnterpriseDetails {
+    /// Defaulted so a web build that predates maps still posts successfully.
+    #[serde(default = "default_map_id")]
+    pub map_id: String,
     pub state_id: String,
     pub reason: GameEndReason,
     #[serde(default)]
@@ -397,9 +428,17 @@ impl NewGame {
                 let DisplayHighScores::Enterprise(s) = prev else {
                     panic!("prev high scores variant didn't match Enterprise details")
                 };
-                let was_overall_high = score > s.overall;
-                let was_state_high = score > s.by_state.get(&d.state_id).copied().unwrap_or(0);
+                // Both flags compare within this round's own map, so a score on
+                // one map can never claim another map's record.
+                let was_overall_high = score > s.by_map.get(&d.map_id).copied().unwrap_or(0);
+                let was_state_high = score
+                    > s.by_state
+                        .get(&d.map_id)
+                        .and_then(|regions| regions.get(&d.state_id))
+                        .copied()
+                        .unwrap_or(0);
                 GameDetails::Enterprise(EnterpriseDetails {
+                    map_id: d.map_id,
                     state_id: d.state_id,
                     reason: d.reason,
                     escape_heading_rad: d.escape_heading_rad,
@@ -472,20 +511,25 @@ impl DisplayHighScores {
     pub fn from_games(display: &str, games: &[GameRecord]) -> Self {
         match canonical_display_id(display) {
             DISPLAY_ENTERPRISE => {
-                let mut overall = 0u32;
-                let mut by_state: HashMap<String, u32> = HashMap::new();
+                let mut by_map: HashMap<String, u32> = HashMap::new();
+                let mut by_state: HashMap<String, HashMap<String, u32>> = HashMap::new();
                 for g in games {
                     if let GameDetails::Enterprise(d) = &g.details {
-                        if g.score > overall {
-                            overall = g.score;
+                        let best = by_map.entry(d.map_id.clone()).or_insert(0);
+                        if g.score > *best {
+                            *best = g.score;
                         }
-                        let slot = by_state.entry(d.state_id.clone()).or_insert(0);
+                        let slot = by_state
+                            .entry(d.map_id.clone())
+                            .or_default()
+                            .entry(d.state_id.clone())
+                            .or_insert(0);
                         if g.score > *slot {
                             *slot = g.score;
                         }
                     }
                 }
-                DisplayHighScores::Enterprise(EnterpriseHighScores { overall, by_state })
+                DisplayHighScores::Enterprise(EnterpriseHighScores { by_map, by_state })
             }
             DISPLAY_ARCADE => {
                 let mut by_game: HashMap<String, u32> = HashMap::new();
@@ -504,11 +548,16 @@ impl DisplayHighScores {
     }
 }
 
+/// Best scores for the Enterprise display, grouped per map. There is no
+/// display-wide `overall`: two maps are different games to a player, and the
+/// same reasoning the arcade applies across its games applies here.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnterpriseHighScores {
-    pub overall: u32,
-    pub by_state: HashMap<String, u32>,
+    /// Best score per map id.
+    pub by_map: HashMap<String, u32>,
+    /// Best score per region, keyed by map id then region id.
+    pub by_state: HashMap<String, HashMap<String, u32>>,
 }
 
 /// Best score per arcade `game_id`. There is no `overall` field. Jezzball's
@@ -574,8 +623,9 @@ impl NewLeaderboardEntry {
 mod tests {
     use super::*;
 
-    fn enterprise_details(state: &str) -> EnterpriseDetails {
+    fn enterprise_details_on(map_id: &str, state: &str) -> EnterpriseDetails {
         EnterpriseDetails {
+            map_id: map_id.into(),
             state_id: state.into(),
             reason: GameEndReason::Collision,
             escape_heading_rad: None,
@@ -585,12 +635,16 @@ mod tests {
     }
 
     fn record(state: &str, score: u32) -> GameRecord {
+        record_on(MAP_DE, state, score)
+    }
+
+    fn record_on(map_id: &str, state: &str, score: u32) -> GameRecord {
         GameRecord {
             id: Uuid::new_v4(),
             ts_ms: 0,
             score,
             duration_ms: 0,
-            details: GameDetails::Enterprise(enterprise_details(state)),
+            details: GameDetails::Enterprise(enterprise_details_on(map_id, state)),
         }
     }
 
@@ -602,12 +656,12 @@ mod tests {
         else {
             panic!("expected Enterprise high scores")
         };
-        assert_eq!(hs.overall, 100);
+        assert_eq!(hs.by_map.get(MAP_DE).copied(), Some(100));
         let DisplayHighScores::Enterprise(empty) = DisplayHighScores::empty_for("stallwaechter")
         else {
             panic!("expected Enterprise high scores")
         };
-        assert_eq!(empty.overall, 0);
+        assert!(empty.by_map.is_empty());
     }
 
     #[test]
@@ -623,9 +677,53 @@ mod tests {
         else {
             panic!("expected Enterprise high scores")
         };
-        assert_eq!(hs.overall, 250);
-        assert_eq!(hs.by_state.get("bayern").copied(), Some(150));
-        assert_eq!(hs.by_state.get("hessen").copied(), Some(250));
+        assert_eq!(hs.by_map.get(MAP_DE).copied(), Some(250));
+        let de = hs.by_state.get(MAP_DE).expect("german map entries");
+        assert_eq!(de.get("bayern").copied(), Some(150));
+        assert_eq!(de.get("hessen").copied(), Some(250));
+    }
+
+    #[test]
+    fn high_scores_keep_maps_apart() {
+        // The same region id on two maps, and a higher score on one of them.
+        // Neither the per-map best nor the per-region best may bleed across.
+        let games = vec![record_on("de", "BY", 100), record_on("eu", "BY", 250)];
+        let DisplayHighScores::Enterprise(hs) =
+            DisplayHighScores::from_games(DISPLAY_ENTERPRISE, &games)
+        else {
+            panic!("expected Enterprise high scores")
+        };
+        assert_eq!(hs.by_map.get("de").copied(), Some(100));
+        assert_eq!(hs.by_map.get("eu").copied(), Some(250));
+        assert_eq!(
+            hs.by_state.get("de").and_then(|m| m.get("BY")).copied(),
+            Some(100)
+        );
+        assert_eq!(
+            hs.by_state.get("eu").and_then(|m| m.get("BY")).copied(),
+            Some(250)
+        );
+    }
+
+    #[test]
+    fn records_without_a_map_id_read_as_german() {
+        // Every record written before maps existed was a German round.
+        let legacy = serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000001",
+            "tsMs": 0,
+            "score": 10,
+            "durationMs": 0,
+            "display": "enterprise",
+            "stateId": "BY",
+            "reason": "collision",
+            "wasOverallHigh": false,
+            "wasStateHigh": false,
+        });
+        let rec: GameRecord = serde_json::from_value(legacy).expect("legacy record parses");
+        let GameDetails::Enterprise(d) = &rec.details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(d.map_id, MAP_DE);
     }
 
     fn enterprise_new(state: &str, score: u32) -> NewGame {
@@ -633,6 +731,7 @@ mod tests {
             score,
             duration_ms: 5_000,
             details: NewGameDetails::Enterprise(NewEnterpriseDetails {
+                map_id: MAP_DE.into(),
                 state_id: state.into(),
                 reason: GameEndReason::Collision,
                 escape_heading_rad: None,
@@ -643,8 +742,13 @@ mod tests {
     #[test]
     fn new_game_flags_are_strict_greater_than() {
         let prev = DisplayHighScores::Enterprise(EnterpriseHighScores {
-            overall: 100,
-            by_state: [("bayern".to_string(), 50)].into_iter().collect(),
+            by_map: [(MAP_DE.to_string(), 100)].into_iter().collect(),
+            by_state: [(
+                MAP_DE.to_string(),
+                [("bayern".to_string(), 50)].into_iter().collect(),
+            )]
+            .into_iter()
+            .collect(),
         });
         let rec = enterprise_new("bayern", 100).into_record(&prev);
         let GameDetails::Enterprise(d) = &rec.details else {

@@ -424,7 +424,7 @@ mod tests {
     use crate::events::EventHub;
     use crate::types::{
         GameDetails, GameEndReason, NewArcadeDetails, NewGameDetails, NewEnterpriseDetails,
-        DISPLAY_ARCADE,
+        DISPLAY_ARCADE, MAP_DE,
     };
     use tempfile::TempDir;
 
@@ -443,10 +443,21 @@ mod tests {
     }
 
     fn enterprise_new(state: &str, reason: GameEndReason, score: u32, duration_ms: u32) -> NewGame {
+        enterprise_new_on(MAP_DE, state, reason, score, duration_ms)
+    }
+
+    fn enterprise_new_on(
+        map_id: &str,
+        state: &str,
+        reason: GameEndReason,
+        score: u32,
+        duration_ms: u32,
+    ) -> NewGame {
         NewGame {
             score,
             duration_ms,
             details: NewGameDetails::Enterprise(NewEnterpriseDetails {
+                map_id: map_id.into(),
                 state_id: state.into(),
                 reason,
                 escape_heading_rad: None,
@@ -509,9 +520,10 @@ mod tests {
         let DisplayHighScores::Enterprise(hs) = store.high_scores(DISPLAY_ENTERPRISE) else {
             panic!("expected Enterprise high scores")
         };
-        assert_eq!(hs.overall, 100);
-        assert_eq!(hs.by_state.get("bayern").copied(), Some(100));
-        assert_eq!(hs.by_state.get("hessen").copied(), Some(75));
+        assert_eq!(hs.by_map.get(MAP_DE).copied(), Some(100));
+        let de = hs.by_state.get(MAP_DE).expect("german map entries");
+        assert_eq!(de.get("bayern").copied(), Some(100));
+        assert_eq!(de.get("hessen").copied(), Some(75));
     }
 
     #[test]

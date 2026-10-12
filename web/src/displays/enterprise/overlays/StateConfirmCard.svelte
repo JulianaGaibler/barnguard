@@ -1,13 +1,12 @@
 <script lang="ts">
   import Button from '@src/core/ui/Button.svelte'
+  import { t, regionName } from '@src/displays/enterprise/i18n'
+  import { namespaceForMap } from '@src/displays/enterprise/game'
   import {
-    t,
-    regionName,
-    type RegionNamespace,
-  } from '@src/displays/enterprise/i18n'
-  import {
-    DISPLAY_ID,
+    emptyHighScores,
     fetchEnterpriseHighScores as fetchHighScores,
+    mapHigh,
+    regionHigh,
     type EnterpriseHighScores as HighScores,
   } from '@src/displays/enterprise/game-log'
   import type { RegionId } from '@src/displays/enterprise/game'
@@ -19,22 +18,18 @@
 
   interface Props {
     stateId: RegionId
-    /** The map's i18n namespace, so the region resolves its own name. */
-    regionNamespace: RegionNamespace
+    /** The map the round will be played on, which scopes names and scores. */
+    mapId: string
     host: EngineHost
     onConfirm: () => void
   }
 
-  const { stateId, regionNamespace, host, onConfirm }: Props = $props()
+  const { stateId, mapId, host, onConfirm }: Props = $props()
 
   // Refetched every time this card mounts (or `stateId` changes) so the
   // numbers reflect any recent attendant-side deletes / wipes without the
   // player having to reload. Same-origin fetch, typically <10 ms.
-  let highScores = $state<HighScores>({
-    display: DISPLAY_ID,
-    overall: 0,
-    byState: {},
-  })
+  let highScores = $state<HighScores>(emptyHighScores())
   $effect(() => {
     void stateId
     let alive = true
@@ -50,9 +45,9 @@
     }
   })
 
-  const stateName = $derived(regionName($t, regionNamespace, stateId))
-  const stateHigh = $derived(highScores.byState[stateId] ?? 0)
-  const overallHigh = $derived(highScores.overall)
+  const stateName = $derived(regionName($t, namespaceForMap(mapId), stateId))
+  const stateHigh = $derived(regionHigh(highScores, mapId, stateId))
+  const overallHigh = $derived(mapHigh(highScores, mapId))
 
   /** Substitute `{state}` in the labelled string with the state's ISO id. */
   function stateHighLabel(pattern: string, id: string): string {

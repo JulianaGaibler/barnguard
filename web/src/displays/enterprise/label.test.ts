@@ -50,11 +50,11 @@ function stubCtx(): { ctx: CanvasRenderingContext2D; texts: string[] } {
 const base: LabelInput = {
   reason: 'collision',
   stateId: 'BW',
-  regionNamespace: 'states',
+  mapId: 'de',
   score: 42,
   isOverallHigh: false,
   isStateHigh: false,
-  highScores: { display: 'enterprise', overall: 0, byState: {} },
+  highScores: { display: 'enterprise', byMap: {}, byState: {} },
 }
 
 describe('squarePxFrom', () => {

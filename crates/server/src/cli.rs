@@ -122,14 +122,22 @@ pub fn high_scores(json: bool) -> Result<(), Box<dyn Error>> {
         match hs {
             DisplayHighScores::Enterprise(hs) => {
                 println!("display: {DISPLAY_ENTERPRISE}");
-                println!("overall: {}", hs.overall);
-                if hs.by_state.is_empty() {
-                    println!("(no per-state entries)");
-                } else {
-                    let mut rows: Vec<_> = hs.by_state.iter().collect();
-                    rows.sort_by(|a, b| b.1.cmp(a.1));
-                    for (state, score) in rows {
-                        println!("  {state:<20} {score}");
+                if hs.by_map.is_empty() {
+                    println!("(no entries)");
+                }
+                let mut maps: Vec<_> = hs.by_map.iter().collect();
+                maps.sort_by(|a, b| b.1.cmp(a.1));
+                for (map_id, best) in maps {
+                    println!("map {map_id}: best {best}");
+                    match hs.by_state.get(map_id) {
+                        None => println!("  (no per-region entries)"),
+                        Some(regions) => {
+                            let mut rows: Vec<_> = regions.iter().collect();
+                            rows.sort_by(|a, b| b.1.cmp(a.1));
+                            for (region, score) in rows {
+                                println!("  {region:<20} {score}");
+                            }
+                        }
                     }
                 }
             }

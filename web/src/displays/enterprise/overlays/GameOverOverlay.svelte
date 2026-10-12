@@ -2,7 +2,8 @@
   import { t } from '@src/displays/enterprise/i18n'
   import type { GameOverReason, RegionId } from '@src/displays/enterprise/game'
   import { activeMap } from '@src/displays/enterprise/activeMap'
-  import { namespaceForMap } from '@src/displays/enterprise/game'
+  import { DEFAULT_MAP_ID } from '@src/displays/enterprise/game'
+  import { mapHigh, regionHigh } from '@src/displays/enterprise/game-log'
   import type { EnterpriseHighScores as HighScores } from '@src/displays/enterprise/game-log'
   import type { EngineHost } from '@src/stargazer'
   import { mountGameOverStage } from '@src/displays/enterprise/game/gameOver/mountGameOverStage'
@@ -45,12 +46,14 @@
 
   const reasonTitle = $derived($t.game.gameOverTitle)
   const reasonMessage = $derived(
-    reason === 'exitedGermany'
-      ? $t.game.gameOverExited
-      : $t.game.gameOverCollision,
+    reason === 'collision' ? $t.game.gameOverCollision : $t.game.gameOverExited,
   )
-  const stateHigh = $derived(highScores.byState[stateId] ?? 0)
-  const overallHigh = $derived(highScores.overall)
+  const stateHigh = $derived(
+    regionHigh(highScores, $activeMap?.id ?? DEFAULT_MAP_ID, stateId),
+  )
+  const overallHigh = $derived(
+    mapHigh(highScores, $activeMap?.id ?? DEFAULT_MAP_ID),
+  )
   const showPill = $derived(isOverallHigh || isStateHigh)
 
   function stateHighLabel(pattern: string, id: string): string {
@@ -176,7 +179,7 @@
       const input: LabelInput = {
         reason,
         stateId,
-        regionNamespace: namespaceForMap($activeMap?.id),
+        mapId: $activeMap?.id ?? DEFAULT_MAP_ID,
         score,
         isOverallHigh,
         isStateHigh,

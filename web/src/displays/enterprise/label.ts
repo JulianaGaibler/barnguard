@@ -19,7 +19,8 @@ import { fontMetrics } from '@src/stargazer'
 import type { GameOverReason, RegionId } from './game'
 import type { EnterpriseHighScores as HighScores } from './game-log'
 import type { EnterpriseMessages } from './i18n/types'
-import { regionName, type RegionNamespace } from './i18n/regionName'
+import { regionName } from './i18n/regionName'
+import { namespaceForMap } from './game'
 import { daemonConfig, DEFAULT_LABEL_URL } from '@src/stores/daemonConfig'
 import {
   drawCssGradient,
@@ -44,8 +45,8 @@ const FONT_TEXT = 'Mozilla Text'
 export interface LabelInput {
   reason: GameOverReason
   stateId: RegionId
-  /** The map's i18n namespace, so the region resolves its own name. */
-  regionNamespace: RegionNamespace
+  /** The map the round was played on, which scopes the region's name. */
+  mapId: string
   score: number
   isOverallHigh: boolean
   isStateHigh: boolean
@@ -188,7 +189,7 @@ export function drawLabel(
 
   ctx.textAlign = 'left'
   ctx.fillText(
-    regionName(messages, input.regionNamespace, input.stateId),
+    regionName(messages, namespaceForMap(input.mapId), input.stateId),
     pad,
     headerY,
   )
