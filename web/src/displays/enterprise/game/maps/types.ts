@@ -5,7 +5,7 @@
  * between maps lives behind this descriptor.
  */
 
-import type { BitmapMask, Rect, SvgPathMap, Vec2 } from '@src/stargazer'
+import type { BitmapMask, Rect, SvgPathEntry, Vec2 } from '@src/stargazer'
 import type { PacketMask } from '../behaviors/PacketBehavior'
 
 /**
@@ -31,20 +31,20 @@ export interface RegionInfo {
    * otherwise the deepest point inside the region's own outline.
    */
   startPoint: Vec2
-  /** The region's own AABB in map coordinates. */
-  bounds: Rect
+  /**
+   * The region's own artwork, already tessellated. Carried here rather than
+   * looked up by id, because a map's path keys need not match its region ids
+   * and only the map knows how one maps to the other.
+   */
+  shape: SvgPathEntry
 }
 
-/** The geometry a map draws, loaded before the descriptor is built. */
+/** The map-wide geometry a descriptor resolves at load. */
 export interface MapGeometry {
-  /** One entry per region, keyed by `RegionInfo.id`. */
-  regions: SvgPathMap
-  /** The landmass outline, merged into one path. */
-  outline: SvgPathMap
   /**
-   * Rasterized `outline`. Used for spawn rejection sampling and to filter the
-   * grid overlay's cells, never as the failure boundary (see
-   * `MapDescriptor.playAreaMask`).
+   * The landmass, rasterized from every region merged into one shape. Used for
+   * spawn rejection sampling and to filter the grid overlay's cells, never as
+   * the failure boundary (see `MapDescriptor.playAreaMask`).
    */
   landMask: BitmapMask
 }

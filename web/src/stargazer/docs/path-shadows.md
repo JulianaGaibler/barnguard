@@ -99,11 +99,15 @@ animated blur, spread, or a zoom that crosses a bucket boundary does.
 
 ### Substitutes, and converging back
 
-A miss on the exact key resolves to a substitute rather than to nothing, in
-two tiers. An adjacent scale bucket comes first, which is the same blur and
-spread at a different mask resolution. Failing that, the same path's nearest
-cached blur within `MASK_SUBSTITUTE_BLUR_OCTAVES` (half an octave, the scale
-bucket's own width) stands in.
+A miss on the exact key resolves to a substitute rather than to nothing: the
+same path's closest cached mask, ranked by blur first and scale bucket second.
+
+That order matters. A mask at the requested blur but the wrong bucket is the
+right shadow at the wrong resolution, which resampling handles, so the bucket
+is unbounded and a camera crossing a wide zoom range always has something to
+stand on. Blur is bounded by `MASK_SUBSTITUTE_BLUR_OCTAVES` (half an octave,
+the scale bucket's own width), because past that the shadow reads at visibly
+the wrong size and skipping it is the better failure.
 
 A substitute is reported through `PathShadowMask.exact === false`, and
 `GpuGfx.shadowPath2D` queues the exact bake whenever it sees that, so a
@@ -157,7 +161,9 @@ queues a bake, and each resulting mask is dead the frame after. The cache
 stays legible through this (the nearby-blur substitute paints, and
 `MASK_EVICT_FRAMES_UNUSED` keeps the backlog from filling the byte budget),
 and it warns once after `BLUR_CHURN_WARN_FRAMES` consecutive frames of
-substitution. It is still a bake per frame per shape. Use `'world'` for a
+substituting a _different_ blur. A substitution that only crosses buckets does
+not warn, or a world-space shadow under a wide zoom would be told to become
+world-space. It is still a bake per frame per shape. Use `'world'` for a
 shadow on a node the camera zooms, and `'screen'` for one it does not.
 
 ## Budgets

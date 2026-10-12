@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { t } from '@src/displays/enterprise/i18n'
+  import { t, mapCopy } from '@src/displays/enterprise/i18n'
   import type { GameOverReason, RegionId } from '@src/displays/enterprise/game'
   import { activeMap } from '@src/displays/enterprise/activeMap'
   import { DEFAULT_MAP_ID } from '@src/displays/enterprise/game'
@@ -46,7 +46,9 @@
 
   const reasonTitle = $derived($t.game.gameOverTitle)
   const reasonMessage = $derived(
-    reason === 'collision' ? $t.game.gameOverCollision : $t.game.gameOverExited,
+    reason === 'collision'
+      ? $t.game.gameOverCollision
+      : mapCopy($t, $activeMap?.id ?? DEFAULT_MAP_ID).lost,
   )
   const stateHigh = $derived(
     regionHigh(highScores, $activeMap?.id ?? DEFAULT_MAP_ID, stateId),

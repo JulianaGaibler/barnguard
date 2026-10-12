@@ -12,6 +12,7 @@ import type { RegionNamespace } from '../../i18n/regionName'
 
 export const MAP_NAMESPACE: Record<string, RegionNamespace> = {
   de: 'states',
+  eu: 'countries',
 }
 
 /**

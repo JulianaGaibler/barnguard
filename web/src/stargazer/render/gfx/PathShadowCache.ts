@@ -483,48 +483,69 @@ export class PathShadowCache {
 
   /**
    * Resolve `req` against the live entries, without baking. An exact-key hit
-   * comes back `exact`. Failing that, a same-style mask one scale bucket away
-   * or a same-shape mask at a nearby blur stands in, reported as inexact so the
-   * caller can queue the bake that converges on the real one.
+   * comes back `exact`. Failing that the closest same-shape mask stands in,
+   * reported as inexact so the caller can queue the bake that converges on the
+   * real one.
+   *
+   * Closest means the requested blur first, nearest scale bucket second. A mask
+   * at the right blur but the wrong bucket is geometrically correct and only
+   * resampled, where a mask at the wrong blur draws the shadow at the wrong
+   * size, so the bucket is always the cheaper thing to get wrong.
    */
   #lookup(
     req: PathShadowRequest,
   ): { entry: CacheEntry; exact: boolean } | null {
-    const { shapeKey, styleKey, exactKey, bucket } = this.#keysFor(req)
+    const { shapeKey, exactKey, bucket } = this.#keysFor(req)
     const hit = this.#entries.get(exactKey)
     if (hit) return { entry: hit, exact: true }
-    // One bucket away reads as "scaled to fit" close enough to stand in, per
-    // §7.6's stale reading. The blur and spread still match exactly, only the
-    // resolution differs.
-    const adjacent =
-      this.#entries.get(`${styleKey}|${bucket - 1}`) ??
-      this.#entries.get(`${styleKey}|${bucket + 1}`)
-    if (adjacent) return { entry: adjacent, exact: false }
-    const near = this.#nearestBlur(shapeKey, req.blur)
+    const near = this.#nearestForShape(shapeKey, req.blur, bucket)
     return near ? { entry: near, exact: false } : null
   }
 
   /**
-   * The same shape's cached mask at the closest blur within
-   * `MASK_SUBSTITUTE_BLUR_OCTAVES`, or `null`. A mask a fraction of an octave
-   * off beats an outset shadow dropping to a hard silhouette, and it is the
-   * only thing an inset shadow has to draw at all.
+   * The same shape's closest cached mask, or `null` when nothing is close
+   * enough. A substitute beats an outset shadow dropping to a hard silhouette,
+   * and it is the only thing an inset shadow has to draw at all.
+   *
+   * Blur has to land within `MASK_SUBSTITUTE_BLUR_OCTAVES`, since past that the
+   * shadow would read at visibly the wrong size. The scale bucket has no such
+   * bound: a mask from several buckets away is the right shadow at the wrong
+   * resolution, which resampling handles, and a camera crossing a wide zoom
+   * range would otherwise have nothing to stand on.
+   *
+   * Only a blur that actually differs counts as churn, so a world-space shadow
+   * crossing buckets does not trip a warning telling it to become world-space.
    */
-  #nearestBlur(shapeKey: string, blur: number): CacheEntry | null {
+  #nearestForShape(
+    shapeKey: string,
+    blur: number,
+    bucket: number,
+  ): CacheEntry | null {
     const keys = this.#shapes.get(shapeKey)
     if (!keys || blur <= 0) return null
     let best: CacheEntry | null = null
-    let bestDistance = MASK_SUBSTITUTE_BLUR_OCTAVES
+    let bestBlurDistance = MASK_SUBSTITUTE_BLUR_OCTAVES
+    let bestBucketDistance = Infinity
     for (const key of keys) {
       const entry = this.#entries.get(key)
       if (!entry || entry.blur <= 0) continue
-      const distance = Math.abs(Math.log2(entry.blur / blur))
-      if (distance < bestDistance) {
-        bestDistance = distance
+      const blurDistance = Math.abs(Math.log2(entry.blur / blur))
+      if (blurDistance >= MASK_SUBSTITUTE_BLUR_OCTAVES) continue
+      const bucketDistance = Math.abs(entry.bucket - bucket)
+      // Blur first, bucket only as a tie-break. `1e-6` treats float drift on
+      // the same authored radius as equal rather than as a closer match.
+      const better =
+        best === null ||
+        blurDistance < bestBlurDistance - 1e-6 ||
+        (blurDistance <= bestBlurDistance + 1e-6 &&
+          bucketDistance < bestBucketDistance)
+      if (better) {
         best = entry
+        bestBlurDistance = blurDistance
+        bestBucketDistance = bucketDistance
       }
     }
-    if (best) this.#noteBlurChurn()
+    if (best && bestBlurDistance > 1e-6) this.#noteBlurChurn()
     return best
   }
 

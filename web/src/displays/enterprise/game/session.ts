@@ -54,7 +54,10 @@ import { TUNING } from './data/tuning'
 export type GameOverReason = 'exitedGermany' | 'leftPlayArea' | 'collision'
 
 export interface GameEvents {
-  /** Assets loaded and the map is on screen. */
+  /**
+   * Assets loaded and the map is on screen. `stateIds` lists the regions a
+   * player may pick, so drawn-only geometry is absent.
+   */
   ready: { stateIds: readonly RegionId[] }
   /** User tapped a state, awaiting `startRound()` or `cancelSelection()`. */
   stateSelected: { stateId: RegionId }
@@ -302,6 +305,14 @@ export async function startGame(
   )
   let offCollision: (() => void) | null = null
 
+  /**
+   * Ids a player may pick. Drawn-only regions are part of the landmass, not
+   * choices, so nothing offering a list of regions should see them.
+   */
+  function selectableIds(): RegionId[] {
+    return map.regions.filter((r) => r.selectable).map((r) => r.id)
+  }
+
   // --- Scene build ---------------------------------------------------------
   await host.loadScene((scene) => {
     // The game's 2D camera, framing the full 661×888 country.
@@ -316,8 +327,7 @@ export async function startGame(
     scene.root.add(mapGroup)
 
     for (const info of map.regions) {
-      const entry = map.geometry.regions.paths.get(info.id)
-      if (!entry) continue
+      const entry = info.shape
       // The gradient axis is a rect in the path's own local space, so each
       // state builds its own from its own bounds rather than sharing one
       // across the map.
@@ -348,11 +358,15 @@ export async function startGame(
         fill: gradients.normal,
         shadow: STATE_GLOW,
         strokeSpace: 'world',
-        hitMode: 'fill',
+        // A region the map draws but does not offer takes no taps at all, so
+        // it reads as part of the landmass rather than a dead target.
+        hitMode: info.selectable ? 'fill' : 'none',
         debugBounds: entry.bounds,
       })
       node.renderLayer = 'static'
-      node.addBehavior(new StateSelectionBehavior(info.id, onStateTap))
+      if (info.selectable) {
+        node.addBehavior(new StateSelectionBehavior(info.id, onStateTap))
+      }
       mapGroup.add(node)
       stateNodes.set(info.id, node)
     }
@@ -379,7 +393,7 @@ export async function startGame(
 
   host.start()
   sessionState = 'idle'
-  events.emit('ready', { stateIds: Array.from(stateNodes.keys()) })
+  events.emit('ready', { stateIds: selectableIds() })
 
   // Dismiss-on-outside-tap for the pre-game screen: any pointerdown that
   // doesn't get captured by a state fill (background water, off-country
@@ -809,7 +823,7 @@ export async function startGame(
   return {
     events,
     get stateIds() {
-      return Array.from(stateNodes.keys())
+      return selectableIds()
     },
     get state() {
       return sessionState
@@ -847,8 +861,7 @@ function buildStateBorderNode(map: MapDescriptor): Path2DNode | null {
   const combinedContours: Float32Array[] = []
   let any = false
   for (const info of map.regions) {
-    const entry = map.geometry.regions.paths.get(info.id)
-    if (!entry) continue
+    const entry = info.shape
     combined.addPath(entry.path)
     if (entry.contours) combinedContours.push(...entry.contours)
     any = true

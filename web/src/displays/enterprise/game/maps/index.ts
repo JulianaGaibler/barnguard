@@ -16,6 +16,7 @@ export const DEFAULT_MAP_ID = 'de'
 
 const MAP_LOADERS: Record<string, () => Promise<MapDescriptor>> = {
   de: () => import('./de').then((m) => m.loadGermanyMap()),
+  eu: () => import('./eu').then((m) => m.loadEuropeMap()),
 }
 
 /** Every map id this build can boot. */

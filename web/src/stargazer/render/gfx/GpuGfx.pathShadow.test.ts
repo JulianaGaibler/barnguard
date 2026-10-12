@@ -336,6 +336,71 @@ describe('GpuGfx.shadowPath2D', () => {
     expect(unpainted).toBe(0)
   })
 
+  it('does not warn when only the scale bucket moves', async () => {
+    // A world-space shadow holds its blur while the camera zooms, so the only
+    // thing missing from the cache is the resolution bucket. Warning here
+    // would tell a caller to apply a fix it has already applied.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const canvas = makeCanvas()
+      const device = new MockGfxDevice()
+      const gfx = new GpuGfx(canvas, device)
+      await gfx.whenReady
+      const path = squarePath()
+      // Half an octave per frame, so every frame lands in a bucket the cache
+      // has never baked and has to substitute. Anything coarser lets the exact
+      // key hit in between and the run never reaches the warning threshold.
+      for (let i = 0; i < 24; i++) {
+        const scale = Math.pow(2, i / 2)
+        device.reset()
+        gfx.beginFrame({
+          clearColor: '#0d1a2c',
+          transparent: false,
+          pixelW: 400,
+          pixelH: 300,
+        })
+        gfx.setBaseTransform(scale, 0, 0, scale, 0, 0)
+        gfx.setAlpha(1)
+        gfx.shadowPath2D(path, shadow({ inset: true, blur: 32 }))
+        gfx.endFrame()
+        gfx.processPendingShadowBakes()
+      }
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('stands in across any bucket distance at the requested blur', async () => {
+    const canvas = makeCanvas()
+    const device = new MockGfxDevice()
+    const gfx = new GpuGfx(canvas, device)
+    await gfx.whenReady
+    const path = squarePath()
+
+    // Bake at scale 1, then jump far enough that no adjacent bucket exists.
+    const frame = (scale: number): number => {
+      device.reset()
+      gfx.beginFrame({
+        clearColor: '#0d1a2c',
+        transparent: false,
+        pixelW: 400,
+        pixelH: 300,
+      })
+      gfx.setBaseTransform(scale, 0, 0, scale, 0, 0)
+      gfx.setAlpha(1)
+      gfx.shadowPath2D(path, shadow({ inset: true, blur: 32 }))
+      gfx.endFrame()
+      const drawn = device.draws.length
+      gfx.processPendingShadowBakes()
+      return drawn
+    }
+    frame(1)
+    frame(1)
+    // Six half-octave buckets away, well past the +/-1 adjacency.
+    expect(frame(8)).toBe(1)
+  })
+
   it('warns once when a blur churns faster than the cache can follow', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {

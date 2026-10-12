@@ -1,5 +1,15 @@
 import type { CoreMessages, Messages } from '@src/i18n'
 
+/** The per-map strings every map has to supply. */
+export interface MapCopy {
+  /** Idle prompt, e.g. "pick a state" or "pick a country". */
+  pick: string
+  /** The mission line shown beside the idle map. */
+  mission: string
+  /** Game-over message when the packet left the play area. */
+  lost: string
+}
+
 /**
  * Strongly-typed message tree for the Enterprise display. Extends the core
  * shell with the game + states sections. Both locale bundles satisfy this
@@ -16,14 +26,11 @@ export interface EnterpriseMessages extends CoreMessages {
     title: string
     subtitle: string
     startButton: string
-    idleHint: string
     loading: string
     confirmStateTitle: string
-    confirmStateHint: string
     confirmButton: string
     cancelButton: string
     gameOverTitle: string
-    gameOverExited: string
     gameOverCollision: string
     tryAgainButton: string
     point: string
@@ -35,6 +42,60 @@ export interface EnterpriseMessages extends CoreMessages {
     pauseTitle: string
     pauseHint: string
     resumeButton: string
+  }
+  /**
+   * Copy that reads differently per map, keyed by map id. A map's prompt names
+   * what the player is picking, and its loss message names what the packet
+   * actually crossed, which is a coastline on one map and the screen edge on
+   * another.
+   */
+  maps: Record<'de' | 'eu', MapCopy>
+  /** Country names (long form) keyed by ISO 3166-1 alpha-3, for the Europe map. */
+  countries: {
+    ALB: string
+    AND: string
+    AUT: string
+    BEL: string
+    BGR: string
+    BIH: string
+    BLR: string
+    CHE: string
+    CYP: string
+    CZE: string
+    DEU: string
+    DNK: string
+    ESP: string
+    EST: string
+    FIN: string
+    FRA: string
+    GBR: string
+    GRC: string
+    HRV: string
+    HUN: string
+    IRL: string
+    ISL: string
+    ITA: string
+    LIE: string
+    LTU: string
+    LUX: string
+    LVA: string
+    MCO: string
+    MDA: string
+    MKD: string
+    MLT: string
+    MNE: string
+    NLD: string
+    NOR: string
+    POL: string
+    PRT: string
+    ROU: string
+    SMR: string
+    SRB: string
+    SVK: string
+    SVN: string
+    SWE: string
+    UKR: string
+    VAT: string
   }
   /** German state names (long form) keyed by ISO code. */
   states: {

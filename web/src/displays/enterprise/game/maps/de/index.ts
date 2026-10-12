@@ -58,10 +58,6 @@ export async function loadGermanyMap(): Promise<MapDescriptor> {
   // fold into one shape before it can rasterise as one country.
   const merged = mergeAllPaths(outlinePaths)
   if (!merged) throw new Error('map:de: de-outline.svg contains no <path>')
-  const outline: SvgPathMap = {
-    viewBox: outlinePaths.viewBox,
-    paths: new Map([['outline', merged]]),
-  }
   const landMask = await buildLandMask(merged.path, outlinePaths.viewBox)
 
   const capitals = capitalsFrom(cities)
@@ -87,15 +83,11 @@ export async function loadGermanyMap(): Promise<MapDescriptor> {
       i18nKey: id,
       selectable: true,
       startPoint,
-      bounds: entry.bounds,
+      shape: entry,
     })
   }
 
-  const geometry: MapGeometry = {
-    regions: regionPaths,
-    outline,
-    landMask,
-  }
+  const geometry: MapGeometry = { landMask }
 
   return {
     id: MAP_ID_DE,
@@ -108,7 +100,7 @@ export async function loadGermanyMap(): Promise<MapDescriptor> {
       // two halves are hand-set rather than derived per state so the camera
       // lands on one of two known compositions instead of a different crop
       // for all sixteen.
-      const centreY = region.bounds.y + region.bounds.height / 2
+      const centreY = region.shape.bounds.y + region.shape.bounds.height / 2
       return centreY < FULL_VIEW.height / 2 ? UPPER_HALF : LOWER_HALF
     },
     playAreaMask(_ctx: PlayAreaContext) {

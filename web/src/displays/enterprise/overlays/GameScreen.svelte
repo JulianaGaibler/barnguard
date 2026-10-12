@@ -5,7 +5,7 @@
   import PauseOverlay from './PauseOverlay.svelte'
   import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
-  import { t, regionName } from '@src/displays/enterprise/i18n'
+  import { t, regionName, mapCopy } from '@src/displays/enterprise/i18n'
   import { goToScreen } from '@src/stores/appState'
   import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
   import { mountEngine, ignoreAbort, type EngineHost } from '@src/stargazer'
@@ -191,14 +191,14 @@
         ? // Hide the "pick a state" prompt once a state is selected, the
           // confirm card takes over the choice at that point and the
           // corner prompt would just repeat what the card already says.
-          $t.game.idleHint
+          mapCopy($t, map?.id ?? DEFAULT_MAP_ID).pick
         : null,
   )
   const backdropRightText = $derived(
     isRoundActive || $selectedStateId !== null
       ? null
       : session !== null
-        ? $t.game.confirmStateHint
+        ? mapCopy($t, map?.id ?? DEFAULT_MAP_ID).mission
         : null,
   )
   // Two-digit minimum with leading zero, reads as a scoreboard. Scores

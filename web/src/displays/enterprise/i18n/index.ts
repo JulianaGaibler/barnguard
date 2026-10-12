@@ -26,3 +26,5 @@ export const t: Readable<EnterpriseMessages> =
 
 export type { EnterpriseMessages } from './types'
 export { regionName, type RegionNamespace } from './regionName'
+export { mapCopy } from './mapCopy'
+export type { MapCopy } from './types'
