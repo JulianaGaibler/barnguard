@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { GpuGfx } from './GpuGfx'
 import { MockGfxDevice } from './webgl2/mockGfxDevice'
 import { registerPathTessellation } from './PathTessellationRegistry'
+import { VectorQuality } from '../VectorQuality'
 import type { GfxShadowStyle } from './Gfx2D'
 
 function makeCanvas(): HTMLCanvasElement {
@@ -19,12 +20,18 @@ function makeGpuGfx(): { gfx: GpuGfx; device: MockGfxDevice } {
 }
 
 /** A registered square Path2D, ready for fillPath2D/shadowPath2D. */
-function squarePath(size = 100): Path2D {
+function squarePath(size = 100, opts?: { retained?: boolean }): Path2D {
   const path = new Path2D(`M0 0 L${size} 0 L${size} ${size} L0 ${size} Z`)
-  registerPathTessellation(path, {
-    vertices: new Float32Array([0, 0, size, 0, size, size, 0, size]),
-    indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
-  })
+  registerPathTessellation(
+    path,
+    {
+      vertices: new Float32Array([0, 0, size, 0, size, size, 0, size]),
+      indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
+    },
+    undefined,
+    undefined,
+    opts,
+  )
   return path
 }
 
@@ -140,6 +147,23 @@ describe('GpuGfx.shadowPath2D', () => {
     expect(device.draws.length).toBe(1)
   })
 
+  it('draws the real mask through the retained pipeline for an inset shadow on retained geometry once baked', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    const path = squarePath(100, { retained: true })
+    gfx.shadowPath2D(path, shadow({ inset: true }))
+    gfx.endFrame()
+    gfx.processPendingShadowBakes()
+
+    await baseFrame(gfx, device)
+    gfx.shadowPath2D(path, shadow({ inset: true }))
+    gfx.endFrame()
+    expect(device.draws.length).toBe(1)
+    // Indexed draw is only reachable through `#drawRetained`, never the
+    // streamed `coloredTri` path.
+    expect(device.draws[0].kind).toBe('elements')
+  })
+
   it('does not crash with a huge blur relative to the shape', async () => {
     const { gfx, device } = makeGpuGfx()
     await baseFrame(gfx, device)
@@ -147,6 +171,198 @@ describe('GpuGfx.shadowPath2D', () => {
     gfx.shadowPath2D(path, shadow({ blur: 500 }))
     gfx.endFrame()
     expect(() => gfx.processPendingShadowBakes()).not.toThrow()
+  })
+
+  it('draws an inset shadow from a nearby cached blur rather than nothing', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    const path = squarePath()
+    gfx.shadowPath2D(path, shadow({ inset: true, blur: 32 }))
+    gfx.endFrame()
+    gfx.processPendingShadowBakes()
+
+    // A blur a fifth of an octave off has no entry of its own, so it stands
+    // on the cached one instead of dropping the glow for the frame.
+    await baseFrame(gfx, device)
+    gfx.shadowPath2D(path, shadow({ inset: true, blur: 36 }))
+    gfx.endFrame()
+    expect(device.draws.length).toBe(1)
+  })
+
+  it('leaves an inset shadow unpainted when every cached blur is too far off', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    const path = squarePath()
+    gfx.shadowPath2D(path, shadow({ inset: true, blur: 32 }))
+    gfx.endFrame()
+    gfx.processPendingShadowBakes()
+
+    // Past MASK_SUBSTITUTE_BLUR_OCTAVES, so no substitution.
+    await baseFrame(gfx, device)
+    gfx.shadowPath2D(path, shadow({ inset: true, blur: 200 }))
+    gfx.endFrame()
+    expect(device.draws.length).toBe(0)
+  })
+
+  it('queues the exact bake while a substitute stands in, and converges', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    const path = squarePath()
+    gfx.shadowPath2D(path, shadow({ blur: 32 }))
+    gfx.endFrame()
+    gfx.processPendingShadowBakes()
+    expect(gfx.textureInspector.snapshot().shadowMasks.length).toBe(1)
+
+    await baseFrame(gfx, device)
+    gfx.shadowPath2D(path, shadow({ blur: 36 }))
+    gfx.endFrame()
+    // The substitute is drawn AND the real mask is queued behind it.
+    const passesBefore = device.passes.length
+    gfx.processPendingShadowBakes()
+    expect(device.passes.length).toBe(passesBefore + 3)
+    expect(gfx.textureInspector.snapshot().shadowMasks.length).toBe(2)
+  })
+
+  // The wedge: a full byte budget where every entry is still inside its
+  // eviction window means no bake can ever land again. Nothing reports it, the
+  // masks simply stop appearing.
+  it('does not wedge the budget behind masks no draw ever asked for', async () => {
+    const canvas = makeCanvas()
+    const device = new MockGfxDevice()
+    const quality = new VectorQuality()
+    const gfx = new GpuGfx(canvas, device, { vectorQuality: quality })
+    await baseFrame(gfx, device)
+    const path = squarePath()
+
+    gfx.shadowPath2D(path, shadow())
+    gfx.endFrame()
+    gfx.processPendingShadowBakes()
+    const oneMaskBytes =
+      gfx.textureInspector.snapshot().shadowMasks[0]?.bytes ?? 0
+    expect(oneMaskBytes).toBeGreaterThan(0)
+
+    // Past MASK_EVICT_FRAMES_UNUSED, with no draw having asked for the mask.
+    for (let i = 0; i < 4; i++) {
+      await baseFrame(gfx, device)
+      gfx.endFrame()
+      gfx.processPendingShadowBakes()
+    }
+
+    // Room for exactly one mask, so a second path's bake has to reclaim the
+    // first path's or not land at all.
+    quality.shadowMaskBudgetBytes = oneMaskBytes
+    const other = squarePath()
+    await baseFrame(gfx, device)
+    gfx.shadowPath2D(other, shadow())
+    gfx.endFrame()
+    gfx.processPendingShadowBakes()
+
+    // `stats` mirrors the cache's counters at `endFrame`, so read it after one.
+    await baseFrame(gfx, device)
+    gfx.endFrame()
+    expect(gfx.stats.maskBakes).toBe(2)
+    const masks = gfx.textureInspector.snapshot().shadowMasks
+    expect(masks.length).toBe(1)
+    expect(masks[0].bakedFrame).toBeGreaterThan(1)
+  })
+
+  it('does not grant the long eviction window to a mask that only stood in', async () => {
+    const canvas = makeCanvas()
+    const device = new MockGfxDevice()
+    const quality = new VectorQuality()
+    const gfx = new GpuGfx(canvas, device, { vectorQuality: quality })
+    await baseFrame(gfx, device)
+    const path = squarePath()
+
+    gfx.shadowPath2D(path, shadow({ blur: 32 }))
+    gfx.endFrame()
+    gfx.processPendingShadowBakes()
+    const oneMaskBytes =
+      gfx.textureInspector.snapshot().shadowMasks[0]?.bytes ?? 0
+
+    // Room for one mask, then a blur that moves every frame. Each new radius
+    // stands on the previous mask, and counting that as use would put the
+    // whole backlog behind the long window and stop every later bake.
+    quality.shadowMaskBudgetBytes = oneMaskBytes
+    for (let i = 1; i <= 12; i++) {
+      await baseFrame(gfx, device)
+      gfx.shadowPath2D(path, shadow({ blur: 32 + i }))
+      gfx.endFrame()
+      gfx.processPendingShadowBakes()
+    }
+
+    await baseFrame(gfx, device)
+    gfx.endFrame()
+    expect(gfx.stats.maskBakes).toBeGreaterThan(2)
+  })
+
+  it('keeps an inset shadow painted through a zoom its bakes can keep pace with', async () => {
+    const canvas = makeCanvas()
+    const device = new MockGfxDevice()
+    const gfx = new GpuGfx(canvas, device)
+    await gfx.whenReady
+    const path = squarePath()
+    const BLUR_CSS = 36
+
+    const frame = (scale: number): number => {
+      device.reset()
+      gfx.beginFrame({
+        clearColor: '#0d1a2c',
+        transparent: false,
+        pixelW: 400,
+        pixelH: 300,
+      })
+      gfx.setBaseTransform(scale, 0, 0, scale, 0, 0)
+      gfx.setAlpha(1)
+      // A screen-space radius: in local units it tracks the camera scale, so
+      // every frame of a zoom asks for a blur the cache has no entry for.
+      gfx.shadowPath2D(path, shadow({ inset: true, blur: BLUR_CSS / scale }))
+      gfx.endFrame()
+      const drawn = device.draws.length
+      gfx.processPendingShadowBakes()
+      return drawn
+    }
+
+    frame(1)
+    frame(1)
+    expect(frame(1)).toBe(1)
+
+    // 3x over ten frames, well past half an octave in total.
+    const ratio = Math.pow(3, 1 / 10)
+    let unpainted = 0
+    for (let i = 1; i <= 10; i++) {
+      if (frame(Math.pow(ratio, i)) === 0) unpainted++
+    }
+    expect(unpainted).toBe(0)
+  })
+
+  it('warns once when a blur churns faster than the cache can follow', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const canvas = makeCanvas()
+      const device = new MockGfxDevice()
+      const gfx = new GpuGfx(canvas, device)
+      await gfx.whenReady
+      const path = squarePath()
+      for (let i = 0; i < 40; i++) {
+        device.reset()
+        gfx.beginFrame({
+          clearColor: '#0d1a2c',
+          transparent: false,
+          pixelW: 400,
+          pixelH: 300,
+        })
+        gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
+        gfx.setAlpha(1)
+        gfx.shadowPath2D(path, shadow({ inset: true, blur: 32 + i * 0.1 }))
+        gfx.endFrame()
+        gfx.processPendingShadowBakes()
+      }
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0][0]).toContain("strokeSpace: 'world'")
+    } finally {
+      warn.mockRestore()
+    }
   })
 
   it('lists a baked mask in the texture inspector snapshot', async () => {

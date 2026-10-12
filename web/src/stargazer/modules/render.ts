@@ -10,8 +10,8 @@
  * {@link fitTextBlock}, {@link richText} and friends) measure and lay out strings
  * ahead of drawing them, and all of them memoize. The post-processing chain
  * ({@link PostProcessPipeline} plus {@link Vignette}, {@link ChromaticAberration},
- * {@link VignetteBlur}) adds screen-space effects and costs nothing until an
- * effect is added.
+ * {@link VignetteBlur}, {@link DualKawaseBlur}, {@link FilmGrain}) adds
+ * screen-space effects and costs nothing until an effect is added.
  *
  * @module render
  */
@@ -51,6 +51,10 @@ export { Vignette } from '../render/postfx/effects/Vignette'
 export type { VignetteOptions } from '../render/postfx/effects/Vignette'
 export { VignetteBlur } from '../render/postfx/effects/VignetteBlur'
 export type { VignetteBlurOptions } from '../render/postfx/effects/VignetteBlur'
+export { DualKawaseBlur } from '../render/postfx/effects/DualKawaseBlur'
+export type { DualKawaseBlurOptions } from '../render/postfx/effects/DualKawaseBlur'
+export { FilmGrain } from '../render/postfx/effects/FilmGrain'
+export type { FilmGrainOptions } from '../render/postfx/effects/FilmGrain'
 export { AmbientOcclusion } from '../render/gfx/ao/AmbientOcclusion'
 export type { AoPreset } from '../render/gfx/ao/AmbientOcclusion'
 export type {

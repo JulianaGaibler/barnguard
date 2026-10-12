@@ -30,16 +30,16 @@ export const SDF_INSTANCE_STRIDE = 32
  */
 export const ROUNDRECT_INSTANCE_STRIDE = 64
 /**
- * Gradient-radial instance layout: center.xy + (radius, alpha) + rampRow +
- * pad = 6 words = 24 B. `rampRow` indexes the shared ramp atlas (see
+ * Gradient-radial instance layout: center.xy + (radius, alpha) + rampRow + pad
+ * = 6 words = 24 B. `rampRow` indexes the shared ramp atlas (see
  * `TextureManager.ensureStopsRow`).
  */
 export const GRADIENT_INSTANCE_STRIDE = 24
 
 /**
  * Masked-radial-gradient instance layout: dst.xyzw (f32×4) + srcRect.xyzw
- * (f32×4) + grad(centerX, centerY, radius, alpha) (f32×4) + rampRow (f32) =
- * 13 words = 52 B. `rampRow` indexes the shared ramp atlas, same as
+ * (f32×4) + grad(centerX, centerY, radius, alpha) (f32×4) + rampRow (f32) = 13
+ * words = 52 B. `rampRow` indexes the shared ramp atlas, same as
  * `gradientRadial`.
  */
 export const MASKED_GRAD_INSTANCE_STRIDE = 52
@@ -66,13 +66,13 @@ export const TEXT_QUAD_INSTANCE_STRIDE = 44
  * - SrcRect = textured (u0, v0, u1, v1) (f32×4, offset 72)
  * - ColorFill(u8×4, offset 88) + colorStroke(u8×4, offset 92)
  * - Paint = fill gradient (f32×4, offset 96): `(scaleDirX, scaleDirY,
- *   startOffset, rampRow + 1)`, zero meaning no gradient (a §2.2-zeroed slot
- *   is then safe). A dedicated attribute rather than reusing `a_srcRect`,
- *   which a gradient-tinted textured instance would still need. The fill's
- *   opacity rides in `a_colorFill`'s alpha channel (rgb unused in gradient
- *   mode), so no separate per-instance opacity field is needed. The stroke
- *   has no paint slot: a gradient `strokeCircle`/`strokeRoundRect` flattens
- *   to its first stop (see `GpuGfx.#flattenStrokeColor`).
+ *   startOffset, rampRow + 1)`, zero meaning no gradient (a §2.2-zeroed slot is
+ *   then safe). A dedicated attribute rather than reusing `a_srcRect`, which a
+ *   gradient-tinted textured instance would still need. The fill's opacity
+ *   rides in `a_colorFill`'s alpha channel (rgb unused in gradient mode), so no
+ *   separate per-instance opacity field is needed. The stroke has no paint
+ *   slot: a gradient `strokeCircle`/`strokeRoundRect` flattens to its first
+ *   stop (see `GpuGfx.#flattenStrokeColor`).
  */
 export const SHAPE_INSTANCE_STRIDE = 112
 export const SHAPE_BUFFER_BYTES = 640 * 1024 // 640 KB → ~5.8k instances
@@ -83,8 +83,8 @@ export const SHAPE_KIND_ROUNDRECT = 2
 /**
  * An analytic drop shadow (Evan Wallace's erf-based Gaussian integral over a
  * rounded box). Uses the round-rect vertex path: a circle's shadow is a
- * round-rect shadow with uniform radii, same as the fill/stroke kinds treat
- * a circle as a special case of a rounded box.
+ * round-rect shadow with uniform radii, same as the fill/stroke kinds treat a
+ * circle as a special case of a rounded box.
  */
 export const SHAPE_KIND_SHADOW = 3
 /**
@@ -128,7 +128,10 @@ export const FRAME_UBO_BINDING = 0
 export const CAMERA3D_UBO_BINDING = 1
 /** `coloredTri` per-run debug/clip params (dynamic-offset ring). */
 export const DRAWPARAMS_UBO_BINDING = 2
-/** `coloredTri` retained per-draw model matrix + color (dynamic-offset ring). */
+/**
+ * `coloredTri` retained per-draw model matrix, color, and paint (dynamic-offset
+ * ring).
+ */
 export const MODELCOLOR_UBO_BINDING = 3
 /** 3D mesh per-frame lights block. */
 export const MESH_LIGHTS_UBO_BINDING = 4

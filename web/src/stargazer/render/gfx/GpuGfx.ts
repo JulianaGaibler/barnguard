@@ -62,6 +62,7 @@ import {
   GpuBatchContext,
   type DebugRenderMode,
   type GpuGfxStats,
+  type ResolvedMaskPaint,
 } from './GpuBatchContext'
 import type { GpuProgram } from './GpuProgram'
 import { ColoredTriProgram } from './programs/coloredTri'
@@ -111,17 +112,18 @@ export interface UnimplementedCounts {
   strokePath2D: number
   shadowPath2D: number
   /**
-   * An outset path shadow drew the hard (unblurred) silhouette because its
-   * mask was cold (this frame's first request), starved (budget exhausted),
-   * or disabled (`quality.vector.pathShadowsEnabled === false`). Does not
-   * cover an inset shadow skipped for the same reason, since that has no
-   * silent-degradation draw to count, it just doesn't draw.
+   * An outset path shadow drew the hard (unblurred) silhouette because its mask
+   * was cold (this frame's first request), starved (budget exhausted), or
+   * disabled (`quality.vector.pathShadowsEnabled === false`), and the cache had
+   * no nearby blur of the same path to stand in either. Does not cover an inset
+   * shadow skipped for the same reason, since that has no silent-degradation
+   * draw to count, it just doesn't draw.
    */
   pathShadowFallback: number
   /**
-   * A non-center `align` (or an outline-routed stroke's alignment) was
-   * refused on an open or zero-area contour and fell back to `'center'`
-   * (see `strokeOutline.ts`'s `resolveAlign`). Ticked on every occurrence,
+   * A non-center `align` (or an outline-routed stroke's alignment) was refused
+   * on an open or zero-area contour and fell back to `'center'` (see
+   * `strokeOutline.ts`'s `resolveAlign`). Ticked on every occurrence,
    * independent of the one-time console warning.
    */
   strokeAlignFallback: number
@@ -152,9 +154,9 @@ export class GpuGfx implements Gfx2D {
 
   /**
    * Cached blurred-coverage masks for arbitrary-path drop shadows. Unlike the
-   * other programs, not re-warmed on retarget: its raster/blur targets are
-   * its own private r8/rg8 targets, independent of the screen target's
-   * format, depth, stencil, or sample count.
+   * other programs, not re-warmed on retarget: its raster/blur targets are its
+   * own private r8/rg8 targets, independent of the screen target's format,
+   * depth, stencil, or sample count.
    */
   #pathShadowCache!: PathShadowCache
   readonly #pathBoundsCache = new WeakMap<
@@ -162,8 +164,8 @@ export class GpuGfx implements Gfx2D {
     { epoch: number; bounds: Rect }
   >()
   /**
-   * This frame's distinct (path, style, scale-bucket) requests that missed
-   * the cache, drained by `processPendingShadowBakes` in next frame's
+   * This frame's distinct (path, style, scale-bucket) requests that missed the
+   * cache, drained by `processPendingShadowBakes` in next frame's
    * pre-`beginFrame` window.
    */
   readonly #pendingShadowBakes = new Map<string, PathShadowRequest>()
@@ -417,9 +419,9 @@ export class GpuGfx implements Gfx2D {
   /**
    * Read-only view of the texture caches for the debug inspector. Building the
    * snapshot has no standing cost, the debug panel calls it on demand.
-   * `TextureManager`'s own snapshot carries an always-empty `shadowMasks`
-   * (it has no reference to `PathShadowCache`), filled in here since this is
-   * the one place both are reachable together.
+   * `TextureManager`'s own snapshot carries an always-empty `shadowMasks` (it
+   * has no reference to `PathShadowCache`), filled in here since this is the
+   * one place both are reachable together.
    */
   get textureInspector(): TextureInspector {
     const textureManager = this.#textureManager
@@ -910,9 +912,9 @@ export class GpuGfx implements Gfx2D {
   /**
    * `'polygons'` debug mode for a stroke that routed through the outline
    * tessellator: every triangle edge of its actual output (core, joins, and
-   * fringe ring), not the source contour `#emitDebugPolygonOutline` draws for
-   * a fill. Deliberately not just the outer boundary: the join tessellation,
-   * the fringe ring, and a short-segment overlap (see `strokeOutline.ts`) are
+   * fringe ring), not the source contour `#emitDebugPolygonOutline` draws for a
+   * fill. Deliberately not just the outer boundary: the join tessellation, the
+   * fringe ring, and a short-segment overlap (see `strokeOutline.ts`) are
    * exactly what this mode exists to let you see.
    */
   #emitDebugOutlineMesh(outline: {
@@ -1026,6 +1028,22 @@ export class GpuGfx implements Gfx2D {
     }
   }
 
+  /**
+   * Whether `geo` can draw through the retained `coloredTri` pipeline right
+   * now: the geometry opted into a static GPU upload, no bitmap clip mask is
+   * active (the retained shader has no mask sampler), and the debug mode is
+   * normal (the retained shader has no debug recolor). Shared by `fillPath2D`
+   * and `shadowPath2D`'s inset branch, the two callers that have both a
+   * retained and a streamed `coloredTri` path to choose between.
+   */
+  #canDrawRetained(geo: GeometryHandle): boolean {
+    return (
+      geo.retained === true &&
+      this.#ctx.stateStack.getClipMask() === null &&
+      this.#ctx.curDebugMode === 'normal'
+    )
+  }
+
   fillPath2D(path: Path2D, fill: GfxFill): void {
     const geo = getPathTessellation(path)
     if (!geo) {
@@ -1037,19 +1055,14 @@ export class GpuGfx implements Gfx2D {
       return
     }
     // Retained geometry GPU-transforms a once-uploaded static buffer, saving
-    // the per-vertex CPU transform. The retained shader carries neither the
-    // bitmap clip mask's sampler, the debug recolor, nor a paint slot, so a
-    // bitmap clip, a non-normal debug mode, or a gradient fill all fall back
-    // to the streamed path (identical pixels either way, just a repeated
-    // per-vertex CPU transform). The analytic clip is not one of them: the
-    // retained shader reads the same group-0 clip block, so `setClip`
-    // composes without giving up the fast path.
-    if (
-      typeof fill === 'string' &&
-      geo.retained &&
-      this.#ctx.stateStack.getClipMask() === null &&
-      this.#ctx.curDebugMode === 'normal'
-    ) {
+    // the per-vertex CPU transform, for a flat fill, a linear gradient, or an
+    // inset path-shadow mask alike. The retained shader carries neither the
+    // bitmap clip mask's sampler nor the debug recolor, so a bitmap clip or a
+    // non-normal debug mode falls back to the streamed path (identical pixels
+    // either way, just a repeated per-vertex CPU transform). The analytic
+    // clip is not one of them: the retained shader reads the same group-0
+    // clip block, so `setClip` composes without giving up the fast path.
+    if (this.#canDrawRetained(geo)) {
       this.#coloredTri.fillTessellationRetained(this.#ctx, geo, fill)
     } else {
       this.#coloredTri.fillTessellation(this.#ctx, geo, fill)
@@ -1215,7 +1228,11 @@ export class GpuGfx implements Gfx2D {
   }
 
   /** Local-space AABB of `path`'s tessellation, cached per registration epoch. */
-  #localBoundsFor(path: Path2D, geo: { vertices: Float32Array }, epoch: number): Rect {
+  #localBoundsFor(
+    path: Path2D,
+    geo: { vertices: Float32Array },
+    epoch: number,
+  ): Rect {
     const cached = this.#pathBoundsCache.get(path)
     if (cached && cached.epoch === epoch) return cached.bounds
     const v = geo.vertices
@@ -1281,8 +1298,12 @@ export class GpuGfx implements Gfx2D {
       quality: this.#ctx.vectorQuality,
     }
     const mask = this.#pathShadowCache.peek(req)
-    if (!mask) {
+    // A substitute mask gets drawn but still queues the bake, otherwise a
+    // stand-in is never replaced by the mask this request actually asked for.
+    if (!mask || !mask.exact) {
       this.#pendingShadowBakes.set(this.#pathShadowCache.requestKey(req), req)
+    }
+    if (!mask) {
       if (!inset) {
         this.unimplemented.pathShadowFallback++
         this.#hardPathShadow(path, style)
@@ -1320,14 +1341,31 @@ export class GpuGfx implements Gfx2D {
       const originY = Math.min(c0y, c1y)
       const width = Math.abs(c1x - c0x)
       const height = Math.abs(c1y - c0y)
-      this.#coloredTri.fillTessellationInsetShadow(this.#ctx, geo, style.color, alpha, {
+      const maskPaint: ResolvedMaskPaint = {
         kind: 'mask',
         originX,
         originY,
         invW: width > 0 ? 1 / width : 0,
         invH: height > 0 ? 1 / height : 0,
         maskTex: mask.texture,
-      })
+      }
+      if (this.#canDrawRetained(geo)) {
+        this.#coloredTri.fillTessellationInsetShadowRetained(
+          this.#ctx,
+          geo,
+          style.color,
+          alpha,
+          maskPaint,
+        )
+      } else {
+        this.#coloredTri.fillTessellationInsetShadow(
+          this.#ctx,
+          geo,
+          style.color,
+          alpha,
+          maskPaint,
+        )
+      }
       return
     }
 
@@ -1354,20 +1392,21 @@ export class GpuGfx implements Gfx2D {
     f[off + 9] = 1
     u[off + 10] = packColor(style.color, alpha)
     f[off + 11] =
-      this.#ctx.stateStack.getBlend() !== 'lighter' && this.#ctx.vectorQuality.dither
+      this.#ctx.stateStack.getBlend() !== 'lighter' &&
+      this.#ctx.vectorQuality.dither
         ? 1
         : 0
     this.#pathShadowComposite.commitInstance(slot)
   }
 
   /**
-   * Drain this frame's queued path-shadow bake requests. Must run outside
-   * any open render pass (the bake opens and closes its own), so callers
-   * run it in the pre-`beginFrame` window: `Stage` before `screen
-   * .beginFrame()`, `Viewport2DNode.renderOffscreen` before its own
-   * `gpu.beginFrame()`. A request queued this way bakes at the earliest in
-   * the FOLLOWING frame's draw, one frame behind the draw call that queued
-   * it; `shadowPath2D` draws the hard fallback in the meantime.
+   * Drain this frame's queued path-shadow bake requests. Must run outside any
+   * open render pass (the bake opens and closes its own), so callers run it in
+   * the pre-`beginFrame` window: `Stage` before `screen .beginFrame()`,
+   * `Viewport2DNode.renderOffscreen` before its own `gpu.beginFrame()`. A
+   * request queued this way bakes at the earliest in the FOLLOWING frame's
+   * draw, one frame behind the draw call that queued it. `shadowPath2D` draws a
+   * substitute mask or the hard fallback in the meantime.
    */
   processPendingShadowBakes(): void {
     this.#pathShadowCache.beginFrame()
@@ -1386,12 +1425,12 @@ export class GpuGfx implements Gfx2D {
    * A gradient stroke on a circle or round rect is not reachable in this
    * version: `shape`'s paint slot (see `ShapeProgram`) serves the fill, and
    * giving a second shape kind its own paint slot for the stroke is a
-   * follow-up, not something any caller needs yet. Falls back to the
-   * gradient's first stop as a flat color, which is a reasonable degraded
-   * look rather than a crash or a silently dropped stroke.
+   * follow-up, not something any caller needs yet. Falls back to the gradient's
+   * first stop as a flat color, which is a reasonable degraded look rather than
+   * a crash or a silently dropped stroke.
    */
   #flattenStrokeColor(color: GfxFill): string {
-    return typeof color === 'string' ? color : color.stops[0]?.color ?? '#000'
+    return typeof color === 'string' ? color : (color.stops[0]?.color ?? '#000')
   }
 
   strokeCircle(cx: number, cy: number, r: number, style: GfxStrokeStyle): void {
@@ -1399,7 +1438,10 @@ export class GpuGfx implements Gfx2D {
     this.#shape.strokeCircle(this.#ctx, cx, cy, r, { ...style, color })
   }
 
-  /** Whether `style` needs the outline tessellator rather than the segment stroker. */
+  /**
+   * Whether `style` needs the outline tessellator rather than the segment
+   * stroker.
+   */
   #needsOutline(style: GfxStrokeStyle): boolean {
     return (
       (style.align !== undefined && style.align !== 'center') ||
@@ -1499,9 +1541,9 @@ export class GpuGfx implements Gfx2D {
 
   /**
    * Tessellate and draw a stroke outline with no caching: `strokePolyline`'s
-   * `pts` has no stable identity to key by (the caller mutates its buffer
-   * every frame), and `strokeLine`/`strokeQuadratic` are cheap one-or-few
-   * segment shapes where a cache would cost more than it saves.
+   * `pts` has no stable identity to key by (the caller mutates its buffer every
+   * frame), and `strokeLine`/`strokeQuadratic` are cheap one-or-few segment
+   * shapes where a cache would cost more than it saves.
    */
   #strokeOutlineUncached(
     pts: ArrayLike<number>,
@@ -1561,12 +1603,11 @@ export class GpuGfx implements Gfx2D {
 
   /**
    * Tessellate (or reuse the cached tessellation of) one contour's stroke
-   * outline. Keyed by the style signature, the half-octave scale and
-   * anisotropy buckets, and the path's registration epoch, so a re-parse at
-   * a new tolerance can't serve triangles built from stale contours.
-   * `dash` is not supported on the outline path and is ignored here: no
-   * caller combines it with a gradient color, a non-center alignment, or
-   * `exactJoins` today.
+   * outline. Keyed by the style signature, the half-octave scale and anisotropy
+   * buckets, and the path's registration epoch, so a re-parse at a new
+   * tolerance can't serve triangles built from stale contours. `dash` is not
+   * supported on the outline path and is ignored here: no caller combines it
+   * with a gradient color, a non-center alignment, or `exactJoins` today.
    */
   #strokeOutlineCached(
     path: Path2D,

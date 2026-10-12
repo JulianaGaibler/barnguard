@@ -41,8 +41,9 @@ color.
 `StageOptions`:
 
 - `clearColor?: string`. Solid clear used when `transparent` is false.
-- `transparent?: boolean`. Default false. Set it true to clear to zero alpha so
-  the parent element's background shows through.
+- `transparent?: boolean`. Default true for a secondary stage, so the parent
+  element's background shows through by default. Set it false and pass
+  `clearColor` for an opaque secondary.
 - `interactive?: boolean`. Default false for secondaries. Attaches an
   `InputSystem` so nodes on this stage receive pointer events. The primary is
   always interactive.

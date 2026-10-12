@@ -33,10 +33,10 @@ import type { GpuProgram } from './GpuProgram'
 import type { RingStream } from './RingStream'
 
 /**
- * Debug render overlays. `coloredTri` and `shape` draws are affected
- * (fills, strokes, circles, round-rects, analytic shadows, text, sprites);
- * the segment stroker, gradient-radial, masked-gradient, text-quad, and
- * path-shadow composite programs render normally in every mode.
+ * Debug render overlays. `coloredTri` and `shape` draws are affected (fills,
+ * strokes, circles, round-rects, analytic shadows, text, sprites); the segment
+ * stroker, gradient-radial, masked-gradient, text-quad, and path-shadow
+ * composite programs render normally in every mode.
  *
  * - `'normal'`. Shipping look.
  * - `'polygons'`. Cyan outlines around every fill's outer polygon.
@@ -146,8 +146,8 @@ export interface ResolvedGradientPaint {
  * rect→uv projection for the cached mask (same "project a device position"
  * shape the gradient axis uses) plus the mask texture itself. A run's mask
  * texture also joins the batch key like a gradient's ramp row does, so two
- * different inset shadows drawn back to back each get their own
- * `DrawParams` slice and their own bound texture.
+ * different inset shadows drawn back to back each get their own `DrawParams`
+ * slice and their own bound texture.
  */
 export interface ResolvedMaskPaint {
   kind: 'mask'
@@ -408,7 +408,8 @@ export class GpuBatchContext {
     // and a gradient fill (or between two different gradients), but the
     // per-run paint `coloredTri` draws through `DrawParams` does, and two
     // draws merged into one run would share a single `DrawParams` slice.
-    const samePaint = !('paint' in key) || paintEquals(this.curPaint, key.paint ?? null)
+    const samePaint =
+      !('paint' in key) || paintEquals(this.curPaint, key.paint ?? null)
     // Clip is global like blend, pulled from the state stack, so every program
     // breaks its batch when the analytic clip changes.
     const wantClip = this.stateStack.getClip()
@@ -486,6 +487,7 @@ export class GpuBatchContext {
     geometry: GpuGeometry,
     model: Float32Array,
     colorRgba: readonly [number, number, number, number],
+    paint: ResolvedRunPaint | null = null,
   ): void {
     this.#recordActiveRun()
     this.#drawRuns.push({
@@ -497,7 +499,7 @@ export class GpuBatchContext {
       clip: null,
       texture: null,
       lut: null,
-      paint: null,
+      paint,
       debugMode: this.curDebugMode,
       debugBatchIndex: this.debugBatchCounter++,
       geometry,
@@ -589,11 +591,11 @@ export class GpuBatchContext {
 
   /**
    * Force everything recorded so far this frame to submit and replay now,
-   * mid-frame, rather than waiting for the frame's own end. The active
-   * batch's state survives the call, so the interrupted emit resumes as if
-   * nothing happened. Reaches for this only when something needs the replay
-   * to have already happened, such as `TextureManager.ensureStopsRow`
-   * recycling a ramp-atlas row while every row is pinned.
+   * mid-frame, rather than waiting for the frame's own end. The active batch's
+   * state survives the call, so the interrupted emit resumes as if nothing
+   * happened. Reaches for this only when something needs the replay to have
+   * already happened, such as `TextureManager.ensureStopsRow` recycling a
+   * ramp-atlas row while every row is pinned.
    */
   forceMidFrameSubmit(): void {
     this.#overflowSubmit()

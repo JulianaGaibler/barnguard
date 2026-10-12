@@ -22,5 +22,14 @@
       "glslName": "Clip_block_1Fragment"
     }
   ],
-  "samplers": []
+  "samplers": [
+    {
+      "binding": 4,
+      "glslName": "_group_1_binding_4_fs"
+    },
+    {
+      "binding": 5,
+      "glslName": "_group_1_binding_5_fs"
+    }
+  ]
 }

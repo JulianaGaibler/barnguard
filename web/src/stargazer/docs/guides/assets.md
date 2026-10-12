@@ -99,10 +99,14 @@ contours, and a `Path2DNode`'s drop shadow reads the registered tessellation
 threshold), so a path without a registration draws neither, the same silent
 no-op `fillPath2D` has.
 
-`tessellateContours` has no hole support: every contour triangulates as its own
-independent outer polygon. A shape with an enclave (a hole punched in it) fills
-wrong the same way whether it is a plain fill, a border, or a shadow, because
-all three start from the same triangulation.
+`tessellateContours` nests contours by the even-odd rule: a contour enclosed
+by an odd number of others is a hole in the nearest even-depth one, not a
+fill of its own, regardless of winding direction (SVG exporters are not
+consistent about it). That also decides hit-testing: `Path2DNode`'s `'fill'`
+mode tests with the same rule, so a hole excluded from the rendered fill is
+excluded from a tap too. A path built by hand with genuinely overlapping,
+same-winding regions (the nonzero convention) is read as nested holes
+instead, since nothing threads an SVG's own `fill-rule` through today.
 
 Large, long-lived geometry auto-opts into a retained upload: the triangles go to
 static GPU buffers once and each frame draws them with a model matrix, rather

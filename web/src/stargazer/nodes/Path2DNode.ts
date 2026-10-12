@@ -27,20 +27,23 @@ export interface Path2DNodeOptions {
   /** Stroke width in `strokeSpace` units. Default 1. */
   lineWidth?: number
   /**
-   * Border position relative to the path. Default `'center'`. Needs a
-   * closed path with a well-defined winding; see
+   * Border position relative to the path. Default `'center'`. Needs a closed
+   * path with a well-defined winding, see
    * {@link import('../render/gfx/Gfx2D').GfxStrokeStyle.align}.
    */
   lineAlign?: StrokeAlign
-  /** Corner style. Default `'miter'`. Only the outline path honours this: see `lineAlign`. */
+  /**
+   * Corner style. Default `'miter'`. Only the outline path honours this: see
+   * `lineAlign`.
+   */
   lineJoin?: CanvasLineJoin
   /** Cap style. Default `'round'` on the outline path. */
   lineCap?: CanvasLineCap
   /** Miter length limit. Default 4 (SVG's `stroke-miterlimit`). */
   miterLimit?: number
   /**
-   * Opt into the outline tessellator for a centered border, for exact
-   * joins and caps instead of the segment stroker's.
+   * Opt into the outline tessellator for a centered border, for exact joins and
+   * caps instead of the segment stroker's.
    */
   exactJoins?: boolean
   /**
@@ -51,19 +54,25 @@ export interface Path2DNodeOptions {
   strokeSpace?: 'screen' | 'world'
   /**
    * One or more drop shadows, from a cached blurred-coverage mask (see the
-   * path-shadows guide for the bake, its one-frame latency, and what stays
-   * free to animate). A list draws in order, so the first entry sits
-   * deepest. Offsets, blur, and spread follow `strokeSpace`, same as
-   * `lineWidth`. Below the hard-shadow threshold, or while the mask is cold
-   * (the frame it first appears, or while the bake budget is exhausted), an
-   * outset shadow falls back to the path's own fill translated by the
-   * offset, with no blur; an inset shadow has no such fallback and is
-   * silently skipped in that case.
+   * path-shadows guide for the bake, its one-frame latency, and what stays free
+   * to animate). A list draws in order, so the first entry sits deepest.
+   * Offsets, blur, and spread follow `strokeSpace`, same as `lineWidth`. Use
+   * `'world'` for a shadow on a node the camera zooms, since the cache keys
+   * masks on the blur in local units and a `'screen'` radius re-keys them at
+   * every camera scale.
+   *
+   * While the mask is cold (the frame it first appears, or while the bake
+   * budget is exhausted) the cache stands in another of this path's masks
+   * within half an octave of blur. With none to stand in, an outset shadow
+   * falls back to the path's own fill translated by the offset and unblurred,
+   * which is also what a blur below the hard-shadow threshold draws, and an
+   * inset shadow is skipped.
    */
   shadow?: GfxShadowStyle | readonly GfxShadowStyle[]
   /**
    * Hit-testing strategy (world coords → boolean). `'none'` never hits
-   * (default). `'fill'` uses `ctx.isPointInPath` (exact interior test).
+   * (default). `'fill'` uses `ctx.isPointInPath` with the even-odd rule (exact
+   * interior test, a hole excluded from the fill is excluded here too).
    * `'stroke'` uses `ctx.isPointInStroke` (exact edge test). `'circle'` tests
    * `worldX²+worldY² ≤ (hitRadiusWorld + touchSlopWorld)²`, cheap and good for
    * round targets and UI-scale hitboxes.
@@ -81,12 +90,12 @@ export interface Path2DNodeOptions {
 const EMPTY_SHADOWS: readonly GfxShadowStyle[] = []
 
 /**
- * Draws a `Path2D` (filled and/or stroked), with an optional drop shadow,
- * and hit-tests points against it. Build the path by hand, or get one from
+ * Draws a `Path2D` (filled and/or stroked), with an optional drop shadow, and
+ * hit-tests points against it. Build the path by hand, or get one from
  * `parseSvgPaths` for SVG artwork. A path needs a registered tessellation
- * before it renders. `parseSvgPaths` registers one for each path it
- * returns, so paths from there draw with no extra setup. A path with no
- * tessellation is skipped and counted in the debug HUD.
+ * before it renders. `parseSvgPaths` registers one for each path it returns, so
+ * paths from there draw with no extra setup. A path with no tessellation is
+ * skipped and counted in the debug HUD.
  *
  * Hit-testing walks in world coords (what the input pipeline delivers) while
  * the path data is in the node's local coords, so the node inverts its `world`
@@ -146,8 +155,8 @@ export class Path2DNode extends Node2D {
 
   /**
    * How far outside `debugBounds` this node can paint: an outside-aligned
-   * border, or an outset shadow's own offset/blur/spread. Inset shadows
-   * never extend past the shape, so they don't contribute.
+   * border, or an outset shadow's own offset/blur/spread. Inset shadows never
+   * extend past the shape, so they don't contribute.
    */
   get cullMargin(): number {
     let m = this.lineAlign === 'outside' ? this.lineWidth : 0
@@ -248,7 +257,11 @@ export class Path2DNode extends Node2D {
       ctx.lineWidth = this.lineWidth
       return ctx.isPointInStroke(this.path, localX, localY)
     }
-    return ctx.isPointInPath(this.path, localX, localY)
+    // `'evenodd'`, matching `tessellateContours`'s nesting rule, so a hole
+    // excluded from the rendered fill is also excluded from hit-testing. The
+    // default `'nonzero'` only agrees with that by coincidence, when a hole's
+    // subpath happens to wind opposite its container.
+    return ctx.isPointInPath(this.path, localX, localY, 'evenodd')
   }
 }
 

@@ -1,8 +1,8 @@
 /**
  * Cached blurred-coverage masks for arbitrary-path drop shadows. A path's own
  * triangles rasterize into a small offscreen target, then two separable
- * blur-and-downsample passes (see `shadowBlur.wgsl`) produce an `rg8` mask:
- * R is the blurred coverage, G is the unblurred silhouette (used to knock an
+ * blur-and-downsample passes (see `shadowBlur.wgsl`) produce an `rg8` mask: R
+ * is the blurred coverage, G is the unblurred silhouette (used to knock an
  * outset shadow out of the shape, and to invert an inset shadow's sample
  * outside the mask's own padded rect to "fully shadowed").
  *
@@ -10,15 +10,15 @@
  * `GpuProgram`: the bake runs immediately (no record/replay), the same style
  * `AmbientOcclusion` uses for its own multi-pass pipeline.
  *
- * Simplifications against the general case, each one documented at its own
- * site below: one uniform scale bucket (no separate anisotropy bucket, unlike
+ * Simplifications against the general case, each one documented at its own site
+ * below: one uniform scale bucket (no separate anisotropy bucket, unlike
  * `strokeOutline`'s cache), a per-texel Gaussian loop rather than the
  * paired-linear-sample tap-halving trick, spread approximated as a uniform
  * scale about the path's own local-bounds center rather than true polygon
- * offsetting, and first-come-first-served per-frame bake budgeting rather
- * than a priority queue ordered by on-screen area with an aging term. None of
- * these affect correctness; they trade a documented amount of fidelity or
- * fairness for an implementation that fits in one file.
+ * offsetting, and first-come-first-served per-frame bake budgeting rather than
+ * a priority queue ordered by on-screen area with an aging term. None of these
+ * affect correctness; they trade a documented amount of fidelity or fairness
+ * for an implementation that fits in one file.
  */
 
 import type {
@@ -53,10 +53,31 @@ export const MASK_MAX_EDGE = 1024
 /** Surface render frames a baked entry survives with nothing asking for it. */
 export const MASK_EVICT_FRAMES = 240
 /**
- * At or below this device-px blur, skip the mask entirely: the hard
- * silhouette through `coloredTri` (with whatever MSAA the stage carries) is
- * indistinguishable and free. Not `0`, so a quarter-pixel sigma doesn't pay
- * for a full bake.
+ * The same window for an entry no draw has asked for by its own key since it
+ * baked. A request key that moves every frame bakes a mask that is dead the
+ * frame after, and a backlog of those held for the full window fills the byte
+ * budget with masks nothing can evict, which stops every later bake. Two frames
+ * still covers the gap between a bake in the pre-pass and the draw it was
+ * queued for.
+ */
+export const MASK_EVICT_FRAMES_UNUSED = 2
+/**
+ * How far, in octaves of blur radius, a same-shape mask may stand in for one
+ * that is not cached. Half an octave is the scale bucket's own width, so a
+ * substitution is the same order of approximation as the adjacent-bucket hit.
+ */
+export const MASK_SUBSTITUTE_BLUR_OCTAVES = 0.5
+/**
+ * Consecutive frames of substituting a nearby blur before warning once. Long
+ * enough to sit out a short deliberate blur animation, short enough to catch a
+ * camera tween.
+ */
+const BLUR_CHURN_WARN_FRAMES = 20
+/**
+ * At or below this device-px blur, skip the mask entirely: the hard silhouette
+ * through `coloredTri` (with whatever MSAA the stage carries) is
+ * indistinguishable and free. Not `0`, so a quarter-pixel sigma doesn't pay for
+ * a full bake.
  */
 export const HARD_SHADOW_BLUR_PX = 1
 /** Taps beyond center a pass's kernel can hold (mirrors `shadowBlur.wgsl`). */
@@ -96,13 +117,22 @@ export interface PathShadowRequest {
   quality: VectorQuality
 }
 
-/** A resolved mask: the texture, and the local-space rect it covers edge to edge. */
+/**
+ * A resolved mask: the texture, and the local-space rect it covers edge to
+ * edge.
+ */
 export interface PathShadowMask {
   texture: Texture
   localX: number
   localY: number
   localW: number
   localH: number
+  /**
+   * False when the request's own key had no entry and a neighbouring scale
+   * bucket or nearby blur stood in. A caller that wants the real mask has to
+   * queue the bake itself.
+   */
+  exact: boolean
 }
 
 /** One live mask entry, flattened for the debug texture inspector. */
@@ -125,7 +155,14 @@ interface CacheEntry {
   localH: number
   bytes: number
   bucket: number
+  /** Blur this mask was baked for, in local units, for the nearby-blur search. */
+  blur: number
+  /** Index this entry is listed under in `#shapes`. */
+  shapeKey: string
+  /** Any hit, exact or substitute. Orders eviction. */
   lastUsedFrame: number
+  /** Exact-key hits only. Decides which eviction window applies. */
+  lastExactFrame: number
   bakedFrame: number
 }
 
@@ -159,8 +196,14 @@ function buildKernel(sigmaTexels: number): Kernel {
   return { weights, tapCount }
 }
 
-/** The unnormalized mass a kernel of `tapCount` taps and sigma `sigmaTexels` captures, as a fraction of the true infinite Gaussian's integral. */
-export function kernelTruncatedMass(sigmaTexels: number, tapCount: number): number {
+/**
+ * The unnormalized mass a kernel of `tapCount` taps and sigma `sigmaTexels`
+ * captures, as a fraction of the true infinite Gaussian's integral.
+ */
+export function kernelTruncatedMass(
+  sigmaTexels: number,
+  tapCount: number,
+): number {
   if (sigmaTexels <= 1e-6) return 1
   let total = 0
   for (let i = 0; i < tapCount; i++) {
@@ -170,7 +213,10 @@ export function kernelTruncatedMass(sigmaTexels: number, tapCount: number): numb
   return total / (sigmaTexels * Math.sqrt(2 * Math.PI))
 }
 
-/** The resolution formula (§7.4): mask size and the per-axis device-px-per-texel scale. */
+/**
+ * The resolution formula (§7.4): mask size and the per-axis device-px-per-texel
+ * scale.
+ */
 export function resolveMaskSize(
   localBoundsW: number,
   localBoundsH: number,
@@ -212,7 +258,12 @@ export function resolveMaskSize(
 }
 
 /** Tap-work estimate (§7.6): texels × (2x raster + 2 passes' own tap cost). */
-function tapWorkFor(maskW: number, maskH: number, kernelX: Kernel, kernelY: Kernel): number {
+function tapWorkFor(
+  maskW: number,
+  maskH: number,
+  kernelX: Kernel,
+  kernelY: Kernel,
+): number {
   const texels = maskW * maskH
   const tapsPerTexel = kernelX.tapCount + kernelY.tapCount
   return texels * (4 + 2 * tapsPerTexel)
@@ -224,8 +275,8 @@ const BLUR_UBO_BYTES = 32 + 10 * 16 // axis vec4 + flags vec4 + 10 weight vec4s
 /**
  * Half-octave scale bucket, matching `strokeOutline.ts`'s scheme (kept as a
  * free function here rather than imported, to avoid coupling this module's
- * public surface to the stroke outline's). Bucket 0 covers roughly
- * `[2^-0.25, 2^0.25)`.
+ * public surface to the stroke outline's). Bucket 0 covers roughly `[2^-0.25,
+ * 2^0.25)`.
  */
 function scaleBucketIndex(scale: number): number {
   return Math.round(Math.log2(Math.max(scale, 1e-6)) * 2)
@@ -253,12 +304,18 @@ export class PathShadowCache {
   readonly #blurStaging = new Float32Array(BLUR_UBO_BYTES / 4)
 
   readonly #entries = new Map<string, CacheEntry>()
+  /** Exact keys grouped by `#keysFor`'s `shapeKey`, for `#nearestBlur`. */
+  readonly #shapes = new Map<string, Set<string>>()
 
   #frame = 0
   #workDoneThisFrame = 0
   /** Cumulative since startup, for the debug HUD. */
   #maskBakes = 0
   #maskBakeWork = 0
+  /** Last frame `#nearestBlur` stood in, and the run length ending there. */
+  #churnFrame = -1
+  #churnFrames = 0
+  #warnedBlurChurn = false
 
   constructor(device: GfxDevice) {
     this.#device = device
@@ -266,7 +323,10 @@ export class PathShadowCache {
     this.#createResources()
   }
 
-  /** This cache's own render-target pool, for `Stage`/`Viewport2DNode` to prune once per frame. */
+  /**
+   * This cache's own render-target pool, for `Stage`/`Viewport2DNode` to prune
+   * once per frame.
+   */
   get pool(): RenderTargetPool {
     return this.#pool
   }
@@ -287,10 +347,10 @@ export class PathShadowCache {
   }
 
   /**
-   * Every live mask entry, for the debug texture inspector. No pixel
-   * preview: a mask has no CPU-side backing (unlike the sprite atlas or
-   * label page), and reading one back would need a GPU readback this
-   * inspector otherwise never pays for.
+   * Every live mask entry, for the debug texture inspector. No pixel preview: a
+   * mask has no CPU-side backing (unlike the sprite atlas or label page), and
+   * reading one back would need a GPU readback this inspector otherwise never
+   * pays for.
    */
   listMasks(): PathShadowMaskSummary[] {
     const out: PathShadowMaskSummary[] = []
@@ -403,80 +463,150 @@ export class PathShadowCache {
     return this.#keysFor(req).exactKey
   }
 
-  /** `(styleKey, exactKey, bucket)` for `req`, shared by `peek` and `getOrBake`. */
-  #keysFor(req: PathShadowRequest): { styleKey: string; exactKey: string; bucket: number } {
+  /**
+   * The three keys `req` resolves to. `shapeKey` omits the blur, so it groups
+   * every cached blur of one path at one geometry and quality, which is what
+   * `#nearestBlur` searches.
+   */
+  #keysFor(req: PathShadowRequest): {
+    shapeKey: string
+    styleKey: string
+    exactKey: string
+    bucket: number
+  } {
     const bucket = scaleBucketIndex(req.scale)
     const quality = req.quality
-    const styleKey = `${pathId(req.path)}|${req.blur}|${req.spread}|${quality.shadowSigmaBudget}|${quality.shadowExtentSigmas}|${req.registrationEpoch}`
-    return { styleKey, exactKey: `${styleKey}|${bucket}`, bucket }
+    const shapeKey = `${pathId(req.path)}|${req.spread}|${quality.shadowSigmaBudget}|${quality.shadowExtentSigmas}|${req.registrationEpoch}`
+    const styleKey = `${shapeKey}|${req.blur}`
+    return { shapeKey, styleKey, exactKey: `${styleKey}|${bucket}`, bucket }
   }
 
   /**
-   * Read-only lookup: an exact-key hit, or a same-style adjacent-bucket
-   * (stale) hit, or `null`. Never bakes, so it's safe to call at draw time,
-   * including while a render pass the bake's own passes could not nest
-   * inside is already open (see `GpuGfx.shadowPath2D`). Touches the entry's
-   * LRU timestamp on a hit.
+   * Resolve `req` against the live entries, without baking. An exact-key hit
+   * comes back `exact`. Failing that, a same-style mask one scale bucket away
+   * or a same-shape mask at a nearby blur stands in, reported as inexact so the
+   * caller can queue the bake that converges on the real one.
+   */
+  #lookup(
+    req: PathShadowRequest,
+  ): { entry: CacheEntry; exact: boolean } | null {
+    const { shapeKey, styleKey, exactKey, bucket } = this.#keysFor(req)
+    const hit = this.#entries.get(exactKey)
+    if (hit) return { entry: hit, exact: true }
+    // One bucket away reads as "scaled to fit" close enough to stand in, per
+    // §7.6's stale reading. The blur and spread still match exactly, only the
+    // resolution differs.
+    const adjacent =
+      this.#entries.get(`${styleKey}|${bucket - 1}`) ??
+      this.#entries.get(`${styleKey}|${bucket + 1}`)
+    if (adjacent) return { entry: adjacent, exact: false }
+    const near = this.#nearestBlur(shapeKey, req.blur)
+    return near ? { entry: near, exact: false } : null
+  }
+
+  /**
+   * The same shape's cached mask at the closest blur within
+   * `MASK_SUBSTITUTE_BLUR_OCTAVES`, or `null`. A mask a fraction of an octave
+   * off beats an outset shadow dropping to a hard silhouette, and it is the
+   * only thing an inset shadow has to draw at all.
+   */
+  #nearestBlur(shapeKey: string, blur: number): CacheEntry | null {
+    const keys = this.#shapes.get(shapeKey)
+    if (!keys || blur <= 0) return null
+    let best: CacheEntry | null = null
+    let bestDistance = MASK_SUBSTITUTE_BLUR_OCTAVES
+    for (const key of keys) {
+      const entry = this.#entries.get(key)
+      if (!entry || entry.blur <= 0) continue
+      const distance = Math.abs(Math.log2(entry.blur / blur))
+      if (distance < bestDistance) {
+        bestDistance = distance
+        best = entry
+      }
+    }
+    if (best) this.#noteBlurChurn()
+    return best
+  }
+
+  /**
+   * Warn once when a blur has been substituted on every one of the last
+   * `BLUR_CHURN_WARN_FRAMES` frames, which means the caller is asking for a
+   * radius the cache cannot keep up with.
+   */
+  #noteBlurChurn(): void {
+    if (this.#warnedBlurChurn || this.#churnFrame === this.#frame) return
+    this.#churnFrames =
+      this.#churnFrame === this.#frame - 1 ? this.#churnFrames + 1 : 1
+    this.#churnFrame = this.#frame
+    if (this.#churnFrames < BLUR_CHURN_WARN_FRAMES) return
+    this.#warnedBlurChurn = true
+    console.warn(
+      'PathShadowCache: a path shadow has asked for a new blur radius on ' +
+        `each of the last ${BLUR_CHURN_WARN_FRAMES} frames, so its mask ` +
+        'rebakes every frame and a nearby blur is standing in meanwhile. ' +
+        'Past half an octave there is nothing to stand in and the shadow ' +
+        "drops out. A `strokeSpace: 'screen'` blur does this under a camera " +
+        'zoom, since the radius in local units tracks the camera scale. ' +
+        "Switching that shadow to `strokeSpace: 'world'` holds the radius " +
+        'still, which also means the shadow then scales with the geometry ' +
+        'instead of staying a fixed size on screen.',
+    )
+  }
+
+  /**
+   * Read-only lookup. Never bakes, so it's safe to call at draw time, including
+   * while a render pass the bake's own passes could not nest inside is already
+   * open (see `GpuGfx.shadowPath2D`). Touches the entry's LRU timestamp on a
+   * hit.
    */
   peek(req: PathShadowRequest): PathShadowMask | null {
     if (!req.quality.pathShadowsEnabled) return null
-    const { styleKey, exactKey } = this.#keysFor(req)
-    let entry = this.#entries.get(exactKey)
-    if (!entry) {
-      // A same-style entry one bucket away reads as "scaled to fit" close
-      // enough to use while a fresh bake is attempted, per §7.6's stale
-      // reading ("the scale bucket only", never a different blur/spread).
-      const bucket = this.#keysFor(req).bucket
-      entry =
-        this.#entries.get(`${styleKey}|${bucket - 1}`) ??
-        this.#entries.get(`${styleKey}|${bucket + 1}`)
-    }
-    if (!entry) return null
+    const found = this.#lookup(req)
+    if (!found) return null
+    return this.#resolved(found.entry, found.exact)
+  }
+
+  /** A `PathShadowMask` view of `entry`, touching its LRU timestamp. */
+  #resolved(entry: CacheEntry, exact: boolean): PathShadowMask {
     entry.lastUsedFrame = this.#frame
+    if (exact) entry.lastExactFrame = this.#frame
     return {
       texture: entry.texture,
       localX: entry.localX,
       localY: entry.localY,
       localW: entry.localW,
       localH: entry.localH,
+      exact,
     }
   }
 
   /**
    * `peek`, and if there is no EXACT hit, also attempt a bake (budget
-   * permitting). Opens and closes its own render passes, so it must only
-   * ever run outside any other open pass: the pre-`beginFrame` window
-   * `Stage`/`Viewport2DNode` drain `GpuGfx`'s queued requests in, never at
-   * draw time.
+   * permitting). Opens and closes its own render passes, so it must only ever
+   * run outside any other open pass: the pre-`beginFrame` window
+   * `Stage`/`Viewport2DNode` drain `GpuGfx`'s queued requests in, never at draw
+   * time.
    */
   getOrBake(req: PathShadowRequest): PathShadowMask | null {
     if (!req.quality.pathShadowsEnabled) return null
     if (!this.#rasterPipeline || !this.#blurPipeline) return null
 
-    const { styleKey, exactKey, bucket } = this.#keysFor(req)
-    let entry = this.#entries.get(exactKey)
-    if (!entry) {
-      entry =
-        this.#entries.get(`${styleKey}|${bucket - 1}`) ??
-        this.#entries.get(`${styleKey}|${bucket + 1}`)
-      const baked = this.#tryBake(req, bucket, exactKey)
-      if (baked) entry = baked
-    }
-    if (!entry) return null
-    entry.lastUsedFrame = this.#frame
-    return {
-      texture: entry.texture,
-      localX: entry.localX,
-      localY: entry.localY,
-      localW: entry.localW,
-      localH: entry.localH,
-    }
+    const { shapeKey, exactKey, bucket } = this.#keysFor(req)
+    const hit = this.#entries.get(exactKey)
+    if (hit) return this.#resolved(hit, true)
+
+    const baked = this.#tryBake(req, bucket, exactKey, shapeKey)
+    if (baked) return this.#resolved(baked, true)
+
+    const found = this.#lookup(req)
+    return found ? this.#resolved(found.entry, found.exact) : null
   }
 
   #tryBake(
     req: PathShadowRequest,
     bucket: number,
     exactKey: string,
+    shapeKey: string,
   ): CacheEntry | null {
     const bucketScale = scaleBucketCenter(bucket)
     const quality = req.quality
@@ -511,7 +641,13 @@ export class PathShadowCache {
     const bytes = size.maskW * size.maskH * 2 // rg8
     if (!this.#evictToFit(bytes, quality.shadowMaskBudgetBytes)) return null
 
-    const rt = this.#pool.acquireRetained(size.maskW, size.maskH, 'linear', 'rg8', 1)
+    const rt = this.#pool.acquireRetained(
+      size.maskW,
+      size.maskH,
+      'linear',
+      'rg8',
+      1,
+    )
     const texture = this.#device.colorTexture(rt)
     const extentLocal = size.extentDev / bucketScale
     const localX = req.localBounds.x - extentLocal
@@ -541,10 +677,19 @@ export class PathShadowCache {
       localH,
       bytes,
       bucket,
+      blur: req.blur,
+      shapeKey,
       lastUsedFrame: this.#frame,
+      lastExactFrame: -1,
       bakedFrame: this.#frame,
     }
     this.#entries.set(exactKey, entry)
+    let shape = this.#shapes.get(shapeKey)
+    if (!shape) {
+      shape = new Set()
+      this.#shapes.set(shapeKey, shape)
+    }
+    shape.add(exactKey)
     this.#workDoneThisFrame += work
     this.#maskBakes++
     this.#maskBakeWork += work
@@ -552,27 +697,50 @@ export class PathShadowCache {
   }
 
   /**
-   * Evict LRU entries, each one baked outside the hysteresis window, until
-   * `bytes` more fits `budgetBytes`. Never evicts a fresh bake (the
-   * hysteresis guard) and never evicts to make room for an entry that would
-   * itself be the next eviction candidate (since every candidate here is
-   * already past the window, only `lastUsedFrame` order decides, so the
-   * entry just baked this frame is never among them).
+   * Evict LRU entries, each one baked outside its hysteresis window, until
+   * `bytes` more fits `budgetBytes`. Never evicts a fresh bake, and never
+   * evicts to make room for an entry that would itself be the next eviction
+   * candidate (since every candidate here is already past the window, only
+   * `lastUsedFrame` order decides, so the entry just baked this frame is never
+   * among them).
+   *
+   * An entry no draw has asked for since its bake gets the much shorter
+   * `MASK_EVICT_FRAMES_UNUSED` window, so a backlog of masks whose request key
+   * moved on cannot hold the budget full.
    */
   #evictToFit(bytes: number, budgetBytes: number): boolean {
     let total = bytes
     for (const e of this.#entries.values()) total += e.bytes
     if (total <= budgetBytes) return true
     const candidates = Array.from(this.#entries.entries())
-      .filter(([, e]) => this.#frame - e.bakedFrame > MASK_EVICT_FRAMES)
+      .filter(([, e]) => this.#frame - e.bakedFrame > this.#evictWindow(e))
       .sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)
     for (const [key, e] of candidates) {
       this.#pool.release(e.rt)
       this.#entries.delete(key)
+      const shape = this.#shapes.get(e.shapeKey)
+      if (shape) {
+        shape.delete(key)
+        if (shape.size === 0) this.#shapes.delete(e.shapeKey)
+      }
       total -= e.bytes
       if (total <= budgetBytes) return true
     }
     return total <= budgetBytes
+  }
+
+  /**
+   * Frames since its bake that `entry` is protected from eviction. Standing in
+   * for another radius does not earn the long window: during churn every mask
+   * stands in on the frame after its bake, which would re-protect the whole
+   * backlog and fill the budget again. `lastUsedFrame` still orders eviction,
+   * so the stand-in a glow is currently drawn from sorts last among the
+   * short-window candidates.
+   */
+  #evictWindow(entry: CacheEntry): number {
+    return entry.lastExactFrame > entry.bakedFrame
+      ? MASK_EVICT_FRAMES
+      : MASK_EVICT_FRAMES_UNUSED
   }
 
   #bake(
@@ -589,8 +757,20 @@ export class PathShadowCache {
   ): void {
     const rasterW = maskW * 2
     const rasterH = maskH * 2
-    const rasterRt = this.#pool.acquireTransient(rasterW, rasterH, 'linear', 'r8', 1)
-    const passARt = this.#pool.acquireTransient(maskW, rasterH, 'linear', 'rg8', 1)
+    const rasterRt = this.#pool.acquireTransient(
+      rasterW,
+      rasterH,
+      'linear',
+      'r8',
+      1,
+    )
+    const passARt = this.#pool.acquireTransient(
+      maskW,
+      rasterH,
+      'linear',
+      'rg8',
+      1,
+    )
 
     this.#rasterize(req, rasterRt, localX, localY, localW, localH)
     this.#blurPass(
@@ -748,8 +928,10 @@ export class PathShadowCache {
 
   destroy(): void {
     this.#entries.clear()
+    this.#shapes.clear()
     this.#pool.destroy()
-    if (this.#fullscreenTriBuf) this.#device.deleteBuffer(this.#fullscreenTriBuf)
+    if (this.#fullscreenTriBuf)
+      this.#device.deleteBuffer(this.#fullscreenTriBuf)
     this.#device.deleteShaderModule(this.#rasterShader)
     this.#device.deleteShaderModule(this.#blurShader)
     this.#device.deleteUniformBuffer(this.#rasterUbo)

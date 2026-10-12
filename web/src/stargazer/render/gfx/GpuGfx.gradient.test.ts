@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { GpuGfx } from './GpuGfx'
 import { MockGfxDevice } from './webgl2/mockGfxDevice'
+import { registerPathTessellation } from './PathTessellationRegistry'
 import type { GfxLinearGradient } from './Gfx2D'
 
 // happy-dom's OffscreenCanvas has no real 2D context. Stub a minimal one so
@@ -8,13 +9,13 @@ import type { GfxLinearGradient } from './Gfx2D'
 // TextureManager.gradientAtlas.test.ts).
 let getCtxSpy: ReturnType<typeof vi.spyOn>
 beforeEach(() => {
-  getCtxSpy = vi.spyOn(OffscreenCanvas.prototype, 'getContext').mockReturnValue(
-    {
+  getCtxSpy = vi
+    .spyOn(OffscreenCanvas.prototype, 'getContext')
+    .mockReturnValue({
       createLinearGradient: () => ({ addColorStop: () => {} }),
       fillStyle: '',
       fillRect: () => {},
-    } as never,
-  )
+    } as never)
 })
 afterEach(() => {
   getCtxSpy.mockRestore()
@@ -105,23 +106,17 @@ describe('GpuGfx gradient fills', () => {
     const { gfx, device } = makeGpuGfx()
     await baseFrame(gfx, device)
     gfx.fillRect(0, 0, 100, 100, ramp())
-    gfx.fillRect(
-      0,
-      0,
-      100,
-      100,
-      {
-        kind: 'linear',
-        x0: 0,
-        y0: 0,
-        x1: 100,
-        y1: 0,
-        stops: [
-          { offset: 0, color: '#000' },
-          { offset: 1, color: '#fff' },
-        ],
-      },
-    )
+    gfx.fillRect(0, 0, 100, 100, {
+      kind: 'linear',
+      x0: 0,
+      y0: 0,
+      x1: 100,
+      y1: 0,
+      stops: [
+        { offset: 0, color: '#000' },
+        { offset: 1, color: '#fff' },
+      ],
+    })
     gfx.endFrame()
     expect(device.draws.length).toBe(2)
   })
@@ -133,6 +128,28 @@ describe('GpuGfx gradient fills', () => {
     gfx.fillRoundRect(0, 0, 40, 40, 8, ramp())
     gfx.endFrame()
     expect(device.draws.length).toBeGreaterThan(0)
+  })
+
+  it('a gradient-filled retained path draws indexed, through the retained pipeline', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    const path = new Path2D('M0 0 L100 0 L100 100 L0 100 Z')
+    registerPathTessellation(
+      path,
+      {
+        vertices: new Float32Array([0, 0, 100, 0, 100, 100, 0, 100]),
+        indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
+      },
+      undefined,
+      undefined,
+      { retained: true },
+    )
+    gfx.fillPath2D(path, ramp())
+    gfx.endFrame()
+    expect(device.draws.length).toBe(1)
+    // Indexed draw is only reachable through `#drawRetained`, never the
+    // streamed `coloredTri` path.
+    expect(device.draws[0].kind).toBe('elements')
   })
 
   it('many distinct gradients in one frame do not crash (atlas row recycling)', async () => {

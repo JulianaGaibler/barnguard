@@ -28,8 +28,10 @@ a brand shadow has to bake regardless.
 
 The practical consequence is one frame of latency. A shadow's first request,
 and any request a starved bake budget defers, resolves against whatever was
-queued last frame, not this one: `shadowPath2D` draws the hard (unblurred)
-fallback for that frame instead.
+queued last frame, not this one. For that frame `shadowPath2D` falls back to a
+nearby cached mask of the same path, or failing that to the hard (unblurred)
+silhouette, as described under
+[substitutes](#substitutes-and-converging-back).
 
 ## Resolving a mask's size
 
@@ -95,10 +97,68 @@ step places the (fixed) mask at the shape's position plus the live offset.
 That's what makes an animated offset free — nothing rebakes — while an
 animated blur, spread, or a zoom that crosses a bucket boundary does.
 
-A miss on the exact key but a hit on an adjacent bucket resolves to that
-stale entry (while a fresh bake for the new bucket is queued), rather than
-falling back to hard: close enough to use mid-zoom, and never a different
-blur, spread, or style, only ever the scale bucket.
+### Substitutes, and converging back
+
+A miss on the exact key resolves to a substitute rather than to nothing, in
+two tiers. An adjacent scale bucket comes first, which is the same blur and
+spread at a different mask resolution. Failing that, the same path's nearest
+cached blur within `MASK_SUBSTITUTE_BLUR_OCTAVES` (half an octave, the scale
+bucket's own width) stands in.
+
+A substitute is reported through `PathShadowMask.exact === false`, and
+`GpuGfx.shadowPath2D` queues the exact bake whenever it sees that, so a
+stand-in is always replaced by the real mask within a frame or two. Without
+that queue a stand-in would be permanent, since a hit of any kind stops the
+caller asking for a bake.
+
+This is what keeps an inset shadow painted. It has no hard fallback, so without
+a substitute it draws nothing at all.
+
+Standing in does **not** count as use for
+[eviction](#budgets): during churn every mask stands in on the frame after its
+own bake, so counting it would put the whole backlog behind the long window and
+fill the byte budget again. `lastUsedFrame` still orders eviction, so the
+stand-in a shadow is currently drawn from is the last of the short-window
+entries to go.
+
+### The substitute has a cliff
+
+Half an octave is a bound, not a guarantee. If the radius moves further than
+that between one bake of a given shape and the next, there is nothing close
+enough to stand in and the shadow drops out until its own bake lands.
+
+The margin is a race between the radius and the bake queue. A shape's mask
+refreshes every `shapes * workPerMask / shadowBakeWorkPerFrame` frames, so the
+radius must not travel half an octave in that span. Measured on a 100 unit
+square with a 36 px screen-space blur, `rg8` masks around 32 KB:
+
+| zoom                 | shapes | glow-draws unpainted |
+| -------------------- | ------ | -------------------- |
+| 3x over 10 frames    | 1      | 0%                   |
+| 3x over 10 frames    | 4      | 40%                  |
+| 3x over 10 frames    | 32     | 66%                  |
+| 1.59x over 36 frames | 32     | 22%                  |
+
+One shape outruns nothing. Thirty-two shapes share the per-frame budget about
+eleven ways, and a fast zoom then moves the radius several octaves between
+refreshes. A world-space radius does not race at all, which is the reason to
+prefer it over tuning the budget.
+
+### A zooming camera wants a world-space radius
+
+Blur and spread enter the key in **local units**, which is what `Path2DNode`
+passes after resolving `strokeSpace`. A `'world'` radius holds that value
+fixed under a camera zoom, so only the scale bucket moves and one mask per
+shape covers the whole tween.
+
+A `'screen'` radius is the CSS value over the camera scale, so it takes a new
+value on every frame of a zoom: the exact key misses every frame, every frame
+queues a bake, and each resulting mask is dead the frame after. The cache
+stays legible through this (the nearby-blur substitute paints, and
+`MASK_EVICT_FRAMES_UNUSED` keeps the backlog from filling the byte budget),
+and it warns once after `BLUR_CHURN_WARN_FRAMES` consecutive frames of
+substitution. It is still a bake per frame per shape. Use `'world'` for a
+shadow on a node the camera zooms, and `'screen'` for one it does not.
 
 ## Budgets
 

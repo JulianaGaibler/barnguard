@@ -121,10 +121,13 @@ extra texture binds around them. Reusing the same `stops` array across frames
 it; a fresh array with the same content still dedupes, just with one extra
 string join.
 
-A gradient fill on a `fillPath2D` call always takes the slower per-vertex-CPU-
-transform path, never the retained upload a solid color on a large static path
-gets. Reach for a gradient on a large path only if the retained path wasn't
-carrying its weight anyway.
+A gradient fill on a `fillPath2D` call takes the same retained upload a solid
+color on a large static path gets, same as an inset shadow's cached mask (see
+[Drop shadows](#drop-shadows)): the axis projection and the mask rect are both
+per-draw uniforms, not per-vertex data, so neither needs the CPU transform a
+registered path's geometry is retained specifically to skip. A bitmap clip
+mask or a non-`'normal'` debug mode still falls back to the per-vertex path,
+since the retained shader carries neither.
 
 Only `kind: 'linear'` exists today. A gradient stroke on `strokeCircle` or
 `strokeRoundRect` (as opposed to a path's border, which does support it; see
@@ -218,12 +221,16 @@ the same mask from inside `fillPath2D`'s own geometry, no extra pass.
 
 The bake can't run while the frame's main pass is open (a hard rule on WebGPU,
 which can't nest render passes), so it runs in a window before the _next_
-frame's `beginFrame`. The practical effect: a shadow's first frame, and any
-frame the bake budget is exhausted, draws the hard fallback above (translated,
-unblurred) instead of the real mask. An inset shadow has no such fallback and
-is skipped on those frames, since there's nothing to approximate it with.
-Offset is free to animate without rebaking; blur, spread, and a camera zoom
-that crosses a cache bucket are not. See
+frame's `beginFrame`. The practical effect: on a shadow's first frame, and on
+any frame the bake budget is exhausted, the cache stands in another of the same
+path's masks if it holds one within half an octave of blur, and otherwise an
+outset shadow draws the hard fallback above (translated, unblurred) and an
+inset shadow is skipped, since there's nothing to approximate it with.
+
+Offset is free to animate without rebaking. Blur and spread are not, and since
+both enter the cache key in local units, a `strokeSpace: 'screen'` radius
+re-keys the mask at every camera scale and rebakes on every frame of a zoom. A
+path shadow on a node the camera zooms wants `strokeSpace: 'world'`. See
 [path shadows](../path-shadows.md) for the cache, its budget knobs, and what
 counts as a cache key.
 

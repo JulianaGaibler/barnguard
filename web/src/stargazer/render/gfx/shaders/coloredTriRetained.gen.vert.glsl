@@ -21,6 +21,8 @@ struct Clip {
 struct ModelColor {
     mat3x3 model;
     vec4 color;
+    vec4 paint;
+    uvec4 flags;
 };
 struct VOut {
     vec4 pos;
@@ -30,6 +32,13 @@ layout(std140) uniform Frame_block_0Vertex { Frame _group_0_binding_0_vs; };
 layout(std140) uniform ModelColor_block_1Vertex { ModelColor _group_1_binding_3_vs; };
 
 layout(location = 0) in vec2 _p2vs_location0;
+
+vec2 devicePos(vec2 fragPos) {
+    float _e4 = _group_0_binding_0_vs.targetH;
+    float _e9 = _group_0_binding_0_vs.fragYFlip;
+    float fy = ((_e9 > 0.5) ? (_e4 - fragPos.y) : fragPos.y);
+    return vec2(fragPos.x, fy);
+}
 
 float clipRoundBox(vec2 p, vec2 b, float rad) {
     vec2 q = ((abs(p) - b) + vec2(rad));

@@ -395,10 +395,204 @@ export function flattenSvgPath(d: string, tol: number): Float32Array[] {
 // Triangulation
 
 /**
- * Triangulate contours via earcut. Each contour is an independent outer
- * polygon, NEVER a hole in a previous one. The game's map SVGs are multi-region
- * (mainland + islands), not single-region-with-holes. Enclaves live in separate
- * top-level `Path2D`s at the `SvgPathMap` level.
+ * Ray-cast point-in-polygon test, even-odd rule: count edge crossings of a ray
+ * cast in the +x direction and read the parity. Works for any simple polygon
+ * regardless of winding direction, open or implicitly closed.
+ */
+function pointInPolygon(x: number, y: number, poly: Float32Array): boolean {
+  let inside = false
+  const n = poly.length / 2
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = poly[i * 2]
+    const yi = poly[i * 2 + 1]
+    const xj = poly[j * 2]
+    const yj = poly[j * 2 + 1]
+    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+/**
+ * A point strictly inside `contour`, close to the extreme vertex in the given
+ * direction, treating the contour as its own filled region (ignoring whatever
+ * other contours might subtract from it). That extreme vertex (minimum
+ * coordinate for `'min'`, maximum for `'max'`, ties broken the same way on the
+ * other axis) is convex regardless of winding direction, since every other
+ * point lies on one side of it, so a short step from it toward the midpoint of
+ * its two neighbors is reliably interior. The step stops well short of that
+ * midpoint: on a low-vertex-count convex shape such as a quad the full midpoint
+ * can land at the shape's center, which risks reading as "inside" a smaller
+ * shape nested there too (see `findInteriorPoints`). Falls back to the
+ * centroid, then to the step point itself, for a non-convex contour where the
+ * short step lands outside.
+ */
+function biasedInteriorPoint(
+  contour: Float32Array,
+  extreme: 'min' | 'max',
+): readonly [number, number] {
+  const n = contour.length / 2
+  const better = (a: number, b: number): boolean =>
+    extreme === 'min' ? a < b : a > b
+
+  let v = 0
+  for (let i = 1; i < n; i++) {
+    const x = contour[i * 2]
+    const y = contour[i * 2 + 1]
+    if (
+      better(x, contour[v * 2]) ||
+      (x === contour[v * 2] && better(y, contour[v * 2 + 1]))
+    ) {
+      v = i
+    }
+  }
+  const prev = (v - 1 + n) % n
+  const next = (v + 1) % n
+  const vx = contour[v * 2]
+  const vy = contour[v * 2 + 1]
+  const midX = (contour[prev * 2] + contour[next * 2]) / 2
+  const midY = (contour[prev * 2 + 1] + contour[next * 2 + 1]) / 2
+  const NEAR_VERTEX_FRACTION = 0.05
+  const nearVertex: readonly [number, number] = [
+    vx + NEAR_VERTEX_FRACTION * (midX - vx),
+    vy + NEAR_VERTEX_FRACTION * (midY - vy),
+  ]
+
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < n; i++) {
+    cx += contour[i * 2]
+    cy += contour[i * 2 + 1]
+  }
+  const centroid: readonly [number, number] = [cx / n, cy / n]
+
+  for (const p of [nearVertex, centroid]) {
+    if (pointInPolygon(p[0], p[1], contour)) return p
+  }
+  // Pathological non-convex contour where neither candidate lands inside.
+  // Used anyway: a wrong interior point degrades nesting classification for
+  // this one contour rather than failing the whole triangulation.
+  return nearVertex
+}
+
+/**
+ * Points strictly inside `contour`, for classifying nesting (see
+ * `nestContours`). Empty for a degenerate contour of fewer than 3 points.
+ *
+ * A single interior point, however it is chosen, can coincide with another
+ * contour sharing the same vertex, the same center of symmetry, or any other
+ * point the choice happens to land on: a hole punched at a shape's exact center
+ * reads as "containing" that shape's own near-vertex point too, if that shape
+ * is itself small and centered the same way, and a hole that touches its
+ * container's boundary at one vertex reads as "containing" a point taken near
+ * that same vertex. Taking points from two opposite extreme vertices and
+ * requiring every one of a contour's points to land inside another before
+ * treating it as contained rules out a false positive from either case, since
+ * the two points sit on opposite sides of the shape.
+ */
+function findInteriorPoints(
+  contour: Float32Array,
+): readonly (readonly [number, number])[] {
+  if (contour.length / 2 < 3) return []
+  return [
+    biasedInteriorPoint(contour, 'min'),
+    biasedInteriorPoint(contour, 'max'),
+  ]
+}
+
+/**
+ * Nest `contours` by the even-odd rule: a contour's depth is how many other
+ * contours contain its interior point, even depth is a filled region, odd depth
+ * is a hole punched in the nearest (innermost) even-depth region that contains
+ * it. Returns one group per even-depth contour, each paired with its direct
+ * holes.
+ *
+ * `O(n * m)` where `m` is a contour's vertex count: a cheap, load-time-only
+ * cost for the small contour counts an SVG map produces.
+ */
+function nestContours(
+  contours: readonly Float32Array[],
+): { outer: number; holes: number[] }[] {
+  const n = contours.length
+  const interiorPoints = contours.map(findInteriorPoints)
+
+  // `contains[container][containee]` is whether `container`'s boundary curve
+  // encloses EVERY one of `containee`'s interior points, independent of any
+  // hole punched into `container` elsewhere. That independence is what lets a
+  // hole and the island nested inside it both read as contained by the same
+  // outer ring. Requiring every point to agree, rather than just one, is what
+  // rules out the false positives `findInteriorPoints` documents.
+  const contains: boolean[][] = Array.from({ length: n }, () =>
+    new Array<boolean>(n).fill(false),
+  )
+  for (let containee = 0; containee < n; containee++) {
+    const points = interiorPoints[containee]
+    if (points.length === 0) continue
+    for (let container = 0; container < n; container++) {
+      if (container === containee) continue
+      if (contours[container].length / 2 < 3) continue
+      if (
+        points.every((p) => pointInPolygon(p[0], p[1], contours[container]))
+      ) {
+        contains[container][containee] = true
+      }
+    }
+  }
+
+  const depth = new Array<number>(n).fill(0)
+  for (let containee = 0; containee < n; containee++) {
+    for (let container = 0; container < n; container++) {
+      if (contains[container][containee]) depth[containee]++
+    }
+  }
+
+  const holesByOuter = new Map<number, number[]>()
+  const orphanHoles: number[] = []
+  for (let i = 0; i < n; i++) {
+    if (depth[i] % 2 === 0) continue
+    // The direct parent is the containing contour of even depth closest to
+    // `i`, i.e. the one with the greatest depth among even-depth containers.
+    let parent = -1
+    let parentDepth = -1
+    for (let container = 0; container < n; container++) {
+      if (
+        contains[container][i] &&
+        depth[container] % 2 === 0 &&
+        depth[container] > parentDepth
+      ) {
+        parentDepth = depth[container]
+        parent = container
+      }
+    }
+    if (parent === -1) {
+      orphanHoles.push(i)
+      continue
+    }
+    const holes = holesByOuter.get(parent)
+    if (holes) holes.push(i)
+    else holesByOuter.set(parent, [i])
+  }
+
+  const groups: { outer: number; holes: number[] }[] = []
+  for (let i = 0; i < n; i++) {
+    if (depth[i] % 2 === 0)
+      groups.push({ outer: i, holes: holesByOuter.get(i) ?? [] })
+  }
+  // A hole with no even-depth container is pathological input (contours that
+  // cross, or a lone odd-depth contour from unbalanced nesting). Triangulate
+  // it as its own region rather than dropping it.
+  for (const i of orphanHoles) groups.push({ outer: i, holes: [] })
+  return groups
+}
+
+/**
+ * Triangulate contours via earcut, nested by the even-odd rule (see
+ * `nestContours`): a contour enclosed by an odd number of others is a hole in
+ * the nearest even-depth one, not a fill of its own. An enclave (an island
+ * fully inside a hole) and a merely adjacent region (mainland plus a coastal
+ * island) are told apart by that count, not by winding direction, since SVG
+ * exporters do not apply winding consistently.
  *
  * Returns interleaved f32 vertices + uint16 triangle indices. Throws above 65
  * 535 total verts.
@@ -414,24 +608,54 @@ export function tessellateContours(contours: Float32Array[]): GeometryHandle {
       `tessellateContours: ${totalPoints} vertices exceeds 65535 (Uint16 index limit)`,
     )
   }
-  const vertices = new Float32Array(totalPoints * 2)
-  const allIndices: number[] = []
-  let dstFloatCursor = 0
-  let pointCursor = 0
-  for (const c of contours) {
-    const pointsInContour = c.length / 2
-    if (pointsInContour >= 3) {
-      // earcut on this contour alone → offset the returned indices so they
-      // reference positions in the merged `vertices` buffer.
-      const tris = earcut(Array.from(c))
-      for (let j = 0; j < tris.length; j++) {
-        allIndices.push(pointCursor + tris[j])
-      }
+
+  const pointCounts = contours.map((c) => c.length / 2)
+  const pointOffsets = new Array<number>(contours.length)
+  {
+    let cursor = 0
+    for (let i = 0; i < contours.length; i++) {
+      pointOffsets[i] = cursor
+      cursor += pointCounts[i]
     }
+  }
+
+  const vertices = new Float32Array(totalPoints * 2)
+  let dstFloatCursor = 0
+  for (const c of contours) {
     vertices.set(c, dstFloatCursor)
     dstFloatCursor += c.length
-    pointCursor += pointsInContour
   }
+
+  const allIndices: number[] = []
+  for (const { outer, holes } of nestContours(contours)) {
+    if (pointCounts[outer] < 3) continue
+    if (holes.length === 0) {
+      // earcut on this contour alone → offset the returned indices so they
+      // reference positions in the merged `vertices` buffer.
+      const tris = earcut(Array.from(contours[outer]))
+      for (const t of tris) allIndices.push(pointOffsets[outer] + t)
+      continue
+    }
+    // earcut wants one flat coordinate list with the outer ring first and
+    // each hole's starting index named in `holeIndices`, so the outer ring
+    // and its holes are concatenated into a local buffer, triangulated
+    // together, and the result mapped back to the merged `vertices` buffer's
+    // global offsets.
+    const group = [outer, ...holes]
+    const coords: number[] = []
+    const holeIndices: number[] = []
+    const localToGlobal: number[] = []
+    for (const idx of group) {
+      if (idx !== outer) holeIndices.push(coords.length / 2)
+      for (let k = 0; k < contours[idx].length; k++)
+        coords.push(contours[idx][k])
+      for (let k = 0; k < pointCounts[idx]; k++)
+        localToGlobal.push(pointOffsets[idx] + k)
+    }
+    const tris = earcut(coords, holeIndices)
+    for (const t of tris) allIndices.push(localToGlobal[t])
+  }
+
   const indices = new Uint16Array(allIndices.length)
   for (let j = 0; j < allIndices.length; j++) indices[j] = allIndices[j]
   return { vertices, indices }
