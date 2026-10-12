@@ -136,14 +136,12 @@ float shadowBoxX(float x_2, float y_1, float sigma_1, float cornerL, float corne
     return (intHi - intLo);
 }
 
-float shadowCoverage(vec2 p_3, vec2 halfExt_1, vec4 radii, float sigma_2) {
+float shadowCoverage(vec2 p_3, vec2 halfExt_1, vec4 radii, float sigma_2, float hardCoverage) {
     float y_2 = 0.0;
     float value = 0.0;
     int i = 0;
     if ((sigma_2 < 0.0001)) {
-        float _e6 = sdRoundBox(p_3, halfExt_1, radii);
-        float _e7 = coverage(_e6);
-        return _e7;
+        return hardCoverage;
     }
     float low = (p_3.y - halfExt_1.y);
     float high = (p_3.y + halfExt_1.y);
@@ -154,31 +152,31 @@ float shadowCoverage(vec2 p_3, vec2 halfExt_1, vec4 radii, float sigma_2) {
     bool loop_init = true;
     while(true) {
         if (!loop_init) {
-            int _e57 = i;
-            i = (_e57 + 1);
+            int _e56 = i;
+            i = (_e56 + 1);
         }
         loop_init = false;
-        int _e31 = i;
-        if ((_e31 < 4)) {
+        int _e30 = i;
+        if ((_e30 < 4)) {
         } else {
             break;
         }
         {
-            float _e35 = y_2;
-            float rowY = (p_3.y - _e35);
+            float _e34 = y_2;
+            float rowY = (p_3.y - _e34);
             float cornerL_1 = ((rowY > 0.0) ? radii.w : radii.x);
             float cornerR_1 = ((rowY > 0.0) ? radii.z : radii.y);
-            float _e47 = value;
-            float _e49 = shadowBoxX(p_3.x, rowY, sigma_2, cornerL_1, cornerR_1, halfExt_1);
-            float _e50 = y_2;
-            float _e51 = shadowGaussian(_e50, sigma_2);
-            value = (_e47 + ((_e49 * _e51) * step_));
-            float _e55 = y_2;
-            y_2 = (_e55 + step_);
+            float _e46 = value;
+            float _e48 = shadowBoxX(p_3.x, rowY, sigma_2, cornerL_1, cornerR_1, halfExt_1);
+            float _e49 = y_2;
+            float _e50 = shadowGaussian(_e49, sigma_2);
+            value = (_e46 + ((_e48 * _e50) * step_));
+            float _e54 = y_2;
+            y_2 = (_e54 + step_);
         }
     }
-    float _e60 = value;
-    return _e60;
+    float _e59 = value;
+    return _e59;
 }
 
 void main() {
@@ -209,6 +207,13 @@ void main() {
     float circDist = (length(circDelta) - radius_1);
     float _e70 = coverage(circDist);
     float _e77 = coverage((abs(circDist) - (in_.paramsA.w * 0.5)));
+    float shadowSpread = in_.paramsB.z;
+    vec4 shadowHasRadius = step(vec4(1e-6), in_.radii);
+    vec4 shadowRadii = (shadowHasRadius * max((in_.radii + vec4(shadowSpread)), vec4(0.0)));
+    vec2 shadowHalfExt = max((halfExt_2 + vec2(shadowSpread)), vec2(0.0));
+    vec2 shadowLocal = (in_.varyingPos - in_.paramsB.xy);
+    float _e100 = sdRoundBox(shadowLocal, shadowHalfExt, shadowRadii);
+    float _e101 = coverage(_e100);
     if ((in_.shapeType == 1)) {
         float circStrokeWidth = in_.paramsA.w;
         vec4 fill = (fillColor * _e70);
@@ -216,13 +221,13 @@ void main() {
             strokeAlpha = _e77;
             float dashPeriod = in_.paramsB.y;
             if ((dashPeriod > 0.0)) {
-                float _e97 = strokeAlpha;
-                local = (_e97 > 0.0);
+                float _e121 = strokeAlpha;
+                local = (_e121 > 0.0);
             } else {
                 local = false;
             }
-            bool _e101 = local;
-            if (_e101) {
+            bool _e125 = local;
+            if (_e125) {
                 float dashStart = in_.paramsB.x;
                 float dashOnLen = (dashPeriod * 0.5);
                 float angle = atan(circDelta.y, circDelta.x);
@@ -231,17 +236,17 @@ void main() {
                 float s_1 = (dashStart + arcPos);
                 float phase = (s_1 - (dashPeriod * floor((s_1 / dashPeriod))));
                 float off = smoothstep((dashOnLen - 0.5), (dashOnLen + 0.5), phase);
-                float _e125 = strokeAlpha;
-                strokeAlpha = (_e125 * (1.0 - off));
+                float _e149 = strokeAlpha;
+                strokeAlpha = (_e149 * (1.0 - off));
             }
-            float _e130 = strokeAlpha;
-            stroke = (in_.colorStroke * _e130);
+            float _e154 = strokeAlpha;
+            stroke = (in_.colorStroke * _e154);
         }
-        vec4 _e132 = stroke;
-        float _e134 = stroke.w;
-        outColor = (_e132 + (fill * (1.0 - _e134)));
-        float _e140 = outColor.w;
-        if ((_e140 <= 0.0)) {
+        vec4 _e156 = stroke;
+        float _e158 = stroke.w;
+        outColor = (_e156 + (fill * (1.0 - _e158)));
+        float _e164 = outColor.w;
+        if ((_e164 <= 0.0)) {
             discard;
         }
     } else {
@@ -250,31 +255,22 @@ void main() {
             if ((strokeWidth > 0.0)) {
                 stroke_1 = (in_.colorStroke * _e61);
             }
-            vec4 _e154 = stroke_1;
-            float _e156 = stroke_1.w;
-            outColor = (_e154 + (fill_1 * (1.0 - _e156)));
-            float _e162 = outColor.w;
-            if ((_e162 <= 0.0)) {
+            vec4 _e178 = stroke_1;
+            float _e180 = stroke_1.w;
+            outColor = (_e178 + (fill_1 * (1.0 - _e180)));
+            float _e186 = outColor.w;
+            if ((_e186 <= 0.0)) {
                 discard;
             }
         } else {
             if ((in_.shapeType == 3)) {
-                vec2 trueHalfExt = in_.paramsA.xy;
                 float sigma_3 = in_.paramsA.z;
                 float inset = in_.paramsA.w;
-                vec2 offset = in_.paramsB.xy;
-                float spread = in_.paramsB.z;
-                vec4 hasRadius = step(vec4(1e-6), in_.radii);
-                vec4 shadowRadii = (hasRadius * max((in_.radii + vec4(spread)), vec4(0.0)));
-                vec2 shadowHalfExt = max((trueHalfExt + vec2(spread)), vec2(0.0));
-                vec2 shadowLocal = (in_.varyingPos - offset);
-                float _e196 = shadowCoverage(shadowLocal, shadowHalfExt, shadowRadii, sigma_3);
-                float _e199 = sdRoundBox(in_.varyingPos, trueHalfExt, in_.radii);
-                float _e200 = coverage(_e199);
-                float mask = ((inset > 0.5) ? _e200 : (1.0 - _e200));
+                float _e196 = shadowCoverage(shadowLocal, shadowHalfExt, shadowRadii, sigma_3, _e101);
+                float mask = ((inset > 0.5) ? _e51 : (1.0 - _e51));
                 outColor = (in_.colorFill * (_e196 * mask));
-                float _e210 = outColor.w;
-                if ((_e210 <= 0.0)) {
+                float _e206 = outColor.w;
+                if ((_e206 <= 0.0)) {
                     discard;
                 }
             } else {
@@ -283,21 +279,21 @@ void main() {
             }
         }
     }
-    vec4 _e220 = outColor;
-    float _e223 = clipCoverage(in_.pos.xy);
-    outColor = (_e220 * _e223);
-    uint _e228 = _group_1_binding_9_fs.flags.x;
-    if ((_e228 == 1u)) {
+    vec4 _e216 = outColor;
+    float _e219 = clipCoverage(in_.pos.xy);
+    outColor = (_e216 * _e219);
+    uint _e224 = _group_1_binding_9_fs.flags.x;
+    if ((_e224 == 1u)) {
         outColor = vec4(0.05, 0.0, 0.0, 0.05);
     } else {
-        uint _e239 = _group_1_binding_9_fs.flags.x;
-        if ((_e239 == 2u)) {
-            vec4 _e244 = _group_1_binding_9_fs.debugColor;
-            outColor = _e244;
+        uint _e235 = _group_1_binding_9_fs.flags.x;
+        if ((_e235 == 2u)) {
+            vec4 _e240 = _group_1_binding_9_fs.debugColor;
+            outColor = _e240;
         }
     }
-    vec4 _e245 = outColor;
-    _fs2p_location0 = _e245;
+    vec4 _e241 = outColor;
+    _fs2p_location0 = _e241;
     return;
 }
 

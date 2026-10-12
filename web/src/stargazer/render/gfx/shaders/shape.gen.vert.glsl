@@ -104,6 +104,49 @@ float shadowBoxX(float x_2, float y_1, float sigma_1, float cornerL, float corne
     return (intHi - intLo);
 }
 
+float shadowCoverage(vec2 p_3, vec2 halfExt_1, vec4 radii, float sigma_2, float hardCoverage) {
+    float y_2 = 0.0;
+    float value = 0.0;
+    int i = 0;
+    if ((sigma_2 < 0.0001)) {
+        return hardCoverage;
+    }
+    float low = (p_3.y - halfExt_1.y);
+    float high = (p_3.y + halfExt_1.y);
+    float start = clamp((-3.0 * sigma_2), low, high);
+    float end = clamp((3.0 * sigma_2), low, high);
+    float step_ = ((end - start) / 4.0);
+    y_2 = (start + (step_ * 0.5));
+    bool loop_init = true;
+    while(true) {
+        if (!loop_init) {
+            int _e56 = i;
+            i = (_e56 + 1);
+        }
+        loop_init = false;
+        int _e30 = i;
+        if ((_e30 < 4)) {
+        } else {
+            break;
+        }
+        {
+            float _e34 = y_2;
+            float rowY = (p_3.y - _e34);
+            float cornerL_1 = ((rowY > 0.0) ? radii.w : radii.x);
+            float cornerR_1 = ((rowY > 0.0) ? radii.z : radii.y);
+            float _e46 = value;
+            float _e48 = shadowBoxX(p_3.x, rowY, sigma_2, cornerL_1, cornerR_1, halfExt_1);
+            float _e49 = y_2;
+            float _e50 = shadowGaussian(_e49, sigma_2);
+            value = (_e46 + ((_e48 * _e50) * step_));
+            float _e54 = y_2;
+            y_2 = (_e54 + step_);
+        }
+    }
+    float _e59 = value;
+    return _e59;
+}
+
 void main() {
     vec2 a_unit = _p2vs_location0;
     vec2 a_mCol0_ = _p2vs_location1;

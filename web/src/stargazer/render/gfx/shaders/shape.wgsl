@@ -249,9 +249,13 @@ fn shadowBoxX(x: f32, y: f32, sigma: f32, cornerL: f32, cornerR: f32, halfExt: v
  * inside it (a fixed sample count over a fixed +/-3 sigma range would
  * otherwise miss the shape entirely and band).
  */
-fn shadowCoverage(p: vec2<f32>, halfExt: vec2<f32>, radii: vec4<f32>, sigma: f32) -> f32 {
+// `hardCoverage` is the zero-blur result, the shadow box's own SDF coverage.
+// Taken as a parameter rather than computed here because it needs a
+// derivative, which WGSL only permits in uniform control flow, and every
+// caller is inside a branch on the non-uniform `shapeType`.
+fn shadowCoverage(p: vec2<f32>, halfExt: vec2<f32>, radii: vec4<f32>, sigma: f32, hardCoverage: f32) -> f32 {
   if (sigma < 1e-4) {
-    return coverage(sdRoundBox(p, halfExt, radii));
+    return hardCoverage;
   }
   let low = p.y - halfExt.y;
   let high = p.y + halfExt.y;
@@ -305,6 +309,17 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let circDist = length(circDelta) - radius;
   let circFillCoverage = coverage(circDist);
   let circStrokeCoverage = coverage(abs(circDist) - in.paramsA.w * 0.5);
+  // The drop-shadow kind's own box, hoisted for its `coverage` call alone.
+  // The 4-tap blur integral itself takes no derivative, so it stays inside
+  // the branch below and a non-shadow fragment never pays for it.
+  let shadowSpread = in.paramsB.z;
+  let shadowHasRadius = step(vec4<f32>(1e-6), in.radii);
+  let shadowRadii =
+    shadowHasRadius * max(in.radii + vec4<f32>(shadowSpread), vec4<f32>(0.0));
+  let shadowHalfExt = max(halfExt + shadowSpread, vec2<f32>(0.0));
+  let shadowLocal = in.varyingPos - in.paramsB.xy;
+  let shadowHardCoverage =
+    coverage(sdRoundBox(shadowLocal, shadowHalfExt, shadowRadii));
 
   var outColor: vec4<f32>;
   if (in.shapeType == 1) {
@@ -349,20 +364,25 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   } else if (in.shapeType == 3) {
     // Drop shadow. paramsA = (true halfExt, sigma, inset), paramsB =
     // (offsetX, offsetY, spread, _). `in.colorFill` carries the shadow's
-    // own tint (the record has no separate stroke). Spread grows the
-    // shadow's own box only on corners that already had a radius: a spread
-    // square corner stays square, matching `box-shadow`.
-    let trueHalfExt = in.paramsA.xy;
+    // own tint (the record has no separate stroke). The shadow's own box
+    // (`shadowHalfExt`/`shadowRadii`/`shadowLocal`) is built in the
+    // uniform-control-flow block above, where spread grows it only on
+    // corners that already had a radius: a spread square corner stays
+    // square, matching `box-shadow`.
     let sigma = in.paramsA.z;
     let inset = in.paramsA.w;
-    let offset = in.paramsB.xy;
-    let spread = in.paramsB.z;
-    let hasRadius = step(vec4<f32>(1e-6), in.radii);
-    let shadowRadii = hasRadius * max(in.radii + vec4<f32>(spread), vec4<f32>(0.0));
-    let shadowHalfExt = max(trueHalfExt + spread, vec2<f32>(0.0));
-    let shadowLocal = in.varyingPos - offset;
-    let shadowCov = shadowCoverage(shadowLocal, shadowHalfExt, shadowRadii, sigma);
-    let trueCoverage = coverage(sdRoundBox(in.varyingPos, trueHalfExt, in.radii));
+    let shadowCov = shadowCoverage(
+      shadowLocal,
+      shadowHalfExt,
+      shadowRadii,
+      sigma,
+      shadowHardCoverage,
+    );
+    // `rrFillCoverage` from that same block already is this shape's
+    // border-box coverage: the shadow kind's "true halfExt" and the
+    // round-rect kind's `halfExt` are both `in.paramsA.xy`, over the same
+    // `in.varyingPos` and `in.radii`.
+    let trueCoverage = rrFillCoverage;
     // Outset: knocked out of the border box (CSS: "not painted inside the
     // border-box"). Inset: only inside it.
     let mask = select(1.0 - trueCoverage, trueCoverage, inset > 0.5);

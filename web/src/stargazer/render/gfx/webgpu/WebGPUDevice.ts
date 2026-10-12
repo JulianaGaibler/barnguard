@@ -192,6 +192,17 @@ export class WebGPUDevice implements GfxDevice {
 
   /** The frame's command encoder, open between `beginFrame` and `endFrame`. */
   #encoder: GPUCommandEncoder | null = null
+  /**
+   * Resources whose destruction is held until the next submit. A submit is
+   * validated against every resource its commands reference, so destroying one
+   * that an already-recorded command names fails the whole submit ("Buffer ...
+   * has been destroyed" out of `Queue::submit`). Commands accumulate on
+   * `#encoder` across passes and only reach the queue at `endFrame`, so
+   * anything deleted mid-frame has to outlive that window. Destroying right
+   * after the submit is safe: the driver keeps the memory alive until the GPU
+   * is finished with it.
+   */
+  readonly #pendingDestroy: { destroy(): void }[] = []
   /** The current render pass, open between `beginRenderPass`/`endRenderPass`. */
   #pass: GPURenderPassEncoder | null = null
   /** The current compute pass, open between `beginComputePass`/`endComputePass`. */
@@ -679,7 +690,7 @@ export class WebGPUDevice implements GfxDevice {
   }
 
   deleteBuffer(buf: VBuffer): void {
-    ;(buf as WebGPUBuffer).gpu.destroy()
+    this.#destroyDeferred((buf as WebGPUBuffer).gpu)
   }
 
   orphanBuffer(buf: VBuffer): void {
@@ -779,7 +790,7 @@ export class WebGPUDevice implements GfxDevice {
   }
 
   deleteUniformBuffer(buf: UBuffer): void {
-    ;(buf as WebGPUUniformBuffer).gpu.destroy()
+    this.#destroyDeferred((buf as WebGPUUniformBuffer).gpu)
   }
 
   // --- index buffers --------------------------------------------------------
@@ -814,7 +825,7 @@ export class WebGPUDevice implements GfxDevice {
   }
 
   deleteIndexBuffer(buf: IBuffer): void {
-    ;(buf as WebGPUIndexBuffer).gpu.destroy()
+    this.#destroyDeferred((buf as WebGPUIndexBuffer).gpu)
   }
 
   // --- textures -------------------------------------------------------------
@@ -1013,7 +1024,7 @@ export class WebGPUDevice implements GfxDevice {
     const t = tex as WebGPUTexture
     // A `colorTexture` view handle borrows a render target's texture. Only the
     // render target destroys it.
-    if (t.owned) t.gpu.destroy()
+    if (t.owned) this.#destroyDeferred(t.gpu)
   }
 
   // --- render targets -------------------------------------------------------
@@ -1143,10 +1154,10 @@ export class WebGPUDevice implements GfxDevice {
 
   deleteRenderTarget(rt: RenderTarget): void {
     const r = rt as WebGPURenderTarget
-    r.color?.destroy()
-    r.colorMs?.destroy()
-    r.depthTex?.destroy()
-    r.stencilTex?.destroy()
+    if (r.color) this.#destroyDeferred(r.color)
+    if (r.colorMs) this.#destroyDeferred(r.colorMs)
+    if (r.depthTex) this.#destroyDeferred(r.depthTex)
+    if (r.stencilTex) this.#destroyDeferred(r.stencilTex)
   }
 
   colorTexture(rt: RenderTarget): Texture {
@@ -1444,6 +1455,22 @@ export class WebGPUDevice implements GfxDevice {
     if (!this.#encoder) return
     this.#device.queue.submit([this.#encoder.finish()])
     this.#encoder = null
+    this.#drainPendingDestroy()
+  }
+
+  /**
+   * Destroy `resource` now, or after the next submit when a command encoder is
+   * open and could already name it. See {@link #pendingDestroy}.
+   */
+  #destroyDeferred(resource: { destroy(): void }): void {
+    if (this.#encoder) this.#pendingDestroy.push(resource)
+    else resource.destroy()
+  }
+
+  #drainPendingDestroy(): void {
+    if (this.#pendingDestroy.length === 0) return
+    for (const resource of this.#pendingDestroy) resource.destroy()
+    this.#pendingDestroy.length = 0
   }
 
   // --- draw -----------------------------------------------------------------
@@ -1539,6 +1566,9 @@ export class WebGPUDevice implements GfxDevice {
     this.#destroying = true
     this.#lostCbs.clear()
     this.#restoredCbs.clear()
+    // Anything still queued dies with the device below, so drop the queue
+    // rather than destroying each resource against a device going away.
+    this.#pendingDestroy.length = 0
     try {
       this.#context.unconfigure()
     } catch {
