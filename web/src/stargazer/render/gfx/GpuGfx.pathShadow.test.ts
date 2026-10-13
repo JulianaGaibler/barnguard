@@ -430,6 +430,87 @@ describe('GpuGfx.shadowPath2D', () => {
     }
   })
 
+  // A backend may hold the frame's passes on one command encoder and submit
+  // them together, so two bakes sharing uniform bytes both read whatever was
+  // written last: one mask comes out right and the rest rasterize the wrong
+  // shape, which an inset shadow then paints as a solid fill or not at all.
+  it('bakes each mask in a frame from its own uniform slice', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    gfx.shadowPath2D(squarePath(100), shadow({ blur: 8 }))
+    gfx.shadowPath2D(squarePath(60), shadow({ blur: 8 }))
+    gfx.endFrame()
+
+    device.reset()
+    gfx.processPendingShadowBakes()
+    const bakeDraws = [...device.draws]
+    await baseFrame(gfx, device)
+    gfx.endFrame()
+    expect(gfx.stats.maskBakes).toBe(2)
+
+    // Offsets into the one buffer a bind group holds, grouped by that group.
+    // The raster group is reused across bakes, so its offsets have to differ.
+    const byGroup = new Map<unknown, number[]>()
+    for (const draw of bakeDraws) {
+      for (const group of draw.bindGroups ?? []) {
+        const offset = group.dynamicOffsets?.[0]
+        if (offset === undefined) continue
+        const seen = byGroup.get(group.bindGroup) ?? []
+        seen.push(offset)
+        byGroup.set(group.bindGroup, seen)
+      }
+    }
+    const reused = [...byGroup.values()].filter((o) => o.length > 1)
+    expect(reused.length).toBeGreaterThan(0)
+    for (const offsets of reused) {
+      expect(new Set(offsets).size).toBe(offsets.length)
+    }
+  })
+
+  it('warms the masks a camera scale it has not reached will ask for', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    const path = squarePath()
+    gfx.warmPathShadows([2])
+    gfx.shadowPath2D(path, shadow({ inset: true, blur: 8 }))
+    gfx.endFrame()
+    expect(gfx.pendingPathShadowWarmups).toBe(1)
+
+    // Collection is one frame only: the factors clear at `endFrame`, so a
+    // second frame's draws queue nothing more.
+    for (let i = 0; i < 3; i++) {
+      gfx.processPendingShadowBakes()
+      await baseFrame(gfx, device)
+      gfx.shadowPath2D(path, shadow({ inset: true, blur: 8 }))
+      gfx.endFrame()
+    }
+    expect(gfx.pendingPathShadowWarmups).toBe(0)
+
+    // The zoom arrives. Its mask is already cached, so nothing bakes.
+    const bakesBefore = gfx.stats.maskBakes
+    await baseFrame(gfx, device)
+    gfx.setBaseTransform(2, 0, 0, 2, 0, 0)
+    gfx.shadowPath2D(path, shadow({ inset: true, blur: 8 }))
+    gfx.endFrame()
+    device.reset()
+    gfx.processPendingShadowBakes()
+    expect(device.draws.length).toBe(0)
+    await baseFrame(gfx, device)
+    gfx.endFrame()
+    expect(gfx.stats.maskBakes).toBe(bakesBefore)
+  })
+
+  it('warms nothing for a factor inside the current scale bucket', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await baseFrame(gfx, device)
+    // A quarter octave either side of 1 is the same bucket, so the mask the
+    // live draw already asks for is the one such a factor would want.
+    gfx.warmPathShadows([1.05])
+    gfx.shadowPath2D(squarePath(), shadow({ inset: true, blur: 8 }))
+    gfx.endFrame()
+    expect(gfx.pendingPathShadowWarmups).toBe(0)
+  })
+
   it('lists a baked mask in the texture inspector snapshot', async () => {
     const { gfx, device } = makeGpuGfx()
     await baseFrame(gfx, device)

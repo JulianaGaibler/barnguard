@@ -1,9 +1,13 @@
 /**
- * Finding a point well inside a polygon region, for anchoring a marker or a
- * label on a shape whose centroid is not inside it. A concave or multi-part
- * outline (a crescent, a country with offshore islands) puts its centroid
- * outside the fill, so a marker placed there misses the shape entirely.
+ * Measures of a polygon region's interior, for placing and sizing what gets
+ * drawn on a shape whose bounding box says little about it. A concave or
+ * multi-part outline (a crescent, a country with offshore islands) puts its
+ * centroid outside the fill and fills a small fraction of its own bounds, so
+ * both a marker anchored at the centroid and a radius taken from the bounds
+ * miss the shape they were meant for.
  */
+
+import type { SvgPathEntry } from './SvgPathMap'
 
 /** A contour as flat `[x0, y0, x1, y1, …]`, the shape `flattenSvgPath` emits. */
 export type Contour = Float32Array
@@ -154,4 +158,56 @@ export function deepestInteriorPoint(
     y1 = bestY + stepY
   }
   return [bestX, bestY]
+}
+
+/**
+ * Mean width of the band `entry` fills, as `2 * area / perimeter`. A long
+ * ribbon reports its own width, a disc its radius, and a scattering of islands
+ * the width of a typical one, where the bounding box of each of those says
+ * something closer to its length.
+ *
+ * This is the measure an inset rim effect wants. A rim of radius `r` along a
+ * perimeter `P` adds light in proportion to `r * P`, spread over an area `A`,
+ * so a radius that keeps `r / (A / P)` fixed paints every shape the same mean
+ * brightness, whatever its size or how broken up it is. Taking the radius from
+ * the bounding box instead floods a thin shape (where the box is mostly not the
+ * shape) and under-draws a compact one.
+ *
+ * Area comes from the tessellation, so a hole counts as the hole it is rather
+ * than as more area, and no winding convention is assumed. Returns `0` for an
+ * entry parsed without `tessellate: true`, which has neither the triangles nor
+ * the contours this reads.
+ *
+ * @example
+ *   // An inset glow that reads as a rim on every shape in the set.
+ *   const blur = Math.min(MAX_BLUR, 0.5 * interiorThickness(entry))
+ */
+export function interiorThickness(entry: SvgPathEntry): number {
+  const geo = entry.triangles
+  const contours = entry.contours
+  if (!geo || !contours) return 0
+
+  let doubleArea = 0
+  const v = geo.vertices
+  for (let i = 0; i < geo.indices.length; i += 3) {
+    const a = geo.indices[i] * 2
+    const b = geo.indices[i + 1] * 2
+    const c = geo.indices[i + 2] * 2
+    doubleArea += Math.abs(
+      (v[b] - v[a]) * (v[c + 1] - v[a + 1]) -
+        (v[c] - v[a]) * (v[b + 1] - v[a + 1]),
+    )
+  }
+
+  let perimeter = 0
+  for (const contour of contours) {
+    const n = contour.length / 2
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      perimeter += Math.hypot(
+        contour[i * 2] - contour[j * 2],
+        contour[i * 2 + 1] - contour[j * 2 + 1],
+      )
+    }
+  }
+  return perimeter > 0 ? doubleArea / perimeter : 0
 }

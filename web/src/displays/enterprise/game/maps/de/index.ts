@@ -78,12 +78,15 @@ export async function loadGermanyMap(): Promise<MapDescriptor> {
           x: entry.bounds.x + entry.bounds.width / 2,
           y: entry.bounds.y + entry.bounds.height / 2,
         }
+    // `de-states.svg` already draws its enclaves (Berlin, Bremen) as even-odd
+    // subpaths of the state around them, so no state paints over another.
     regions.push({
       id,
       i18nKey: id,
       selectable: true,
       startPoint,
       shape: entry,
+      drawsFill: true,
     })
   }
 

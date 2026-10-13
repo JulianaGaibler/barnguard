@@ -6,6 +6,7 @@ import {
   createEmitter,
   easings,
   ignoreAbort,
+  interiorThickness,
   registerPathTessellation,
   tessellateContours,
   type EngineHost,
@@ -13,6 +14,7 @@ import {
   type GfxLinearGradient,
   type GfxShadowStyle,
   type Rect,
+  type SvgPathEntry,
   type Vec2,
 } from '@src/stargazer'
 import { loadGameAssets } from './assets'
@@ -166,26 +168,59 @@ const FILL_STOPS_SELECTED: GfxLinearGradient['stops'] = [
 // sixteen separately stroked borders would draw every interior, shared edge
 // twice, stacking a translucent stroke's alpha there above the coastline's.
 const BORDER_COLOR = 'rgba(255, 255, 255, 0.9)'
+/**
+ * Border for a region the map draws but does not offer, at 70% of the regular
+ * border's opacity. It reads as a real boundary, which is what the source
+ * artwork draws, while staying visibly quieter than a region you can pick.
+ */
+const BORDER_COLOR_INERT = 'rgba(255, 255, 255, 0.63)'
 const BORDER_WIDTH = 3
-// Two stacked inset glows along each state's own border, in map units because
-// the state nodes carry `strokeSpace: 'world'`. A path shadow's mask is cached
-// per blur radius in local units, so a screen-space radius re-keys all 32
-// masks at every camera scale and rebakes them through a camera tween. Map
-// units hold the radius still, and the glow stays the same fraction of the
-// country at any canvas size.
+// Two stacked inset glows along each region's own border, in map units because
+// the region nodes carry `strokeSpace: 'world'`. A path shadow's mask is cached
+// per blur radius in local units, so a screen-space radius would re-key every
+// mask at every camera scale and rebake them through a camera tween. Map units
+// hold the radius still, and the glow stays the same fraction of the map at any
+// canvas size.
 //
 // The radii are the brand's 36.138 px and 20.077 px over the 1080 / 888 scale
 // the full-country view resolves to in a 1920 x 1080 frame, which is the size
 // the brand composition is drawn at. They are fixed rather than derived from
 // the live camera because `strokeSpaceScale()` reads the screen transform and
 // returns 1 until the first resize settles, so reading it during the scene
-// build would bake a wrong radius on whichever boot happened to be early. The
-// glow is a fixed fraction of the country, so it measures 36 px at idle only
-// on a 1080-tall stage.
-const STATE_GLOW: readonly GfxShadowStyle[] = [
-  { color: 'rgba(255, 255, 255, 0.5)', blur: 29.714, inset: true },
-  { color: 'rgba(255, 255, 255, 0.4)', blur: 16.508, inset: true },
-]
+// build would bake a wrong radius on whichever boot happened to be early.
+const GLOW_OUTER = 29.714
+const GLOW_INNER = 16.508
+/**
+ * A region's glow radius as a fraction of the mean width of the land it draws
+ * (`interiorThickness`), capped at the brand radius.
+ *
+ * Every region takes the same mean brightness from its glow this way, which a
+ * single radius does not: the brand radii suit a region a few hundred map units
+ * across, and a thin or broken-up one barely wider than the radius has the glow
+ * meet itself in the middle and flood the whole shape. Greece and Norway are
+ * the extremes on the European map, each one filling a fifth of its own
+ * bounding box in ribbons and islands a tenth as wide as the box is tall.
+ *
+ * A half, which is roughly what the brand radius is to the widest region on
+ * either map, so the glow holds its overall weight and only evens out.
+ */
+const GLOW_THICKNESS_FRACTION = 0.5
+
+/** The two inset glows for a region, scaled to the width of its own land. */
+function glowFor(shape: SvgPathEntry): readonly GfxShadowStyle[] {
+  const outer = Math.min(
+    GLOW_OUTER,
+    interiorThickness(shape) * GLOW_THICKNESS_FRACTION,
+  )
+  return [
+    { color: 'rgba(255, 255, 255, 0.5)', blur: outer, inset: true },
+    {
+      color: 'rgba(255, 255, 255, 0.4)',
+      blur: outer * (GLOW_INNER / GLOW_OUTER),
+      inset: true,
+    },
+  ]
+}
 
 const CAMERA_TWEEN_SEC = 0.6
 
@@ -211,6 +246,33 @@ const WIRE_REASON: Record<GameOverReason, WireGameEndReason> = {
 function canvasAspect(host: EngineHost): number {
   const size = host.engine.primaryStage.renderer.cssSize
   return size.h > 0 ? size.w / size.h : 16 / 9
+}
+
+/** Camera scale, in px per map unit, that fitting `view` to the canvas lands on. */
+function fitScale(host: EngineHost, view: Rect): number {
+  const size = host.engine.primaryStage.renderer.cssSize
+  if (view.width <= 0 || view.height <= 0 || size.h <= 0) return 0
+  return Math.min(size.w / view.width, size.h / view.height)
+}
+
+/**
+ * How much further in than the idle framing each region's play framing sits,
+ * which is what `Stage.warmPathShadows` needs to bake the region glows' masks
+ * for a framing the camera has not reached. Near-equal factors are left in: the
+ * cache keys a mask by half-octave scale bucket, so framings that close
+ * together warm the same masks and collapse to one request there.
+ */
+function playZoomFactors(host: EngineHost, map: MapDescriptor): number[] {
+  const idle = fitScale(host, map.idleView)
+  if (idle <= 0) return []
+  const aspect = canvasAspect(host)
+  const factors = new Set<number>()
+  for (const region of map.regions) {
+    if (!region.selectable) continue
+    const factor = fitScale(host, map.playViewFor(region, aspect)) / idle
+    if (factor > 0) factors.add(factor)
+  }
+  return [...factors]
 }
 
 // -----------------------------------------------------------------------------
@@ -270,7 +332,12 @@ export async function startGame(
     RegionId,
     { normal: GfxLinearGradient; selected: GfxLinearGradient }
   >()
-  const stateBorderNode = buildStateBorderNode(map)
+  // Two paths rather than one, so the inert border can carry its own opacity.
+  // Each path still dedups its own overlapping edges, and the two sets never
+  // share an edge: a region encloses another only in its fill, never in the
+  // outline these stroke.
+  const stateBorderNode = buildStateBorderNode(map, true)
+  const inertBorderNode = buildStateBorderNode(map, false)
   const packetLayer = new Node2D('packet-layer')
   const pathLayer = new Node2D('path-layer')
   const handleLayer = new Node2D('handle-layer')
@@ -393,11 +460,16 @@ export async function startGame(
         },
       } satisfies { normal: GfxLinearGradient; selected: GfxLinearGradient }
       stateFillGradients.set(info.id, gradients)
+      if (!info.drawsFill) {
+        // Drawn by the region around it, see `RegionInfo.drawsFill`. Its
+        // border still comes from the inert border path.
+        continue
+      }
       const node = new Path2DNode({
         id: `state:${info.id}`,
         path: entry.path,
         fill: gradients.normal,
-        shadow: STATE_GLOW,
+        shadow: glowFor(entry),
         strokeSpace: 'world',
         // A region the map draws but does not offer takes no taps at all, so
         // it reads as part of the landmass rather than a dead target.
@@ -412,8 +484,10 @@ export async function startGame(
       stateNodes.set(info.id, node)
     }
 
-    // The combined state-border path draws after every state's fill and
-    // inset shadows, see `buildStateBorderNode`.
+    // The combined border paths draw after every region's fill and inset
+    // shadows, see `buildStateBorderNode`. The inert one goes first so a
+    // pickable region's border wins wherever the two run close together.
+    if (inertBorderNode) mapGroup.add(inertBorderNode)
     if (stateBorderNode) mapGroup.add(stateBorderNode)
 
     // Country grid overlay sits above the static state fills but under
@@ -433,6 +507,12 @@ export async function startGame(
   })
 
   host.start()
+  // Bake the region glows' masks for the framings a tap can zoom to, while the
+  // map is still idle. A path shadow's mask is cached per camera scale, so
+  // otherwise the first zoom into a map arrives with a hundred masks to bake, a
+  // few per frame, and each region's glow visibly steps into place as its own
+  // mask lands.
+  host.engine.primaryStage.warmPathShadows(playZoomFactors(host, map))
   sessionState = 'idle'
   events.emit('ready', { stateIds: selectableIds() })
 
@@ -901,11 +981,18 @@ export async function startGame(
  * half of an earlier region's centered stroke. One path means one stencil
  * group, so every edge composites exactly once.
  */
-function buildStateBorderNode(map: MapDescriptor): Path2DNode | null {
+function buildStateBorderNode(
+  map: MapDescriptor,
+  selectable: boolean,
+): Path2DNode | null {
   const combined = new Path2D()
   const combinedContours: Float32Array[] = []
   let any = false
   for (const info of map.regions) {
+    if (info.selectable !== selectable) continue
+    // The region's own outline, not its fill: a region that encloses another
+    // has that one cut out of its fill, and stroking the cut would draw the
+    // enclosed region's boundary a second time.
     const entry = info.shape
     combined.addPath(entry.path)
     if (entry.contours) combinedContours.push(...entry.contours)
@@ -918,9 +1005,9 @@ function buildStateBorderNode(map: MapDescriptor): Path2DNode | null {
     combinedContours,
   )
   const node = new Path2DNode({
-    id: 'state-borders',
+    id: selectable ? 'region-borders' : 'region-borders-inert',
     path: combined,
-    stroke: BORDER_COLOR,
+    stroke: selectable ? BORDER_COLOR : BORDER_COLOR_INERT,
     lineWidth: BORDER_WIDTH,
     hitMode: 'none',
   })

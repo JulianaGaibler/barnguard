@@ -166,6 +166,29 @@ not warn, or a world-space shadow under a wide zoom would be told to become
 world-space. It is still a bake per frame per shape. Use `'world'` for a
 shadow on a node the camera zooms, and `'screen'` for one it does not.
 
+### Warming a scale the camera has not reached
+
+`Stage.warmPathShadows(factors)` bakes the masks another device scale would
+ask for, ahead of the camera arriving there. Each factor is a multiple of the
+scale every shadow in the frame is drawn at now, so one number covers the whole
+scene whatever each node's own transform: `[2]` for a camera about to zoom to
+twice its current scale. Only the scale bucket of the product is keyed, so a
+factor inside the current bucket warms nothing.
+
+Collection runs on the next frame that draws, once, and the requests then bake
+behind that frame's own as the budget allows.
+`Stage.pendingPathShadowWarmups` reports what is left, for a caller that wants
+to hold a loading state until the set is cached. Warming is best effort in two
+ways: nothing has drawn a warmed mask, so it is the first entry evicted when
+live masks need the byte budget, and a shadow small enough to draw as a hard
+silhouette at the current scale asks the cache for nothing and so warms
+nothing.
+
+Without this, a camera that zooms arrives with one new mask per shadow to bake
+and lands a few per frame, so each shadow re-sharpens as its own mask arrives
+(a [substitute](#substitutes-and-converging-back) paints the right shadow at
+the previous bucket's resolution meanwhile).
+
 ## Budgets
 
 Two independent budgets gate a bake, checked in `PathShadowCache.#tryBake`:
@@ -184,6 +207,17 @@ Two independent budgets gate a bake, checked in `PathShadowCache.#tryBake`:
 
 Both budgets are checked before any GPU work for that request, so a
 rejected bake costs nothing beyond the arithmetic above.
+
+A third limit bounds the count rather than the work: every bake in a frame
+takes one slice of the raster uniform ring and two of the blur ring
+(`BAKES_PER_FRAME`), because `GfxDevice.updateUniformBuffer` is not ordered
+against draws already recorded. A backend that holds the frame's passes on one
+command encoder runs every write before the submit, so bakes sharing uniform
+bytes would all read the last transform and kernel written: one mask would come
+out right and the others would rasterize the wrong shape, which an inset shadow
+paints as a solid fill (empty mask) or not at all (full mask). Past that many
+bakes in one frame the rest defer, and a bake that cannot reserve its slices
+caches nothing rather than caching a blank mask.
 
 ## Render targets
 

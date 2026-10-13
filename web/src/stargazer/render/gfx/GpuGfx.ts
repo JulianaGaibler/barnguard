@@ -169,6 +169,13 @@ export class GpuGfx implements Gfx2D {
    * pre-`beginFrame` window.
    */
   readonly #pendingShadowBakes = new Map<string, PathShadowRequest>()
+  /**
+   * Multiples of its own device scale that the next drawn frame's path shadows
+   * also bake a mask for, and the requests collecting them produced. See
+   * `warmPathShadows`.
+   */
+  #shadowWarmFactors: readonly number[] = []
+  readonly #shadowWarmups = new Map<string, PathShadowRequest>()
   /** Warn once per surface for a rotated/skewed inset path shadow. */
   #warnedInsetShadowTransform = false
 
@@ -606,6 +613,10 @@ export class GpuGfx implements Gfx2D {
     if (this.#device.isContextLost()) {
       return
     }
+    // One frame of collection per `warmPathShadows` call: every shadow this
+    // frame drew has queued its warm requests by now, and leaving the factors
+    // set would re-queue them for every frame after.
+    this.#shadowWarmFactors = []
     // Replay the recorded 2D command list into the still-open main pass, then
     // close it (resolving MSAA into the resolve target).
     this.#ctx.submitFrame()
@@ -1303,6 +1314,7 @@ export class GpuGfx implements Gfx2D {
     if (!mask || !mask.exact) {
       this.#pendingShadowBakes.set(this.#pathShadowCache.requestKey(req), req)
     }
+    if (this.#shadowWarmFactors.length > 0) this.#collectShadowWarmups(req)
     if (!mask) {
       if (!inset) {
         this.unimplemented.pathShadowFallback++
@@ -1400,6 +1412,57 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
+   * Bake the masks the next drawn frame's path shadows would need at other
+   * device scales, so a camera that reaches one of them finds them cached
+   * instead of baking a few per frame as it arrives.
+   *
+   * `factors` are multiples of each shadow's own current device scale, which is
+   * one number per target framing however each shadow's own transform differs:
+   * pass `2` for a camera about to zoom to twice the scale it is at now. Only
+   * the half-octave scale bucket of the product is keyed, so a factor landing
+   * inside the current bucket warms nothing.
+   *
+   * Collection runs once, on the next frame that draws. Those requests then
+   * bake behind that frame's own, as many per frame as the bake budget allows,
+   * and `pendingPathShadowWarmups` reports what is left. Warming is best effort
+   * in two ways: no draw has asked for a warmed mask, so it is also the first
+   * entry evicted when live masks need the byte budget, and a shadow small
+   * enough to draw as a hard silhouette at the current scale asks the cache for
+   * nothing and so warms nothing.
+   *
+   * @example
+   *   // A tap is about to zoom the map in. Bake what that framing needs now.
+   *   stage.warmPathShadows([playScale / idleScale])
+   */
+  warmPathShadows(factors: readonly number[]): void {
+    this.#shadowWarmFactors = factors.filter((f) => f > 0)
+  }
+
+  /** Warm-up bake requests still waiting on the per-frame bake budget. */
+  get pendingPathShadowWarmups(): number {
+    return this.#shadowWarmups.size
+  }
+
+  /**
+   * Queue `req` again at each warm factor's device scale. Blur and spread stay
+   * in local units, so a warm request differs from the live one only in its
+   * scale bucket, which is exactly what a camera zoom changes.
+   */
+  #collectShadowWarmups(req: PathShadowRequest): void {
+    const liveKey = this.#pathShadowCache.requestKey(req)
+    for (const factor of this.#shadowWarmFactors) {
+      const warm: PathShadowRequest = {
+        ...req,
+        scaleX: req.scaleX * factor,
+        scaleY: req.scaleY * factor,
+        scale: req.scale * factor,
+      }
+      const key = this.#pathShadowCache.requestKey(warm)
+      if (key !== liveKey) this.#shadowWarmups.set(key, warm)
+    }
+  }
+
+  /**
    * Drain this frame's queued path-shadow bake requests. Must run outside any
    * open render pass (the bake opens and closes its own), so callers run it in
    * the pre-`beginFrame` window: `Stage` before `screen .beginFrame()`,
@@ -1415,6 +1478,14 @@ export class GpuGfx implements Gfx2D {
         this.#pathShadowCache.getOrBake(req)
       }
       this.#pendingShadowBakes.clear()
+    }
+    // Warm-ups go after the live requests, so the frame on screen converges
+    // before a framing nothing has reached yet. The first request the budget
+    // turns down ends the drain, which keeps a starved frame from costing a
+    // size and kernel estimate per queued request.
+    for (const [key, req] of this.#shadowWarmups) {
+      if (this.#pathShadowCache.getOrBake(req)?.exact !== true) break
+      this.#shadowWarmups.delete(key)
     }
     this.#pathShadowCache.pool.endFrame()
   }

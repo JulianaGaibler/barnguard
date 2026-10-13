@@ -11,7 +11,7 @@ import {
   type SvgPathMap,
 } from '@src/stargazer'
 import countriesSvgRaw from '@src/displays/enterprise/assets/eu-countries.svg?raw'
-import { buildLandMask, mergeAllPaths } from '../geometry'
+import { buildLandMask, findEnclosedRegions, mergeAllPaths } from '../geometry'
 import { MAP_NAMESPACE } from '../namespaces'
 import type {
   MapDescriptor,
@@ -53,7 +53,14 @@ function regionFrom(
         x: entry.bounds.x + entry.bounds.width / 2,
         y: entry.bounds.y + entry.bounds.height / 2,
       }
-  return { id, i18nKey: id, selectable, startPoint, shape: entry }
+  return {
+    id,
+    i18nKey: id,
+    selectable,
+    startPoint,
+    shape: entry,
+    drawsFill: true,
+  }
 }
 
 /** Load the European geometry and resolve every country's region record. */
@@ -75,6 +82,19 @@ export async function loadEuropeMap(): Promise<MapDescriptor> {
   for (const [pathKey, id] of Object.entries(DRAWN_ONLY)) {
     const region = regionFrom(regionPaths, pathKey, id, false)
     if (region) regions.push(region)
+  }
+
+  // Three pairs in this artwork draw an enclosed region twice over: Kosovo
+  // inside Serbia, Northern Cyprus inside Cyprus, the Vatican inside Italy.
+  // The enclosed one skips its fill so no pixel is painted twice. A pickable
+  // region keeps its fill regardless, since selecting it has to light it up.
+  const enclosed = findEnclosedRegions(
+    new Map(
+      regions.map((r) => [r.id, { shape: r.shape, interior: r.startPoint }]),
+    ),
+  )
+  for (const region of regions) {
+    if (!region.selectable && enclosed.has(region.id)) region.drawsFill = false
   }
 
   const geometry: MapGeometry = { landMask }

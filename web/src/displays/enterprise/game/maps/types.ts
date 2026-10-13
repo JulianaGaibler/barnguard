@@ -32,11 +32,19 @@ export interface RegionInfo {
    */
   startPoint: Vec2
   /**
-   * The region's own artwork, already tessellated. Carried here rather than
+   * The region's own outline, already tessellated. Carried here rather than
    * looked up by id, because a map's path keys need not match its region ids
-   * and only the map knows how one maps to the other.
+   * and only the map knows how one maps to the other. The border strokes this.
    */
   shape: SvgPathEntry
+  /**
+   * Whether this region paints a fill of its own. False for a region the
+   * artwork draws inside another, where both would paint and a translucent fill
+   * painted twice reads brighter than the rest of the map. The enclosing
+   * region's fill shows through instead, and the region stays delineated by its
+   * own border.
+   */
+  drawsFill: boolean
 }
 
 /** The map-wide geometry a descriptor resolves at load. */

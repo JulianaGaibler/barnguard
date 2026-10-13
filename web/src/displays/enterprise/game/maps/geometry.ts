@@ -12,6 +12,7 @@ import {
   type Rect,
   type SvgPathEntry,
   type SvgPathMap,
+  type Vec2,
 } from '@src/stargazer'
 
 /**
@@ -72,4 +73,61 @@ export function buildLandMask(
     worldRect,
     resolution: LAND_MASK_RESOLUTION,
   })
+}
+
+/**
+ * Which regions the artwork draws inside another one.
+ *
+ * Some maps draw an enclosed region twice over: once as part of the shape
+ * around it, and once as its own. Both then paint, and with a translucent fill
+ * the enclosed region reads brighter than everything else on the map, with a
+ * doubled border and doubled inset glows on top.
+ *
+ * Cutting the enclosed ring out of its container as a hole is the obvious fix
+ * and does not work here. The container's outline usually runs along part of
+ * the enclosed region's border (an SVG of Serbia including Kosovo traces
+ * Kosovo's southwestern border as its own edge), and earcut cannot bridge a
+ * hole that touches the outer ring. It silently returns the uncut
+ * triangulation, which its own `deviation` metric reports as a large error. So
+ * the caller suppresses the enclosed region's fill instead, leaving the
+ * container's fill to show through.
+ *
+ * Containment is tested with the enclosed region's deepest interior point, so a
+ * region merely adjacent to another is left alone.
+ */
+export function findEnclosedRegions(
+  shapes: ReadonlyMap<string, { shape: SvgPathEntry; interior: Vec2 }>,
+): Set<string> {
+  const enclosed = new Set<string>()
+  for (const [innerId, inner] of shapes) {
+    for (const [outerId, outer] of shapes) {
+      if (innerId === outerId) continue
+      const contours = outer.shape.contours
+      if (!contours || !pointInContours(inner.interior, contours)) continue
+      enclosed.add(innerId)
+      break
+    }
+  }
+  return enclosed
+}
+
+/** Even-odd containment of `pt` across every contour at once. */
+function pointInContours(pt: Vec2, contours: readonly Float32Array[]): boolean {
+  let hit = false
+  for (const poly of contours) {
+    const n = poly.length / 2
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const xi = poly[i * 2]
+      const yi = poly[i * 2 + 1]
+      const xj = poly[j * 2]
+      const yj = poly[j * 2 + 1]
+      if (
+        yi > pt.y !== yj > pt.y &&
+        pt.x < ((xj - xi) * (pt.y - yi)) / (yj - yi) + xi
+      ) {
+        hit = !hit
+      }
+    }
+  }
+  return hit
 }

@@ -715,6 +715,28 @@ export class Stage implements CameraHost {
   }
 
   /**
+   * Bake path-shadow masks for device scales this stage's camera has not
+   * reached yet, which is what keeps a shadow from stepping into place over the
+   * frames after a zoom. `factors` are multiples of the scale each shadow is
+   * drawn at now: see `GpuGfx.warmPathShadows` for the detail.
+   *
+   * @example
+   *   // The framings a tap can zoom to, relative to the one on screen.
+   *   stage.warmPathShadows([playScale / idleScale])
+   */
+  warmPathShadows(factors: readonly number[]): void {
+    this.#screenGfx.warmPathShadows(factors)
+  }
+
+  /**
+   * Warm-up bakes still queued behind the per-frame bake budget. Zero once
+   * every mask `warmPathShadows` asked for is cached.
+   */
+  get pendingPathShadowWarmups(): number {
+    return this.#screenGfx.pendingPathShadowWarmups
+  }
+
+  /**
    * Read-only view of the GPU texture caches for the debug inspector. Built on
    * demand, no standing cost when unused.
    */

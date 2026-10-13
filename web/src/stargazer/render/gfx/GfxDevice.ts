@@ -346,11 +346,11 @@ export type ColorFormat = 'linear' | 'srgb'
 
 /**
  * Color-attachment pixel layout, orthogonal to {@link ColorFormat} (a color
- * SPACE, not a channel count): an `r8` target still has no color space to
- * speak of, it's a coverage mask. `'rgba8'` (default) is ordinary 2D content.
- * `'r8'` / `'rg8'` back a single- or dual-channel coverage mask (the
- * path-shadow bake) and are single-sample only: no backend exposes a
- * renderable multisample R8/RG8 target.
+ * SPACE, not a channel count): an `r8` target still has no color space to speak
+ * of, it's a coverage mask. `'rgba8'` (default) is ordinary 2D content. `'r8'`
+ * / `'rg8'` back a single- or dual-channel coverage mask (the path-shadow bake)
+ * and are single-sample only: no backend exposes a renderable multisample
+ * R8/RG8 target.
  */
 export type TargetPixelFormat = 'rgba8' | 'r8' | 'rg8'
 
@@ -398,10 +398,10 @@ export interface ColorState {
   write?: boolean
   /**
    * Override the attachment's pixel layout for a non-color-managed target (one
-   * allocated with a {@link RenderTargetOpts.pixelFormat} other than
-   * `'rgba8'`, such as a path-shadow mask). When set, this wins over `format`
-   * for picking the actual GPU texture format; `format` is otherwise unused.
-   * Omit for ordinary RGBA8 2D content.
+   * allocated with a {@link RenderTargetOpts.pixelFormat} other than `'rgba8'`,
+   * such as a path-shadow mask). When set, this wins over `format` for picking
+   * the actual GPU texture format; `format` is otherwise unused. Omit for
+   * ordinary RGBA8 2D content.
    */
   pixelFormat?: TargetPixelFormat
 }
@@ -806,7 +806,17 @@ export interface GfxDevice {
 
   // Uniform buffers ---------------------------------------------------------
   createUniformBuffer(byteSize: number): UBuffer
-  /** Write `data` into `buf` at `byteOffset` (default 0). */
+  /**
+   * Write `data` into `buf` at `byteOffset` (default 0).
+   *
+   * A write is NOT ordered against draws already recorded this frame: a backend
+   * may hold a frame's commands on one encoder and submit them together, in
+   * which case every draw in the frame reads whatever was written last. Two
+   * draws in one frame that need different contents therefore need different
+   * bytes, not two writes to the same ones: give each its own slice of a
+   * dynamic-offset ring (`UboRing`) and select it per draw, which is what the
+   * per-run and per-object uniforms do.
+   */
   updateUniformBuffer(
     buf: UBuffer,
     data: ArrayBufferView,

@@ -31,12 +31,12 @@ import type {
   ShaderModule,
   ShaderReflection,
   Texture,
-  UBuffer,
   VBuffer,
 } from './GfxDevice'
 import type { GeometryHandle } from './GeometryHandle'
 import type { VectorQuality } from '../VectorQuality'
 import { RenderTargetPool } from './RenderTargetPool'
+import { UboRing } from './programs/programCommon'
 import shadowMaskWgsl from './shaders/shadowMask.wgsl?raw'
 import shadowMaskVertSrc from './shaders/shadowMask.gen.vert.glsl?raw'
 import shadowMaskFragSrc from './shaders/shadowMask.gen.frag.glsl?raw'
@@ -271,6 +271,17 @@ function tapWorkFor(
 
 const RASTER_UBO_BYTES = 48 // std140 mat3: 3 × vec4
 const BLUR_UBO_BYTES = 32 + 10 * 16 // axis vec4 + flags vec4 + 10 weight vec4s
+/**
+ * Bakes one frame's uniform rings hold, each bake taking one raster slice and
+ * two blur slices.
+ *
+ * Every bake in a frame needs its own slice rather than its own write to one
+ * slice: `GfxDevice.updateUniformBuffer` is not ordered against draws already
+ * recorded, so sharing the bytes gives every bake in the frame the last bake's
+ * transform and kernel. Past this many in one frame the rest defer to the next
+ * frame, which costs latency rather than correctness.
+ */
+const BAKES_PER_FRAME = 128
 
 /**
  * Half-octave scale bucket, matching `strokeOutline.ts`'s scheme (kept as a
@@ -292,15 +303,14 @@ export class PathShadowCache {
   #rasterShader!: ShaderModule
   #rasterLayout!: BindGroupLayout
   #rasterPipeline: Pipeline | null = null
-  #rasterUbo!: UBuffer
+  #rasterRing!: UboRing
   readonly #rasterStaging = new Float32Array(RASTER_UBO_BYTES / 4)
   #rasterBindGroup!: BindGroup
 
   #blurShader!: ShaderModule
   #blurLayout!: BindGroupLayout
   #blurPipeline: Pipeline | null = null
-  #blurUboA!: UBuffer // pass one
-  #blurUboB!: UBuffer // pass two
+  #blurRing!: UboRing
   readonly #blurStaging = new Float32Array(BLUR_UBO_BYTES / 4)
 
   readonly #entries = new Map<string, CacheEntry>()
@@ -380,11 +390,22 @@ export class PathShadowCache {
       label: 'shadowMask',
     })
     this.#rasterLayout = device.createBindGroupLayout([
-      { binding: 0, type: 'uniform-buffer' },
+      { binding: 0, type: 'uniform-buffer', dynamicOffset: true },
     ])
-    this.#rasterUbo = device.createUniformBuffer(RASTER_UBO_BYTES)
+    this.#rasterRing = new UboRing(
+      device,
+      RASTER_UBO_BYTES,
+      BAKES_PER_FRAME,
+      'pathShadowRaster',
+    )
     this.#rasterBindGroup = device.createBindGroup(this.#rasterLayout, [
-      { binding: 0, resource: { uniformBuffer: this.#rasterUbo } },
+      {
+        binding: 0,
+        resource: {
+          uniformBuffer: this.#rasterRing.buffer,
+          size: RASTER_UBO_BYTES,
+        },
+      },
     ])
 
     this.#blurShader = device.createShaderModule({
@@ -399,10 +420,14 @@ export class PathShadowCache {
     })
     this.#blurLayout = device.createBindGroupLayout([
       { binding: 0, type: 'texture-2d' },
-      { binding: 1, type: 'uniform-buffer' },
+      { binding: 1, type: 'uniform-buffer', dynamicOffset: true },
     ])
-    this.#blurUboA = device.createUniformBuffer(BLUR_UBO_BYTES)
-    this.#blurUboB = device.createUniformBuffer(BLUR_UBO_BYTES)
+    this.#blurRing = new UboRing(
+      device,
+      BLUR_UBO_BYTES,
+      BAKES_PER_FRAME * 2,
+      'pathShadowBlur',
+    )
   }
 
   async warmup(): Promise<void> {
@@ -452,6 +477,10 @@ export class PathShadowCache {
   beginFrame(): void {
     this.#frame++
     this.#workDoneThisFrame = 0
+    // Safe here and nowhere later: the previous frame's passes, which read
+    // these slices, were submitted at its `endFrame`.
+    this.#rasterRing.reset()
+    this.#blurRing.reset()
   }
 
   /**
@@ -676,7 +705,7 @@ export class PathShadowCache {
     const localW = req.localBounds.width + 2 * extentLocal
     const localH = req.localBounds.height + 2 * extentLocal
 
-    this.#bake(
+    const baked = this.#bake(
       req,
       rt,
       size.maskW,
@@ -688,6 +717,13 @@ export class PathShadowCache {
       kernelX,
       kernelY,
     )
+    // A bake out of uniform-ring slices records no mask. Caching the target
+    // anyway would cache an empty one, which an inset shadow reads as "every
+    // texel in shadow" and paints the whole shape solid.
+    if (!baked) {
+      this.#pool.release(rt)
+      return null
+    }
 
     const entry: CacheEntry = {
       rt,
@@ -764,6 +800,7 @@ export class PathShadowCache {
       : MASK_EVICT_FRAMES_UNUSED
   }
 
+  /** Raster plus the two blur passes. False when a uniform ring ran out. */
   #bake(
     req: PathShadowRequest,
     finalRt: RenderTarget,
@@ -775,7 +812,7 @@ export class PathShadowCache {
     localH: number,
     kernelX: Kernel,
     kernelY: Kernel,
-  ): void {
+  ): boolean {
     const rasterW = maskW * 2
     const rasterH = maskH * 2
     const rasterRt = this.#pool.acquireTransient(
@@ -793,28 +830,28 @@ export class PathShadowCache {
       1,
     )
 
-    this.#rasterize(req, rasterRt, localX, localY, localW, localH)
-    this.#blurPass(
-      rasterRt,
-      passARt,
-      { x: 1, y: 0 },
-      1 / rasterW,
-      kernelX,
-      false,
-      this.#blurUboA,
-    )
-    this.#blurPass(
-      passARt,
-      finalRt,
-      { x: 0, y: 1 },
-      1 / rasterH,
-      kernelY,
-      true,
-      this.#blurUboB,
-    )
+    const ok =
+      this.#rasterize(req, rasterRt, localX, localY, localW, localH) &&
+      this.#blurPass(
+        rasterRt,
+        passARt,
+        { x: 1, y: 0 },
+        1 / rasterW,
+        kernelX,
+        false,
+      ) &&
+      this.#blurPass(
+        passARt,
+        finalRt,
+        { x: 0, y: 1 },
+        1 / rasterH,
+        kernelY,
+        true,
+      )
 
     this.#pool.release(rasterRt)
     this.#pool.release(passARt)
+    return ok
   }
 
   #rasterize(
@@ -824,7 +861,7 @@ export class PathShadowCache {
     localY: number,
     localW: number,
     localH: number,
-  ): void {
+  ): boolean {
     const device = this.#device
     const geo = req.geometry
     if (geo.vertices.length === 0 || geo.indices.length === 0) {
@@ -832,7 +869,7 @@ export class PathShadowCache {
         color: { target: rt, loadOp: 'clear', clearColor: [0, 0, 0, 0] },
       })
       device.endRenderPass()
-      return
+      return true
     }
     const vbo = device.createVertexBuffer(geo.vertices.byteLength)
     device.updateBufferSubData(vbo, 0, geo.vertices)
@@ -878,7 +915,12 @@ export class PathShadowCache {
     s[9] = f
     s[10] = 1
     s[11] = 0
-    device.updateUniformBuffer(this.#rasterUbo, s)
+    const dynOffset = this.#rasterRing.push(device, s)
+    if (dynOffset < 0) {
+      device.deleteBuffer(vbo)
+      device.deleteIndexBuffer(ibo)
+      return false
+    }
 
     device.beginRenderPass({
       color: { target: rt, loadOp: 'clear', clearColor: [0, 0, 0, 0] },
@@ -887,13 +929,20 @@ export class PathShadowCache {
       pipeline: this.#rasterPipeline!,
       vertexBuffers: [{ buffer: vbo, offset: 0 }],
       indexBuffer: ibo,
-      bindGroups: [{ group: 0, bindGroup: this.#rasterBindGroup }],
+      bindGroups: [
+        {
+          group: 0,
+          bindGroup: this.#rasterBindGroup,
+          dynamicOffsets: [dynOffset],
+        },
+      ],
       indexCount: geo.indices.length,
     })
     device.endRenderPass()
 
     device.deleteBuffer(vbo)
     device.deleteIndexBuffer(ibo)
+    return true
   }
 
   #blurPass(
@@ -903,8 +952,7 @@ export class PathShadowCache {
     srcTexelSize: number,
     kernel: Kernel,
     hasG: boolean,
-    ubo: UBuffer,
-  ): void {
+  ): boolean {
     const device = this.#device
     const s = this.#blurStaging
     s[0] = dir.x
@@ -916,12 +964,19 @@ export class PathShadowCache {
     s[6] = 0
     s[7] = 0
     for (let i = 0; i < MAX_TAPS; i++) s[8 + i] = kernel.weights[i] ?? 0
-    device.updateUniformBuffer(ubo, s)
+    const dynOffset = this.#blurRing.push(device, s)
+    if (dynOffset < 0) return false
 
     const srcTex = device.colorTexture(src)
     const bindGroup = device.createBindGroup(this.#blurLayout, [
       { binding: 0, resource: { texture: srcTex } },
-      { binding: 1, resource: { uniformBuffer: ubo } },
+      {
+        binding: 1,
+        resource: {
+          uniformBuffer: this.#blurRing.buffer,
+          size: BLUR_UBO_BYTES,
+        },
+      },
     ])
     device.beginRenderPass({
       color: { target: dst, loadOp: 'clear', clearColor: [0, 0, 0, 0] },
@@ -929,11 +984,12 @@ export class PathShadowCache {
     device.draw({
       pipeline: this.#blurPipeline!,
       vertexBuffers: [{ buffer: this.#fullscreenTri(), offset: 0 }],
-      bindGroups: [{ group: 0, bindGroup }],
+      bindGroups: [{ group: 0, bindGroup, dynamicOffsets: [dynOffset] }],
       vertexCount: 3,
     })
     device.endRenderPass()
     device.deleteBindGroup(bindGroup)
+    return true
   }
 
   #fullscreenTriBuf: VBuffer | null = null
@@ -955,8 +1011,7 @@ export class PathShadowCache {
       this.#device.deleteBuffer(this.#fullscreenTriBuf)
     this.#device.deleteShaderModule(this.#rasterShader)
     this.#device.deleteShaderModule(this.#blurShader)
-    this.#device.deleteUniformBuffer(this.#rasterUbo)
-    this.#device.deleteUniformBuffer(this.#blurUboA)
-    this.#device.deleteUniformBuffer(this.#blurUboB)
+    this.#device.deleteUniformBuffer(this.#rasterRing.buffer)
+    this.#device.deleteUniformBuffer(this.#blurRing.buffer)
   }
 }

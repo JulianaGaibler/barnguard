@@ -8,10 +8,8 @@ function region(id: string, x: number, y: number): RegionInfo {
     i18nKey: id,
     selectable: true,
     startPoint: { x, y },
-    shape: {
-      path: new Path2D(),
-      bounds: { x, y, width: 10, height: 10 },
-    },
+    shape: { path: new Path2D(), bounds: { x, y, width: 10, height: 10 } },
+    drawsFill: true,
   }
 }
 
