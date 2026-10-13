@@ -9,13 +9,13 @@ import type { PacketMask } from '../../behaviors/PacketBehavior'
  * vertical axis is deliberately open, because `PacketBehavior` reads the same
  * mask twice for two different questions:
  *
- * - `contains(x, y, 0)` is the exit gate. False only past the left or right
- *   edge, so those are the only ways to lose a packet.
- * - `contains(x, y, inset)` gates the viewport turnaround. Returning false
- *   near the left and right edges stops the turnaround steering a packet back
- *   inward there, letting it fly out. Staying true for every `y` leaves the
- *   turnaround free to bounce packets off the top and bottom, which keeps them
- *   on screen rather than drifting away unseen.
+ * - `contains(x, y, 0)` is the exit gate. False only past the left or right edge,
+ *   so those are the only ways to lose a packet.
+ * - `contains(x, y, inset)` gates the viewport turnaround. Returning false near
+ *   the left and right edges stops the turnaround steering a packet back inward
+ *   there, letting it fly out. Staying true for every `y` leaves the turnaround
+ *   free to bounce packets off the top and bottom, which keeps them on screen
+ *   rather than drifting away unseen.
  */
 export class ScreenEdgeMask implements PacketMask {
   readonly #viewport: () => Rect
@@ -31,40 +31,37 @@ export class ScreenEdgeMask implements PacketMask {
 }
 
 /**
- * Framing for a selected region: wide enough to hold the region with padding,
- * never narrower than `minWidth`, never wider than the map, and shifted to sit
- * inside the map's own bounds.
+ * Framing for a selected region: the map's full width, cropped vertically to a
+ * band holding that region.
  *
- * `minWidth` is the floor that matters most. Gameplay distances (spawn
- * separation, the epicenter keep-out radius) are tuned in map units, so a
- * framing scaled to Luxembourg alone would leave no room to play. The result is
- * that large countries fill most of the width and small ones sit in a view
- * sized by the game rather than by the country.
+ * The width is never reduced, so the map is never cut off on the left or right.
+ * Two things follow from that. The zoom is the same for every region, which
+ * keeps gameplay distances (tuned in map units) identical wherever the player
+ * picks, and because the band's aspect is taken from the canvas, the view fits
+ * exactly: the map's left and right edges land on the screen's, so the edges a
+ * packet is lost at are the ones the player can see.
+ *
+ * The band centres on the region's `bounds`, not on its start point. A concave
+ * or multi-part country has its deepest interior point well off its own centre
+ * (Norway's sits in the southern bulk), and centring there would push the north
+ * off screen.
  */
-export function fitRegionView(
-  bounds: Rect,
-  centre: { x: number; y: number },
-  map: Rect,
-  aspect: number,
-  opts: { padding: number; minWidth: number },
-): Rect {
-  const padded = Math.max(
-    bounds.width * opts.padding,
-    bounds.height * opts.padding * aspect,
-    opts.minWidth,
-  )
-  const width = Math.min(padded, map.width)
+export function fitRegionBand(bounds: Rect, map: Rect, aspect: number): Rect {
+  const width = map.width
   const height = width / aspect
-  // Centre on the region, then slide back inside the map so the camera never
-  // frames empty space beyond the coastline.
-  const x = clamp(centre.x - width / 2, map.x, map.x + map.width - width)
-  const y = clamp(centre.y - height / 2, map.y, map.y + map.height - height)
-  return { x, y, width, height }
+  const centreY = bounds.y + bounds.height / 2
+  return {
+    x: map.x,
+    y: clampBand(centreY - height / 2, map.y, map.y + map.height - height),
+    width,
+    height,
+  }
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  // `hi < lo` when the framing is taller than the map, which a very wide
-  // aspect can produce. Centre it in that case rather than inverting.
+function clampBand(v: number, lo: number, hi: number): number {
+  // `hi < lo` when the band is taller than the map, which a canvas narrower
+  // than the map's own aspect produces. Centre it rather than inverting, and
+  // let the camera letterbox above and below.
   if (hi < lo) return (lo + hi) / 2
   return v < lo ? lo : v > hi ? hi : v
 }

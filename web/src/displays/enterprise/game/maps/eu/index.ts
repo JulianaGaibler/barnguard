@@ -19,20 +19,11 @@ import type {
   PlayAreaContext,
   RegionInfo,
 } from '../types'
-import { fitRegionView, ScreenEdgeMask } from './playArea'
+import { fitRegionBand, ScreenEdgeMask } from './playArea'
 import { DRAWN_ONLY, SOVEREIGN } from './regions'
 
 /** Wire key for this map's records and high scores. */
 export const MAP_ID_EU = 'eu'
-
-/**
- * Padding factor around a selected country's own bounds, and the floor on a
- * play framing's width in map units. The floor is close to the German map's
- * 661-wide play framing, so packet speeds and spawn distances, which are tuned
- * in map units, behave the same on both maps.
- */
-const PLAY_PADDING = 1.3
-const MIN_PLAY_WIDTH = 700
 
 /**
  * Grid overlay cell size. The German map uses its own tuned value over a
@@ -55,9 +46,7 @@ function regionFrom(
   }
   // The deepest interior point, not the centroid: a country drawn in several
   // pieces, or with a deep concavity, puts its centroid in the sea.
-  const deepest = entry.contours
-    ? deepestInteriorPoint(entry.contours)
-    : null
+  const deepest = entry.contours ? deepestInteriorPoint(entry.contours) : null
   const startPoint = deepest
     ? { x: deepest[0], y: deepest[1] }
     : {
@@ -98,13 +87,7 @@ export async function loadEuropeMap(): Promise<MapDescriptor> {
     regions,
     idleView,
     playViewFor(region, cameraAspect) {
-      return fitRegionView(
-        region.shape.bounds,
-        region.startPoint,
-        idleView,
-        cameraAspect,
-        { padding: PLAY_PADDING, minWidth: MIN_PLAY_WIDTH },
-      )
+      return fitRegionBand(region.shape.bounds, idleView, cameraAspect)
     },
     playAreaMask(ctx: PlayAreaContext) {
       return new ScreenEdgeMask(ctx.viewport)

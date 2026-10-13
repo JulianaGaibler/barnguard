@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitRegionView, ScreenEdgeMask } from './playArea'
+import { fitRegionBand, ScreenEdgeMask } from './playArea'
 
 const VIEW = { x: 100, y: 50, width: 800, height: 450 }
 
@@ -42,55 +42,81 @@ describe('ScreenEdgeMask', () => {
   })
 })
 
-describe('fitRegionView', () => {
+describe('fitRegionBand', () => {
   const MAP = { x: 0, y: 0, width: 1134, height: 1167 }
-  const opts = { padding: 1.3, minWidth: 700 }
+  const WIDE = 16 / 9
 
-  it('never frames narrower than the minimum, however small the region', () => {
-    // Gameplay distances are tuned in map units, so a view scaled to a
-    // 9-unit country would leave no room to play.
+  it("always frames the map's full width, whatever the region", () => {
+    // Cutting the map off on the left or right is the thing this must never
+    // do, so the width is not a function of the region at all.
     const tiny = { x: 560, y: 500, width: 9, height: 12 }
-    const view = fitRegionView(tiny, { x: 564, y: 506 }, MAP, 16 / 9, opts)
-    expect(view.width).toBe(700)
-    expect(view.height).toBeCloseTo(700 / (16 / 9), 3)
+    const big = { x: 100, y: 200, width: 900, height: 700 }
+    expect(fitRegionBand(tiny, MAP, WIDE).width).toBe(MAP.width)
+    expect(fitRegionBand(big, MAP, WIDE).width).toBe(MAP.width)
+    expect(fitRegionBand(tiny, MAP, WIDE).x).toBe(MAP.x)
   })
 
-  it('grows to hold a tall region on the vertical axis', () => {
-    // Norway is taller than it is wide, so the width has to come from the
-    // height times the aspect or the country would not fit on screen.
-    const tall = { x: 700, y: 20, width: 298, height: 407 }
-    const view = fitRegionView(tall, { x: 850, y: 220 }, MAP, 16 / 9, opts)
-    expect(view.height).toBeGreaterThanOrEqual(407)
+  it('takes its height from the canvas aspect, so the view fits exactly', () => {
+    // An exact fit is what puts the map's left and right edges on the
+    // screen's, which is what makes the screen-edge loss fair.
+    for (const aspect of [16 / 9, 4 / 3, 21 / 9]) {
+      const band = fitRegionBand(
+        { x: 0, y: 500, width: 10, height: 10 },
+        MAP,
+        aspect,
+      )
+      expect(band.width / band.height).toBeCloseTo(aspect, 6)
+    }
   })
 
-  it('never frames wider than the map', () => {
-    const huge = { x: 0, y: 0, width: 1100, height: 1100 }
-    const view = fitRegionView(huge, { x: 550, y: 550 }, MAP, 16 / 9, opts)
-    expect(view.width).toBeLessThanOrEqual(MAP.width)
-  })
-
-  it('slides a corner region back inside the map', () => {
-    // Cyprus sits at the far bottom right. Centring on it alone would frame
-    // empty space past the edge.
-    const corner = { x: 1080, y: 1120, width: 30, height: 20 }
-    const view = fitRegionView(corner, { x: 1095, y: 1130 }, MAP, 16 / 9, opts)
-    expect(view.x + view.width).toBeLessThanOrEqual(MAP.width + 1e-6)
-    expect(view.y + view.height).toBeLessThanOrEqual(MAP.height + 1e-6)
-    expect(view.x).toBeGreaterThanOrEqual(0)
-  })
-
-  it('centres on the region when the framing cannot fit the map', () => {
-    // A very wide canvas can want a view taller than the map allows. Centring
-    // beats inverting the clamp and jumping somewhere arbitrary.
-    const narrowMap = { x: 0, y: 0, width: 1134, height: 200 }
-    const view = fitRegionView(
-      { x: 500, y: 90, width: 20, height: 20 },
-      { x: 510, y: 100 },
-      narrowMap,
-      1,
-      opts,
+  it('zooms every region by the same amount', () => {
+    const a = fitRegionBand({ x: 0, y: 100, width: 9, height: 9 }, MAP, WIDE)
+    const b = fitRegionBand(
+      { x: 900, y: 900, width: 300, height: 400 },
+      MAP,
+      WIDE,
     )
-    expect(Number.isFinite(view.y)).toBe(true)
-    expect(view.height).toBeGreaterThan(narrowMap.height)
+    expect(a.height).toBeCloseTo(b.height, 6)
+  })
+
+  it('centres the band on the region', () => {
+    const band = fitRegionBand(
+      { x: 400, y: 500, width: 100, height: 100 },
+      MAP,
+      WIDE,
+    )
+    expect(band.y + band.height / 2).toBeCloseTo(550, 6)
+  })
+
+  it('holds a tall northern region fully on screen', () => {
+    // Norway: centring on its deepest interior point (in the south) would push
+    // the north off screen, so the band follows the bounds instead.
+    const norway = { x: 700, y: 20, width: 298, height: 407 }
+    const band = fitRegionBand(norway, MAP, WIDE)
+    expect(band.y).toBeLessThanOrEqual(norway.y)
+    expect(band.y + band.height).toBeGreaterThanOrEqual(
+      norway.y + norway.height,
+    )
+  })
+
+  it('keeps the band inside the map vertically', () => {
+    const top = { x: 400, y: 0, width: 50, height: 40 }
+    const bottom = { x: 400, y: 1120, width: 50, height: 40 }
+    const a = fitRegionBand(top, MAP, WIDE)
+    const b = fitRegionBand(bottom, MAP, WIDE)
+    expect(a.y).toBeGreaterThanOrEqual(MAP.y)
+    expect(b.y + b.height).toBeLessThanOrEqual(MAP.y + MAP.height + 1e-6)
+  })
+
+  it('centres a band taller than the map rather than inverting', () => {
+    // A canvas narrower than the map's own aspect wants more height than the
+    // map has. Letterboxing above and below beats a flipped clamp.
+    const band = fitRegionBand(
+      { x: 400, y: 600, width: 50, height: 50 },
+      MAP,
+      0.5,
+    )
+    expect(band.height).toBeGreaterThan(MAP.height)
+    expect(band.y + band.height / 2).toBeCloseTo(MAP.y + MAP.height / 2, 6)
   })
 })
