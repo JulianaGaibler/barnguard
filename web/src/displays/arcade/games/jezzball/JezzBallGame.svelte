@@ -161,14 +161,6 @@
     return coverView(gameRect, REGION_WIDTH / REGION_HEIGHT)
   }
 
-  // Stylized in-engine menu preview, up only while the splash is shown.
-  // Reading `gameRect` makes this rebuild the preview when the window resizes.
-  $effect(() => {
-    if (screen !== 'splash') return
-    const preview = buildJezzballMenuPreview(host, previewView())
-    return () => preview.destroy()
-  })
-
   // --- Non-reactive runtime state. Everything below drives canvas nodes
   // directly (no DOM to react through), so plain fields + imperative updates
   // stand in for `$state`/`$derived` chains.
@@ -771,6 +763,16 @@
       if (!chromeLayer.isDestroyed) chromeLayer.destroy()
       contentLayer = null
     }
+  })
+
+  // In-engine menu preview, shown only on the splash screen. It draws on the
+  // same `dynamic` layer as the backdrop `onMount` adds, where paint order
+  // follows scene insertion, so this effect must stay after `onMount` or the
+  // backdrop covers it. Reading `gameRect` rebuilds it on resize.
+  $effect(() => {
+    if (screen !== 'splash') return
+    const preview = buildJezzballMenuPreview(host, previewView())
+    return () => preview.destroy()
   })
 </script>
 

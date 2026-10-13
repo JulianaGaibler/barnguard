@@ -96,9 +96,9 @@ export const MONSTERS_INT_STRINGS = {
    * rules are recognised as a group before they are told apart.
    */
   tutorial: {
-    goalTitle: 'First to 200 wins',
+    goalTitle: 'First to 75 wins',
     goalBody:
-      'A round is worth what the numbers in front of you add up to. Bank enough rounds to reach 200 and the match is yours.',
+      'A round is worth what the numbers in front of you add up to. Bank enough rounds to reach 75 and the match is yours.',
 
     deckTitle: 'Big numbers are common',
     deckBody:
@@ -127,7 +127,7 @@ export const MONSTERS_INT_STRINGS = {
 
   /**
    * A way to finish rather than abandon. The booth is played standing up and a
-   * game to 200 can outlast the people playing it, so the table can call the
+   * game to 75 can outlast the people playing it, so the table can call the
    * score where it stands and still get a winner.
    */
   endEarly: 'Call it here',

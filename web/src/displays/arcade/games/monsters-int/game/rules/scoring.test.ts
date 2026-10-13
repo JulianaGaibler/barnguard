@@ -220,7 +220,7 @@ describe('the match', () => {
     expect(match.over).toBe(false)
   })
 
-  // The booth is played standing up and a game to 200 can outlast the people
+  // The booth is played standing up and a game to 75 can outlast the people
   // playing it, so the table can stop and still get a winner.
   it('settles on whoever is ahead when the table calls it early', () => {
     const match = createMatch(3, 1)

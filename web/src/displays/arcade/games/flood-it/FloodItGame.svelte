@@ -166,14 +166,6 @@
     return coverView(gameRect, REGION_WIDTH / REGION_HEIGHT)
   }
 
-  // Stylized in-engine menu preview, up only while the splash is shown.
-  // Reading `gameRect` rebuilds it when the window resizes.
-  $effect(() => {
-    if (screen !== 'splash') return
-    const preview = buildFloodItMenuPreview(host, previewView(), gameRect)
-    return () => preview.destroy()
-  })
-
   // --- Building a mode ----------------------------------------------------
 
   function start(next: GameMode): void {
@@ -666,6 +658,16 @@
       pauseButton = null
       glyphButton = null
     }
+  })
+
+  // In-engine menu preview, shown only on the splash screen. It draws on the
+  // same `dynamic` layer as the backdrop `onMount` adds, where paint order
+  // follows scene insertion, so this effect must stay after `onMount` or the
+  // backdrop covers it. Reading `gameRect` rebuilds it on resize.
+  $effect(() => {
+    if (screen !== 'splash') return
+    const preview = buildFloodItMenuPreview(host, previewView(), gameRect)
+    return () => preview.destroy()
   })
 </script>
 

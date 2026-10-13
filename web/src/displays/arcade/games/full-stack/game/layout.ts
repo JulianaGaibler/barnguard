@@ -237,10 +237,12 @@ export function cellRect(geom: OrgGeom, row: number, col: number): Rect {
 /**
  * Rect of one cell in a `cols` x `rows` grid fitted (centred) inside `region`.
  *
- * The org shows a 3x3 window at rest but opens to as much as 4x4 during a drag,
- * and the cards scale down to keep the same region. This fits whatever window
- * is asked for, so an org cell is the same width as a shortlist card only while
- * the window is 3 wide, which is the intended "nine equal at rest" behaviour.
+ * The org shows a 3-wide window at rest but opens to as much as 4x4 during a
+ * drag, and the cards scale down to keep the same region. A card never scales
+ * _up_ past its canonical width (`region.width / REGION_SPAN`, the same width a
+ * shortlist card gets), so a smaller org, like the Quick board's 2x2, keeps
+ * standard-sized cards centred with air around them rather than blown up to
+ * fill the space. The cap is a no-op for a 3-wide or wider window.
  */
 export function windowCellRect(
   region: Rect,
@@ -253,7 +255,8 @@ export function windowCellRect(
   const a = LAYOUT.cardAspect
   const cellByW = region.width / (cols + (cols - 1) * g)
   const cellByH = region.height / (rows * a + (rows - 1) * g)
-  const cell = Math.max(0, Math.min(cellByW, cellByH))
+  const cellMax = region.width / REGION_SPAN
+  const cell = Math.max(0, Math.min(cellByW, cellByH, cellMax))
   const gap = cell * g
   const gridW = cols * cell + (cols - 1) * gap
   const gridH = rows * cell * a + (rows - 1) * gap

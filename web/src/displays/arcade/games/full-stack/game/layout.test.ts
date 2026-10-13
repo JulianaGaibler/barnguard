@@ -10,6 +10,7 @@ import {
   helpFocus,
   orgGeom,
   shortlistSlots,
+  windowCellRect,
 } from './layout'
 import { LAYOUT } from './tuning'
 
@@ -122,6 +123,19 @@ describe('org geometry', () => {
     const b = cellRect(g, 0, 1)
     const c = cellRect(g, 0, 2)
     expect(b.x - a.x).toBeCloseTo(c.x - b.x, 5)
+  })
+
+  it('keeps a 2x2 window at the same card size as 3x3, not larger', () => {
+    // The Quick board has fewer cards but must not blow them up to fill the org
+    // region; a 2x2 cell is the standard 3x3 cell size, centred with air.
+    const t = computeTable({ x: 0, y: 0, width: 1920, height: 1080 })
+    const region = t.org[0]
+    const std = windowCellRect(region, 3, 3, 0, 0).width
+    const quick = windowCellRect(region, 2, 2, 0, 0).width
+    expect(quick).toBeCloseTo(std, 5)
+    // Centred: the 2x2 block leaves equal margins, so it starts inside the region.
+    const quickCell = windowCellRect(region, 2, 2, 0, 0)
+    expect(quickCell.x).toBeGreaterThan(region.x)
   })
 })
 

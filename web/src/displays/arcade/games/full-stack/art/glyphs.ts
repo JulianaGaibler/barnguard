@@ -178,8 +178,15 @@ const AREA_NAMES: Record<Area, string> = {
   rightColumn: 'the right column',
   corner: 'a corner',
   edgeCenter: 'the middle of an edge',
+  topLeft: 'the top-left corner',
+  topRight: 'the top-right corner',
+  bottomLeft: 'the bottom-left corner',
+  bottomRight: 'the bottom-right corner',
 }
 
+// The single-corner areas are Quick-only. Quick renders their scoring as text,
+// not as the org-grid glyph, so these entries are never drawn; they exist to
+// keep the record total and reuse the corner diagram if that ever changes.
 const AREA_ICON: Record<Area, IconId> = {
   topRow: 'area-top-row',
   middleRow: 'area-middle-row',
@@ -189,6 +196,10 @@ const AREA_ICON: Record<Area, IconId> = {
   rightColumn: 'area-right-column',
   corner: 'area-corner',
   edgeCenter: 'area-edge-center',
+  topLeft: 'area-corner',
+  topRight: 'area-corner',
+  bottomLeft: 'area-corner',
+  bottomRight: 'area-corner',
 }
 
 const REGION_ICON: Record<Exclude<Region, 'org'>, IconId> = {

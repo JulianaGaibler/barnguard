@@ -23,14 +23,19 @@ export interface MenuAction {
   }
 }
 
-/** A button that opens a sub-panel of actions in the same rail. */
+/**
+ * A button that opens a sub-panel in the same rail. Its items may themselves be
+ * submenus, so a menu can nest more than one level deep (e.g. opponent, then
+ * mode, then AI difficulty). `MenuScreen` tracks the open path and adds a Back
+ * button at every level.
+ */
 export interface MenuSubmenu {
   kind: 'submenu'
   label: string
   variant?: MenuVariant
   /** Heading shown above the sub-panel (e.g. "Play against AI"). */
   heading: string
-  items: MenuAction[]
+  items: MenuItem[]
 }
 
 export type MenuItem = MenuAction | MenuSubmenu

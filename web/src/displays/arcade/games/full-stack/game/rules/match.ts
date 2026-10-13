@@ -1,10 +1,15 @@
 // The match: two orgs, two shared shortlists, and the floor marker between them.
 //
-// An org is built in a 5x5 working grid rather than a 3x3. The first hire lands
-// dead centre, and every later one must touch an existing card without pushing
-// the bounding box past 3x3. A fixed 3x3 array would wrongly forbid growing up
-// or left from the first card. Nine connected cards inside a 3x3 box can only be
-// a full 3x3, so `normalize` always finds one at the end.
+// The org is `width` seats on a side: 3 (a 3x3 org) for a standard match, 2 (a
+// 2x2 org) for a Quick one. `width` rides on the state and everything downstream
+// reads it, so the standard game is just the `width === 3` case.
+//
+// An org is built in a working grid of `width * 2 - 1` rather than `width`. The
+// first hire lands dead centre, and every later one must touch an existing card
+// without pushing the bounding box past `width`. A fixed `width`-wide array
+// would wrongly forbid growing up or left from the first card. `width * width`
+// connected cards inside a `width`-box can only be a full org, so `normalize`
+// always finds one at the end.
 //
 // `applyTurn` mutates and returns an `Undo` that restores the state exactly,
 // including the deck order when a refill triggered a reshuffle. That is what
@@ -18,16 +23,19 @@ import {
   isFilled,
   isOpenSeat,
   scoreOrg,
-  SEAT_COUNT,
   type Cell,
   type Player,
   type Pos,
   type ScoreBreakdown,
 } from './scoring'
 
-/** Working grid width. A 3x3 org anchored at the centre can reach every cell. */
+/**
+ * Working grid width for the standard 3x3 org: wide enough that a full org
+ * anchored at the centre can still grow in every direction. A board of side
+ * `width` uses a working grid of `width * 2 - 1`.
+ */
 export const WORKING = 5
-const CENTER = 2
+const workingWidth = (width: number): number => width * 2 - 1
 
 export const FLOORS: readonly Floor[] = ['management', 'ic']
 export const SHORTLIST_SIZE = 3
@@ -36,6 +44,29 @@ export const STARTING_APPROVALS = 2
 /** Taking a card face down instead of hiring it. */
 export const OPEN_SEAT_BUDGET = 6
 export const OPEN_SEAT_APPROVALS = 2
+
+/**
+ * Starting and open-seat resources per board size. The standard row is the
+ * shipped 3x3 economy; the Quick row is scaled for a four-hire match, where the
+ * standard purse would leave every card affordable and drain the tension. These
+ * Quick numbers are a starting point to settle by playtest.
+ */
+interface Economy {
+  startBudget: number
+  startApprovals: number
+  openBudget: number
+  openApprovals: number
+}
+const ECONOMY: Record<number, Economy> = {
+  3: {
+    startBudget: STARTING_BUDGET,
+    startApprovals: STARTING_APPROVALS,
+    openBudget: OPEN_SEAT_BUDGET,
+    openApprovals: OPEN_SEAT_APPROVALS,
+  },
+  2: { startBudget: 7, startApprovals: 2, openBudget: 3, openApprovals: 1 },
+}
+const economyFor = (width: number): Economy => ECONOMY[width] ?? ECONOMY[3]!
 
 export type PlayerId = 0 | 1
 export type Slot = 0 | 1 | 2
@@ -58,9 +89,11 @@ export interface MatchState {
   shortlists: Record<Floor, (Card | null)[]>
   marker: Floor
   turn: PlayerId
-  /** Hires made across both orgs. The match ends at eighteen. */
+  /** Hires made across both orgs. The match ends at `width * width * 2`. */
   seatsTaken: number
   rngState: number
+  /** Org side: 3 for a standard 3x3 board, 2 for a Quick 2x2 board. */
+  width: number
 }
 
 // A counter-based generator so `Undo` can rewind it by restoring one number.
@@ -76,23 +109,25 @@ function shuffle(cards: Card[], state: MatchState): void {
   }
 }
 
-const emptyGrid = (): Cell[][] =>
-  Array.from({ length: WORKING }, () =>
-    Array.from({ length: WORKING }, () => null as Cell),
+const emptyGrid = (working: number): Cell[][] =>
+  Array.from({ length: working }, () =>
+    Array.from({ length: working }, () => null as Cell),
   )
 
-export function createMatch(seed: number): MatchState {
+export function createMatch(seed: number, width = 3): MatchState {
+  const working = workingWidth(width)
+  const econ = economyFor(width)
   const state: MatchState = {
     sides: [
       {
-        grid: emptyGrid(),
-        budget: STARTING_BUDGET,
-        approvals: STARTING_APPROVALS,
+        grid: emptyGrid(working),
+        budget: econ.startBudget,
+        approvals: econ.startApprovals,
       },
       {
-        grid: emptyGrid(),
-        budget: STARTING_BUDGET,
-        approvals: STARTING_APPROVALS,
+        grid: emptyGrid(working),
+        budget: econ.startBudget,
+        approvals: econ.startApprovals,
       },
     ],
     decks: { management: [], ic: [] },
@@ -102,6 +137,7 @@ export function createMatch(seed: number): MatchState {
     turn: 0,
     seatsTaken: 0,
     rngState: seed >>> 0,
+    width,
   }
   for (const floor of FLOORS) {
     state.decks[floor] = DECK.filter((c) => c.floor === floor).slice()
@@ -148,8 +184,8 @@ export type Bounds = {
 /** The smallest box covering every placed card, or null for an empty org. */
 export function bounds(grid: Cell[][]): Bounds {
   let b: Bounds = null
-  for (let r = 0; r < WORKING; r++) {
-    for (let c = 0; c < WORKING; c++) {
+  for (let r = 0; r < grid.length; r++) {
+    for (let c = 0; c < (grid[r]?.length ?? 0); c++) {
       if (grid[r]![c] === null) continue
       b = b
         ? {
@@ -178,33 +214,36 @@ const touchesACard = (grid: Cell[][], r: number, c: number): boolean =>
  * centre, which costs nothing because the working grid is only a coordinate
  * space.
  */
-export function legalPlacements(grid: Cell[][]): Pos[] {
+export function legalPlacements(grid: Cell[][], width = 3): Pos[] {
   const b = bounds(grid)
-  if (!b) return [{ r: CENTER, c: CENTER }]
+  const center = width - 1
+  if (!b) return [{ r: center, c: center }]
+  const span = width - 1
   const out: Pos[] = []
-  for (let r = 0; r < WORKING; r++) {
-    for (let c = 0; c < WORKING; c++) {
+  for (let r = 0; r < grid.length; r++) {
+    for (let c = 0; c < (grid[r]?.length ?? 0); c++) {
       if (grid[r]![c] !== null) continue
       if (!touchesACard(grid, r, c)) continue
       const h = Math.max(b.maxR, r) - Math.min(b.minR, r)
       const w = Math.max(b.maxC, c) - Math.min(b.minC, c)
-      if (h <= 2 && w <= 2) out.push({ r, c })
+      if (h <= span && w <= span) out.push({ r, c })
     }
   }
   return out
 }
 
-/** Crop a finished working grid down to the 3x3 the rules score. */
-export function normalize(grid: Cell[][]): Cell[][] {
+/** Crop a finished working grid down to the `width`x`width` the rules score. */
+export function normalize(grid: Cell[][], width = 3): Cell[][] {
   const b = bounds(grid)
   if (!b)
-    return [
-      [null, null, null],
-      [null, null, null],
-      [null, null, null],
-    ]
-  return Array.from({ length: 3 }, (_, r) =>
-    Array.from({ length: 3 }, (_, c) => grid[b.minR + r]?.[b.minC + c] ?? null),
+    return Array.from({ length: width }, () =>
+      Array.from({ length: width }, () => null as Cell),
+    )
+  return Array.from({ length: width }, (_, r) =>
+    Array.from(
+      { length: width },
+      (_, c) => grid[b.minR + r]?.[b.minC + c] ?? null,
+    ),
   )
 }
 
@@ -274,9 +313,10 @@ export interface Undo {
   hire: HireUndo
 }
 
-const asPlayer = (side: Side): Player => ({
+const asPlayer = (side: Side, width: number): Player => ({
   grid: side.grid,
   approvals: side.approvals,
+  width,
 })
 
 const otherFloor = (floor: Floor): Floor =>
@@ -334,7 +374,7 @@ function pickBits(b: number, card: Card | null): number[] {
  */
 export function legalHires(state: MatchState): Hire[] {
   const side = state.sides[state.turn]
-  const placements = legalPlacements(side.grid)
+  const placements = legalPlacements(side.grid, state.width)
   const out: Hire[] = []
   for (let slot = 0 as Slot; slot < SHORTLIST_SIZE; slot = (slot + 1) as Slot) {
     const card = state.shortlists[state.marker][slot]
@@ -470,9 +510,10 @@ export function applyHire(state: MatchState, hire: Hire): HireUndo {
   if (card) state.shortlists[state.marker][hire.slot] = null
 
   if (hire.take === 'openSeat') {
+    const econ = economyFor(state.width)
     place(side.grid, hire.at, { openSeat: true })
-    side.budget += OPEN_SEAT_BUDGET
-    side.approvals += OPEN_SEAT_APPROVALS
+    side.budget += econ.openBudget
+    side.approvals += econ.openApprovals
   } else if (card) {
     side.budget -= effectiveCost(card, side.grid)
     place(side.grid, hire.at, { card, budget: 0 })
@@ -480,8 +521,8 @@ export function applyHire(state: MatchState, hire: Hire): HireUndo {
     // The new card counts itself in anything that scales on the org.
     const out = resolveAbility(
       card,
-      asPlayer(side),
-      asPlayer(other),
+      asPlayer(side, state.width),
+      asPlayer(other, state.width),
       hire.picks,
     )
     side.budget += out.selfBudget
@@ -546,7 +587,7 @@ function dropCandidate(state: MatchState, side: Side, floor: Floor): void {
 }
 
 export const isOver = (state: MatchState): boolean =>
-  state.seatsTaken >= SEAT_COUNT * 2
+  state.seatsTaken >= state.width * state.width * 2
 
 // Result
 
@@ -571,8 +612,8 @@ export interface MatchResult {
  * Also called on a partly built org, where the crop is provisional and position
  * bonuses may still move. The AI uses that as its board evaluation.
  */
-export function settleSide(side: Side): SideResult {
-  const grid = normalize(side.grid).map((row) =>
+export function settleSide(side: Side, width = 3): SideResult {
+  const grid = normalize(side.grid, width).map((row) =>
     row.map((cell) =>
       cell && isFilled(cell) ? { card: cell.card, budget: cell.budget } : cell,
     ),
@@ -583,7 +624,7 @@ export function settleSide(side: Side): SideResult {
     if (cell && isFilled(cell)) cell.budget += f.amount
   }
   return {
-    breakdown: scoreOrg({ grid, approvals: side.approvals }),
+    breakdown: scoreOrg({ grid, approvals: side.approvals, width }),
     loose,
     grid,
   }
@@ -591,7 +632,10 @@ export function settleSide(side: Side): SideResult {
 
 /** Settle both orgs and decide the winner. */
 export function finish(state: MatchState): MatchResult {
-  const settled = state.sides.map(settleSide) as [SideResult, SideResult]
+  const settled = state.sides.map((s) => settleSide(s, state.width)) as [
+    SideResult,
+    SideResult,
+  ]
   const [a, b] = settled
   let winner: PlayerId | null = null
   if (a.breakdown.total !== b.breakdown.total) {

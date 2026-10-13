@@ -35,6 +35,7 @@ import {
   describeScoringSpans,
   money,
 } from './text'
+import { resolveScoring } from './scoring'
 import { glyphSpan } from '../../art/glyphs'
 import type { Glyph, GlyphOptions, SimpleGlyph } from '../../art/glyphs'
 
@@ -211,7 +212,7 @@ function metricGlyphs(m: Metric): TextSpan[] | null {
   }
 }
 
-function scoringGlyphs(s: ScoringRule): TextSpan[] | null {
+function scoringGlyphs(s: ScoringRule, width: number): TextSpan[] | null {
   switch (s.score) {
     case 'perMetric': {
       const region = s.region ?? 'org'
@@ -236,7 +237,7 @@ function scoringGlyphs(s: ScoringRule): TextSpan[] | null {
       // plus. Anything else reads as a list of alternatives.
       return [t('per set '), ...join(s.of.map(metricSpans), ' + ')]
     case 'bonus':
-      return conditionGlyphs(s.when)
+      return conditionGlyphs(s.when, width)
     case 'budgetLine':
       // The bag is where leftover budget lands when the game is scored, and
       // saying so is the whole job of this line: the seat holds nothing while
@@ -257,9 +258,13 @@ function scoringGlyphs(s: ScoringRule): TextSpan[] | null {
   }
 }
 
-function conditionGlyphs(c: Condition): TextSpan[] | null {
+function conditionGlyphs(c: Condition, width: number): TextSpan[] | null {
   switch (c.when) {
     case 'inArea':
+      // The area glyph draws the 3x3 org. On the 2x2 Quick board that picture
+      // would misrepresent the seats, so the clause falls back to words
+      // ("... the top-left corner") instead.
+      if (width < 3) return null
       return [t('if placed in '), g({ g: 'area', area: c.area })]
     case 'noGroup':
       return [t('if no '), g({ g: 'group', group: c.group })]
@@ -354,8 +359,11 @@ function join(groups: TextSpan[][], sep: string): TextSpan[] {
 }
 
 /** The card's performance review, for the card face. */
-export function scoringFaceSpans(card: Card): TextSpan[] {
-  return breathe(scoringGlyphs(card.scoring) ?? describeScoringSpans(card))
+export function scoringFaceSpans(card: Card, width = 3): TextSpan[] {
+  const rule = resolveScoring(card, width)
+  return breathe(
+    scoringGlyphs(rule, width) ?? describeScoringSpans(card, width),
+  )
 }
 
 /** One branch of a `choose` card, for the prompt that asks which. */

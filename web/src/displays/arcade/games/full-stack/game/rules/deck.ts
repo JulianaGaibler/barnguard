@@ -63,7 +63,11 @@ export type Metric =
 /** Which cells a scoring rule counts over, relative to the scoring card. */
 export type Region = 'row' | 'column' | 'rowOrColumn' | 'org'
 
-/** A named part of the finished 3x3 org, for position bonuses. */
+/**
+ * A named part of the finished org, for position bonuses. The row/column/edge
+ * names describe the 3x3 org; the four single-corner names are what a 2x2 org
+ * can express, where every seat is a corner and there is no middle or edge.
+ */
 export type Area =
   | 'topRow'
   | 'middleRow'
@@ -73,6 +77,10 @@ export type Area =
   | 'rightColumn'
   | 'corner'
   | 'edgeCenter'
+  | 'topLeft'
+  | 'topRight'
+  | 'bottomLeft'
+  | 'bottomRight'
 
 export type Condition =
   | { when: 'inArea'; area: Area }
@@ -134,6 +142,12 @@ export interface Card {
   /** Empty for every card that grants a discount, non-empty for all others. */
   ability: Effect[]
   scoring: ScoringRule
+  /**
+   * Scoring used on the 2x2 Quick board, where the 3x3 deck's point values and
+   * shapes do not fit. Omitted when the standard rule already scales down (see
+   * `resolveScoring` in `scoring.ts`, which shrinks run/set sizes on its own).
+   */
+  quickScoring?: ScoringRule
 }
 
 export const DECK: readonly Card[] = [

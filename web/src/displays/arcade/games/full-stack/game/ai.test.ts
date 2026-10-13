@@ -16,13 +16,13 @@ import { type Difficulty, type SearchConfig } from './tuning'
 const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard']
 
 /** Play a whole match with the computer on both sides. */
-function autoPlay(seed: number, difficulty: Difficulty): MatchState {
-  const state = createMatch(seed)
+function autoPlay(seed: number, difficulty: Difficulty, width = 3): MatchState {
+  const state = createMatch(seed, width)
   const rng = seededRandom(seed ^ 0x5f3759df)
   let guard = 0
   while (!isOver(state)) {
     if (guard++ > 40) throw new Error('match did not terminate')
-    const legal = legalPlacements(state.sides[state.turn].grid)
+    const legal = legalPlacements(state.sides[state.turn].grid, state.width)
     const turn = takeAiTurn(state, difficulty, rng)
     expect(turn, `no turn at seat ${state.seatsTaken}`).not.toBeNull()
     // Whatever it picked has to be something the rules actually allow.
@@ -46,6 +46,23 @@ describe('chooseTurn', () => {
       const result = finish(state)
       for (const side of result.sides) {
         expect(side.grid.flat().filter((c) => c !== null)).toHaveLength(9)
+      }
+    },
+    30_000,
+  )
+
+  it.each(DIFFICULTIES)(
+    'plays a legal quick (2x2) match on %s',
+    (difficulty) => {
+      const state = autoPlay(5, difficulty, 2)
+      expect(state.seatsTaken).toBe(8)
+      for (const side of state.sides) {
+        expect(seatsFilled(side.grid)).toBe(4)
+        expect(side.budget).toBeGreaterThanOrEqual(0)
+      }
+      const result = finish(state)
+      for (const side of result.sides) {
+        expect(side.grid.flat().filter((c) => c !== null)).toHaveLength(4)
       }
     },
     30_000,

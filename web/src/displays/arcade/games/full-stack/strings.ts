@@ -10,6 +10,12 @@ export const FS_STRINGS = {
   twoPlayers: '2 Players',
   onePlayer: '1 Player',
   playAgainstAi: 'Play against AI',
+  /** Main-menu navigation: opponent, then mode, then AI difficulty. */
+  vsAi: 'Against AI',
+  chooseMode: 'Choose a mode',
+  chooseDifficulty: 'Choose a difficulty',
+  standard: 'Standard',
+  quick: 'Quick',
   easy: 'Intern',
   medium: 'Manager',
   hard: 'Executive',

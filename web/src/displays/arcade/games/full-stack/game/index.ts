@@ -2,6 +2,7 @@
 export { startGame, type GameSession } from './session'
 export { centreColumn, helpFocus } from './layout'
 export type {
+  BoardSize,
   ChoicePrompt,
   GameEvents,
   GameMode,
