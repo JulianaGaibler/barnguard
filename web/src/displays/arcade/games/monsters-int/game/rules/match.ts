@@ -9,7 +9,7 @@
 import type { RoundScore, SeatId } from './player'
 
 /** Points that end the game. Reached at the END of a round, never mid-round. */
-export const TARGET_SCORE = 200
+export const TARGET_SCORE = 75
 
 export interface MatchState {
   totals: number[]
@@ -70,7 +70,7 @@ export function applyRoundScores(
  *
  * The target is what normally ends a game, but a booth game also has to end
  * when the people playing it have to leave. Whoever is ahead at that point wins
- * on the same terms as anyone who reached 200, ties included.
+ * on the same terms as anyone who reached 75, ties included.
  */
 export function endMatch(state: MatchState): void {
   const best = Math.max(...state.totals)

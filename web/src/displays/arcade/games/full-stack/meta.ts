@@ -12,7 +12,7 @@ export const fullStackModule: GameModule = {
     id: 'full-stack',
     title: 'Full Stack',
     description:
-      'Hire nine people into a 3x3 org from two shared shortlists. Every hire pays out once and scores at the end, so the org you build is the score you get.',
+      'Hire people into an org from two shared shortlists. Every hire pays out once and scores at the end, so the org you build is the score you get. Play the full 3x3 org, or a quick 2x2 game.',
     playerCounts: [1, 2],
     supportsAi: true,
     thumbColor: '#eceae4',

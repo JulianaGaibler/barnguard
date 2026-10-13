@@ -4,8 +4,12 @@ import type { TextSpan } from '@src/stargazer'
 import type { Difficulty } from './tuning'
 import type { Card } from './rules/deck'
 
+/** Board size: `standard` is the 3x3/9-seat org, `quick` the 2x2/4-seat one. */
+export type BoardSize = 'standard' | 'quick'
+
 export type GameMode =
-  { kind: 'versus' } | { kind: 'ai'; difficulty: Difficulty }
+  | { kind: 'versus'; size: BoardSize }
+  | { kind: 'ai'; difficulty: Difficulty; size: BoardSize }
 
 export type SessionState = 'idle' | 'playing' | 'gameOver'
 

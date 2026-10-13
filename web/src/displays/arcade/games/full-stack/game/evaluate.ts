@@ -13,9 +13,9 @@
 // first turn and exactly one once the org spans three in both directions, so
 // positional scores firm up on their own as the player commits.
 
-import { bounds, seatsFilled, WORKING, type Side } from './rules/match'
+import { bounds, seatsFilled, type Side } from './rules/match'
 import { fillBudgetLinesAtEnd } from './rules/economy'
-import { isFilled, scoreOrg, SEAT_COUNT, type Cell } from './rules/scoring'
+import { isFilled, scoreOrg, type Cell } from './rules/scoring'
 
 export interface Weights {
   /** Worth of a dollar that will not fit on a budget line but still buys cards. */
@@ -59,23 +59,44 @@ export const DEFAULT_WEIGHTS: Weights = {
  * on the last turn buys no options at all: it is worth exactly the point it
  * scores. Holding one back matters early and not at all late.
  */
-function approvalValue(n: number, seatsLeft: number, weights: Weights): number {
+function approvalValue(
+  n: number,
+  seatsLeft: number,
+  weights: Weights,
+  seats: number,
+): number {
   const k = Math.max(1e-6, weights.approvalReserveScale)
-  const horizon = Math.max(0, Math.min(1, seatsLeft / SEAT_COUNT))
+  const horizon = Math.max(0, Math.min(1, seatsLeft / seats))
   return weights.approvalReserve * (1 - Math.exp(-n / k)) * horizon
 }
 
-/** Every 3x3 window of the working grid that still covers all placed cards. */
-function candidateWindows(grid: readonly (readonly Cell[])[]): {
+/**
+ * Every `width`x`width` window of the working grid that still covers all placed
+ * cards.
+ */
+function candidateWindows(
+  grid: readonly (readonly Cell[])[],
+  width: number,
+): {
   r0: number
   c0: number
 }[] {
   const b = bounds(grid as Cell[][])
-  const last = WORKING - 3
-  if (!b) return [{ r0: 1, c0: 1 }]
+  const span = width - 1
+  const last = grid.length - width
+  const mid = Math.max(0, Math.floor(last / 2))
+  if (!b) return [{ r0: mid, c0: mid }]
   const out: { r0: number; c0: number }[] = []
-  for (let r0 = Math.max(0, b.maxR - 2); r0 <= Math.min(b.minR, last); r0++) {
-    for (let c0 = Math.max(0, b.maxC - 2); c0 <= Math.min(b.minC, last); c0++) {
+  for (
+    let r0 = Math.max(0, b.maxR - span);
+    r0 <= Math.min(b.minR, last);
+    r0++
+  ) {
+    for (
+      let c0 = Math.max(0, b.maxC - span);
+      c0 <= Math.min(b.minC, last);
+      c0++
+    ) {
       out.push({ r0, c0 })
     }
   }
@@ -99,9 +120,14 @@ function settled(side: Side): { grid: Cell[][]; loose: number } {
   return { grid, loose }
 }
 
-const crop = (grid: Cell[][], r0: number, c0: number): Cell[][] =>
-  Array.from({ length: 3 }, (_, r) =>
-    Array.from({ length: 3 }, (_, c) => grid[r0 + r]?.[c0 + c] ?? null),
+const crop = (
+  grid: Cell[][],
+  r0: number,
+  c0: number,
+  width: number,
+): Cell[][] =>
+  Array.from({ length: width }, (_, r) =>
+    Array.from({ length: width }, (_, c) => grid[r0 + r]?.[c0 + c] ?? null),
   )
 
 /**
@@ -115,25 +141,28 @@ export function orgValue(
   side: Side,
   weights: Weights,
   expectedWindows: boolean,
+  width = 3,
 ): number {
   const { grid, loose } = settled(side)
   const windows = expectedWindows
-    ? candidateWindows(grid)
-    : candidateWindows(grid).slice(0, 1)
+    ? candidateWindows(grid, width)
+    : candidateWindows(grid, width).slice(0, 1)
 
   let points = 0
   for (const w of windows) {
     points += scoreOrg({
-      grid: crop(grid, w.r0, w.c0),
+      grid: crop(grid, w.r0, w.c0, width),
       approvals: side.approvals,
+      width,
     }).total
   }
   points /= windows.length
 
-  const seatsLeft = SEAT_COUNT - seatsFilled(side.grid)
+  const seats = width * width
+  const seatsLeft = seats - seatsFilled(side.grid)
   return (
     points +
     loose * weights.looseBudget +
-    approvalValue(side.approvals, seatsLeft, weights)
+    approvalValue(side.approvals, seatsLeft, weights, seats)
   )
 }

@@ -53,7 +53,7 @@ export const monstersIntModule: GameModule = {
     id: 'monsters-int',
     title: 'Monsters, Int',
     description:
-      'Take another card, or bank what you have. Collect the same number twice and the round eats you. First to 200 wins, and the monster is dealing.',
+      'Take another card, or bank what you have. Collect the same number twice and the round eats you. First to 75 wins, and the monster is dealing.',
     playerCounts: [2, 3, 4, 5],
     thumbColor: COLORS.skin,
     thumbImage,

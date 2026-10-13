@@ -83,12 +83,18 @@ const now = (): number =>
  * ignores the other player. At 1 it treats a point denied as a point earned.
  */
 function fitness(state: MatchState, me: PlayerId, cfg: SearchConfig): number {
-  const mine = orgValue(state.sides[me], cfg.weights, cfg.expectedWindows)
+  const mine = orgValue(
+    state.sides[me],
+    cfg.weights,
+    cfg.expectedWindows,
+    state.width,
+  )
   if (cfg.weights.denial === 0) return mine
   const theirs = orgValue(
     state.sides[me === 0 ? 1 : 0],
     cfg.weights,
     cfg.expectedWindows,
+    state.width,
   )
   return mine + cfg.weights.denial * (mine - theirs)
 }

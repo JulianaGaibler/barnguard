@@ -348,7 +348,7 @@ const WIDE_ZOOM = 720
 
 // --- the cards --------------------------------------------------------------
 
-/** A round is worth what its numbers add up to, and 200 of them wins a match. */
+/** A round is worth what its numbers add up to, and 75 of them wins a match. */
 export const buildGoalDemo: DemoBuilder = (stage): DemoHandle => {
   const b = bench(stage, FOCUS.centerX, HAND_CENTER_Y, HAND_ZOOM)
   addMouth(b)

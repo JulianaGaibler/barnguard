@@ -23,7 +23,7 @@ import {
   type Resource,
   type ScoringRule,
 } from './deck'
-import type { ScoreDetail } from './scoring'
+import { resolveScoring, type ScoreDetail } from './scoring'
 
 export const GROUP_NAMES: Record<Group, string> = {
   leadership: 'Leadership',
@@ -48,6 +48,10 @@ export const AREA_NAMES: Record<Area, string> = {
   rightColumn: 'the right column',
   corner: 'a corner',
   edgeCenter: 'the middle of an edge',
+  topLeft: 'the top-left corner',
+  topRight: 'the top-right corner',
+  bottomLeft: 'the bottom-left corner',
+  bottomRight: 'the bottom-right corner',
 }
 
 const REGION_NAMES: Record<Region, string> = {
@@ -143,9 +147,9 @@ function describeCondition(c: Condition): string {
   }
 }
 
-/** The card's performance review, as spans. */
-export function describeScoringSpans(card: Card): TextRun[] {
-  const s: ScoringRule = card.scoring
+/** The card's performance review, as spans, for the board size in play. */
+export function describeScoringSpans(card: Card, width = 3): TextRun[] {
+  const s: ScoringRule = resolveScoring(card, width)
   switch (s.score) {
     case 'perMetric':
       return [
@@ -179,8 +183,8 @@ export function describeScoringSpans(card: Card): TextRun[] {
   }
 }
 
-export const describeScoring = (card: Card): string =>
-  spanText(describeScoringSpans(card))
+export const describeScoring = (card: Card, width = 3): string =>
+  spanText(describeScoringSpans(card, width))
 
 function describeEffectSpans(e: Effect): TextRun[] {
   switch (e.effect) {

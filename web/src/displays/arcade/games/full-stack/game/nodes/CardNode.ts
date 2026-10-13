@@ -34,6 +34,7 @@ import {
 import type { Card } from '../rules/deck'
 import { OPEN_SEAT_APPROVALS, OPEN_SEAT_BUDGET } from '../rules/match'
 import { abilityFaceSpans, scoringFaceSpans } from '../rules/glyphText'
+import { resolveScoring } from '../rules/scoring'
 import {
   drawIcon,
   floorMark,
@@ -89,6 +90,8 @@ export class CardNode extends Node2D {
   #face: CardFaceKind | null = null
   #width = 0
   #height = 0
+  /** Org side of the match this card is in, so scoring reads right on a 2x2. */
+  #boardWidth = 3
   /** Raised cards get a stronger shadow and sit in the drag layer. */
   #lifted = false
   #faded = false
@@ -343,6 +346,11 @@ export class CardNode extends Node2D {
    */
   setScore(score: number | null): void {
     this.#score = score
+  }
+
+  /** The board size this card scores under: 3 for standard, 2 for Quick. */
+  setBoardWidth(width: number): void {
+    this.#boardWidth = width
   }
 
   get width(): number {
@@ -706,7 +714,7 @@ export class CardNode extends Node2D {
       COLORS.reviewChip,
     )
     gfx.fillText(
-      String(card.scoring.points),
+      String(resolveScoring(card, this.#boardWidth).points),
       chip.x + chip.width / 2,
       chip.y + chip.height / 2,
       {
@@ -718,7 +726,7 @@ export class CardNode extends Node2D {
     )
     const sizes = BODY_SIZE_FRACS.map((f) => f * w)
     const block = fitRichTextBlock(
-      scoringFaceSpans(card),
+      scoringFaceSpans(card, this.#boardWidth),
       sizes,
       (s, bold) => font(bold ? 700 : 500, s),
       g.reviewText,

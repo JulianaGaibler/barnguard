@@ -43,8 +43,10 @@
     backLabel = 'Back',
   }: Props = $props()
 
-  /** The open submenu, or null at the root panel. */
-  let openSubmenu = $state<MenuSubmenu | null>(null)
+  // The open submenu path from the root. Empty at the root panel; each entry is
+  // one level deeper. A stack rather than a single ref so menus can nest past
+  // one level (e.g. opponent, then mode, then difficulty).
+  let path = $state<MenuSubmenu[]>([])
 
   interface PanelButton {
     label: string
@@ -54,41 +56,39 @@
     trailing?: MenuAction['trailing']
   }
 
+  const current = $derived<MenuSubmenu | null>(path[path.length - 1] ?? null)
   const showScore = $derived(!!score && (score.left > 0 || score.right > 0))
-  const panelId = $derived(openSubmenu ? openSubmenu.label : '__root')
-  const heading = $derived(openSubmenu?.heading ?? null)
+  const panelId = $derived(
+    path.length ? path.map((p) => p.label).join('/') : '__root',
+  )
+  const heading = $derived(current?.heading ?? null)
+
+  const toButton = (it: MenuItem): PanelButton =>
+    it.kind === 'submenu'
+      ? {
+          label: it.label,
+          variant: it.variant ?? 'primary',
+          onClick: () => (path = [...path, it]),
+        }
+      : {
+          label: it.label,
+          variant: it.variant ?? 'primary',
+          icon: it.icon,
+          onClick: it.onSelect,
+          trailing: it.trailing,
+        }
 
   const buttons = $derived<PanelButton[]>(
-    openSubmenu
+    current
       ? [
-          ...openSubmenu.items.map((a) => ({
-            label: a.label,
-            variant: a.variant ?? 'primary',
-            icon: a.icon,
-            onClick: a.onSelect,
-            trailing: a.trailing,
-          })),
+          ...current.items.map(toButton),
           {
             label: backLabel,
             variant: 'surface' as const,
-            onClick: () => (openSubmenu = null),
+            onClick: () => (path = path.slice(0, -1)),
           },
         ]
-      : items.map((it) =>
-          it.kind === 'submenu'
-            ? {
-                label: it.label,
-                variant: it.variant ?? 'primary',
-                onClick: () => (openSubmenu = it),
-              }
-            : {
-                label: it.label,
-                variant: it.variant ?? 'primary',
-                icon: it.icon,
-                onClick: it.onSelect,
-                trailing: it.trailing,
-              },
-        ),
+      : items.map(toButton),
   )
 </script>
 

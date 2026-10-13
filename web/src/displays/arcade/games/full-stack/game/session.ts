@@ -104,8 +104,6 @@ export interface GameSession {
 const humanControls = (mode: GameMode, side: PlayerId): boolean =>
   mode.kind === 'versus' || side === 0
 
-const GRID = 5
-
 interface OrgWindow {
   r0: number
   c0: number
@@ -206,7 +204,7 @@ export async function startGame(
   ]
 
   let state: SessionState = 'idle'
-  let mode: GameMode = { kind: 'versus' }
+  let mode: GameMode = { kind: 'versus', size: 'standard' }
   let match: MatchState = createMatch(seed)
   let rng: Random = Math.random
   let paused = false
@@ -301,17 +299,17 @@ export async function startGame(
   const controlsActive = (): boolean =>
     state === 'playing' && !paused && humanControls(mode, match.turn)
 
-  /** Bounding box of a side's placed cells in the 5x5 working grid. */
+  /** Bounding box of a side's placed cells in its working grid. */
   function bbox(
     side: PlayerId,
   ): { minR: number; maxR: number; minC: number; maxC: number } | null {
     const grid = match.sides[side].grid
-    let minR = GRID
+    let minR = grid.length
     let maxR = -1
-    let minC = GRID
+    let minC = grid.length
     let maxC = -1
-    for (let r = 0; r < GRID; r++) {
-      for (let c = 0; c < GRID; c++) {
+    for (let r = 0; r < grid.length; r++) {
+      for (let c = 0; c < (grid[r]?.length ?? 0); c++) {
         if (grid[r]![c]) {
           minR = Math.min(minR, r)
           maxR = Math.max(maxR, r)
@@ -326,17 +324,28 @@ export async function startGame(
   const isActiveOrg = (side: PlayerId): boolean =>
     side === match.turn && controlsActive() && selected !== null
 
-  /** Most-centred 3x3 window origin covering [lo, hi], clamped to the grid. */
+  /**
+   * Most-centred window origin covering [lo, hi], clamped to the grid. The
+   * window is one org wide (`match.width`), so it is 3 on the standard board
+   * and 2 on the Quick board.
+   */
   function restWindowStart(lo: number, hi: number): number {
-    const min = Math.max(0, hi - 2)
-    const max = Math.min(GRID - 3, lo)
-    const desired = Math.round((lo + hi) / 2) - 1
+    const width = match.width
+    const working = width * 2 - 1
+    const min = Math.max(0, hi - (width - 1))
+    const max = Math.min(working - width, lo)
+    const desired = Math.round((lo + hi) / 2) - Math.floor((width - 1) / 2)
     return Math.max(min, Math.min(max, desired))
   }
 
   function orgWindow(side: PlayerId): OrgWindow {
+    const width = match.width
+    const working = width * 2 - 1
     const bb = bbox(side)
-    if (!bb) return { r0: 1, c0: 1, rows: 3, cols: 3 }
+    if (!bb) {
+      const mid = Math.floor((working - width) / 2)
+      return { r0: mid, c0: mid, rows: width, cols: width }
+    }
     if (isActiveOrg(side)) {
       // Open to the placed box plus every legal seat, at most 4x4.
       let { minR, maxR, minC, maxC } = bb
@@ -356,8 +365,8 @@ export async function startGame(
     return {
       r0: restWindowStart(bb.minR, bb.maxR),
       c0: restWindowStart(bb.minC, bb.maxC),
-      rows: 3,
-      cols: 3,
+      rows: width,
+      cols: width,
     }
   }
 
@@ -373,7 +382,7 @@ export async function startGame(
     windowCellRect(table.org[side], win.cols, win.rows, r - win.r0, c - win.c0)
 
   function legalSeats(): Pos[] {
-    return legalPlacements(match.sides[match.turn].grid)
+    return legalPlacements(match.sides[match.turn].grid, match.width)
   }
 
   /**
@@ -395,9 +404,10 @@ export async function startGame(
 
     for (const side of [0, 1] as PlayerId[]) {
       const win = orgWindow(side)
-      for (let r = 0; r < GRID; r++) {
-        for (let c = 0; c < GRID; c++) {
-          const cell = match.sides[side].grid[r]![c] ?? null
+      const grid = match.sides[side].grid
+      for (let r = 0; r < grid.length; r++) {
+        for (let c = 0; c < (grid[r]?.length ?? 0); c++) {
+          const cell = grid[r]![c] ?? null
           const id = key(r, c)
           const existing = orgCards[side].get(id)
           if (cell === null || !inWindow(win, r, c)) {
@@ -414,6 +424,7 @@ export async function startGame(
             orgCards[side].set(id, node)
             boardLayer.add(node)
           }
+          node.setBoardWidth(match.width)
           const scored = settled ? scoredSeat(side, r, c) : null
           node.setFace(
             isOpenSeat(cell)
@@ -469,6 +480,7 @@ export async function startGame(
           boardLayer.add(node)
           bindCandidate(node, floor, s as Slot)
         }
+        node.setBoardWidth(match.width)
         const faceDown = flipMode && isPickable(floor, s as Slot)
         const shot: SlotShot = { card, faceDown }
         const face: CardFaceKind = faceDown
@@ -836,6 +848,7 @@ export async function startGame(
     if (!card) return
 
     const focus = helpFocus(viewRect).card
+    focusCard.setBoardWidth(match.width)
     focusCard.setFace({ kind: 'card', card, budget: 0 })
     // Sized to where it is going and scaled down to the seat it left, so the
     // flight is one transform rather than a resize every frame.
@@ -1206,7 +1219,8 @@ export async function startGame(
     startMatch(next) {
       scope.reset()
       mode = next
-      match = createMatch(seed + Math.floor(Math.random() * 0xffff))
+      const width = next.size === 'quick' ? 2 : 3
+      match = createMatch(seed + Math.floor(Math.random() * 0xffff), width)
       rng = Math.random
       settled = null
       selected = null

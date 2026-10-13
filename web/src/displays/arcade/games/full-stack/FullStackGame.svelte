@@ -35,7 +35,7 @@
   let loadError = $state<string | null>(null)
   let showSplash = $state(true)
   let paused = $state(false)
-  let mode = $state<GameMode>({ kind: 'versus' })
+  let mode = $state<GameMode>({ kind: 'versus', size: 'standard' })
   let result = $state<GameOverView | null>(null)
 
   /** Match clock, started with the deal and read once at game over. */
