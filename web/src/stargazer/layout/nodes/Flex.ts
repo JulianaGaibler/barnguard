@@ -70,7 +70,7 @@ export class Flexible extends LayoutNode {
   arrange(x: number, y: number, w: number, h: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
     this.#child.arrange(0, 0, w, h)
   }
 }
@@ -96,7 +96,7 @@ class EmptyBox extends LayoutNode {
   arrange(x: number, y: number, w: number, h: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
   }
 }
 
@@ -165,15 +165,7 @@ export class Flex extends LayoutNode {
 
   /** Insert a child at `index` in main-axis order and schedule a relayout. */
   insert(index: number, child: Node2D): this {
-    super.add(child)
-    const arr = this._children
-    const from = arr.indexOf(child)
-    const to = Math.max(0, Math.min(index, arr.length - 1))
-    if (from !== to) {
-      arr.splice(from, 1)
-      arr.splice(to, 0, child)
-      this.scene?.invalidatePainterOrder()
-    }
+    this.addAt(child, index)
     this.markLayoutDirty()
     return this
   }
@@ -261,7 +253,7 @@ export class Flex extends LayoutNode {
   arrange(x: number, y: number, w: number, h: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
 
     const isRow = this.direction === 'row'
     const items = this.#items

@@ -1,19 +1,17 @@
 import { Node2D } from '../scene/Node2D'
 import { hitTestCircle } from '../scene/hitTest'
-import type { Camera } from '../camera/Camera'
+import { definePaintProps } from '../render/picture/paintProps'
+import type { Canvas } from '../render/picture/Canvas'
+import type { CanvasStrokeStyle } from '../render/picture/Picture'
 import type { Rect } from '../math/Rect'
-import type {
-  Gfx2D,
-  GfxFill,
-  GfxShadowStyle,
-  GfxStrokeStyle,
-} from '../render/gfx/Gfx2D'
+import type { GfxFill, GfxShadowStyle } from '../render/gfx/Gfx2D'
 import type { StrokeAlign } from '../render/gfx/strokeOutline'
 import type { RoundRectRadii } from '../render/gfx/roundRectRadii'
+import { ellipseDistance } from '../render/gfx/ellipse'
 import type { BoxConstraints, Size } from '../layout/constraints'
 import type { Measurable } from '../layout/LayoutNode'
 
-/** Reused scratch for the 4-corner rect-stroke polyline (draw is synchronous). */
+/** Reused scratch for the 4-corner rect-stroke polyline (paint is synchronous). */
 const RECT_STROKE_SCRATCH = new Float32Array(8)
 
 /** Local-space extent of a {@link ShapeNode}: a circle or a rect. */
@@ -22,6 +20,13 @@ export type ShapeGeometry =
       kind: 'circle'
       /** Radius in world units. */
       radius: number
+    }
+  | {
+      kind: 'ellipse'
+      /** Horizontal radius in world units. */
+      radiusX: number
+      /** Vertical radius in world units. */
+      radiusY: number
     }
   | {
       kind: 'rect'
@@ -36,6 +41,13 @@ export type ShapeGeometry =
        * sharp corners. A radius ≥ half the shorter side gives a capsule.
        */
       radii?: RoundRectRadii
+      /**
+       * Figma's corner smoothing, from 0 for circular corners (the default) to
+       *
+       * 1. `IOS_CORNER_SMOOTHING` (0.6) matches the iOS app icon shape. Needs
+       *    `radii`.
+       */
+      smoothing?: number
     }
 
 /** Constructor options for {@link ShapeNode}. */
@@ -51,21 +63,27 @@ export interface ShapeNodeOptions {
   /**
    * Border position relative to the shape. Default `'center'`. A non-center
    * value tessellates the border into a filled outline instead of using the
-   * shape's analytic SDF; see the drawing guide's border section for what
-   * that costs and what it buys (exact joins, no overlap, gradient colors).
+   * shape's analytic SDF; see the drawing guide's border section for what that
+   * costs and what it buys (exact joins, no overlap, gradient colors).
    */
   lineAlign?: StrokeAlign
-  /** Corner style, outline border only (`lineAlign !== 'center'` or `exactJoins`). Default `'miter'`. */
+  /**
+   * Corner style, outline border only (`lineAlign !== 'center'` or
+   * `exactJoins`). Default `'miter'`.
+   */
   lineJoin?: CanvasLineJoin
   /** Cap style, outline border only. Default `'round'`. */
   lineCap?: CanvasLineCap
-  /** Miter length limit, outline border only. Default 4 (SVG's `stroke-miterlimit`). */
+  /**
+   * Miter length limit, outline border only. Default 4 (SVG's
+   * `stroke-miterlimit`).
+   */
   miterLimit?: number
   /**
    * Opt into the outline tessellator for a centered border on the plain
-   * (non-rounded) rect shape, for exact joins and caps instead of the
-   * segment stroker's round caps and join-free corners. Ignored on a
-   * rounded rect or circle, whose analytic border is already exact.
+   * (non-rounded) rect shape, for exact joins and caps instead of the segment
+   * stroker's round caps and join-free corners. Ignored on a rounded rect or
+   * circle, whose analytic border is already exact.
    */
   exactJoins?: boolean
   /**
@@ -76,8 +94,8 @@ export interface ShapeNodeOptions {
   strokeSpace?: 'screen' | 'world'
   /**
    * One or more drop shadows, drawn analytically (no render target). A list
-   * draws in order, so the first entry sits deepest. Offsets, blur, and
-   * spread follow `strokeSpace`, same as `lineWidth`.
+   * draws in order, so the first entry sits deepest. Offsets, blur, and spread
+   * follow `strokeSpace`, same as `lineWidth`.
    */
   shadow?: GfxShadowStyle | readonly GfxShadowStyle[]
 }
@@ -85,18 +103,25 @@ export interface ShapeNodeOptions {
 const EMPTY_SHADOWS: readonly GfxShadowStyle[] = []
 
 /**
- * Draws a filled and/or stroked circle or rect, with an optional drop
- * shadow. The node's `Transform2D` places it in the world. {@link
- * ShapeGeometry} gives the local-space extent. A circle centers on the node
- * origin, a rect centers by default (set `centered: false` for a top-left
- * origin). Circles hit-test exactly. Rects fall back to the AABB check.
+ * Draws a filled and/or stroked circle or rect, with an optional drop shadow.
+ * The node's `Transform2D` places it in the world. {@link ShapeGeometry} gives
+ * the local-space extent. A circle centers on the node origin, a rect centers
+ * by default (set `centered: false` for a top-left origin). Circles hit-test
+ * exactly. Rects fall back to the AABB check.
  *
  * Draw order matches CSS: outset shadows, fill, inset shadows, border.
  *
  * @example
  *   const card = new ShapeNode({
  *     geometry: { kind: 'rect', width: 240, height: 140, radii: 16 },
- *     fill: { kind: 'linear', x0: 0, y0: 0, x1: 0, y1: 140, stops: BRAND_RAMP },
+ *     fill: {
+ *       kind: 'linear',
+ *       x0: 0,
+ *       y0: 0,
+ *       x1: 0,
+ *       y1: 140,
+ *       stops: BRAND_RAMP,
+ *     },
  *     stroke: '#1d1d2b',
  *     lineWidth: 3,
  *     lineAlign: 'outside',
@@ -106,122 +131,112 @@ const EMPTY_SHADOWS: readonly GfxShadowStyle[] = []
  *   scene.root.add(card)
  */
 export class ShapeNode extends Node2D implements Measurable {
-  // Live mirrors of ShapeNodeOptions, documented there. `debugBounds` is
-  // derived from `geometry` in the constructor only, so replacing `geometry`
-  // afterwards leaves the bounds behind and the node culls and hit-tests
-  // against its old extent. Build a new node instead.
-  geometry: ShapeGeometry
-  fill: GfxFill | null
-  stroke: GfxFill | null
-  lineWidth: number
-  lineAlign: StrokeAlign
-  lineJoin?: CanvasLineJoin
-  lineCap?: CanvasLineCap
-  miterLimit?: number
-  exactJoins: boolean
-  strokeSpace: 'screen' | 'world'
-  shadow: GfxShadowStyle | readonly GfxShadowStyle[] | null
+  // Live mirrors of ShapeNodeOptions, documented there. Each is a paint
+  // property: writing a new value repaints the node, and a tween can drive the
+  // numeric ones. Replace `geometry` or `shadow` with a new object to change
+  // them, because changing one in place is not seen.
+  declare geometry: ShapeGeometry
+  declare fill: GfxFill | null
+  declare stroke: GfxFill | null
+  declare lineWidth: number
+  declare lineAlign: StrokeAlign
+  declare lineJoin: CanvasLineJoin | undefined
+  declare lineCap: CanvasLineCap | undefined
+  declare miterLimit: number | undefined
+  declare exactJoins: boolean
+  declare strokeSpace: 'screen' | 'world'
+  declare shadow: GfxShadowStyle | readonly GfxShadowStyle[] | null
   /** Preallocated size for layout. See {@link ShapeNode.measure}. */
   readonly measuredSize: Size = { w: 0, h: 0 }
 
   constructor(opts: ShapeNodeOptions) {
     super(opts.id)
-    this.geometry = opts.geometry
-    this.fill = opts.fill ?? null
-    this.stroke = opts.stroke ?? null
-    this.lineWidth = opts.lineWidth ?? 1
-    this.lineAlign = opts.lineAlign ?? 'center'
-    this.lineJoin = opts.lineJoin
-    this.lineCap = opts.lineCap
-    this.miterLimit = opts.miterLimit
-    this.exactJoins = opts.exactJoins ?? false
-    this.strokeSpace = opts.strokeSpace ?? 'screen'
-    this.shadow = opts.shadow ?? null
-    this.#recomputeDebugBounds()
+    definePaintProps(this, {
+      geometry: opts.geometry,
+      fill: (opts.fill ?? null) as GfxFill | null,
+      stroke: (opts.stroke ?? null) as GfxFill | null,
+      lineWidth: opts.lineWidth ?? 1,
+      lineAlign: opts.lineAlign ?? ('center' as StrokeAlign),
+      lineJoin: opts.lineJoin as CanvasLineJoin | undefined,
+      lineCap: opts.lineCap as CanvasLineCap | undefined,
+      miterLimit: opts.miterLimit as number | undefined,
+      exactJoins: opts.exactJoins ?? false,
+      strokeSpace: opts.strokeSpace ?? ('screen' as 'screen' | 'world'),
+      shadow: (opts.shadow ?? null) as
+        GfxShadowStyle | readonly GfxShadowStyle[] | null,
+    })
   }
 
-  #recomputeDebugBounds(): void {
-    switch (this.geometry.kind) {
-      case 'circle': {
-        const r = this.geometry.radius
-        this.debugBounds = { x: -r, y: -r, width: 2 * r, height: 2 * r }
-        break
-      }
-      case 'rect': {
-        const w = this.geometry.width
-        const h = this.geometry.height
-        const centered = this.geometry.centered !== false
-        this.debugBounds = centered
-          ? { x: -w / 2, y: -h / 2, width: w, height: h }
-          : { x: 0, y: 0, width: w, height: h }
-        break
-      }
-    }
-  }
-
-  /**
-   * How far outside `debugBounds` this node can paint: an outside-aligned
-   * border, or an outset shadow's own offset/blur/spread. In the same
-   * `strokeSpace`-relative units as `lineWidth`; `StageLayerRenderer`
-   * applies the same screen/world conversion to it. Inset shadows never
-   * extend past the shape, so they don't contribute.
-   */
-  get cullMargin(): number {
-    let m = this.lineAlign === 'outside' ? this.lineWidth : 0
-    for (const sh of this.#shadowList()) {
-      if (sh.inset) continue
-      const offset = Math.hypot(sh.offsetX ?? 0, sh.offsetY ?? 0)
-      const sigma = (sh.blur ?? 0) * 0.5
-      const extent = offset + 3 * sigma + Math.max(0, sh.spread ?? 0)
-      if (extent > m) m = extent
-    }
-    return m
-  }
+  /** Holds a single shadow so `#shadowList` can return it without allocating. */
+  #oneShadow: GfxShadowStyle[] | null = null
 
   #shadowList(): readonly GfxShadowStyle[] {
     const shadow = this.shadow
     if (!shadow) return EMPTY_SHADOWS
     if (Array.isArray(shadow)) return shadow as readonly GfxShadowStyle[]
-    return [shadow as GfxShadowStyle]
+    const one = (this.#oneShadow ??= [shadow as GfxShadowStyle])
+    one[0] = shadow as GfxShadowStyle
+    return one
   }
 
   /**
-   * Circle-accurate hit-test (distance ≤ radius+slop in local coords).
-   * Rectangles fall through to the base class's AABB check via `debugBounds`,
-   * exact for non-rotated rects and a slightly loose but safe superset for
-   * rotated ones.
+   * Circle- and ellipse-accurate hit-test (distance to the outline ≤ slop in
+   * local coords). Rectangles test the local AABB of the geometry, exact for
+   * non-rotated rects and a slightly loose but safe superset for rotated ones.
    */
   override hitTest(
     worldX: number,
     worldY: number,
     touchSlopWorld: number,
   ): boolean {
-    if (this.geometry.kind !== 'circle') {
-      return super.hitTest(worldX, worldY, touchSlopWorld)
+    const g = this.geometry
+    if (g.kind === 'circle') {
+      return hitTestCircle(this, worldX, worldY, g.radius, touchSlopWorld)
     }
-    return hitTestCircle(
-      this,
-      worldX,
-      worldY,
-      this.geometry.radius,
-      touchSlopWorld,
+    if (g.kind === 'ellipse') {
+      const p = this.worldToLocal(worldX, worldY)
+      return (
+        ellipseDistance(p.x, p.y, g.radiusX, g.radiusY)[0] <= touchSlopWorld
+      )
+    }
+    const b = this.localBounds
+    const p = this.worldToLocal(worldX, worldY)
+    return (
+      p.x >= b.x - touchSlopWorld &&
+      p.x <= b.x + b.width + touchSlopWorld &&
+      p.y >= b.y - touchSlopWorld &&
+      p.y <= b.y + b.height + touchSlopWorld
     )
   }
 
-  /** Expose the current geometry-derived local AABB for downstream code. */
-  get localBounds(): Rect | null {
-    return this.debugBounds
+  /** The local AABB of the geometry, without borders or shadows. */
+  get localBounds(): Rect {
+    const g = this.geometry
+    if (g.kind === 'circle') {
+      const r = g.radius
+      return { x: -r, y: -r, width: 2 * r, height: 2 * r }
+    }
+    if (g.kind === 'ellipse') {
+      return {
+        x: -g.radiusX,
+        y: -g.radiusY,
+        width: 2 * g.radiusX,
+        height: 2 * g.radiusY,
+      }
+    }
+    return g.centered !== false
+      ? { x: -g.width / 2, y: -g.height / 2, width: g.width, height: g.height }
+      : { x: 0, y: 0, width: g.width, height: g.height }
   }
 
   /**
-   * Report the shape's intrinsic size (a circle's diameter, a rect's `width` ×
-   * `height`), clamped to `constraints`. Implementing {@link Measurable} lets a
-   * ShapeNode sit directly in a `Row`, `Column`, or `Box` without a wrapper.
+   * Report the shape's intrinsic size (a circle's diameter, an ellipse's two
+   * diameters, a rect's `width` × `height`), clamped to `constraints`.
+   * Implementing {@link Measurable} lets a ShapeNode sit directly in a `Row`,
+   * `Column`, or `Box` without a wrapper.
    */
   measure(constraints: BoxConstraints): Size {
-    const g = this.geometry
-    const w = g.kind === 'circle' ? g.radius * 2 : g.width
-    const h = g.kind === 'circle' ? g.radius * 2 : g.height
+    const { width: w, height: h } = this.localBounds
     this.measuredSize.w = constraints.constrainW(w)
     this.measuredSize.h = constraints.constrainH(h)
     return this.measuredSize
@@ -230,37 +245,47 @@ export class ShapeNode extends Node2D implements Measurable {
   /**
    * Position the shape within the box its parent assigned. A circle and a
    * centered rect place their origin at the box center. A top-left rect places
-   * it at the corner. The geometry and `debugBounds` are unchanged: a shape
-   * keeps its intrinsic size rather than stretching to fill.
+   * it at the corner. The geometry is unchanged: a shape keeps its intrinsic
+   * size rather than stretching to fill.
    */
   arrange(x: number, y: number, w: number, h: number): void {
     const g = this.geometry
-    const centered = g.kind === 'circle' || g.centered !== false
+    const centered = g.kind !== 'rect' || g.centered !== false
     this.transform.x = centered ? x + w / 2 : x
     this.transform.y = centered ? y + h / 2 : y
   }
 
-  override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
+  override paint(gfx: Canvas): void {
     const g = this.geometry
-    const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
     const shadows = this.#shadowList()
+    // Shadow lengths are not screen-aware, so a node with a shadow in screen
+    // space reads the screen scale, and repaints when it changes.
+    const s =
+      shadows.length > 0 && this.strokeSpace !== 'world' ? gfx.screenScale() : 1
     // CSS paint order is background, inset shadow, border: an inset shadow
     // must land between the fill and the stroke, so the two can't share one
     // record (and its double-blend-avoiding composite) whenever one exists.
     const hasInset = shadows.some((sh) => sh.inset === true)
 
+    if (g.kind === 'ellipse') {
+      this.#paintEllipse(gfx, g.radiusX, g.radiusY, shadows, s, hasInset)
+      return
+    }
+
     if (g.kind === 'circle') {
       for (const sh of shadows) {
-        if (!sh.inset) gfx.shadowCircle(0, 0, g.radius, this.#scaleShadow(sh, s))
+        if (!sh.inset)
+          gfx.shadowCircle(0, 0, g.radius, this.#scaleShadow(sh, s))
       }
       if (hasInset) {
         if (this.fill) gfx.fillCircle(0, 0, g.radius, this.fill)
         for (const sh of shadows) {
-          if (sh.inset) gfx.shadowCircle(0, 0, g.radius, this.#scaleShadow(sh, s))
+          if (sh.inset)
+            gfx.shadowCircle(0, 0, g.radius, this.#scaleShadow(sh, s))
         }
-        if (this.stroke) gfx.strokeCircle(0, 0, g.radius, this.#strokeStyle(s))
+        if (this.stroke) gfx.strokeCircle(0, 0, g.radius, this.#strokeStyle())
       } else {
-        this.#drawCircleFillAndStroke(gfx, g.radius, s)
+        this.#drawCircleFillAndStroke(gfx, g.radius)
       }
       return
     }
@@ -271,30 +296,64 @@ export class ShapeNode extends Node2D implements Measurable {
     const y = centered ? -g.height / 2 : 0
     const hasRadii = g.radii !== undefined
     const radii = hasRadii ? g.radii! : 0
+    const smoothing = g.smoothing ?? 0
 
     for (const sh of shadows) {
       if (sh.inset) continue
-      gfx.shadowRoundRect(x, y, g.width, g.height, radii, this.#scaleShadow(sh, s))
+      gfx.shadowRoundRect(
+        x,
+        y,
+        g.width,
+        g.height,
+        radii,
+        this.#scaleShadow(sh, s),
+        smoothing,
+      )
     }
 
     if (hasInset) {
-      if (this.fill) gfx.fillRoundRect(x, y, g.width, g.height, radii, this.fill)
+      if (this.fill)
+        gfx.fillRoundRect(x, y, g.width, g.height, radii, this.fill, smoothing)
       for (const sh of shadows) {
         if (sh.inset) {
-          gfx.shadowRoundRect(x, y, g.width, g.height, radii, this.#scaleShadow(sh, s))
+          gfx.shadowRoundRect(
+            x,
+            y,
+            g.width,
+            g.height,
+            radii,
+            this.#scaleShadow(sh, s),
+            smoothing,
+          )
         }
       }
       if (this.stroke) {
         if (hasRadii) {
-          gfx.strokeRoundRect(x, y, g.width, g.height, radii, this.#strokeStyle(s))
+          gfx.strokeRoundRect(
+            x,
+            y,
+            g.width,
+            g.height,
+            radii,
+            this.#strokeStyle(),
+            smoothing,
+          )
         } else {
-          this.#strokePlainRect(gfx, x, y, g.width, g.height, s)
+          this.#strokePlainRect(gfx, x, y, g.width, g.height)
         }
       }
     } else if (hasRadii) {
-      this.#drawRoundRectFillAndStroke(gfx, x, y, g.width, g.height, g.radii!, s)
+      this.#drawRoundRectFillAndStroke(
+        gfx,
+        x,
+        y,
+        g.width,
+        g.height,
+        g.radii!,
+        smoothing,
+      )
     } else {
-      this.#drawPlainRectFillAndStroke(gfx, x, y, g.width, g.height, s)
+      this.#drawPlainRectFillAndStroke(gfx, x, y, g.width, g.height)
     }
   }
 
@@ -310,10 +369,14 @@ export class ShapeNode extends Node2D implements Measurable {
     }
   }
 
-  #strokeStyle(s: number): GfxStrokeStyle {
+  /** A screen-space width resolves at replay, so it needs no camera read. */
+  #strokeStyle(): CanvasStrokeStyle {
     return {
       color: this.stroke as GfxFill,
-      width: this.lineWidth * s,
+      width:
+        this.strokeSpace === 'world'
+          ? this.lineWidth
+          : { screen: this.lineWidth },
       align: this.lineAlign,
       join: this.lineJoin,
       cap: this.lineCap,
@@ -322,51 +385,97 @@ export class ShapeNode extends Node2D implements Measurable {
     }
   }
 
-  #drawCircleFillAndStroke(gfx: Gfx2D, radius: number, s: number): void {
+  /**
+   * An ellipse in CSS paint order, as for the other kinds. The analytic shadow
+   * has no ellipse, so an ellipse's shadow is the capsule-cornered box around
+   * it, the same for a circle and closest for a nearly round ellipse.
+   */
+  #paintEllipse(
+    gfx: Canvas,
+    rx: number,
+    ry: number,
+    shadows: readonly GfxShadowStyle[],
+    s: number,
+    hasInset: boolean,
+  ): void {
+    const shadowBox = (sh: GfxShadowStyle) =>
+      gfx.shadowRoundRect(
+        -rx,
+        -ry,
+        rx * 2,
+        ry * 2,
+        Math.min(rx, ry),
+        this.#scaleShadow(sh, s),
+      )
+    for (const sh of shadows) if (!sh.inset) shadowBox(sh)
+    if (hasInset) {
+      if (this.fill) gfx.fillEllipse(0, 0, rx, ry, this.fill)
+      for (const sh of shadows) if (sh.inset) shadowBox(sh)
+      if (this.stroke) gfx.strokeEllipse(0, 0, rx, ry, this.#strokeStyle())
+      return
+    }
     if (this.fill && this.stroke) {
-      gfx.fillAndStrokeCircle(0, 0, radius, this.fill, this.#strokeStyle(s))
+      gfx.fillAndStrokeEllipse(0, 0, rx, ry, this.fill, this.#strokeStyle())
+      return
+    }
+    if (this.fill) gfx.fillEllipse(0, 0, rx, ry, this.fill)
+    if (this.stroke) gfx.strokeEllipse(0, 0, rx, ry, this.#strokeStyle())
+  }
+
+  #drawCircleFillAndStroke(gfx: Canvas, radius: number): void {
+    if (this.fill && this.stroke) {
+      gfx.fillAndStrokeCircle(0, 0, radius, this.fill, this.#strokeStyle())
       return
     }
     if (this.fill) gfx.fillCircle(0, 0, radius, this.fill)
-    if (this.stroke) gfx.strokeCircle(0, 0, radius, this.#strokeStyle(s))
+    if (this.stroke) gfx.strokeCircle(0, 0, radius, this.#strokeStyle())
   }
 
   #drawRoundRectFillAndStroke(
-    gfx: Gfx2D,
+    gfx: Canvas,
     x: number,
     y: number,
     w: number,
     h: number,
     radii: RoundRectRadii,
-    s: number,
+    smoothing: number,
   ): void {
     if (this.fill && this.stroke) {
-      gfx.fillAndStrokeRoundRect(x, y, w, h, radii, this.fill, this.#strokeStyle(s))
+      gfx.fillAndStrokeRoundRect(
+        x,
+        y,
+        w,
+        h,
+        radii,
+        this.fill,
+        this.#strokeStyle(),
+        smoothing,
+      )
       return
     }
-    if (this.fill) gfx.fillRoundRect(x, y, w, h, radii, this.fill)
-    if (this.stroke) gfx.strokeRoundRect(x, y, w, h, radii, this.#strokeStyle(s))
+    if (this.fill) gfx.fillRoundRect(x, y, w, h, radii, this.fill, smoothing)
+    if (this.stroke) {
+      gfx.strokeRoundRect(x, y, w, h, radii, this.#strokeStyle(), smoothing)
+    }
   }
 
   #drawPlainRectFillAndStroke(
-    gfx: Gfx2D,
+    gfx: Canvas,
     x: number,
     y: number,
     w: number,
     h: number,
-    s: number,
   ): void {
     if (this.fill) gfx.fillRect(x, y, w, h, this.fill)
-    if (this.stroke) this.#strokePlainRect(gfx, x, y, w, h, s)
+    if (this.stroke) this.#strokePlainRect(gfx, x, y, w, h)
   }
 
   #strokePlainRect(
-    gfx: Gfx2D,
+    gfx: Canvas,
     x: number,
     y: number,
     w: number,
     h: number,
-    s: number,
   ): void {
     const p = RECT_STROKE_SCRATCH
     p[0] = x
@@ -377,6 +486,6 @@ export class ShapeNode extends Node2D implements Measurable {
     p[5] = y + h
     p[6] = x
     p[7] = y + h
-    gfx.strokePolyline(p, 4, { ...this.#strokeStyle(s), closed: true })
+    gfx.strokePolyline(p, 4, { ...this.#strokeStyle(), closed: true })
   }
 }

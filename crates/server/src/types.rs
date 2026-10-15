@@ -211,6 +211,8 @@ pub enum ServerEvent {
     Queue(QueueSnapshot),
     Log(LogEntry),
     GameCreated(GameRecord),
+    /// A recorded game's details changed, such as the label the player chose.
+    GameUpdated(GameRecord),
     GameDeleted(Uuid),
     /// Client-facing config changed (emitted on `POST /config/reload`).
     Config(ClientConfig),
@@ -342,6 +344,54 @@ pub struct EnterpriseDetails {
     /// True if this score was the best for its region, on its own map, at the
     /// moment it was recorded.
     pub was_state_high: bool,
+    /// The label variant the player printed, so a reprint matches it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_variant: Option<LabelVariant>,
+    /// The name the player put on the printed label, as typed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_name: Option<String>,
+}
+
+/// The color variants of the Enterprise label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelVariant {
+    Purple,
+    Orange,
+    Pink,
+}
+
+/// Body of `PUT /api/games/{id}/label`: the label the player printed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LabelChoice {
+    pub label_variant: LabelVariant,
+    #[serde(default)]
+    pub label_name: Option<String>,
+}
+
+/// Why a label choice was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelChoiceError {
+    /// The name is longer than [`LEADERBOARD_NAME_MAX_CHARS`].
+    NameTooLong,
+}
+
+impl LabelChoice {
+    /// The name trimmed, with an empty one as `None`. Its case is kept, since
+    /// the label shows it as typed.
+    pub fn normalized_name(&self) -> Result<Option<String>, LabelChoiceError> {
+        let Some(name) = self.label_name.as_deref().map(str::trim) else {
+            return Ok(None);
+        };
+        if name.is_empty() {
+            return Ok(None);
+        }
+        if name.chars().count() > LEADERBOARD_NAME_MAX_CHARS {
+            return Err(LabelChoiceError::NameTooLong);
+        }
+        Ok(Some(name.to_string()))
+    }
 }
 
 /// A single finished game. Persisted in `games.json` (newest last). Envelope
@@ -444,6 +494,8 @@ impl NewGame {
                     escape_heading_rad: d.escape_heading_rad,
                     was_overall_high,
                     was_state_high,
+                    label_variant: None,
+                    label_name: None,
                 })
             }
             NewGameDetails::Arcade(d) => {
@@ -637,6 +689,8 @@ mod tests {
             escape_heading_rad: None,
             was_overall_high: false,
             was_state_high: false,
+            label_variant: None,
+            label_name: None,
         }
     }
 
@@ -893,5 +947,50 @@ mod tests {
         let json = r#"{"id":"3fa1f167-71c0-4a6d-9b1b-000000000000","tsMs":0,"score":42,"durationMs":0,"display":"stallwaechter","stateId":"bayern","reason":"collision","wasOverallHigh":false,"wasStateHigh":false}"#;
         let rec: GameRecord = serde_json::from_str(json).unwrap();
         assert_eq!(rec.display_id(), DISPLAY_ENTERPRISE);
+    }
+
+    #[test]
+    fn records_without_a_label_still_load() {
+        let json = r#"{"id":"6f1c7a5e-6d7e-4b8e-9a51-0d6a5b1f4c11","tsMs":0,"score":1,"durationMs":0,"display":"enterprise","mapId":"de","stateId":"BE","reason":"collision","wasOverallHigh":false,"wasStateHigh":false}"#;
+        let record: GameRecord = serde_json::from_str(json).unwrap();
+        let GameDetails::Enterprise(d) = record.details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(d.label_variant, None);
+        assert_eq!(d.label_name, None);
+        let out = serde_json::to_string(&GameDetails::Enterprise(d)).unwrap();
+        assert!(!out.contains("label"));
+    }
+
+    #[test]
+    fn label_choice_trims_keeps_case_and_caps_the_name() {
+        let choice = |name: Option<&str>| -> LabelChoice {
+            serde_json::from_value(serde_json::json!({
+                "labelVariant": "purple",
+                "labelName": name,
+            }))
+            .unwrap()
+        };
+        assert_eq!(
+            choice(Some("  Juliana ")).normalized_name(),
+            Ok(Some("Juliana".into()))
+        );
+        assert_eq!(choice(Some("   ")).normalized_name(), Ok(None));
+        assert_eq!(choice(None).normalized_name(), Ok(None));
+        assert_eq!(
+            choice(Some("abcdefghijkl")).normalized_name(),
+            Ok(Some("abcdefghijkl".into()))
+        );
+        assert_eq!(
+            choice(Some("abcdefghijklm")).normalized_name(),
+            Err(LabelChoiceError::NameTooLong)
+        );
+    }
+
+    #[test]
+    fn label_choice_refuses_an_unknown_variant() {
+        let bad: Result<LabelChoice, _> =
+            serde_json::from_value(serde_json::json!({ "labelVariant": "teal" }));
+        assert!(bad.is_err());
     }
 }

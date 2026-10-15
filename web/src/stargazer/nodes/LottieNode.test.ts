@@ -3,7 +3,10 @@ import { GpuGfx } from '../render/gfx/GpuGfx'
 import { MockGfxDevice } from '../render/gfx/webgl2/mockGfxDevice'
 import { parseLottie } from '../lottie/model/parse'
 import { LottieNode } from './LottieNode'
-import type { Camera } from '../camera/Camera'
+import type { Affine2x3, CameraView2D } from '../camera/CameraView2D'
+import type { Renderer } from '../render/Renderer'
+import { ComposeWalk } from '../render/ComposeWalk'
+import { SceneTree } from '../scene/SceneTree'
 
 const fixtures = import.meta.glob('../dev/fixtures/lottie/*.json', {
   eager: true,
@@ -24,7 +27,29 @@ async function setup(): Promise<{ gfx: GpuGfx; device: MockGfxDevice }> {
   return { gfx, device }
 }
 
+const IDENTITY: Affine2x3 = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+const renderer = { cssSize: { w: 800, h: 600 } } as unknown as Renderer
+const camera = {
+  screenToWorld: (x: number, y: number, out?: { x: number; y: number }) =>
+    Object.assign(out ?? { x: 0, y: 0 }, { x, y }),
+  strokeSpaceScale: () => 1,
+  visibleWorldRect: () => ({ x: 0, y: 0, width: 800, height: 600 }),
+  getScreenAffine: () => IDENTITY,
+} as unknown as CameraView2D
+
+const scenes = new WeakMap<LottieNode, { tree: SceneTree; walk: ComposeWalk }>()
+
+/** One frame of the node through the compose walk, as the stage draws it. */
 function drawFrame(gfx: GpuGfx, node: LottieNode): void {
+  let held = scenes.get(node)
+  if (!held) {
+    const walk = new ComposeWalk()
+    walk.stalenessSamples = 0
+    held = { tree: new SceneTree(), walk }
+    held.tree.root.add(node)
+    scenes.set(node, held)
+  }
+  held.tree.updateTransforms()
   gfx.beginFrame({
     clearColor: '#000000',
     transparent: false,
@@ -33,7 +58,7 @@ function drawFrame(gfx: GpuGfx, node: LottieNode): void {
   })
   gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
   gfx.setAlpha(1)
-  node.draw(gfx, {} as Camera, 0)
+  held.walk.draw(held.tree, renderer, gfx, camera, IDENTITY, 0)
   gfx.endFrame()
 }
 
@@ -117,7 +142,7 @@ describe('LottieNode', () => {
       } as never).w,
     ).toBe(400)
     node.arrange(10, 20, 100, 50)
-    expect(node.debugBounds).toEqual({
+    expect(node.boundsOverride).toEqual({
       x: 0,
       y: 0,
       width: 100,
@@ -182,7 +207,12 @@ describe('LottieNode', () => {
       })
       device.reset()
       drawFrame(gfx, node)
-      return device.draws.reduce((n, d) => n + d.count, 0)
+      // A path counts its vertices, a shape drawn as one analytic instance
+      // counts one.
+      return device.draws.reduce(
+        (n, d) => n + (d.kind === 'instancedRange' ? d.instanceCount : d.count),
+        0,
+      )
     }
     const one = await verts(make(1))
     expect(one).toBeGreaterThan(0)
@@ -206,7 +236,7 @@ describe('LottieNode', () => {
       device.reset()
       drawFrame(gfx, node)
       expect(device.passes.length, name).toBeGreaterThan(2)
-      // Every pass that opened was closed, and the last one resolved.
+      // The main pass comes last and resolves.
       expect(
         device.passes.at(-1)?.desc.color?.resolveTarget,
         name,
@@ -260,10 +290,8 @@ describe('LottieNode', () => {
       node.destroy()
       return n
     }
-    // Other tests may leave offscreen demand on, which adds a closing pass to
-    // every frame. The comparison is between the three cases.
     const full = await passes(100, 'exact')
-    // The surface adds its pass, and the main pass resumes as the closing one.
+    // The surface adds one pass of its own and the main pass stays whole.
     expect(await passes(50, 'exact')).toBe(full + 1)
     expect(await passes(50, 'fold')).toBe(full)
   })

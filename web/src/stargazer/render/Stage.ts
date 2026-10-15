@@ -1,6 +1,8 @@
+import type { RetainedCacheStats } from './gfx/RetainedCache'
 import { Renderer } from './Renderer'
 import { GpuGfx } from './gfx/GpuGfx'
 import type { GpuGfxStats } from './gfx/GpuBatchContext'
+import type { GfxSurfaceEffects } from './gfx/Gfx2D'
 import type { TextureInspector, TextureSource } from './gfx/TextureManager'
 import { WebGL2Device } from './gfx/webgl2/WebGL2Device'
 import { SceneTree } from '../scene/SceneTree'
@@ -10,16 +12,15 @@ import type { Affine2x3, CameraView2D } from '../camera/CameraView2D'
 import type { CameraView3D } from '../camera/CameraView3D'
 import type { CameraHost } from '../camera/CameraHost'
 import { MeshRenderer } from './gfx/MeshRenderer'
+import { RenderFailures } from './gfx/RenderFailures'
 import { PostProcessPipeline } from './postfx/PostProcessPipeline'
 import { AmbientOcclusion } from './gfx/ao/AmbientOcclusion'
 import { DebugLine3DRenderer } from './gfx/DebugLine3DRenderer'
-import { Viewport2DNode } from '../nodes/Viewport2DNode'
-import { walkTree } from '../scene/traverse'
 import type { Engine } from '../engine/Engine'
 import { InputSystem } from '../input/InputSystem'
 import type { PointerEvent2D } from '../input/PointerState'
 import { createEmitter, type Emitter } from '../events/Emitter'
-import { StageLayerRenderer } from './StageLayerRenderer'
+import { ComposeWalk } from './ComposeWalk'
 import { PhysicsWorld, type PhysicsWorldConfig } from '../physics/PhysicsWorld'
 
 const MIN_RENDER_SCALE = 0.1
@@ -56,6 +57,13 @@ export interface StageOptions {
    */
   msaaSamples?: number
   /**
+   * Draw the frame in the canvas's own format, so its last pass writes the
+   * canvas with no copy afterwards. Default true. `false` keeps the frame in a
+   * target of its own that is copied to the canvas, which lets the two be
+   * compared on a given GPU.
+   */
+  directPresent?: boolean
+  /**
    * Attach a {@link PhysicsWorld} to this stage. `true` uses defaults, pass a
    * config to tune it. When set, the engine steps this world once per fixed
    * tick before the scene's `onFixedStep` pass. Default: no physics.
@@ -76,6 +84,27 @@ export interface StageOptions {
    * than tuning any one effect's own resolution.
    */
   renderScale?: number
+  /**
+   * Render at exactly this many device pixels, whatever the canvas's CSS size,
+   * `devicePixelRatio` or `renderScale`. The 2D cameras see the same size as
+   * their CSS size. A stage with a fixed size does not watch its canvas for
+   * resizes, so the canvas need not be in the document.
+   */
+  fixedPixelSize?: StagePixelSize
+  /**
+   * Rasterize every text label at its exact size on every frame. By default a
+   * label whose scale is changing keeps drawing from a nearby raster until the
+   * scale settles, which keeps a zoom smooth but shows the label slightly soft
+   * for a few frames. Set this for a stage whose frames are separate stills
+   * rather than one animation. Default `false`.
+   */
+  exactText?: boolean
+}
+
+/** A width and height in device pixels. */
+export interface StagePixelSize {
+  width: number
+  height: number
 }
 
 /**
@@ -134,6 +163,11 @@ export class Stage implements CameraHost {
   /** Always constructed. Only fires on interactive stages. */
   readonly events: Emitter<StagePointerEvents> =
     createEmitter<StagePointerEvents>()
+  /**
+   * GPU resources this stage could not build. Also reported on `engine.events`
+   * as `renderfailure`.
+   */
+  readonly failures = new RenderFailures()
   /** `null` when the stage is display-only. */
   readonly input: InputSystem | null
   /** `null` unless `StageOptions.physics` was set. Stepped by the engine. */
@@ -143,14 +177,15 @@ export class Stage implements CameraHost {
   #resizeObserver: ResizeObserver | null = null
   #disposed = false
   #active = true
-  readonly #renderScale: number
+  #renderScale: number
+  #fixedPixelSize: StagePixelSize | null
 
   /** On-canvas rendering surface. */
   readonly #screenGfx: GpuGfx
   readonly #device: WebGL2Device | import('./gfx/GfxDevice').GfxDevice
 
   /** Per-layer node walk: viewport cull, transform compose, draw. */
-  readonly #layerRenderer = new StageLayerRenderer()
+  readonly #composeWalk = new ComposeWalk()
 
   /** Set when a render frame threw. The stage then stops rendering. */
   #faulted = false
@@ -203,23 +238,27 @@ export class Stage implements CameraHost {
       clearColor: opts.clearColor,
       transparent: opts.transparent,
     })
+    this.#fixedPixelSize = opts.fixedPixelSize
+      ? { ...opts.fixedPixelSize }
+      : null
     // Kick the initial canvas size BEFORE the device is acquired so the
     // default framebuffer starts at the right pixel size.
-    const rect = canvas.getBoundingClientRect()
-    const initialCssW = rect.width || canvas.clientWidth || 1
-    const initialCssH = rect.height || canvas.clientHeight || 1
-    const initialDpr = (window.devicePixelRatio || 1) * this.#renderScale
-    this.renderer.resize(initialCssW, initialCssH, initialDpr)
+    const initial = this.#targetSize()
+    this.renderer.resize(initial.cssW || 1, initial.cssH || 1, initial.dpr)
     this.#device = opts.gpuDevice ?? new WebGL2Device(canvas)
     this.#screenGfx = new GpuGfx(canvas, this.#device, {
       samples: opts.msaaSamples ?? 4,
+      canvas: opts.directPresent ?? true,
       // Backs the deduplicated translucent-stroke path. Fixed here because a
       // pipeline bakes its depth-stencil format, so it cannot be turned on
       // later without re-warming every 2D pipeline. Dropped again if the stage
       // turns on depth for a 3D pass (see `GpuGfx.enableDepth`).
       stencil: true,
       vectorQuality: engine.quality.vector,
+      failures: this.failures,
+      holdLabels: !opts.exactText,
     })
+    this.failures.onReport((f) => engine.events.emit('renderfailure', f))
     this.#screenGfx.setInternalSize(
       this.renderer.pixelSize.w,
       this.renderer.pixelSize.h,
@@ -242,9 +281,7 @@ export class Stage implements CameraHost {
     style.outline = 'none'
 
     this.#applyResize()
-    this.#resizeObserver = new ResizeObserver(() => this.#applyResize())
-    this.#resizeObserver.observe(canvas)
-    window.addEventListener('resize', this.#onWindowResize)
+    if (!this.#fixedPixelSize) this.#watchCanvasSize()
 
     // Input attaches last, needs renderer + camera in place. Debug
     // controller may still be null (set on Engine after primaryStage).
@@ -268,6 +305,15 @@ export class Stage implements CameraHost {
   }
 
   // --- camera registry (CameraHost) -----------------------------------------
+
+  /**
+   * Compile the pipelines a layer's effects need, for this stage's surface.
+   *
+   * @internal
+   */
+  _warmEffects(fx: GfxSurfaceEffects): void {
+    this.#screenGfx.warmEffects(fx)
+  }
 
   /**
    * Current 2D camera, or `null` when no camera has been made current yet. The
@@ -436,7 +482,7 @@ export class Stage implements CameraHost {
 
     // Frame-phase perf marks, same `engine.perfMarks` opt-in as the per-node
     // marks in `drawLayer`, so `?debug=perf` brackets each render phase
-    // (clear / static / above-static / dynamic) as a `performance.measure`.
+    // (clear / draw2d / debug-overlay) as a `performance.measure`.
     const marks = this.tree.engine?.perfMarks ?? false
 
     const screen = this.#screenGfx
@@ -478,6 +524,7 @@ export class Stage implements CameraHost {
         screen.targetFormat,
         this.tree.engine?.quality,
         this.tree.engine?.fog,
+        this.failures,
       )
     } else {
       // A renderer built against a previous attachment rebuilds its pipelines
@@ -486,17 +533,8 @@ export class Stage implements CameraHost {
     }
     this.#debugLines?.retarget(screen.targetFormat)
 
-    // Viewport2D pre-passes: render each embedded 2D scene to its own offscreen
-    // target before the main frame begins, so the 3D pass can sample the result.
-    if (has3D) {
-      this.#phaseBegin(marks, '3d-rtt')
-      walkTree(this.tree.root, (n) => {
-        if (n instanceof Viewport2DNode && n.visible) {
-          n.renderOffscreen(screen.device, this.canvas, dt)
-        }
-      })
-      this.#phaseEnd(marks, '3d-rtt')
-    }
+    // One walk of the 3D tree gathers what the shadow, AO and main passes draw.
+    if (has3D && this.#meshRenderer) this.#meshRenderer.collect(this.tree.root)
 
     // Shadow pre-pass: render caster depth from each shadow-casting light into
     // the shadow maps. Runs before `beginFrame` so its FBO switch is undone when
@@ -536,6 +574,13 @@ export class Stage implements CameraHost {
       )
     }
 
+    // Post-processing presents the frame itself, so the frame is drawn for it
+    // to read. Otherwise the main pass resolves straight into the canvas. The
+    // choice is made here because it decides where that pass resolves.
+    const pp = this.#postProcess
+    const postFx = !!pp && pp.active
+    screen.setPresent(!postFx)
+
     this.#phaseBegin(marks, 'clear')
     screen.beginFrame({
       clearColor: renderer.clearColor,
@@ -545,81 +590,58 @@ export class Stage implements CameraHost {
     })
     this.#phaseEnd(marks, 'clear')
 
-    // Depth-tested 3D pass, drawn immediately into the freshly-cleared target
-    // so the record/submit 2D layers replay on top. The 3D and 2D pipelines
-    // each carry their own baked state, so no explicit state reset is needed
-    // between the passes.
+    // The depth-tested 3D draws run when the frame is submitted, at the start
+    // of the main pass and before the recorded 2D layers. The 3D and 2D
+    // pipelines each carry their own baked state, so no explicit state reset
+    // is needed between them.
     if (show3D && cam3d) {
-      this.#phaseBegin(marks, '3d')
       const ph = renderer.pixelSize.h
       cam3d.setAspect(ph > 0 ? renderer.pixelSize.w / ph : 1)
-      if (has3D && this.#meshRenderer && this.#meshRenderer.ready) {
-        // World matrices were composed in the engine's transform pass (or the
-        // caller's) before render, so this just draws. Skipped until pipelines warm.
-        this.#meshRenderer.render(
-          cam3d,
-          this.tree.root,
-          debug?.meshShaderMode ?? 0,
-        )
-      }
+      const meshes =
+        has3D && this.#meshRenderer && this.#meshRenderer.ready
+          ? this.#meshRenderer
+          : null
+      let lines: DebugLine3DRenderer | null = null
       if (debug) {
         if (!this.#debugLines)
           this.#debugLines = new DebugLine3DRenderer(
             screen.device,
             screen.targetFormat,
           )
-        this.#debugLines.begin()
-        debug.drawOverlay3D(this, cam3d, this.#debugLines)
-        this.#debugLines.flush(cam3d.viewProjection)
+        lines = this.#debugLines
+        lines.begin()
+        debug.drawOverlay3D(this, cam3d, lines)
       }
-      this.#phaseEnd(marks, '3d')
+      const root = this.tree.root
+      const shaderMode = debug?.meshShaderMode ?? 0
+      screen.setMainPrelude(() => {
+        this.#phaseBegin(marks, '3d')
+        // World matrices were composed in the engine's transform pass (or the
+        // caller's) before render, so this just draws.
+        meshes?.render(cam3d, root, shaderMode)
+        lines?.flush(cam3d.viewProjection)
+        this.#phaseEnd(marks, '3d')
+      })
     }
 
-    // 2D layers only draw when a valid 2D camera is current. Map Path2Ds are
-    // tessellated at asset load, so rendering the static layer live every frame
-    // is one colored-tri batch (~5K tris), sharper than a bake + reproject.
+    // 2D content only draws when a valid 2D camera is current. Map Path2Ds are
+    // tessellated at asset load, so drawing them live every frame is one
+    // colored-tri batch (~5K tris), sharper than a bake + reproject.
     if (draw2d && cam2d) {
-      this.#phaseBegin(marks, 'static-render')
-      this.#layerRenderer.drawLayer(
+      this.#phaseBegin(marks, 'draw2d')
+      this.#composeWalk.draw(
         this.tree,
         this.renderer,
-        'static',
         screen,
         cam2d,
         render,
         dt,
       )
-      this.#phaseEnd(marks, 'static-render')
-      screen.flush()
-
-      this.#phaseBegin(marks, 'above-static')
-      this.#layerRenderer.drawLayer(
-        this.tree,
-        this.renderer,
-        'above-static',
-        screen,
-        cam2d,
-        render,
-        dt,
-      )
-      this.#phaseEnd(marks, 'above-static')
-      screen.flush()
-
-      this.#phaseBegin(marks, 'dynamic')
-      this.#layerRenderer.drawLayer(
-        this.tree,
-        this.renderer,
-        'dynamic',
-        screen,
-        cam2d,
-        render,
-        dt,
-      )
-      this.#phaseEnd(marks, 'dynamic')
+      this.#phaseEnd(marks, 'draw2d')
       screen.flush()
 
       // Debug overlays draw INSIDE the frame so they composite on top of the
-      // dynamic layer through the same gfx pipeline.
+      // 2D content through the same gfx pipeline.
       const activeDebugStage = debug?.activeStage ?? this
       if (debug && activeDebugStage === this) {
         this.#phaseBegin(marks, 'debug-overlay')
@@ -632,22 +654,19 @@ export class Stage implements CameraHost {
     }
     screen.flush()
 
-    // Post-processing: when effects are active, submit the frame WITHOUT
-    // blitting, then let the pipeline resolve/run/present. Otherwise keep the
-    // direct present path (restoring it if effects were removed mid-run).
-    const pp = this.#postProcess
-    if (pp && pp.active) {
-      screen.setPresent(false)
-      screen.endFrame()
+    // Post-processing: when effects are active, the scene is not presented. The
+    // pipeline reads it, writes the canvas, and the frame is submitted once it
+    // has run.
+    screen.endFrame()
+    if (pp && postFx) {
       pp.run(screen.target, {
         canvasW: this.canvas.width,
         canvasH: this.canvas.height,
         dt,
       })
-    } else {
-      screen.setPresent(true)
-      screen.endFrame()
+      screen.device.endFrame()
     }
+    screen.captureFrameCounters()
   }
 
   /**
@@ -690,8 +709,10 @@ export class Stage implements CameraHost {
   get render3dStats(): {
     draws: number
     visible: number
+    culled: number
     vertices: number
     triangles: number
+    shadowPasses: number
   } | null {
     return this.#meshRenderer?.stats ?? null
   }
@@ -713,6 +734,59 @@ export class Stage implements CameraHost {
    */
   get gpuStats(): GpuGfxStats {
     return this.#screenGfx.stats
+  }
+
+  /** What the renderer's retained caches hold and did last frame. */
+  cacheStats(): RetainedCacheStats[] {
+    return this.#screenGfx.cacheStats()
+  }
+
+  /**
+   * What the 2D walk did last frame: nodes it drew, pictures it painted and
+   * replayed, and nodes it culled.
+   */
+  get composeStats(): {
+    readonly nodes: number
+    readonly paints: number
+    readonly replays: number
+    readonly culled: number
+  } {
+    return this.#composeWalk.stats
+  }
+
+  /**
+   * Bytes each picture streamed to the GPU last frame, by node class and id.
+   * Development only.
+   */
+  get composeStreamers(): ReadonlyMap<string, number> {
+    return this.#composeWalk.streamers
+  }
+
+  /** Pictures painted last frame, counted by node class. */
+  get composePainters(): ReadonlyMap<string, number> {
+    return this.#composeWalk.painters
+  }
+
+  /** What the 2D walk has done since the stage started. */
+  get composeTotals(): {
+    readonly frames: number
+    readonly framesPainted: number
+    readonly paints: number
+    readonly stale: number
+  } {
+    return this.#composeWalk.totals
+  }
+
+  /**
+   * Whether the renderer joins draws that can be drawn together across draws
+   * they share no pixels with. On by default. Turn it off to compare against
+   * one draw per run.
+   */
+  get mergeRuns(): boolean {
+    return this.#screenGfx.mergeRuns
+  }
+  set mergeRuns(on: boolean) {
+    this.#screenGfx.mergeRuns = on
   }
 
   /**
@@ -746,9 +820,8 @@ export class Stage implements CameraHost {
   }
 
   /**
-   * Every inspectable render target on this stage: the screen plus each
-   * `Viewport2DNode`'s offscreen surface (once it has rendered). Each keeps its
-   * own `TextureManager`, so the debug HUD lists them as labeled sources.
+   * Every inspectable texture source on this stage: the screen and the loaded
+   * 3D models. The debug HUD lists them as labeled sources.
    */
   get textureSources(): TextureSource[] {
     const out: TextureSource[] = [
@@ -758,13 +831,6 @@ export class Stage implements CameraHost {
         inspector: this.#screenGfx.textureInspector,
       },
     ]
-    walkTree(this.tree.root, (n) => {
-      if (n instanceof Viewport2DNode) {
-        const inspector = n.textureInspector
-        if (inspector)
-          out.push({ id: n.id, label: `Viewport2D · ${n.id}`, inspector })
-      }
-    })
     const modelInspector = this.#meshRenderer?.textureInspector
     if (modelInspector)
       out.push({ id: 'models', label: '3D models', inspector: modelInspector })
@@ -782,6 +848,22 @@ export class Stage implements CameraHost {
     // `ready`, so it is skipped until the new-sample pipelines are live.
     this.#meshRenderer?.retarget(this.#screenGfx.targetFormat)
     this.#debugLines?.retarget(this.#screenGfx.targetFormat)
+  }
+
+  /**
+   * The factor applied to `devicePixelRatio` before every resize, in `[0.1,
+   * 2]`. Setting it resizes the backing store now. A stage with a
+   * {@link fixedPixelSize} keeps the value but does not apply it.
+   */
+  get renderScale(): number {
+    return this.#renderScale
+  }
+  set renderScale(scale: number) {
+    this.#renderScale = Math.min(
+      MAX_RENDER_SCALE,
+      Math.max(MIN_RENDER_SCALE, scale),
+    )
+    this.#applyResize()
   }
 
   /** MSAA sample count actually in use, after the driver clamp. */
@@ -832,23 +914,56 @@ export class Stage implements CameraHost {
    */
   invalidateText(): void {
     this.#screenGfx.clearLabelCache()
-    this.tree.invalidateStatic()
   }
 
   /** Re-acquire the rendering context after a `webglcontextrestored` event. */
   reacquireContext(): void {
     this.#screenGfx.reacquireContext()
     this.#screenGfx.rebuildResources()
-    this.tree.invalidateStatic()
+  }
+
+  #watchCanvasSize(): void {
+    this.#resizeObserver = new ResizeObserver(() => this.#applyResize())
+    this.#resizeObserver.observe(this.canvas)
+    window.addEventListener('resize', this.#onWindowResize)
+  }
+
+  /** The CSS size and pixel ratio the stage renders at right now. */
+  #targetSize(): { cssW: number; cssH: number; dpr: number } {
+    const fixed = this.#fixedPixelSize
+    if (fixed) return { cssW: fixed.width, cssH: fixed.height, dpr: 1 }
+    const rect = this.canvas.getBoundingClientRect()
+    return {
+      cssW: rect.width || this.canvas.clientWidth,
+      cssH: rect.height || this.canvas.clientHeight,
+      dpr: (window.devicePixelRatio || 1) * this.#renderScale,
+    }
+  }
+
+  /**
+   * Render at exactly `width` × `height` device pixels from now on, as
+   * {@link StageOptions.fixedPixelSize} does. The stage stops following its
+   * canvas's CSS size.
+   */
+  setFixedPixelSize(width: number, height: number): void {
+    if (!this.#fixedPixelSize) {
+      this.#resizeObserver?.disconnect()
+      this.#resizeObserver = null
+      window.removeEventListener('resize', this.#onWindowResize)
+    }
+    this.#fixedPixelSize = { width, height }
+    this.#applyResize()
+  }
+
+  /** The fixed size set at construction or by `setFixedPixelSize`, if any. */
+  get fixedPixelSize(): Readonly<StagePixelSize> | null {
+    return this.#fixedPixelSize
   }
 
   #applyResize = (): void => {
     if (this.#disposed) return
-    const rect = this.canvas.getBoundingClientRect()
-    const cssW = rect.width
-    const cssH = rect.height
+    const { cssW, cssH, dpr } = this.#targetSize()
     if (cssW === 0 || cssH === 0) return
-    const dpr = window.devicePixelRatio * this.#renderScale
     if (
       cssW === this.renderer.cssSize.w &&
       cssH === this.renderer.cssSize.h &&
@@ -864,7 +979,6 @@ export class Stage implements CameraHost {
     // Keep every registered 2D camera sized to the canvas, so one that later
     // becomes current already has the correct framing fit.
     for (const c of this.#cameras2d) c.setPixelSize(cssW, cssH)
-    this.tree.invalidateStatic()
     this.#onResize?.({
       cssSize: { ...this.renderer.cssSize },
       pixelSize: { ...this.renderer.pixelSize },
@@ -906,6 +1020,32 @@ export class Stage implements CameraHost {
    */
   get faulted(): boolean {
     return this.#faulted
+  }
+
+  /**
+   * Whether the stage's pipelines have warmed. Until then {@link render} returns
+   * without drawing.
+   */
+  get ready(): boolean {
+    return this.#screenGfx.ready
+  }
+
+  /** Resolves once the stage's pipelines have warmed, see {@link ready}. */
+  get whenReady(): Promise<void> {
+    return this.#screenGfx.whenReady
+  }
+
+  /**
+   * Whether a layer effect's pipeline is still compiling. Until it finishes,
+   * the layer draws without its effects.
+   */
+  get effectsCompiling(): boolean {
+    return this.#screenGfx.effectsCompiling
+  }
+
+  /** Resolves once the layer effect pipelines compiling now have finished. */
+  whenEffectsCompiled(): Promise<void> {
+    return this.#screenGfx.whenEffectsCompiled()
   }
 
   /**

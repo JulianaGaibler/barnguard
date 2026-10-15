@@ -20,7 +20,15 @@ export interface PointerStateSnapshot {
   readonly kind: 'touch' | 'mouse' | 'pen'
   /** CSS pixels, canvas-local (via `getBoundingClientRect`). */
   readonly screen: Readonly<Vec2>
-  /** World coords via `activeCamera.screenToWorld(screen)`. */
+  /**
+   * The position in a world. On a stage-level event (`stage.events`) and in
+   * `InputSystem.pointers` it is the active camera's world, from
+   * `activeCamera.screenToWorld(screen)`. On the event a node receives for the
+   * pointer it holds, it is the world of the view that places that node, which
+   * is the camera's unless the node sits under a layer with a space of its own.
+   * To get the position in a particular node's space from either kind of event,
+   * use {@link PointerEvent2D.localTo}.
+   */
   readonly world: Readonly<Vec2>
   readonly startedAtMs: number
   /**
@@ -52,11 +60,13 @@ export interface PointerEvent2D {
    */
   readonly stage: Stage
   /**
-   * The pointer's `world` position converted into `node`'s local space via
-   * {@link Node2D.worldToLocal}. Convenience for drag handlers whose target sits
-   * under a scaled/translated ancestor, so they read local coords directly
-   * instead of threading a bespoke world->local closure. Pass `out` to reuse a
-   * scratch {@link Vec2}.
+   * The pointer's position in `node`'s local space. It resolves the pointer
+   * through the view that places `node` first, so it is right for a node under
+   * a layer with a space of its own as well as for one under the camera, and
+   * from a stage-level event as well as a node's own. Prefer it to passing
+   * `pointer.world` to {@link Node2D.worldToLocal}, which is only right when the
+   * event and the node share a space. Pass `out` to reuse a scratch
+   * {@link Vec2}.
    */
   localTo(node: Node2D, out?: Vec2): Vec2
 }

@@ -22,6 +22,10 @@ export type {
   PhysicsWorldReadout,
 } from '../debug/DebugController'
 export type { PhysicsOverlayFlags } from '../debug/DebugPhysicsRenderer'
+export type { RetainedCacheStats } from '../render/gfx/RetainedCache'
+export type { GpuGfxStats } from '../render/gfx/GpuBatchContext'
+export type { BatchKind } from '../render/gfx/batchLayout'
 export type { DebugRenderMode } from '../render/gfx/GpuGfx'
 export { DebugCamera } from '../debug/DebugCamera'
 export { FrameStats } from '../debug/FrameStats'
+export { RingSeries, type SeriesSource } from '../debug/RingSeries'

@@ -5,12 +5,14 @@
  * alpha). {@link Vec2} / {@link Vec3} / {@link Rect} / {@link Quat} / {@link Ray}
  * are plain data with `vec2*` / `vec3*` / `rect*` / `quat*` helper functions
  * that write into a destination to stay allocation-free. `easings` holds the
- * tween curves. The `matrix` helpers operate on `DOMMatrix` affines (2D) and
- * {@link Mat4} column-major arrays (3D).
+ * tween curves. The `matrix` helpers operate on {@link Affine2D} affines (2D)
+ * and {@link Mat4} column-major arrays (3D).
  *
  * @module math
  */
 export { Transform2D } from '../math/Transform2D'
+export { Affine2D } from '../math/Affine2D'
+export type { Affine2x3 } from '../math/Affine2D'
 export { Transform3D } from '../math/Transform3D'
 export type { Vec2 } from '../math/Vec2'
 export {

@@ -5,84 +5,67 @@
     DebugRenderMode as MeshRenderMode,
   } from '../DebugController'
   import type { DebugRenderMode } from '../../render/gfx/GpuGfx'
-  import type { BackendPreference } from '../../render/gfx/selectBackend'
-  import { SHADOW_SIGMA_BUDGETS } from '../../render/VectorQuality'
   import {
     DebugSection,
     DebugRow,
     DebugSelect,
-    DebugSlider,
     ToggleButton,
-    DebugToggleGroup,
     TextureInspector,
+    StatCard,
+    StatGrid,
+    Gauge,
+    MetricRow,
+    Pill,
+    HealthChip,
     type DebugSelectOption,
   } from '../ui'
+  import type { MetricHistory } from '../MetricHistory'
+  import type { FrameStats } from '../FrameStats'
+  import { LABEL_CACHE_MAX } from '../../render/gfx/TextureManager'
+  import { THRESHOLDS, toneFor, type MetricId, type Tone } from '../thresholds'
+  import { thresholdTip } from '../tips'
+  import {
+    bytesQuantity,
+    countQuantity,
+    fmtBytes,
+    fmtCount,
+    fmtPct,
+    MISSING,
+  } from './format'
 
   interface Props {
     debug: DebugController
     stats: DebugStatsSnapshot
     /** Bumped by the hub's rAF tick; drives the live-state re-sync + previews. */
     revision: number
+    /** Recent readings, for the sparklines. */
+    history: MetricHistory
+    /** Recent frame times, for the frame time sparkline. */
+    frameStats: FrameStats
   }
 
-  const { debug, stats, revision }: Props = $props()
+  const { debug, stats, revision, history, frameStats }: Props = $props()
 
-  let backendOpen = $state(true)
-  let renderOpen = $state(true)
-  let gpuOpen = $state(true)
-  let threeOpen = $state(true)
-  let vectorOpen = $state(true)
+  let batchingOpen = $state(true)
+  let picturesOpen = $state(false)
+  let instancesOpen = $state(false)
+  let cachesOpen = $state(false)
+  let threeOpen = $state(false)
+  let viewsOpen = $state(false)
   let texturesOpen = $state(false)
-
-  // Which backend the caller asked for, read from the app's `?gfx` convention.
-  // The active backend (`stats.backend`) can differ: `auto` resolves to whatever
-  // the device probe picked, and a forced pick that failed to boot falls back.
-  function currentBackendPref(): BackendPreference {
-    const g = new URLSearchParams(location.search).get('gfx')
-    return g === 'webgpu' || g === 'webgl2' ? g : 'auto'
-  }
-  const backendPref = currentBackendPref()
 
   const BACKEND_LABELS: Record<'webgpu' | 'webgl2', string> = {
     webgpu: 'WebGPU',
     webgl2: 'WebGL2',
   }
-  const BACKEND_PREF_OPTIONS: readonly DebugSelectOption<BackendPreference>[] =
-    [
-      { value: 'auto', label: 'Auto (prefer WebGPU)' },
-      { value: 'webgpu', label: 'WebGPU' },
-      { value: 'webgl2', label: 'WebGL2' },
-    ]
 
-  // Render-mode / MSAA / perf-marks are per-stage engine state. Mirror the
-  // active stage's live values so an external toggle or a stage switch stays in
-  // sync. Re-synced each tick (see the `revision` effect below).
   // One render-mode control drives both pipelines: the 2D batch modes
   // (`DebugRenderMode`, GpuGfx) and the 3D mesh views (`MeshRenderMode`,
   // DebugController). Only one is active at a time, and picking one resets the
   // other to `normal`. `'normal'` is shared.
   type CombinedRenderMode = DebugRenderMode | Exclude<MeshRenderMode, 'normal'>
   let renderMode = $state<CombinedRenderMode>('normal')
-  let msaaSamples = $state<number>(4)
   let perfMarks = $state(false)
-  let fpsCap = $state(0)
-  let smoothTimestep = $state(true)
-  // 3D quality overrides (engine.quality), mirrored live like the rest.
-  let shadowsOn = $state(true)
-  let shadowSize = $state(1024)
-  let anisotropy = $state(8)
-  let shadowSoftness = $state(4)
-  // Ambient occlusion (primary stage's controller), mirrored live.
-  let aoOn = $state(false)
-  let aoPreset = $state<'low' | 'medium' | 'high'>('medium')
-  let aoIntensity = $state(1)
-  let aoRadius = $state(0.6)
-  let aoDirect = $state(0)
-  // 2D vector quality (engine.quality.vector), mirrored live like the rest.
-  let pathShadowsOn = $state(true)
-  let shadowSigmaBudget = $state<number>(SHADOW_SIGMA_BUDGETS[1])
-  let analyticShadowFrameOn = $state(true)
-  let ditherOn = $state(true)
 
   const RENDER_MODE_OPTIONS_2D: readonly DebugSelectOption<CombinedRenderMode>[] =
     [
@@ -112,54 +95,8 @@
     'ao',
   ])
 
-  const MSAA_OPTIONS: readonly DebugSelectOption<number>[] = [
-    { value: 0, label: 'Off (1×)' },
-    { value: 2, label: '2×' },
-    { value: 4, label: '4×' },
-    { value: 8, label: '8×' },
-  ]
-
-  const FPS_CAP_OPTIONS: readonly DebugSelectOption<number>[] = [
-    { value: 0, label: 'Uncapped' },
-    { value: 30, label: '30' },
-    { value: 60, label: '60' },
-    { value: 90, label: '90' },
-    { value: 120, label: '120' },
-    { value: 144, label: '144' },
-  ]
-
-  const SHADOW_SIZE_OPTIONS: readonly DebugSelectOption<number>[] = [
-    { value: 256, label: '256' },
-    { value: 512, label: '512' },
-    { value: 1024, label: '1024' },
-    { value: 2048, label: '2048' },
-    { value: 4096, label: '4096' },
-  ]
-  const ANISO_OPTIONS: readonly DebugSelectOption<number>[] = [
-    { value: 1, label: 'Off' },
-    { value: 2, label: '2×' },
-    { value: 4, label: '4×' },
-    { value: 8, label: '8×' },
-    { value: 16, label: '16×' },
-  ]
-  const SOFTNESS_OPTIONS: readonly DebugSelectOption<number>[] = [
-    { value: 1, label: 'Hard' },
-    { value: 4, label: 'Soft' },
-    { value: 9, label: 'Softer' },
-    { value: 16, label: 'Softest' },
-  ]
-  const AO_PRESET_OPTIONS: readonly DebugSelectOption<
-    'low' | 'medium' | 'high'
-  >[] = [
-    { value: 'low', label: 'Low (2×3)' },
-    { value: 'medium', label: 'Medium (3×4)' },
-    { value: 'high', label: 'High (4×6)' },
-  ]
-  const SIGMA_BUDGET_OPTIONS: readonly DebugSelectOption<number>[] =
-    SHADOW_SIGMA_BUDGETS.map((v) => ({
-      value: v,
-      label: v === SHADOW_SIGMA_BUDGETS[0] ? `${v} (cheap)` : `${v}`,
-    }))
+  // Mirror the active stage's live values so an external toggle or a stage
+  // switch stays in sync. Re-synced each tick.
   $effect(() => {
     void revision
     const active = debug.activeStage
@@ -168,37 +105,7 @@
     const live2d = active.getDebugRenderMode()
     const liveMode: CombinedRenderMode = live3d !== 'normal' ? live3d : live2d
     if (liveMode !== renderMode) renderMode = liveMode
-    const liveSamples = active.getMsaaSamples()
-    if (liveSamples !== msaaSamples) msaaSamples = liveSamples
     if (debug.perfMarks !== perfMarks) perfMarks = debug.perfMarks
-    const liveCap = Math.round(debug.maxFps)
-    if (liveCap !== fpsCap) fpsCap = liveCap
-    if (debug.smoothTimestep !== smoothTimestep)
-      smoothTimestep = debug.smoothTimestep
-    const q = debug.quality
-    if (q.meshShadowsEnabled !== shadowsOn) shadowsOn = q.meshShadowsEnabled
-    if (q.shadowMapSize !== shadowSize) shadowSize = q.shadowMapSize
-    if (q.anisotropy !== anisotropy) anisotropy = q.anisotropy
-    if (q.shadowSoftness !== shadowSoftness) shadowSoftness = q.shadowSoftness
-    // Read AO through the non-constructing peek so mirroring never warms the AO
-    // pipelines on a 3D scene that never enabled it.
-    const ao = debug.ambientOcclusionPeek
-    const liveAoOn = ao?.enabled ?? false
-    if (liveAoOn !== aoOn) aoOn = liveAoOn
-    if (ao) {
-      if (ao.preset !== aoPreset) aoPreset = ao.preset
-      if (ao.intensity !== aoIntensity) aoIntensity = ao.intensity
-      if (ao.radius !== aoRadius) aoRadius = ao.radius
-      if (ao.directStrength !== aoDirect) aoDirect = ao.directStrength
-    }
-    const vq = q.vector
-    if (vq.pathShadowsEnabled !== pathShadowsOn)
-      pathShadowsOn = vq.pathShadowsEnabled
-    if (vq.shadowSigmaBudget !== shadowSigmaBudget)
-      shadowSigmaBudget = vq.shadowSigmaBudget
-    if (vq.analyticShadowFrame !== analyticShadowFrameOn)
-      analyticShadowFrameOn = vq.analyticShadowFrame
-    if (vq.dither !== ditherOn) ditherOn = vq.dither
   })
 
   function handleRenderModeChange(mode: CombinedRenderMode): void {
@@ -214,150 +121,607 @@
     }
   }
 
-  // Switching backend re-keys the canvas from scratch (context type is fixed
-  // once acquired), so it goes through a reload with the app's `?gfx` param
-  // rather than a live device swap. `auto` drops the param.
-  function handleBackendPrefChange(pref: BackendPreference): void {
-    if (pref === backendPref) return
-    const url = new URL(location.href)
-    if (pref === 'auto') url.searchParams.delete('gfx')
-    else url.searchParams.set('gfx', pref)
-    location.href = url.toString()
-  }
-
-  function handleMsaaChange(samples: number): void {
-    msaaSamples = samples
-    debug.activeStage.setMsaaSamples(samples)
-  }
-
   function handlePerfMarksToggle(): void {
     debug.setPerfMarks(!perfMarks)
     perfMarks = debug.perfMarks
   }
 
-  function handleFpsCapChange(v: number): void {
-    fpsCap = v
-    debug.setMaxFps(v)
+  // --- readings -----------------------------------------------------------
+
+  const g = $derived(stats.gpu)
+  const frameP95Ms = $derived(stats.p95 * 1000)
+
+  const toneOf = (id: MetricId, value: number): Tone =>
+    toneFor(THRESHOLDS[id], value)
+
+  const labelPressure = $derived(g.labelEntries / LABEL_CACHE_MAX)
+  const maskBudget = $derived(
+    Math.max(1, debug.quality.vector.shadowMaskBudgetBytes),
+  )
+  const maskPressure = $derived(g.maskBytes / maskBudget)
+  // What the frame streamed, by program, and the pictures that streamed most.
+  const uploadTip = $derived.by(() => {
+    const rows = Object.entries(g.streamedBytes)
+      .filter(([, bytes]) => (bytes ?? 0) > 0)
+      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+      .map(([kind, bytes]) => [kind, fmtBytes(bytes ?? 0)])
+    return {
+      ...thresholdTip('bytesUploaded', g.bytesUploaded, fmtBytes),
+      table:
+        rows.length > 0 ? { head: ['Program', 'Per frame'], rows } : undefined,
+      facts: stats.streamers.map(([name, bytes]) => ({
+        label: name,
+        value: fmtBytes(bytes),
+      })),
+    }
+  })
+
+  /** Fewer runs than this say nothing about how well they merge. */
+  const MIN_RUNS_JUDGED = 8
+
+  const mergeRatio = $derived(
+    g.runsMerged / Math.max(1, g.drawCalls + g.runsMerged),
+  )
+  const restingRatio = $derived(
+    1 -
+      stats.composeTotals.framesPainted /
+        Math.max(1, stats.composeTotals.frames),
+  )
+  const outlineLookups = $derived(g.outlineCacheHits + g.outlineTessellations)
+  const outlineHitRate = $derived(
+    outlineLookups > 0 ? g.outlineCacheHits / outlineLookups : null,
+  )
+  const poolLookups = $derived(g.poolHits + g.poolMisses)
+  const poolHitRate = $derived(
+    poolLookups > 0 ? g.poolHits / poolLookups : null,
+  )
+  const totalInstances = $derived(
+    g.sdfInstances +
+      g.strokeInstances +
+      g.roundRectInstances +
+      g.shadowInstances,
+  )
+
+  interface Reading {
+    id: MetricId
+    label: string
+    value: number
+    text: string
   }
 
-  function handleSmoothTimestepToggle(): void {
-    debug.setSmoothTimestep(!smoothTimestep)
-    smoothTimestep = debug.smoothTimestep
-  }
+  // What the status chip watches. Anything not in its good range is listed,
+  // worst first, on hover.
+  const readings = $derived<Reading[]>([
+    {
+      id: 'frameMs',
+      label: 'Frame time',
+      value: frameP95Ms,
+      text: `${frameP95Ms.toFixed(1)} ms p95`,
+    },
+    {
+      id: 'drawCalls',
+      label: 'Draw calls',
+      value: g.drawCalls,
+      text: `${g.drawCalls} per frame`,
+    },
+    {
+      id: 'picturesPainted',
+      label: 'Repainting',
+      value: stats.compose.paints,
+      text: `${stats.compose.paints} pictures painted`,
+    },
+    {
+      id: 'stalePictures',
+      label: 'Stale pictures',
+      value: stats.composeTotals.stale,
+      text: `${stats.composeTotals.stale} found`,
+    },
+    {
+      id: 'bytesUploaded',
+      label: 'Upload',
+      value: g.bytesUploaded,
+      text: `${fmtBytes(g.bytesUploaded)} per frame`,
+    },
+    {
+      id: 'offscreenBytes',
+      label: 'Offscreen memory',
+      value: g.offscreenBytes,
+      text: fmtBytes(g.offscreenBytes),
+    },
+    {
+      id: 'labelPressure',
+      label: 'Label cache',
+      value: labelPressure,
+      text: fmtPct(labelPressure),
+    },
+    {
+      id: 'maskPressure',
+      label: 'Mask memory',
+      value: maskPressure,
+      text: fmtPct(maskPressure),
+    },
+    {
+      id: 'labelPageResets',
+      label: 'Label page resets',
+      value: g.labelPageWipes,
+      text: `${g.labelPageWipes} resets`,
+    },
+  ])
 
-  function handleShadowsToggle(): void {
-    debug.quality.meshShadowsEnabled = !shadowsOn
-    shadowsOn = debug.quality.meshShadowsEnabled
+  const TONE_RANK: Record<Tone, number> = {
+    neutral: 0,
+    good: 1,
+    warn: 2,
+    bad: 3,
   }
+  const issues = $derived(
+    readings
+      .map((r) => ({
+        label: r.label,
+        tone: toneOf(r.id, r.value),
+        detail: `${r.text}. ${THRESHOLDS[r.id].tip}`,
+      }))
+      .filter((i) => i.tone === 'warn' || i.tone === 'bad')
+      .sort((a, b) => TONE_RANK[b.tone] - TONE_RANK[a.tone]),
+  )
 
-  function handleShadowSizeChange(v: number): void {
-    debug.quality.shadowMapSize = v
-    shadowSize = debug.quality.shadowMapSize
-  }
+  const drawsQ = $derived(countQuantity(g.drawCalls))
+  const uploadQ = $derived(bytesQuantity(g.bytesUploaded))
+  const primsQ = $derived(countQuantity(g.primitives))
+  const msaaLabel = $derived(
+    g.msaaSamples > 1 ? `${g.msaaSamples}× MSAA` : 'MSAA off',
+  )
 
-  function handleAnisotropyChange(v: number): void {
-    debug.quality.anisotropy = v
-    anisotropy = debug.quality.anisotropy
-  }
-
-  function handleSoftnessChange(v: number): void {
-    debug.quality.shadowSoftness = v
-    shadowSoftness = debug.quality.shadowSoftness
-  }
-
-  // AO handlers use `debug.ambientOcclusion` (constructs on demand) since the
-  // operator is actively turning it on / tuning it.
-  function handleAoToggle(): void {
-    debug.ambientOcclusion.enabled = !aoOn
-    aoOn = debug.ambientOcclusion.enabled
-  }
-
-  function handleAoPresetChange(v: 'low' | 'medium' | 'high'): void {
-    debug.ambientOcclusion.preset = v
-    aoPreset = debug.ambientOcclusion.preset
-  }
-
-  function handleAoIntensityChange(v: number): void {
-    debug.ambientOcclusion.intensity = v
-    aoIntensity = debug.ambientOcclusion.intensity
-  }
-
-  function handleAoDirectChange(v: number): void {
-    debug.ambientOcclusion.directStrength = v
-    aoDirect = debug.ambientOcclusion.directStrength
-  }
-
-  function handleAoRadiusChange(v: number): void {
-    debug.ambientOcclusion.radius = v
-    aoRadius = debug.ambientOcclusion.radius
-  }
-
-  function handlePathShadowsToggle(): void {
-    debug.quality.vector.pathShadowsEnabled = !pathShadowsOn
-    pathShadowsOn = debug.quality.vector.pathShadowsEnabled
-  }
-
-  function handleSigmaBudgetChange(v: number): void {
-    debug.quality.vector.shadowSigmaBudget = v
-    shadowSigmaBudget = debug.quality.vector.shadowSigmaBudget
-  }
-
-  function handleAnalyticShadowFrameToggle(): void {
-    debug.quality.vector.analyticShadowFrame = !analyticShadowFrameOn
-    analyticShadowFrameOn = debug.quality.vector.analyticShadowFrame
-  }
-
-  function handleDitherToggle(): void {
-    debug.quality.vector.dither = !ditherOn
-    ditherOn = debug.quality.vector.dither
-  }
-
-  function formatMaskBytes(bytes: number): string {
-    return bytes > 0 ? `${(bytes / (1024 * 1024)).toFixed(2)} MB` : '0'
-  }
+  const pctOrMissing = (r: number | null): string =>
+    r === null ? MISSING : fmtPct(r)
 </script>
 
-<DebugSection title="Backend" bind:open={backendOpen}>
-  <div class="debug-controls with-divider">
-    <DebugSelect
-      label="Preference"
-      value={backendPref}
-      options={BACKEND_PREF_OPTIONS}
-      onChange={handleBackendPrefChange}
+<div class="debug-summary">
+  <div class="status-row">
+    <Pill
+      text={BACKEND_LABELS[stats.backend]}
+      tip="The graphics backend in use. The preference under Display can differ if the preferred backend failed to start."
     />
-    <DebugSelect
-      label="MSAA"
-      value={msaaSamples}
-      options={MSAA_OPTIONS}
-      onChange={handleMsaaChange}
+    <Pill
+      text={msaaLabel}
+      tip="Multisample anti-aliasing for the 2D and 3D passes."
     />
+    <HealthChip {issues} />
   </div>
-  <DebugRow
-    label="Active"
-    value={BACKEND_LABELS[stats.backend]}
-    tone="accent"
+  {#each stats.renderFailures as failure (failure.source + failure.message)}
+    <DebugRow label={failure.source} value={failure.message} tone="error" />
+  {/each}
+
+  <StatGrid>
+    <StatCard
+      label="Draws / frame"
+      value={drawsQ.text}
+      unit={drawsQ.unit}
+      tone={toneOf('drawCalls', g.drawCalls)}
+      tip={thresholdTip('drawCalls', g.drawCalls, fmtCount)}
+      series={history.drawCalls}
+      {revision}
+    />
+    <StatCard
+      label="Frame p95"
+      value={frameP95Ms.toFixed(1)}
+      unit="ms"
+      tone={toneOf('frameMs', frameP95Ms)}
+      tip={thresholdTip(
+        'frameMs',
+        frameP95Ms,
+        (n: number) => `${n.toFixed(1)} ms`,
+      )}
+      note="{stats.fps > 0 ? Math.round(stats.fps) : MISSING} fps"
+      series={frameStats}
+      seriesScale={1000}
+      seriesMax={50}
+      {revision}
+    />
+    <StatCard
+      label="Painted"
+      value={stats.compose.paints}
+      tone={toneOf('picturesPainted', stats.compose.paints)}
+      tip={thresholdTip('picturesPainted', stats.compose.paints)}
+      note="{fmtPct(restingRatio)} of frames at rest"
+      series={history.paints}
+      {revision}
+    />
+    <StatCard
+      label="Uploaded"
+      value={uploadQ.text}
+      unit={uploadQ.unit}
+      tone={toneOf('bytesUploaded', g.bytesUploaded)}
+      tip={uploadTip}
+      series={history.bytesUploaded}
+      {revision}
+    />
+    <StatCard
+      label="Primitives"
+      value={primsQ.text}
+      unit={primsQ.unit}
+      tone={toneOf('primitives', g.primitives)}
+      tip={thresholdTip('primitives', g.primitives, fmtCount)}
+      series={history.primitives}
+      {revision}
+    />
+    <StatCard
+      label="Stale"
+      value={stats.composeTotals.stale}
+      tone={toneOf('stalePictures', stats.composeTotals.stale)}
+      tip={thresholdTip('stalePictures', stats.composeTotals.stale)}
+    />
+  </StatGrid>
+
+  <div class="gauges">
+    <Gauge
+      label="Label cache"
+      reading="{g.labelEntries} / {LABEL_CACHE_MAX}"
+      value={labelPressure}
+      max={1}
+      good={THRESHOLDS.labelPressure.good}
+      warn={THRESHOLDS.labelPressure.warn}
+      tone={toneOf('labelPressure', labelPressure)}
+      tip={thresholdTip('labelPressure', labelPressure, fmtPct)}
+    />
+    <Gauge
+      label="Mask memory"
+      reading="{fmtBytes(g.maskBytes)} / {fmtBytes(maskBudget)}"
+      value={maskPressure}
+      max={1}
+      good={THRESHOLDS.maskPressure.good}
+      warn={THRESHOLDS.maskPressure.warn}
+      tone={toneOf('maskPressure', maskPressure)}
+      tip={thresholdTip('maskPressure', maskPressure, fmtPct)}
+    />
+    {#if g.surfaces > 0 || g.offscreenBytes > 0}
+      <Gauge
+        label="Offscreen memory"
+        reading="{fmtBytes(g.offscreenBytes)} in {g.surfaces}"
+        value={g.offscreenBytes}
+        max={THRESHOLDS.offscreenBytes.warn * 1.5}
+        good={THRESHOLDS.offscreenBytes.good}
+        warn={THRESHOLDS.offscreenBytes.warn}
+        tone={toneOf('offscreenBytes', g.offscreenBytes)}
+        tip={thresholdTip('offscreenBytes', g.offscreenBytes, fmtBytes)}
+      />
+    {/if}
+  </div>
+</div>
+
+<DebugSection title="Batching" bind:open={batchingOpen}>
+  {#snippet summary()}
+    <span class="section-summary">
+      {Math.round(mergeRatio * 100)}% merged
+    </span>
+  {/snippet}
+  <MetricRow
+    label="Program switches"
+    value={g.programSwitches}
+    tone={toneOf('programSwitches', g.programSwitches)}
+    tip={thresholdTip('programSwitches', g.programSwitches)}
+    fill={g.programSwitches / THRESHOLDS.programSwitches.warn}
+  />
+  <MetricRow
+    label="Texture binds"
+    value={g.textureBinds}
+    tone={toneOf('textureBinds', g.textureBinds)}
+    tip={thresholdTip('textureBinds', g.textureBinds)}
+    fill={g.textureBinds / THRESHOLDS.textureBinds.warn}
+  />
+  <MetricRow
+    label="Blend switches"
+    value={g.blendSwitches}
+    tone={toneOf('blendSwitches', g.blendSwitches)}
+    tip={thresholdTip('blendSwitches', g.blendSwitches)}
+    fill={g.blendSwitches / THRESHOLDS.blendSwitches.warn}
+  />
+  <MetricRow
+    label="Runs merged"
+    value="{g.runsMerged} ({fmtPct(mergeRatio)})"
+    tone={g.drawCalls + g.runsMerged < MIN_RUNS_JUDGED
+      ? 'neutral'
+      : toneOf('mergeRatio', mergeRatio)}
+    tip={thresholdTip('mergeRatio', mergeRatio, fmtPct)}
+    fill={mergeRatio}
+  />
+  <MetricRow
+    label="Uniform slices"
+    value={g.uboSlices}
+    tone={toneOf('uboSlices', g.uboSlices)}
+    tip={thresholdTip('uboSlices', g.uboSlices)}
+    fill={g.uboSlices / THRESHOLDS.uboSlices.warn}
+  />
+  <MetricRow
+    label="2D render passes"
+    value={g.passCount}
+    tone={toneOf('passCount', g.passCount)}
+    tip={thresholdTip('passCount', g.passCount)}
+    fill={g.passCount / THRESHOLDS.passCount.warn}
+  />
+  <MetricRow
+    label="Passes, whole frame"
+    value={g.framePasses}
+    tip="Render passes of the whole frame, 2D, 3D, ambient occlusion and post effects together."
+  />
+  <MetricRow
+    label="Queue submits"
+    value={g.frameSubmits}
+    tone={toneOf('submits', g.frameSubmits)}
+    tip={thresholdTip('submits', g.frameSubmits)}
+  />
+  <MetricRow
+    label="Bind groups created"
+    value={g.frameBindGroupsCreated}
+    tone={toneOf('bindGroupsCreated', g.frameBindGroupsCreated)}
+    tip={thresholdTip('bindGroupsCreated', g.frameBindGroupsCreated)}
+  />
+  <MetricRow
+    label="Bind group switches"
+    value={g.frameBindGroupSwitches}
+    tip="Times a different bind group was set between draws."
+  />
+  <MetricRow
+    label="Uniform writes"
+    value={g.frameUniformWrites}
+    tip="Uniform buffer writes issued during the frame."
   />
 </DebugSection>
 
-<DebugSection title="Rendering" bind:open={renderOpen}>
-  <div class="debug-controls">
-    <DebugSelect
-      label="FPS cap"
-      value={fpsCap}
-      options={FPS_CAP_OPTIONS}
-      onChange={handleFpsCapChange}
+<DebugSection title="Pictures" bind:open={picturesOpen}>
+  {#snippet summary()}
+    <span class="section-summary">
+      {stats.compose.replays} replayed
+    </span>
+  {/snippet}
+  <MetricRow
+    label="Painted"
+    value={stats.compose.paints}
+    tone={toneOf('picturesPainted', stats.compose.paints)}
+    tip={thresholdTip('picturesPainted', stats.compose.paints)}
+  />
+  {#if stats.composePainters.length > 0}
+    <MetricRow
+      label="Painted by"
+      value={stats.composePainters
+        .slice(0, 3)
+        .map(([name, n]) => (n > 1 ? `${name} ×${n}` : name))
+        .join(', ')}
+      tip="The node classes that painted a picture last frame. A scene that should be at rest names here what keeps it from being."
     />
-    <ToggleButton
-      active={smoothTimestep}
-      onToggle={handleSmoothTimestepToggle}
-      label="Smooth timestep (timer-jitter filter)"
-    />
-  </div>
+  {/if}
+  <MetricRow
+    label="Replayed"
+    value={stats.compose.replays}
+    tip="Pictures drawn from their recorded calls, without painting again."
+  />
+  <MetricRow
+    label="Nodes culled"
+    value={stats.compose.culled}
+    tip="Nodes skipped because their bounds lie outside the view."
+  />
+  <MetricRow
+    label="Frames at rest"
+    value={fmtPct(restingRatio)}
+    tip="Share of frames, since the stage started, in which no picture needed painting."
+    fill={restingRatio}
+    note="{stats.composeTotals.framesPainted} / {stats.composeTotals
+      .frames} painted"
+  />
+  <MetricRow
+    label="Stale pictures"
+    value={stats.composeTotals.stale}
+    tone={toneOf('stalePictures', stats.composeTotals.stale)}
+    tip={thresholdTip('stalePictures', stats.composeTotals.stale)}
+  />
 </DebugSection>
 
-<DebugSection title="GPU" bind:open={gpuOpen}>
-  <!-- Controls first (the operator's primary use), read-only stats below. -->
-  <div class="debug-controls with-divider">
+<DebugSection title="Instances" bind:open={instancesOpen}>
+  {#snippet summary()}
+    <span class="section-summary">{fmtCount(totalInstances)}</span>
+  {/snippet}
+  <MetricRow
+    label="SDF circles"
+    value={fmtCount(g.sdfInstances)}
+    fill={g.sdfInstances / Math.max(1, totalInstances)}
+    tip="Circle instances drawn by the shape program, as a share of all instances."
+  />
+  <MetricRow
+    label="Strokes"
+    value={fmtCount(g.strokeInstances)}
+    fill={g.strokeInstances / Math.max(1, totalInstances)}
+    tip="Stroke segment instances."
+  />
+  <MetricRow
+    label="Round rects"
+    value={fmtCount(g.roundRectInstances)}
+    fill={g.roundRectInstances / Math.max(1, totalInstances)}
+    tip="Rounded rectangle instances, fills and borders."
+  />
+  <MetricRow
+    label="Shadows"
+    value={fmtCount(g.shadowInstances)}
+    fill={g.shadowInstances / Math.max(1, totalInstances)}
+    tip="Analytic shadow instances. Each covers its shape plus the blur, so shadows are the most expensive instances per pixel."
+  />
+  <MetricRow
+    label="Primitives"
+    value={fmtCount(g.primitives)}
+    tone={toneOf('primitives', g.primitives)}
+    tip={thresholdTip('primitives', g.primitives, fmtCount)}
+  />
+</DebugSection>
+
+<DebugSection title="Caches" bind:open={cachesOpen}>
+  {#snippet summary()}
+    <span class="section-summary">
+      outline hit {pctOrMissing(outlineHitRate)}
+    </span>
+  {/snippet}
+  {#each stats.caches as cache (cache.name)}
+    <Gauge
+      label={cache.name}
+      reading="{fmtBytes(cache.bytes)} / {fmtBytes(cache.budget)}"
+      value={cache.bytes / Math.max(1, cache.budget)}
+      max={1}
+      good={THRESHOLDS.retainedPressure.good}
+      warn={THRESHOLDS.retainedPressure.warn}
+      tone={toneOf('retainedPressure', cache.bytes / Math.max(1, cache.budget))}
+      tip={{
+        ...thresholdTip(
+          'retainedPressure',
+          cache.bytes / Math.max(1, cache.budget),
+          fmtPct,
+        ),
+        facts: [
+          { label: 'Entries', value: fmtCount(cache.entries) },
+          { label: 'Drawn from the cache', value: `${cache.hits} last frame` },
+          { label: 'Kept', value: `${cache.admitted} last frame` },
+          { label: 'Freed', value: `${fmtCount(cache.evicted)} in all` },
+        ],
+      }}
+    />
+  {/each}
+  {#if stats.streamers.length > 0}
+    <div class="sub-head">Streaming every frame</div>
+    {#each stats.streamers as [name, bytes] (name)}
+      <MetricRow
+        label={name}
+        value={fmtBytes(bytes)}
+        tip="Vertex and instance bytes this picture sent to the GPU last frame. Content the renderer keeps between frames sends nothing, so a large number here is a picture that repaints, moves, or draws something the renderer does not keep."
+      />
+    {/each}
+  {/if}
+  <!-- Counters here are cumulative since startup, not per frame: bursty
+       cache and bake activity reads as mostly zero in a single frame. -->
+  {#if outlineHitRate !== null}
+    <Gauge
+      label="Outline cache hit rate"
+      reading={fmtPct(outlineHitRate)}
+      value={outlineHitRate}
+      max={1}
+      good={THRESHOLDS.cacheHitRate.good}
+      warn={THRESHOLDS.cacheHitRate.warn}
+      lowIsBad
+      tone={toneOf('cacheHitRate', outlineHitRate)}
+      tip="Stroke outlines served from the cache against built from scratch. {THRESHOLDS
+        .cacheHitRate.tip}"
+    />
+  {/if}
+  <MetricRow
+    label="Outline tessellations"
+    value={fmtCount(g.outlineTessellations)}
+    note="cumulative"
+    tip="Stroke outlines built from scratch."
+  />
+  <MetricRow
+    label="Outline cache hits"
+    value={fmtCount(g.outlineCacheHits)}
+    note="cumulative"
+    tip="Stroke outlines reused from the cache."
+  />
+  <MetricRow
+    label="Ramp rows written"
+    value={fmtCount(g.rampRowsWritten)}
+    note="cumulative"
+    tip="Gradient ramp rows painted into the shared atlas."
+  />
+  <MetricRow
+    label="Label rasters"
+    value={fmtCount(g.labelRasters)}
+    note="cumulative"
+    tip="Text and small images rasterized into the label page. Many of these after startup means labels are being drawn again."
+  />
+  <MetricRow
+    label="Label upload"
+    value={fmtBytes(g.labelUploadBytes)}
+    note="cumulative"
+    tip="Bytes of label bitmaps sent to the GPU."
+  />
+  <MetricRow
+    label="Label holds"
+    value={fmtCount(g.labelHolds)}
+    note="cumulative"
+    tip="Label draws served by a nearby size's raster instead of a new one."
+  />
+  <MetricRow
+    label="Dedicated label textures"
+    value={fmtCount(g.labelDedicated)}
+    note="cumulative"
+    tip="Labels too large for the page, or drawn with no room in it, that took a texture of their own."
+  />
+  <MetricRow
+    label="Label page resets"
+    value={g.labelPageWipes}
+    tone={toneOf('labelPageResets', g.labelPageWipes)}
+    tip={thresholdTip('labelPageResets', g.labelPageWipes)}
+  />
+  <MetricRow
+    label="Mask bakes"
+    value={fmtCount(g.maskBakes)}
+    note="cumulative"
+    tip="Path-shadow masks rendered and blurred."
+  />
+  <MetricRow
+    label="Mask bake work"
+    value={fmtCount(g.maskBakeWork)}
+    note="cumulative"
+    tip="Blur tap-work spent on mask bakes, texels times taps."
+  />
+  {#if poolHitRate !== null}
+    <Gauge
+      label="Bake pool hit rate"
+      reading="{fmtPct(poolHitRate)} ({fmtCount(g.poolHits)} / {fmtCount(
+        g.poolMisses,
+      )})"
+      value={poolHitRate}
+      max={1}
+      good={THRESHOLDS.cacheHitRate.good}
+      warn={THRESHOLDS.cacheHitRate.warn}
+      lowIsBad
+      tone={toneOf('cacheHitRate', poolHitRate)}
+      tip="Render targets for mask bakes reused from the pool against created. {THRESHOLDS
+        .cacheHitRate.tip}"
+    />
+  {/if}
+</DebugSection>
+
+{#if stats.world3d}
+  {@const w3 = stats.world3d}
+  <DebugSection title="3D" bind:open={threeOpen}>
+    {#snippet summary()}
+      <span class="section-summary">
+        {fmtCount(w3.triangleCount)} tris
+      </span>
+    {/snippet}
+    <StatGrid>
+      <StatCard
+        label="Draws / frame"
+        value={w3.drawCalls}
+        tip="Mesh draw calls last frame."
+      />
+      <StatCard
+        label="Triangles"
+        value={countQuantity(w3.triangleCount).text}
+        unit={countQuantity(w3.triangleCount).unit}
+        tip="Triangles submitted last frame, shadow passes included."
+      />
+      <StatCard
+        label="Visible"
+        value="{w3.visible} / {w3.meshCount}"
+        tip="Meshes that passed culling, of all meshes in the scene."
+      />
+      <StatCard
+        label="Nodes"
+        value={w3.nodeCount}
+        tip="Nodes in the 3D scene."
+      />
+    </StatGrid>
+  </DebugSection>
+{/if}
+
+<DebugSection title="Debug views" bind:open={viewsOpen}>
+  <div class="debug-controls">
     <DebugSelect
       label="Render mode"
       value={renderMode}
@@ -370,159 +734,33 @@
       label="Perf marks (User Timing)"
     />
   </div>
-
-  <DebugRow label="Draw calls / frame" value={stats.gpu.drawCalls} />
-  <DebugRow label="Program switches" value={stats.gpu.programSwitches} />
-  <DebugRow label="Texture binds" value={stats.gpu.textureBinds} />
-  <DebugRow label="Blend switches" value={stats.gpu.blendSwitches} />
-  <DebugRow label="SDF instances" value={stats.gpu.sdfInstances} />
-  <DebugRow label="Stroke instances" value={stats.gpu.strokeInstances} />
-  <DebugRow label="Round-rect instances" value={stats.gpu.roundRectInstances} />
-  <DebugRow label="Shadow instances" value={stats.gpu.shadowInstances} />
-  <DebugRow label="Uniform slices" value={stats.gpu.uboSlices} />
-  <DebugRow label="Bytes uploaded" value={stats.gpu.bytesUploaded} />
-  <DebugRow label="Render passes" value={stats.gpu.passCount} />
-  <DebugRow label="Offscreen surfaces" value={stats.gpu.surfaces} />
-  <DebugRow label="Offscreen bytes" value={stats.gpu.offscreenBytes} />
 </DebugSection>
-
-<DebugSection title="Path shadows" bind:open={vectorOpen}>
-  <!-- Controls first, read-only stats below (same layout as "GPU" above).
-       Sigma budget, analytic-frame, and dither live under `quality.vector`
-       alongside `pathShadowsEnabled`: see the path-shadows guide. -->
-  <div class="debug-controls with-divider">
-    <DebugToggleGroup
-      label="Path shadows (cached blurred masks)"
-      active={pathShadowsOn}
-      onToggle={handlePathShadowsToggle}
-    >
-      <DebugSelect
-        label="Sigma budget"
-        value={shadowSigmaBudget}
-        options={SIGMA_BUDGET_OPTIONS}
-        onChange={handleSigmaBudgetChange}
-      />
-    </DebugToggleGroup>
-    <ToggleButton
-      active={analyticShadowFrameOn}
-      onToggle={handleAnalyticShadowFrameToggle}
-      label="Analytic shadow border-frame optimization"
-    />
-    <ToggleButton
-      active={ditherOn}
-      onToggle={handleDitherToggle}
-      label="Dither (gradients, analytic + path shadows)"
-    />
-  </div>
-  <!-- Cumulative since startup, not per-frame: see `GpuGfxStats`'s own doc
-       for why (bursty cache/bake activity reads as mostly zero per frame). -->
-  <DebugRow
-    label="Outline tessellations (cumulative)"
-    value={stats.gpu.outlineTessellations}
-  />
-  <DebugRow
-    label="Outline cache hits (cumulative)"
-    value={stats.gpu.outlineCacheHits}
-  />
-  <DebugRow
-    label="Ramp rows written (cumulative)"
-    value={stats.gpu.rampRowsWritten}
-  />
-  <DebugRow label="Mask bakes (cumulative)" value={stats.gpu.maskBakes} />
-  <DebugRow
-    label="Mask bake work (cumulative)"
-    value={stats.gpu.maskBakeWork}
-  />
-  <DebugRow
-    label="Mask bytes (live)"
-    value={formatMaskBytes(stats.gpu.maskBytes)}
-  />
-  <DebugRow
-    label="Bake pool hits / misses (cumulative)"
-    value={`${stats.gpu.poolHits} / ${stats.gpu.poolMisses}`}
-  />
-</DebugSection>
-
-{#if stats.world3d}
-  <DebugSection title="3D" bind:open={threeOpen}>
-    <div class="debug-controls with-divider">
-      <DebugToggleGroup
-        label="Shadows"
-        active={shadowsOn}
-        onToggle={handleShadowsToggle}
-      >
-        <DebugSelect
-          label="Shadow resolution"
-          value={shadowSize}
-          options={SHADOW_SIZE_OPTIONS}
-          onChange={handleShadowSizeChange}
-        />
-        <DebugSelect
-          label="Shadow softness"
-          value={shadowSoftness}
-          options={SOFTNESS_OPTIONS}
-          onChange={handleSoftnessChange}
-        />
-      </DebugToggleGroup>
-      <!-- Anisotropy is texture filtering, independent of shadows, so it stays
-           a standalone control rather than a shadow dependent. -->
-      <DebugSelect
-        label="Anisotropy"
-        value={anisotropy}
-        options={ANISO_OPTIONS}
-        onChange={handleAnisotropyChange}
-      />
-      <DebugToggleGroup
-        label="Ambient occlusion"
-        active={aoOn}
-        onToggle={handleAoToggle}
-      >
-        <DebugSelect
-          label="AO preset"
-          value={aoPreset}
-          options={AO_PRESET_OPTIONS}
-          onChange={handleAoPresetChange}
-        />
-        <DebugSlider
-          label="AO intensity"
-          value={aoIntensity}
-          min={0}
-          max={16}
-          step={0.1}
-          format={(v) => `${v.toFixed(1)}×`}
-          onInput={handleAoIntensityChange}
-        />
-        <DebugSlider
-          label="AO radius"
-          value={aoRadius}
-          min={0.1}
-          max={3}
-          step={0.05}
-          format={(v) => v.toFixed(2)}
-          onInput={handleAoRadiusChange}
-        />
-        <DebugSlider
-          label="AO on direct light"
-          value={aoDirect}
-          min={0}
-          max={1}
-          step={0.05}
-          format={(v) => (v === 0 ? 'off' : v.toFixed(2))}
-          onInput={handleAoDirectChange}
-        />
-      </DebugToggleGroup>
-    </div>
-    <DebugRow label="Nodes" value={stats.world3d.nodeCount} />
-    <DebugRow label="Meshes" value={stats.world3d.meshCount} />
-    {#if stats.world3d.rttSurfaces > 0}
-      <DebugRow label="RTT surfaces" value={stats.world3d.rttSurfaces} />
-    {/if}
-    <DebugRow label="Draw calls / frame" value={stats.world3d.drawCalls} />
-    <DebugRow label="Visible / frame" value={stats.world3d.visible} />
-    <DebugRow label="Triangles" value={stats.world3d.triangleCount} />
-  </DebugSection>
-{/if}
 
 <DebugSection title="Textures" bind:open={texturesOpen}>
   <TextureInspector {debug} open={texturesOpen} {revision} />
 </DebugSection>
+
+<style lang="sass">
+  .status-row
+    display: flex
+    align-items: center
+    flex-wrap: wrap
+    gap: 6px
+    padding: 2px 2px 0
+
+    :global(.chip)
+      margin-left: auto
+
+  .sub-head
+    margin: 6px 0 2px
+    font-size: 9px
+    text-transform: uppercase
+    letter-spacing: 0.05em
+    opacity: 0.55
+
+  .gauges
+    display: flex
+    flex-direction: column
+    gap: 3px
+    padding: 0 2px
+</style>

@@ -45,9 +45,6 @@ export class LossCard {
   #startWanted = false
   #destroyed = false
   readonly #nodes: Node2D[] = []
-  /** The nodes that draw, which take the card's opacity. */
-  readonly #drawn: Node2D[] = []
-  #alpha = 1
 
   constructor(parent: Node2D, opts: LossCardOptions) {
     const background = new ShapeNode({
@@ -98,7 +95,6 @@ export class LossCard {
       parent.add(node)
       this.#nodes.push(node)
     }
-    this.#drawn.push(background, title, reason)
 
     this.#scenePromise = loadGameAssets()
       .then((assets) => {
@@ -117,20 +113,6 @@ export class LossCard {
         console.error('[loss-card] loading the loss scene failed', err)
         return null
       })
-  }
-
-  /**
-   * The card's opacity, from 0 to 1. The engine does not pass a parent's alpha
-   * down to what it draws, so the card sets it on its own drawn nodes. The loss
-   * animation inside starts only once the card is in, so it needs no fade.
-   */
-  get alpha(): number {
-    return this.#alpha
-  }
-
-  set alpha(value: number) {
-    this.#alpha = value
-    for (const node of this.#drawn) node.transform.alpha = value
   }
 
   /** Play the loss animation. Safe to call before the scene has loaded. */

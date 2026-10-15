@@ -47,7 +47,6 @@ export class ClearBurstNode extends ParticleEmitterNode {
         minSpeedFrac: 0.08,
       },
     })
-    this.renderLayer = 'dynamic'
   }
 
   /** Fire out of both ends of each cleared row. */

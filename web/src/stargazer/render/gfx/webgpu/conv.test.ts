@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { colorTargetToGPU, depthStencilToGPU } from './conv'
+import {
+  colorTargetToGPU,
+  depthStencilToGPU,
+  sampleCountToGPU,
+  texturePixelBytes,
+  texturePixelFormatToGPU,
+} from './conv'
 import type { PipelineDesc } from '../GfxDevice'
 
 describe('colorTargetToGPU', () => {
@@ -18,6 +24,14 @@ describe('colorTargetToGPU', () => {
       write: false,
     })
     expect(t.writeMask).toBe(0)
+  })
+
+  it('uses the canvas format for a canvas target', () => {
+    const t = colorTargetToGPU(
+      { format: 'canvas', blend: 'source-over' },
+      'bgra8unorm',
+    )
+    expect(t.format).toBe('bgra8unorm')
   })
 
   it('treats an explicit true the same as the default', () => {
@@ -104,5 +118,37 @@ describe('depthStencilToGPU', () => {
     })
     expect(s?.depthCompare).toBe('always')
     expect(s?.depthWriteEnabled).toBe(false)
+  })
+})
+
+describe('sampleCountToGPU', () => {
+  it('maps every request to a count WebGPU accepts', () => {
+    // `?msaa=2` reaches the device unchanged, and a pipeline or texture with 2
+    // samples fails validation.
+    expect([0, 1, 2, 3, 4, 8].map(sampleCountToGPU)).toEqual([1, 1, 4, 4, 4, 4])
+  })
+})
+
+describe('texturePixelFormatToGPU', () => {
+  it('maps each sampled pixel layout', () => {
+    expect(texturePixelFormatToGPU('rgba8', false)).toBe('rgba8unorm')
+    expect(texturePixelFormatToGPU('rgba8', true)).toBe('rgba8unorm-srgb')
+    expect(texturePixelFormatToGPU('r8', false)).toBe('r8unorm')
+    expect(texturePixelFormatToGPU('rg8', false)).toBe('rg8unorm')
+    expect(texturePixelFormatToGPU('rgba16f', false)).toBe('rgba16float')
+  })
+
+  it('ignores srgb for layouts with no color space', () => {
+    expect(texturePixelFormatToGPU('r8', true)).toBe('r8unorm')
+    expect(texturePixelFormatToGPU('rgba16f', true)).toBe('rgba16float')
+  })
+})
+
+describe('texturePixelBytes', () => {
+  it('gives each layout its texel size, which sets the upload row pitch', () => {
+    expect(texturePixelBytes('rgba8')).toBe(4)
+    expect(texturePixelBytes('r8')).toBe(1)
+    expect(texturePixelBytes('rg8')).toBe(2)
+    expect(texturePixelBytes('rgba16f')).toBe(8)
   })
 })

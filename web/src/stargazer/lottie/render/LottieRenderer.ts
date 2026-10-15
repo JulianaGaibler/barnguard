@@ -1,11 +1,10 @@
-// Draws a parsed Lottie animation through `Gfx2D`.
+// Compiles a parsed Lottie animation and evaluates it frame by frame.
 //
 // The renderer compiles the animation once into a tree of layers, groups and
-// style operations that owns every `GfxPath` it will draw. Each frame has two
-// steps. `evaluate(frame)` samples the animated properties and rebuilds the
-// paths whose inputs changed. `draw(gfx)` replays the compiled operations
-// through the facade. A frame that did not change skips the first step and
-// still draws, because drawing is immediate-mode.
+// style operations that owns every `GfxPath` it will draw. `evaluate(frame)`
+// samples the animated properties and rebuilds the paths whose inputs changed.
+// `paintLayer` records one layer's own shapes, text or image into a canvas, and
+// `LottieScene` places the layers as nodes.
 //
 // Shape semantics follow the file format. Items in a group are listed top to
 // bottom, so the last item paints first. A fill or stroke applies to every path
@@ -15,19 +14,19 @@
 import { GfxPath } from '../../render/gfx/GfxPath'
 import { constantProp, createPathData } from '../anim/props'
 import type {
-  Gfx2D,
   GfxFill,
   GfxGradientStop,
   GfxLinearGradient,
-  GfxMatteMode,
-  GfxOffscreenHandle,
   GfxRadialGradient,
 } from '../../render/gfx/Gfx2D'
+import type { Canvas } from '../../render/picture/Canvas'
 import type {
   LottieAnimation,
   LottieDiagnostic,
+  LottieEllipseItem,
   LottieGradient,
   LottieLayer,
+  LottieRectItem,
   LottieRepeaterItem,
   LottieShapeItem,
   LottieTextDocument,
@@ -65,23 +64,6 @@ const MAX_PRECOMP_DEPTH = 8
 const MAX_COPIES = 1000
 
 const DEG = Math.PI / 180
-
-/**
- * How each mask mode combines its coverage with the running one. Lighten takes
- * the larger, which a union matches for hard edges. Difference keeps what is in
- * one and not the other. Darken takes the smaller.
- */
-const MASK_BLEND: Record<
-  string,
-  'source-over' | 'destination-out' | 'destination-in' | 'xor'
-> = {
-  add: 'source-over',
-  lighten: 'source-over',
-  subtract: 'destination-out',
-  intersect: 'destination-in',
-  darken: 'destination-in',
-  difference: 'xor',
-}
 
 /** The fill a glyph outline is drawn with, recolored from the text document. */
 const GLYPH_FILL: LottieShapeItem = {
@@ -159,6 +141,13 @@ interface CStyle {
   /** Dash pattern and offset, in style space. */
   dash: number[]
   dashOffset: number
+  /**
+   * The style's only shape when it draws as one analytic instance instead of a
+   * path (see `analyticShapeOf`), else null. Set each frame.
+   */
+  analytic: LottieRectItem | LottieEllipseItem | null
+  /** That shape's box at the current frame, center and size, and corner radius. */
+  box: { cx: number; cy: number; w: number; h: number; radius: number }
 }
 
 type CElement = { style: CStyle } | { group: CGroup }
@@ -176,7 +165,8 @@ interface CGroup {
   repeatBy: CRepeater[]
 }
 
-interface CLayer {
+/** One compiled layer. @internal */
+export interface CLayer {
   model: LottieLayer
   parent: CLayer | null
   /** Matrix from layer space to the animation's canvas. */
@@ -216,6 +206,11 @@ interface CLayer {
   surface: boolean
   /** Opacity applied when the surface composites. */
   surfaceOpacity: number
+  /**
+   * True when what the layer paints cannot change from one frame to the next.
+   * Its matrix may still move, which never repaints it.
+   */
+  contentStatic: boolean
 }
 
 /** One glyph outline compiled for a text layer. */
@@ -248,7 +243,8 @@ interface CText {
   doc: LottieTextDocument | null
 }
 
-interface CComp {
+/** The layers of one composition, first in the file on top. @internal */
+export interface CComp {
   layers: CLayer[]
 }
 
@@ -324,12 +320,6 @@ function setOverrides(
 }
 
 /** Number of style draws in a group tree. */
-function toGfxMatte(
-  mode: 'alpha' | 'inverted-alpha' | 'luma' | 'inverted-luma',
-): GfxMatteMode {
-  return mode
-}
-
 function countStyles(group: CGroup): number {
   let n = 0
   for (const el of group.elements) {
@@ -367,6 +357,56 @@ function propsOfMod(item: ModItem): Array<{ isStatic: boolean }> {
 }
 
 /** True when nothing in the pipeline can change from one frame to the next. */
+/**
+ * The shape a style draws as one analytic instance instead of a path, or null.
+ * That needs the style to cover exactly one rect or ellipse with nothing
+ * changing it. A Lottie fill covers every shape before it in its group as one
+ * path under one winding rule, so two shapes, which may overlap or cut holes,
+ * keep the path route. So do the paints and strokes the shape program can't
+ * draw: a radial gradient, a gradient stroke, a dash, and a sharp rect corner
+ * stroked with a join other than round, since a band around a sharp corner
+ * comes out round.
+ */
+function analyticShapeOf(
+  style: CStyle,
+): LottieRectItem | LottieEllipseItem | null {
+  if (style.ops.length !== 1) return null
+  const op = style.ops[0]
+  if (op.k !== 'geom') return null
+  const shape = op.item
+  if (shape.kind !== 'rect' && shape.kind !== 'ellipse') return null
+  if (style.radial) return null
+  const item = style.item
+  if (item.kind === 'gradient-stroke') return null
+  if (item.kind === 'stroke') {
+    if (item.dashes.length > 0) return null
+    if (shape.kind === 'rect' && item.join !== 'round') {
+      const rounded = shape.roundness.isStatic && shape.roundness.get(0) > 0
+      if (!rounded) return null
+    }
+  }
+  return shape
+}
+
+/** `shape`'s center, size and corner radius at `frame`, written into `out`. */
+function sampleBox(
+  shape: LottieRectItem | LottieEllipseItem,
+  frame: number,
+  out: CStyle['box'],
+): void {
+  shape.position.sample(frame, POINT)
+  out.cx = POINT[0]
+  out.cy = POINT[1]
+  shape.size.sample(frame, POINT)
+  out.w = POINT[0]
+  out.h = POINT[1]
+  // As `genRect` does, a roundness past half the shorter side is capped there.
+  out.radius =
+    shape.kind === 'rect'
+      ? Math.max(0, Math.min(shape.roundness.get(frame), out.w / 2, out.h / 2))
+      : 0
+}
+
 function opsAreStatic(ops: COp[]): boolean {
   for (const op of ops) {
     switch (op.k) {
@@ -385,9 +425,79 @@ function opsAreStatic(ops: COp[]): boolean {
   return true
 }
 
+type StaticProp = { isStatic: boolean } | null | undefined
+
+function propsStatic(...props: StaticProp[]): boolean {
+  return props.every((p) => !p || p.isStatic)
+}
+
+function repeaterIsStatic(rep: CRepeater): boolean {
+  const it = rep.item
+  const t = it.transform
+  return propsStatic(
+    it.copies,
+    it.offset,
+    t.anchor,
+    t.position,
+    t.scale,
+    t.rotation,
+    t.startOpacity,
+    t.endOpacity,
+  )
+}
+
+function gradientIsStatic(item: {
+  start: StaticProp
+  end: StaticProp
+  highlightLength: StaticProp
+  highlightAngle: StaticProp
+  gradient: { data: StaticProp }
+}): boolean {
+  return propsStatic(
+    item.start,
+    item.end,
+    item.highlightLength,
+    item.highlightAngle,
+    item.gradient.data,
+  )
+}
+
+function styleIsStatic(style: CStyle): boolean {
+  const item = style.item
+  if (!style.staticGeometry || !item.opacity.isStatic) return false
+  if (!style.repeatBy.every(repeaterIsStatic)) return false
+  switch (item.kind) {
+    case 'fill':
+      return item.color.isStatic
+    case 'stroke':
+      return (
+        propsStatic(item.color, item.width) &&
+        item.dashes.every((d) => d.value.isStatic)
+      )
+    case 'gradient-fill':
+      return gradientIsStatic(item)
+    case 'gradient-stroke':
+      return (
+        gradientIsStatic(item) &&
+        propsStatic(item.width) &&
+        item.dashes.every((d) => d.value.isStatic)
+      )
+  }
+}
+
+/** True when nothing a group paints can change from one frame to the next. */
+function groupIsStatic(group: CGroup): boolean {
+  if (!transformIsStatic(group.transform)) return false
+  if (group.transform && !group.transform.opacity.isStatic) return false
+  if (!group.repeaters.every(repeaterIsStatic)) return false
+  return group.elements.every((el) =>
+    'group' in el ? groupIsStatic(el.group) : styleIsStatic(el.style),
+  )
+}
+
 /**
- * Compiles and draws one animation. A renderer holds mutable per-frame state,
- * so each node owns its own.
+ * Compiles and evaluates one animation. A renderer holds mutable per-frame
+ * state, so each node owns its own.
  *
  * @internal
  */
@@ -405,20 +515,32 @@ export class LottieRenderer {
   readonly #sets: PathSet[] = []
   readonly #modOut = new PathSet()
 
-  /**
-   * Whether the animation may draw layers through offscreen surfaces. The node
-   * declares the demand for them while this is true.
-   */
-  mayUseOffscreen = false
   readonly #exactOpacity: boolean
   readonly #imageLayers: CLayer[] = []
-  #maskFrame = 0
-  readonly #boundsScratch = { x: 0, y: 0, width: 0, height: 0 }
 
   constructor(anim: LottieAnimation, opts: { exactOpacity?: boolean } = {}) {
     this.#anim = anim
     this.#exactOpacity = opts.exactOpacity ?? true
     this.#root = this.#compileComp(anim.layers, 0)
+    this.#markStatic(this.#root, true)
+  }
+
+  /**
+   * Work out which layers paint the same thing every frame. A layer's opacity
+   * folds into what it paints, so an animated one makes the content of the
+   * layer and of everything inside a precomposition move too.
+   */
+  #markStatic(comp: CComp, inherited: boolean): void {
+    for (const layer of comp.layers) {
+      const opacityStatic = layer.model.transform.opacity.isStatic
+      layer.contentStatic =
+        inherited &&
+        opacityStatic &&
+        (layer.model.type === 'shape'
+          ? layer.root !== null && groupIsStatic(layer.root)
+          : layer.model.type !== 'text')
+      if (layer.inner) this.#markStatic(layer.inner, inherited && opacityStatic)
+    }
   }
 
   /**
@@ -426,17 +548,13 @@ export class LottieRenderer {
    * including the in point) and rebuild what changed.
    */
   evaluate(frame: number): void {
-    this.#maskFrame = frame
     setIdentity(this.#base)
     this.#evalComp(this.#root, frame, this.#base, 1)
   }
 
-  /**
-   * Draw the evaluated frame. `alpha` multiplies every operation's opacity. The
-   * caller sets the transform that places the composition.
-   */
-  draw(gfx: Gfx2D, alpha: number): void {
-    this.#drawComp(this.#root, gfx, alpha, this.#anim.width, this.#anim.height)
+  /** The compiled layers of the animation's own composition. */
+  get comp(): CComp {
+    return this.#root
   }
 
   /**
@@ -519,19 +637,6 @@ export class LottieRenderer {
     walkComp(this.#root)
   }
 
-  /** Whether a layer could ever be drawn through a surface. */
-  #layerMayNeedSurface(layer: CLayer): boolean {
-    if (layer.matteSource || layer.maskPaths.length > 0 || layer.blend) {
-      return true
-    }
-    const o = layer.model.transform.opacity
-    return (
-      this.#exactOpacity &&
-      layer.styleCount > 1 &&
-      !(o.isStatic && o.get(0) >= 100)
-    )
-  }
-
   // --- compile ---------------------------------------------------------------
 
   #note(code: string, message: string, layer: string): void {
@@ -568,6 +673,7 @@ export class LottieRenderer {
         image: null,
         surface: false,
         surfaceOpacity: 1,
+        contentStatic: false,
       }
       byIndex.set(model.index, layer)
       out.push(layer)
@@ -585,7 +691,6 @@ export class LottieRenderer {
           named >= 0 ? (byIndex.get(named) ?? null) : (out[i - 1] ?? null)
         if (layer.matteSource) layer.matteSource.matteOnly = true
       }
-      if (this.#layerMayNeedSurface(layer)) this.mayUseOffscreen = true
     }
     return { layers: out }
   }
@@ -776,6 +881,8 @@ export class LottieRenderer {
             width: 0,
             dash: [],
             dashOffset: 0,
+            analytic: null,
+            box: { cx: 0, cy: 0, w: 0, h: 0, radius: 0 },
           }
           style.staticGeometry = opsAreStatic(style.ops)
           if (
@@ -1118,7 +1225,10 @@ export class LottieRenderer {
     style.visible = style.alpha > 0 && style.ops.length > 0
     if (!style.visible) return
 
-    if (!(style.staticGeometry && style.built)) {
+    style.analytic = analyticShapeOf(style)
+    if (style.analytic) {
+      sampleBox(style.analytic, frame, style.box)
+    } else if (!(style.staticGeometry && style.built)) {
       this.#buildCompound(style, frame)
       style.built = true
     }
@@ -1315,193 +1425,49 @@ export class LottieRenderer {
     for (let i = 0; i < out.count; i++) set.push(out.items[i])
   }
 
-  // --- draw ------------------------------------------------------------------
-
-  #drawComp(
-    comp: CComp,
-    gfx: Gfx2D,
-    alpha: number,
-    w: number,
-    h: number,
-  ): void {
-    // The first layer in the file is the topmost, so draw from the end.
-    for (let i = comp.layers.length - 1; i >= 0; i--) {
-      const layer = comp.layers[i]
-      if (!layer.visible || layer.matteOnly) continue
-      this.#drawLayer(comp, i, gfx, alpha, w, h)
-    }
-  }
+  // --- paint -----------------------------------------------------------------
 
   /**
-   * Draw one layer. A layer that needs masks, a matte, a blend or an exact
-   * opacity renders into a surface covering the composition first.
+   * Record the layer's own content into `canvas`: a solid, its shapes, its text
+   * or its image. A precomposition's content is its inner layers, which are
+   * nodes of their own. Opacity that folds into the drawings is applied here,
+   * and a layer drawn as a group is composited with its own.
    */
-  #drawLayer(
-    comp: CComp,
-    index: number,
-    gfx: Gfx2D,
-    alpha: number,
-    w: number,
-    h: number,
-  ): void {
-    const layer = comp.layers[index]
-    if (!layer.surface) {
-      this.#drawLayerDirect(layer, gfx, alpha)
-      return
-    }
-    const bounds = this.#bounds(w, h)
-    const mode = layer.model.matteMode
-    const matteMode = mode === 'none' ? null : mode
-    const retain = matteMode !== null || layer.maskPaths.length > 0
-    const total = alpha * layer.surfaceOpacity
-    const blend = layer.blend ?? undefined
-    if (!gfx.beginOffscreen({ bounds, retain, opacity: total, blend })) {
-      // No surface available. Draw it plain, with its opacity folded.
-      this.#drawLayerDirect(layer, gfx, alpha * layer.surfaceOpacity)
-      return
-    }
-    this.#drawLayerDirect(layer, gfx, 1)
-    let handle = gfx.endOffscreen()
-    if (!retain || !handle) return
-    if (layer.maskPaths.length > 0) {
-      const mask = this.#buildMask(layer, gfx, w, h)
-      if (mask) {
-        gfx.beginOffscreen({ bounds: this.#bounds(w, h), retain: true })
-        gfx.drawOffscreen(handle, { matte: mask, matteMode: 'alpha' })
-        handle = gfx.endOffscreen() ?? handle
-      }
-    }
-    let matte: GfxOffscreenHandle | undefined
-    if (matteMode && layer.matteSource) {
-      const src = comp.layers.indexOf(layer.matteSource)
-      if (layer.matteSource.visible && src >= 0) {
-        gfx.beginOffscreen({ bounds: this.#bounds(w, h), retain: true })
-        this.#drawLayer(comp, src, gfx, 1, w, h)
-        matte = gfx.endOffscreen() ?? undefined
-      } else if (!matteMode.startsWith('inverted')) {
-        // A matte with nothing in it hides the layer. An inverted one shows it.
-        return
-      }
-    }
-    gfx.drawOffscreen(handle, {
-      opacity: total,
-      blend,
-      matte,
-      matteMode: matteMode && matte ? toGfxMatte(matteMode) : undefined,
-    })
-  }
-
-  #bounds(
-    w: number,
-    h: number,
-  ): { x: number; y: number; width: number; height: number } {
-    const b = this.#boundsScratch
-    b.x = 0
-    b.y = 0
-    b.width = w
-    b.height = h
-    return b
-  }
-
-  /**
-   * Coverage of the layer's masks as a retained surface: white where the mask
-   * lets the layer through. Masks combine in order, each as its own coverage
-   * added to, subtracted from or intersected with the running one.
-   */
-  #buildMask(
-    layer: CLayer,
-    gfx: Gfx2D,
-    w: number,
-    h: number,
-  ): GfxOffscreenHandle | null {
-    if (!gfx.beginOffscreen({ bounds: this.#bounds(w, h), retain: true })) {
-      return null
-    }
-    const masks = layer.model.masks.filter((m) => m.mode !== 'none')
-    // The running coverage starts full when the first mask subtracts,
-    // intersects or darkens, empty otherwise.
-    const first = masks[0]?.mode
-    if (first === 'subtract' || first === 'intersect' || first === 'darken') {
-      gfx.fillRect(0, 0, w, h, '#ffffff')
-    }
-    const frame = this.#maskFrame
-    for (let i = 0; i < masks.length; i++) {
-      const mask = masks[i]
-      const path = layer.maskPaths[i]
-      const opacity = Math.max(0, Math.min(1, mask.opacity.get(frame) / 100))
-      // This mask's own coverage.
-      gfx.beginOffscreen({ bounds: this.#bounds(w, h), retain: true })
-      // The mask path lives in the layer's own space.
-      const lm = layer.matrix
-      gfx.save()
-      gfx.transform(lm[0], lm[1], lm[2], lm[3], lm[4], lm[5])
-      gfx.setAlpha(opacity)
-      gfx.fillPath(path, '#ffffff', 'nonzero')
-      gfx.restore()
-      let cover = gfx.endOffscreen()
-      if (cover && mask.inverted) {
-        gfx.beginOffscreen({ bounds: this.#bounds(w, h), retain: true })
-        gfx.fillRect(0, 0, w, h, '#ffffff')
-        gfx.drawOffscreen(cover, { blend: 'destination-out' })
-        cover = gfx.endOffscreen()
-      }
-      if (!cover) continue
-      gfx.drawOffscreen(cover, {
-        blend: MASK_BLEND[mask.mode],
-      })
-    }
-    return gfx.endOffscreen()
-  }
-
-  /** Draw the layer's own content under its matrix. */
-  #drawLayerDirect(layer: CLayer, gfx: Gfx2D, alpha: number): void {
+  paintLayer(layer: CLayer, canvas: PaintTarget): void {
     const m = layer.model
-    if (
-      m.type !== 'solid' &&
-      m.type !== 'shape' &&
-      m.type !== 'precomp' &&
-      m.type !== 'text' &&
-      m.type !== 'image'
-    ) {
-      return
-    }
-    const lm = layer.matrix
-    gfx.save()
-    gfx.transform(lm[0], lm[1], lm[2], lm[3], lm[4], lm[5])
-    if (layer.maskClip) gfx.clipPath(layer.maskClip)
     switch (m.type) {
       case 'solid':
         if (layer.solidFill) {
-          gfx.setAlpha(alpha * layer.alpha)
-          gfx.fillRect(0, 0, m.width, m.height, layer.solidFill)
+          canvas.setAlpha(layer.alpha)
+          canvas.fillRect(0, 0, m.width, m.height, layer.solidFill)
         }
         break
       case 'shape':
-        if (layer.root) this.#drawGroup(layer.root, gfx, alpha)
+        if (layer.root) this.#drawGroup(layer.root, canvas, 1)
         break
       case 'text':
-        if (layer.text) this.#drawText(layer.text, gfx, alpha, layer.alpha)
+        if (layer.text) this.#drawText(layer.text, canvas, 1, layer.alpha)
         break
       case 'image':
         if (layer.image) {
           const info = this.#anim.assets.get(m.refId)?.image
           if (info) {
-            gfx.setAlpha(alpha * layer.alpha)
-            gfx.drawImage(layer.image, 0, 0, info.width, info.height)
+            canvas.setAlpha(layer.alpha)
+            canvas.drawImage(layer.image, 0, 0, info.width, info.height)
           }
         }
         break
-      case 'precomp':
-        if (layer.inner) {
-          if (layer.boundsClip) gfx.clipPath(layer.boundsClip)
-          this.#drawComp(layer.inner, gfx, alpha, m.width, m.height)
-        }
+      default:
         break
     }
-    gfx.restore()
   }
 
-  #drawText(text: CText, gfx: Gfx2D, alpha: number, layerAlpha: number): void {
+  #drawText(
+    text: CText,
+    gfx: PaintTarget,
+    alpha: number,
+    layerAlpha: number,
+  ): void {
     for (let i = 0; i < text.placedCount; i++) {
       const p = text.placed[i]
       gfx.save()
@@ -1523,7 +1489,7 @@ export class LottieRenderer {
     }
   }
 
-  #drawGroup(group: CGroup, gfx: Gfx2D, alpha: number): void {
+  #drawGroup(group: CGroup, gfx: PaintTarget, alpha: number): void {
     gfx.save()
     gfx.transform(
       group.mat[0],
@@ -1556,7 +1522,7 @@ export class LottieRenderer {
   #repeat(
     reps: CRepeater[],
     at: number,
-    gfx: Gfx2D,
+    gfx: PaintTarget,
     alpha: number,
     draw: (alpha: number) => void,
   ): void {
@@ -1578,16 +1544,57 @@ export class LottieRenderer {
     }
   }
 
-  #drawStyle(style: CStyle, gfx: Gfx2D, alpha: number): void {
+  #drawStyle(style: CStyle, gfx: PaintTarget, alpha: number): void {
     gfx.setAlpha(alpha * style.alpha)
     const item = style.item
-    if (item.kind === 'fill' || item.kind === 'gradient-fill') {
+    const filled = item.kind === 'fill' || item.kind === 'gradient-fill'
+    const shape = style.analytic
+    if (shape) {
+      const { cx, cy, w, h, radius } = style.box
+      if (shape.kind === 'ellipse') {
+        if (filled) gfx.fillEllipse(cx, cy, w / 2, h / 2, style.fill)
+        else gfx.strokeEllipse(cx, cy, w / 2, h / 2, strokeStyleOf(style, item))
+      } else if (filled) {
+        gfx.fillRoundRect(cx - w / 2, cy - h / 2, w, h, radius, style.fill)
+      } else {
+        gfx.strokeRoundRect(
+          cx - w / 2,
+          cy - h / 2,
+          w,
+          h,
+          radius,
+          strokeStyleOf(style, item),
+        )
+      }
+      return
+    }
+    if (filled) {
       gfx.fillPath(style.compound, style.fill, style.ruleOverride ?? item.rule)
     } else {
       gfx.strokePath(style.compound, strokeStyleOf(style, item))
     }
   }
 }
+
+/** The calls a layer's content is recorded with. */
+export type PaintTarget = Pick<
+  Canvas,
+  | 'save'
+  | 'restore'
+  | 'transform'
+  | 'translate'
+  | 'scale'
+  | 'setAlpha'
+  | 'fillRect'
+  | 'fillRoundRect'
+  | 'strokeRoundRect'
+  | 'fillEllipse'
+  | 'strokeEllipse'
+  | 'fillPath'
+  | 'strokePath'
+  | 'fillText'
+  | 'drawImage'
+>
 
 const STROKE_SCRATCH: {
   color: GfxFill

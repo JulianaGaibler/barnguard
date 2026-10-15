@@ -239,24 +239,3 @@ export function pushWireframe(
     lines.line(c.x, c.y, c.z, a.x, a.y, a.z, color)
   }
 }
-
-/**
- * Wireframe for a unit quad (a `Viewport2DNode` surface): the 4 border edges
- * plus one diagonal, showing its two triangles. Local corners span `[-0.5,
- * 0.5]` in x/y at z = 0, transformed by `world`.
- */
-export function pushQuadWireframe(
-  lines: DebugLine3DRenderer,
-  world: Mat4,
-): void {
-  const color: readonly [number, number, number, number] = [0.5, 1, 0.65, 0.85]
-  const tl = mat4TransformPoint(vec3(), world, -0.5, 0.5, 0)
-  const tr = mat4TransformPoint(vec3(), world, 0.5, 0.5, 0)
-  const br = mat4TransformPoint(vec3(), world, 0.5, -0.5, 0)
-  const bl = mat4TransformPoint(vec3(), world, -0.5, -0.5, 0)
-  lines.line(tl.x, tl.y, tl.z, tr.x, tr.y, tr.z, color)
-  lines.line(tr.x, tr.y, tr.z, br.x, br.y, br.z, color)
-  lines.line(br.x, br.y, br.z, bl.x, bl.y, bl.z, color)
-  lines.line(bl.x, bl.y, bl.z, tl.x, tl.y, tl.z, color)
-  lines.line(tl.x, tl.y, tl.z, br.x, br.y, br.z, color) // diagonal
-}

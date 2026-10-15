@@ -13,7 +13,13 @@
  *   tongue in front of the lip, with no depth to arrange and nothing that can
  *   sort wrong.
  */
-import { Node2D, textWidth, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  definePaintProps,
+  Node2D,
+  textWidth,
+  type Canvas,
+  type Rect,
+} from '@src/stargazer'
 import { displayFont, font } from '../../fonts'
 import { MONSTERS_INT_STRINGS as t } from '../../strings'
 import type { BannerArt } from '../art/bannerArt'
@@ -102,35 +108,52 @@ export function chipAnchor(
 }
 
 export class HudNode extends Node2D {
-  #seats: SeatHud[] = []
-  #placements = seatPlacements(2)
-  #focused: SeatId | null = null
-  #art: BannerArt | null = null
-  #round = 1
-  #totals: readonly number[] = []
+  declare seats: SeatHud[]
+  declare placements: ReturnType<typeof seatPlacements>
+  declare focused: SeatId | null
+  declare art: BannerArt | null
+  declare round: number
+  declare totals: readonly number[]
   /**
    * The world rect the camera actually frames, which is the design region only
    * at 16:9. Everything anchored to a frame edge reads it rather than the
    * region, or the lip stops short of a wide screen and leaves table showing.
    */
-  #view: Rect = { x: 0, y: 0, width: REGION_WIDTH, height: REGION_HEIGHT }
-  #status: TableStatus = { seat: null, text: '', note: '' }
+  declare view: Rect
+  declare status: TableStatus
 
   constructor() {
     super('monsters-int-hud')
+    definePaintProps(this, {
+      seats: [] as SeatHud[],
+      placements: seatPlacements(2),
+      focused: null,
+      art: null,
+      round: 1,
+      totals: [] as readonly number[],
+      view: { x: 0, y: 0, width: REGION_WIDTH, height: REGION_HEIGHT },
+      status: { seat: null, text: '', note: '' },
+    })
     // Over the 3D pass and over the table's own 2D, but under any DOM overlay.
-    this.renderLayer = 'dynamic'
     // Nothing to report until a round starts, and the 2D layers draw over the
     // shared sky, so an always-on HUD would sit on top of the menu.
     this.visible = false
   }
 
   setSeatCount(count: SeatCount): void {
-    this.#placements = seatPlacements(count)
+    this.placements = seatPlacements(count)
   }
 
+  /** Takes a fresh array every sync, so an equal one leaves the picture be. */
   setSeats(seats: SeatHud[]): void {
-    this.#seats = seats
+    const held = this.seats
+    if (
+      held.length === seats.length &&
+      held.every((h, i) => sameSeat(h, seats[i]!))
+    ) {
+      return
+    }
+    this.seats = seats
   }
 
   /**
@@ -141,37 +164,61 @@ export class HudNode extends Node2D {
    * already closed by then.
    */
   setFocusedSeat(seat: SeatId | null): void {
-    this.#focused = seat
+    this.focused = seat
   }
 
   /** Take the visible rect, which is what the lip stretches to fill. */
   setViewport(view: Rect): void {
-    this.#view = view
+    const held = this.view
+    if (
+      held.x === view.x &&
+      held.y === view.y &&
+      held.width === view.width &&
+      held.height === view.height
+    ) {
+      return
+    }
+    this.view = view
   }
 
   /** The lip and its tongue, once the artwork has parsed. */
   setArt(art: BannerArt): void {
-    this.#art = art
+    this.art = art
   }
 
   /** Left of the lip: which round it is, and what everyone has banked. */
   setMatch(round: number, totals: readonly number[]): void {
-    this.#round = round
-    this.#totals = totals
+    this.round = round
+    const held = this.totals
+    if (
+      held.length === totals.length &&
+      held.every((v, i) => v === totals[i])
+    ) {
+      return
+    }
+    this.totals = totals
   }
 
   /** Right of the lip: whose shape is up, and what that means. */
   setStatus(status: TableStatus): void {
-    this.#status = status
+    const held = this.status
+    if (
+      held.seat === status.seat &&
+      held.text === status.text &&
+      held.note === status.note
+    ) {
+      return
+    }
+    this.status = status
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     // Chips first. The lip is opaque and covers whatever reaches it, which is
     // what keeps a hand near the buttons from spilling into the readouts.
-    for (const seat of this.#seats) this.#drawChip(gfx, seat)
-    this.#drawLip(gfx)
-    this.#drawMatch(gfx)
-    this.#drawStatus(gfx)
+    for (const seat of this.seats) this.#paintChip(gfx, seat)
+    this.#paintLip(gfx)
+    this.#paintMatch(gfx)
+    this.#paintStatus(gfx)
   }
 
   /**
@@ -181,11 +228,11 @@ export class HudNode extends Node2D {
    * screen is. The tongue goes on last: it hangs out of a hole, and a hole only
    * reads as one if what comes out of it is in front.
    */
-  #drawLip(gfx: Gfx2D): void {
-    const art = this.#art
+  #paintLip(gfx: Canvas): void {
+    const art = this.art
     if (!art) return
     gfx.save()
-    const at = lipTransform(this.#view)
+    const at = lipTransform(this.view)
     gfx.translate(at.x, at.y)
     gfx.scale(at.scaleX, at.scaleY)
     gfx.fillPath2D(art.lip.path, art.lip.color)
@@ -197,23 +244,23 @@ export class HudNode extends Node2D {
   }
 
   /** Which round it is, and a running total per seat under it. */
-  #drawMatch(gfx: Gfx2D): void {
-    const left = this.#view.x + BANNER.margin
-    gfx.fillText(t.round(this.#round), left, BANNER.roundY, {
+  #paintMatch(gfx: Canvas): void {
+    const left = this.view.x + BANNER.margin
+    gfx.fillText(t.round(this.round), left, BANNER.roundY, {
       font: displayFont(30),
       align: 'left',
       baseline: 'middle',
       color: COLORS.cream,
     })
     let x = left
-    for (let seat = 0; seat < this.#totals.length; seat++) {
-      x += this.#drawTotal(gfx, seat, x) + TOTAL_GAP
+    for (let seat = 0; seat < this.totals.length; seat++) {
+      x += this.#paintTotal(gfx, seat, x) + TOTAL_GAP
     }
   }
 
   /** One seat's running total, as a shape and a number. Returns its width. */
-  #drawTotal(gfx: Gfx2D, seat: SeatId, x: number): number {
-    const text = String(this.#totals[seat] ?? 0)
+  #paintTotal(gfx: Canvas, seat: SeatId, x: number): number {
+    const text = String(this.totals[seat] ?? 0)
     const face = font(700, 20)
     const width = TOTAL_PAD * 2 + BANNER.glyph + 8 + textWidth(text, face)
     const mid = BANNER.totalsY + BANNER.totalHeight / 2
@@ -250,9 +297,9 @@ export class HudNode extends Node2D {
    * deserves. The shape leads the line rather than a name, so a player can
    * match it to the cards in front of them without reading.
    */
-  #drawStatus(gfx: Gfx2D): void {
-    const { seat, text, note } = this.#status
-    const right = this.#view.x + this.#view.width - BANNER.margin
+  #paintStatus(gfx: Canvas): void {
+    const { seat, text, note } = this.status
+    const right = this.view.x + this.view.width - BANNER.margin
     const face = displayFont(28)
     if (text) {
       gfx.fillText(text, right, BANNER.statusY, {
@@ -294,15 +341,15 @@ export class HudNode extends Node2D {
    * for one person, and the shape is the one that matches the cards in front of
    * them and the buttons they pick from.
    */
-  #drawChip(gfx: Gfx2D, seat: SeatHud): void {
-    const hand = this.#placements[seat.seat]
+  #paintChip(gfx: Canvas, seat: SeatHud): void {
+    const hand = this.placements[seat.seat]
     if (!hand) return
     const identity = SEATS[seat.seat % SEATS.length]!
     const note = statusNote(seat)
     const score = seat.round === null ? '0' : String(seat.round)
     const text = note ? `${score}  ${note}` : score
     const width = CHIP_PAD * 2 + GLYPH + 10 + textWidth(text, font(700, 24))
-    const at = chipAnchor(hand.layout, seat.seat === this.#focused)
+    const at = chipAnchor(hand.layout, seat.seat === this.focused)
     const x = at.x - width / 2
     const y = at.y
 
@@ -340,7 +387,7 @@ export class HudNode extends Node2D {
  * pill under it and stays crisp at any size.
  */
 function drawSeatGlyph(
-  gfx: Gfx2D,
+  gfx: Canvas,
   identity: (typeof SEATS)[number],
   cx: number,
   cy: number,
@@ -361,6 +408,17 @@ function drawSeatGlyph(
     pts[i * 2 + 1] = cy + Math.sin(a) * r
   }
   gfx.fillConvexPoly(pts, identity.sides, color)
+}
+
+function sameSeat(a: SeatHud, b: SeatHud): boolean {
+  return (
+    a.seat === b.seat &&
+    a.label === b.label &&
+    a.total === b.total &&
+    a.round === b.round &&
+    a.status === b.status &&
+    a.up === b.up
+  )
 }
 
 /**

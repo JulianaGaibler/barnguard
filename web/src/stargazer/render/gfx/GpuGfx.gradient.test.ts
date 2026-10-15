@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { GpuGfx } from './GpuGfx'
 import { MockGfxDevice } from './webgl2/mockGfxDevice'
 import { registerPathTessellation } from './PathTessellationRegistry'
-import type { GfxLinearGradient } from './Gfx2D'
+import type { GfxFill, GfxLinearGradient } from './Gfx2D'
+import { tessellateContours } from '../../assets/SvgPathContours'
 
 // happy-dom's OffscreenCanvas has no real 2D context. Stub a minimal one so
 // the ramp builder reaches the texture-cache logic under test (same stub as
@@ -14,6 +15,7 @@ beforeEach(() => {
     .mockReturnValue({
       createLinearGradient: () => ({ addColorStop: () => {} }),
       fillStyle: '',
+      clearRect: () => {},
       fillRect: () => {},
     } as never)
 })
@@ -169,5 +171,116 @@ describe('GpuGfx gradient fills', () => {
       })
     }
     expect(() => gfx.endFrame()).not.toThrow()
+  })
+})
+
+describe('GpuGfx retained fills', () => {
+  function hexPath(r: number, cx: number): Path2D {
+    const n = 48
+    const contour = new Float32Array(n * 2)
+    for (let i = 0; i < n; i++) {
+      const a = (Math.PI * 2 * i) / n
+      contour[i * 2] = cx + Math.cos(a) * r
+      contour[i * 2 + 1] = 100 + Math.sin(a) * r
+    }
+    const path = new Path2D()
+    registerPathTessellation(path, tessellateContours([contour]), [contour])
+    return path
+  }
+
+  const gradient = {
+    kind: 'linear' as const,
+    x0: 0,
+    y0: 0,
+    x1: 0,
+    y1: 100,
+    stops: [
+      { offset: 0, color: '#ff0000' },
+      { offset: 1, color: '#0000ff' },
+    ],
+  }
+
+  async function frame(
+    gfx: GpuGfx,
+    device: MockGfxDevice,
+    paths: Path2D[],
+    fill: (i: number) => GfxFill,
+  ): Promise<{ draws: number; uploaded: number }> {
+    await baseFrame(gfx, device)
+    paths.forEach((p, i) => gfx.fillPath2D(p, fill(i)))
+    gfx.endFrame()
+    return { draws: device.draws.length, uploaded: gfx.stats.bytesUploaded }
+  }
+
+  async function threeFrames(
+    paths: Path2D[],
+    fill: (i: number) => GfxFill,
+  ): Promise<{ draws: number; uploaded: number }[]> {
+    const { gfx, device } = makeGpuGfx()
+    const out = []
+    for (let k = 0; k < 3; k++) out.push(await frame(gfx, device, paths, fill))
+    return out
+  }
+
+  const own = (i: number): GfxFill => ({ ...gradient, y1: 100 + i * 50 })
+
+  it('keeps a gradient fill that repeats, with the same draw count', async () => {
+    const [first, , third] = await threeFrames(
+      [hexPath(40, 60), hexPath(40, 200)],
+      own,
+    )
+    expect(first.uploaded).toBeGreaterThan(0)
+    expect(third.uploaded).toBe(0)
+    expect(third.draws).toBe(first.draws)
+  })
+
+  it('streams fills that share a gradient, so they still draw as one', async () => {
+    const [first, , third] = await threeFrames(
+      [hexPath(40, 60), hexPath(40, 200)],
+      () => gradient,
+    )
+    expect(first.draws).toBe(1)
+    expect(third.draws).toBe(1)
+    expect(third.uploaded).toBeGreaterThan(0)
+  })
+
+  it('leaves small flat fills streamed so they still merge', async () => {
+    const [first, , third] = await threeFrames(
+      [hexPath(40, 60), hexPath(40, 200)],
+      () => '#ffffff',
+    )
+    expect(first.draws).toBe(1)
+    expect(third.draws).toBe(1)
+    expect(third.uploaded).toBeGreaterThan(0)
+  })
+
+  it('lets streamed runs merge across a kept fill they do not touch', async () => {
+    const { gfx, device } = makeGpuGfx()
+    const path = hexPath(40, 200)
+    const draw = async (): Promise<number> => {
+      await baseFrame(gfx, device)
+      gfx.fillRect(0, 0, 10, 10, '#ff0000')
+      gfx.fillPath2D(path, gradient)
+      gfx.fillRect(390, 290, 10, 10, '#ff0000')
+      gfx.endFrame()
+      return device.draws.length
+    }
+    await draw()
+    await draw()
+    expect(await draw()).toBe(2)
+  })
+
+  it('frees kept geometry once it goes undrawn', async () => {
+    const { gfx, device } = makeGpuGfx()
+    const path = hexPath(40, 200)
+    await frame(gfx, device, [path], () => gradient)
+    await frame(gfx, device, [path], () => gradient)
+    expect(gfx.cacheStats()[1].entries).toBe(1)
+    for (let i = 0; i < 125; i++) {
+      await baseFrame(gfx, device)
+      gfx.endFrame()
+    }
+    expect(gfx.cacheStats()[1].entries).toBe(0)
+    expect(device.deletedBuffers.length).toBeGreaterThan(0)
   })
 })

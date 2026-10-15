@@ -40,7 +40,12 @@ export const toggleBoothMenu = (side: BoothMenuSide): void =>
 // via `debug.setHudVisible` for the debug HUD).
 
 /** Whether the stargazer debug HUD should be visible. */
-export const debugHudVisible = writable(false)
+export const debugHudVisible = writable(
+  typeof window !== 'undefined' &&
+    ['hud', 'perf'].includes(
+      new URLSearchParams(window.location.search).get('debug') ?? '',
+    ),
+)
 export const setDebugHudVisible = (v: boolean): void => debugHudVisible.set(v)
 export const toggleDebugHud = (): void =>
   debugHudVisible.update((prev) => !prev)

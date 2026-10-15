@@ -1,36 +1,26 @@
-import {
-  Node2D,
-  type CameraView2D,
-  type Gfx2D,
-  type Rect,
-} from '@src/stargazer'
+import { Node2D, type Canvas } from '@src/stargazer'
 import { rgbaStr } from './palette'
-import { visibleWorldRect } from './util'
 import type { PaletteSource } from './BackgroundController'
 
 /**
  * The sky: one diagonal 2-stop linear gradient (bottom-right `skyBottom` ->
  * top-left `skyTop`) mapped across the VISIBLE rect, so every screen shows the
- * full range on any aspect. The axis tracks the view each frame, so the fill
- * always spans a complete `skyTop`->`skyBottom` gradient with no seam during the
- * camera pan.
+ * full range on any aspect. The axis tracks the view, so the fill always spans
+ * a complete `skyTop`->`skyBottom` gradient with no seam during the camera pan.
+ * It paints again only when the palette or the camera's view changes.
  */
 export class SkyGradientNode extends Node2D {
-  readonly #vr: Rect = { x: 0, y: 0, width: 0, height: 0 }
   readonly #pts = new Float32Array(8)
   readonly #source: PaletteSource
 
   constructor(source: PaletteSource) {
     super('sky')
     this.#source = source
-    // The sky is the world's base layer: `'static'` draws before everything
-    // else each frame, so a game's own `'static'` content (e.g. Data Control's
-    // map) still layers cleanly above it.
-    this.renderLayer = 'static'
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const vr = visibleWorldRect(camera, this.#vr)
+  override paint(gfx: Canvas): void {
+    gfx.use(this.#source)
+    const vr = gfx.visibleWorldRect()
     const p = this.#source.palette
     const x0 = vr.x
     const y0 = vr.y

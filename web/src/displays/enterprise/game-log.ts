@@ -10,11 +10,13 @@ import {
   fetchGames as coreFetchGames,
   fetchHighScores as coreFetchHighScores,
   recordGame as coreRecordGame,
+  setGameLabel as coreSetGameLabel,
   type GameRecord,
   type GameRecordEnvelope,
   type HighScores as CoreHighScores,
   type NewGame,
 } from '@src/core/game-log/gameLogClient'
+import type { LabelVariant } from './label'
 
 export const DISPLAY_ID = 'enterprise'
 
@@ -52,6 +54,10 @@ export interface EnterpriseDetails {
    * its own map, when recorded.
    */
   wasStateHigh: boolean
+  /** The label variant the player printed. Absent until they print. */
+  labelVariant?: LabelVariant
+  /** The name the player put on the printed label, as typed. */
+  labelName?: string
 }
 
 export type EnterpriseGameRecord = GameRecordEnvelope & EnterpriseDetails
@@ -119,6 +125,20 @@ export async function recordEnterpriseGame(
 ): Promise<EnterpriseGameRecord> {
   const payload: NewGame = { ...game, display: DISPLAY_ID }
   const raw = await coreRecordGame(payload)
+  return asEnterprise(raw)
+}
+
+/** Save the label the player printed for a recorded round. */
+export async function setEnterpriseGameLabel(
+  id: string,
+  variant: LabelVariant,
+  name: string,
+): Promise<EnterpriseGameRecord> {
+  const trimmed = name.trim()
+  const raw = await coreSetGameLabel(id, {
+    labelVariant: variant,
+    ...(trimmed ? { labelName: trimmed } : {}),
+  })
   return asEnterprise(raw)
 }
 

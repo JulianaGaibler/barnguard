@@ -1,7 +1,9 @@
 import { createEngineHost } from '../engine/EngineHost'
 import { addDemoCamera } from './demoCamera'
 import { Node2D } from '../scene/Node2D'
+import { Layer } from '../scene/Layer'
 import { Path2DNode } from '../nodes/Path2DNode'
+import { ShapeNode } from '../nodes/ShapeNode'
 import { parseSvgPaths } from '../assets/SvgPathMap'
 import { AssetLoader } from '../assets/AssetLoader'
 import { ignoreAbort } from '../anim/abortSignal'
@@ -17,9 +19,15 @@ const COLOR_STATE_STROKE = 'rgba(253, 246, 227, 0.85)'
 const COLOR_OUTLINE = 'rgba(253, 246, 227, 0.95)'
 const COLOR_PULSE = '#ffd34d'
 
-const FULL_VIEW: Rect = { x: 0, y: 0, width: 661, height: 899 }
-const UPPER_HALF: Rect = { x: 0, y: -20, width: 661, height: 520 }
-const LOWER_HALF: Rect = { x: 0, y: 380, width: 661, height: 520 }
+const COLOR_HUD = 'rgba(255, 211, 77, 0.85)'
+const COLOR_FRAME = 'rgba(96, 165, 250, 0.9)'
+
+/** The design rect the framed layer is laid out for, in its own units. */
+const DESIGN_FRAME: Rect = { x: 0, y: 0, width: 1920, height: 1080 }
+
+const FULL_VIEW: Rect = { x: 0, y: 0, width: 600, height: 400 }
+const UPPER_HALF: Rect = { x: 0, y: -10, width: 600, height: 220 }
+const LOWER_HALF: Rect = { x: 0, y: 190, width: 600, height: 220 }
 
 interface DemoAssets {
   states: ReturnType<typeof parseSvgPaths>
@@ -31,21 +39,23 @@ const assetLoader = new AssetLoader()
 async function loadAssets(): Promise<DemoAssets> {
   return assetLoader.load('demo-camera-assets', async () => {
     return {
-      states: parseSvgPaths(shapesSvgRaw),
-      outline: parseSvgPaths(outlineSvgRaw),
+      states: parseSvgPaths(shapesSvgRaw, { tessellate: true }),
+      outline: parseSvgPaths(outlineSvgRaw, { tessellate: true }),
     }
   })
 }
 
 /**
- * Camera demo. A shape map on the `'static'` layer, a camera tween on click,
- * and a shockwave driven by `renderLayer` promotion.
+ * Camera demo. A shape map, a camera tween on click, and a pulse on a hovered
+ * shape.
  *
  * - Click a shape and the camera tweens to the upper or lower half viewport over
  *   roughly 500 ms.
- * - Press `P` while hovering a shape to pulse its alpha, promoting it to
- *   `'above-static'` for the tween so it animates clear of the map.
+ * - Press `P` while hovering a shape to pulse its alpha.
  * - Press `Escape` to return to the full view.
+ * - The gold chip in the top left is a `'screen'` layer, and the blue frame is a
+ *   layer fitted to a 1920 by 1080 design. Neither follows the camera, so they
+ *   stay put while the map pans and zooms underneath.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
@@ -73,7 +83,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     addDemoCamera(scene, { ...FULL_VIEW })
     if (!assets) return
     const mapGroup = new Node2D('map')
-    mapGroup.renderLayer = 'static'
     scene.root.add(mapGroup)
 
     for (const [id, entry] of assets.states.paths) {
@@ -84,11 +93,8 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
         stroke: COLOR_STATE_STROKE,
         lineWidth: 1,
         hitMode: 'fill',
-        debugBounds: entry.bounds,
+        bounds: entry.bounds,
       })
-      // `renderLayer` is per node, not inherited from the parent group, so
-      // each state sets its own to be promoted individually by the pulse.
-      node.renderLayer = 'static'
       mapGroup.add(node)
       stateNodes.set(id, node)
       stateCenters.set(id, {
@@ -106,9 +112,39 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
         lineWidth: 1.5,
         hitMode: 'none',
       })
-      outlineNode.renderLayer = 'static'
       mapGroup.add(outlineNode)
     }
+
+    // Two layers placed by their own views, so the camera does not move them.
+    const hud = new Layer({ id: 'hud', space: 'screen' })
+    const chip = new ShapeNode({
+      geometry: {
+        kind: 'rect',
+        width: 160,
+        height: 36,
+        centered: false,
+        radii: 18,
+      },
+      fill: COLOR_HUD,
+    })
+    chip.transform.x = 16
+    chip.transform.y = 16
+    hud.add(chip)
+    scene.root.add(hud)
+
+    const framed = new Layer({ id: 'frame', space: { frame: DESIGN_FRAME } })
+    const border = new ShapeNode({
+      geometry: {
+        kind: 'rect',
+        width: DESIGN_FRAME.width,
+        height: DESIGN_FRAME.height,
+        centered: false,
+      },
+      stroke: COLOR_FRAME,
+      lineWidth: 2,
+    })
+    framed.add(border)
+    scene.root.add(framed)
   })
 
   host.start()
@@ -187,7 +223,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     activePulses.add(id)
     const originalFill = node.fill
     node.fill = COLOR_PULSE
-    node.renderLayer = 'above-static'
     try {
       await node.tween({ alpha: 0.55 }, { duration: 0.18, easing: outBack })
       await node.tween({ alpha: 1 }, { duration: 0.32, easing: inOutQuad })
@@ -195,7 +230,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       ignoreAbort(err)
     } finally {
       node.fill = originalFill
-      node.renderLayer = 'static'
       activePulses.delete(id)
     }
   }

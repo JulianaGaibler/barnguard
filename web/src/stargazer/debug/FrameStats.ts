@@ -1,3 +1,5 @@
+import { RingSeries, type SeriesSource } from './RingSeries'
+
 /**
  * Ring-buffer of recent frame `dt` samples with lazy percentile computation.
  *
@@ -5,36 +7,33 @@
  * zero-overhead-when-off contract keeps this out of the hot path in
  * production.
  */
-export class FrameStats {
-  readonly #buf: Float32Array
-  /** Samples held before the oldest is overwritten. */
-  readonly capacity: number
-  #cursor = 0
-  #filled = 0
+export class FrameStats implements SeriesSource {
+  readonly #series: RingSeries
   readonly #sortScratch: Float32Array
 
   constructor(capacity = 300) {
-    this.capacity = capacity
-    this.#buf = new Float32Array(capacity)
+    this.#series = new RingSeries(capacity)
     this.#sortScratch = new Float32Array(capacity)
+  }
+
+  /** Samples held before the oldest is overwritten. */
+  get capacity(): number {
+    return this.#series.capacity
   }
 
   /** Record one frame delta, overwriting the oldest sample once full. */
   push(dt: number): void {
-    this.#buf[this.#cursor] = dt
-    this.#cursor = (this.#cursor + 1) % this.capacity
-    if (this.#filled < this.capacity) this.#filled++
+    this.#series.push(dt)
   }
 
   /** Drop every sample. */
   clear(): void {
-    this.#cursor = 0
-    this.#filled = 0
+    this.#series.clear()
   }
 
   /** Samples currently held, up to {@link FrameStats.capacity}. */
   get count(): number {
-    return this.#filled
+    return this.#series.count
   }
 
   /**
@@ -43,16 +42,7 @@ export class FrameStats {
    * Zero-alloc, the graph reuses one scratch buffer.
    */
   readOrdered(out: Float32Array): number {
-    const n = Math.min(out.length, this.#filled)
-    if (n === 0) return 0
-    const cap = this.capacity
-    // If we haven't wrapped yet, samples live at [0, filled).
-    // After wrapping, cursor points at the oldest slot.
-    const start = this.#filled < cap ? 0 : this.#cursor
-    for (let i = 0; i < n; i++) {
-      out[i] = this.#buf[(start + i) % cap]
-    }
-    return n
+    return this.#series.readOrdered(out)
   }
 
   percentiles(): {
@@ -62,11 +52,11 @@ export class FrameStats {
     max: number
     count: number
   } {
-    const n = this.#filled
+    const n = this.#series.count
     if (n === 0) return { p50: 0, p95: 0, p99: 0, max: 0, count: 0 }
     // Copy into a scratch typed array and sort. For n = 300 this is trivially
     // fast, and it allocates no per-call arrays.
-    for (let i = 0; i < n; i++) this.#sortScratch[i] = this.#buf[i]
+    this.#sortScratch.set(this.#series.unordered)
     // Sort only the filled prefix.
     const slice = this.#sortScratch.subarray(0, n).sort()
     const pick = (q: number): number =>

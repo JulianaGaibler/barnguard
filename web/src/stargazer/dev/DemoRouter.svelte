@@ -15,6 +15,7 @@
   import type { EngineHost } from '../engine/EngineHost'
   import DebugHud from '../debug/DebugHud.svelte'
   import DemoNav from './DemoNav.svelte'
+  import { untrack } from 'svelte'
 
   /**
    * The `?demo=` value, or `null` when the parameter is absent entirely.
@@ -31,6 +32,33 @@
   let status = $state<'loading' | 'running' | 'missing' | 'error'>('loading')
   let errorMessage = $state<string | null>(null)
   let host = $state<EngineHost | null>(null)
+
+  // Whether the debug HUD is open. It carries over from one demo to the next,
+  // starting from `?debug=hud` or `?debug=perf`.
+  const debugFlag = new URLSearchParams(window.location.search).get('debug')
+  let hudOpen = $state(debugFlag === 'hud' || debugFlag === 'perf')
+
+  // The bench measures frame cost, which an open HUD's polling would add to,
+  // so it runs with the HUD closed and the choice kept for the next demo.
+  const hudAllowed = $derived(active !== 'bench')
+
+  $effect(() => {
+    const h = host
+    if (!h) return
+    if (!hudAllowed) {
+      h.debug.setHudVisible(false)
+      return
+    }
+    untrack(() => h.debug.setHudVisible(hudOpen))
+    // The HUD also opens and closes from its own key, so follow it.
+    return h.debug.hudVisible$.subscribe((open) => {
+      hudOpen = open
+    })
+  })
+
+  function toggleHud(): void {
+    host?.debug.setHudVisible(!hudOpen)
+  }
 
   function select(name: string): void {
     if (name === active) return
@@ -140,7 +168,13 @@
   <DebugHud debug={host.debug} />
 {/if}
 
-<DemoNav current={active} {select} />
+<DemoNav
+  current={active}
+  {select}
+  {hudOpen}
+  hudAvailable={host !== null && hudAllowed}
+  {toggleHud}
+/>
 
 <style lang="sass">
   .demo

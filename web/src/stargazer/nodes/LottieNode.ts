@@ -1,6 +1,4 @@
 import { Node2D } from '../scene/Node2D'
-import type { Camera } from '../camera/Camera'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
 import type { BoxConstraints, Size } from '../layout/constraints'
 import { isLayoutHost, type Measurable } from '../layout/LayoutNode'
 import type {
@@ -16,7 +14,7 @@ import {
   type LayoutResult,
 } from '../lottie/player/layout'
 import { LottieRenderer } from '../lottie/render/LottieRenderer'
-import { addOffscreenDemand } from '../render/gfx/offscreenDemand'
+import { LottieScene } from '../lottie/render/LottieScene'
 import {
   applyTheme,
   resetSlots,
@@ -101,19 +99,19 @@ export interface LottieNodeOptions {
 /**
  * A scene node that plays a Lottie animation. Place it like any other node: it
  * has a transform, culls against its box, can sit in a layout container, and
- * draws through `Gfx2D` so it batches with the rest of the frame.
+ * draws through the retained model so it batches with the rest of the frame.
  *
  * The composition is fitted into a `width` by `height` box with
  * {@link LottieNodeOptions.fit}. The node's origin is the top-left corner of the
  * box.
  *
  * @remarks
- *   Engine developers: `onUpdate` only advances the player. Evaluation (sampling
- *   properties and rebuilding paths) happens in `draw`, and only when the
- *   playback frame changed since the last evaluation, so a paused or culled
- *   node costs nothing beyond the draw calls. Opacity is folded into each drawn
- *   shape. Masks, mattes, blend modes, modifiers, text and images are reported
- *   in {@link LottieNode.diagnostics} until they are drawn.
+ *   Engine developers: the node holds the animation's layers as child nodes,
+ *   built by `LottieScene`. `onUpdate` only advances the player. Evaluation
+ *   (sampling properties and rebuilding paths) happens in `draw`, which the
+ *   compose walk calls before the layers when the node is not culled, and only
+ *   when the playback frame or the layout changed. It then moves the layer
+ *   nodes and marks for repaint the ones whose content is animated.
  * @example
  *   const anim = parseLottie(json)
  *   const spinner = new LottieNode({
@@ -136,7 +134,7 @@ export class LottieNode extends Node2D implements Measurable {
   offscreen: LottieOffscreenMode
 
   readonly #renderer: LottieRenderer
-  #releaseDemand: (() => void) | null = null
+  readonly #scene: LottieScene
   #width: number
   #height: number
   #fit: LayoutFit
@@ -169,13 +167,22 @@ export class LottieNode extends Node2D implements Measurable {
     this.#renderer = new LottieRenderer(opts.animation, {
       exactOpacity: (opts.opacityMode ?? 'exact') === 'exact',
     })
-    if (this.#renderer.mayUseOffscreen) {
-      this.#releaseDemand = addOffscreenDemand()
+    this.#scene = new LottieScene(
+      this.#renderer,
+      opts.animation.width,
+      opts.animation.height,
+    )
+    // The composition is clipped to its own bounds.
+    this.#scene.root.clip = {
+      x: 0,
+      y: 0,
+      width: opts.animation.width,
+      height: opts.animation.height,
     }
+    this.add(this.#scene.root)
     this.#updateBounds()
     void this.#loadImages(opts)
     this.events.on('destroy', () => {
-      this.#releaseDemand?.()
       this.#renderer.dispose()
     })
   }
@@ -298,6 +305,7 @@ export class LottieNode extends Node2D implements Measurable {
             ? image.path
             : `${opts.baseUrl ?? ''}${image.dir}${image.path}`
         this.#renderer.setImage(image.id, await decode(source))
+        this.#scene.repaintAll()
       } catch {
         this.#missingImages++
       }
@@ -339,6 +347,7 @@ export class LottieNode extends Node2D implements Measurable {
 
   #slotsChanged(): void {
     this.#renderer.invalidate()
+    this.#scene.repaintAll()
     this.#dirty = true
   }
 
@@ -361,7 +370,12 @@ export class LottieNode extends Node2D implements Measurable {
   }
 
   #updateBounds(): void {
-    this.debugBounds = { x: 0, y: 0, width: this.#width, height: this.#height }
+    this.boundsOverride = {
+      x: 0,
+      y: 0,
+      width: this.#width,
+      height: this.#height,
+    }
   }
 
   #layoutChanged(): void {
@@ -389,18 +403,19 @@ export class LottieNode extends Node2D implements Measurable {
     if (r.changed) this.#dirty = true
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera, _dt: number): void {
+  /**
+   * Called each frame the node is not culled, before its layers draw. It brings
+   * the layers up to date when the playback frame or the layout changed, so a
+   * node that is culled or hidden costs nothing.
+   */
+  override draw(): void {
     this.#drewSinceUpdate = true
+    if (!this.#dirty) return
     const marks = this.engine?.perfMarks ?? false
-    if (this.#dirty) {
-      if (marks) performance.mark('lottie-evaluate:start')
-      this.#renderer.evaluate(this.animation.inPoint + this.#frame)
-      if (marks) {
-        performance.measure('lottie evaluate', 'lottie-evaluate:start')
-      }
-      this.#dirty = false
-      this.#evaluations++
-    }
+    if (marks) performance.mark('lottie-evaluate:start')
+    const frame = this.animation.inPoint + this.#frame
+    this.#renderer.evaluate(frame)
+    if (marks) performance.measure('lottie evaluate', 'lottie-evaluate:start')
     const anim = this.animation
     const l = computeLayout(
       anim.width,
@@ -412,26 +427,14 @@ export class LottieNode extends Node2D implements Measurable {
       this.#alignY,
       this.#layout,
     )
-    gfx.save()
-    gfx.translate(l.x, l.y)
-    gfx.scale(l.scaleX, l.scaleY)
-    // The composition is clipped to its own bounds. The analytic clip needs an
-    // axis-aligned transform, so a rotated node draws unclipped.
-    const w = this.transform.world
-    if (Math.abs(w.b) < 1e-6 && Math.abs(w.c) < 1e-6) {
-      gfx.setClip({
-        kind: 'roundRect',
-        x: 0,
-        y: 0,
-        w: anim.width,
-        h: anim.height,
-        radius: 0,
-      })
-    }
-    if (marks) performance.mark('lottie-record:start')
-    this.#renderer.draw(gfx, this.transform.alpha)
-    if (marks) performance.measure('lottie record', 'lottie-record:start')
-    gfx.restore()
+    const t = this.#scene.root.transform
+    t.x = l.x
+    t.y = l.y
+    t.scaleX = l.scaleX
+    t.scaleY = l.scaleY
+    this.#scene.apply(frame)
+    this.#dirty = false
+    this.#evaluations++
   }
 }
 

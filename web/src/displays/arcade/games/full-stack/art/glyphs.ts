@@ -400,7 +400,7 @@ export function glyphSpan(glyph: Glyph, options?: GlyphOptions): InlineBox {
  * reserved, so the line does not move when the artwork arrives.
  */
 export function drawGlyph(
-  gfx: Gfx2D,
+  gfx: { drawImage: Gfx2D['drawImage'] },
   glyph: Glyph,
   x: number,
   y: number,

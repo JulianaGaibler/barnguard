@@ -22,8 +22,12 @@ import type {
   GfxMatteMode,
   GfxOffscreenHandle,
   GfxOffscreenOptions,
+  GfxSurfaceCache,
+  GfxSurfaceEffects,
   GfxFill,
+  GfxLinearGradient,
   GfxGradientStop,
+  GfxImageOptions,
   GfxShadowStyle,
   GfxStrokeStyle,
   GfxTextStyle,
@@ -33,15 +37,20 @@ import type { RenderTarget, TargetFormat, Texture, VBuffer } from './GfxDevice'
 import type { GfxDevice } from './GfxDevice'
 import { depthStencilFormatOf } from './depthStencil'
 import { parseColor } from './parseColor'
+import { RenderFailures } from './RenderFailures'
 import type { GeometryHandle } from './GeometryHandle'
 import {
-  getCachedOutline,
+  RetainedCache,
+  type RetainedCacheStats,
+  type RetainedEntry,
+} from './RetainedCache'
+import { copySignature, signaturesEqual } from '../layer/LayerSignature'
+import {
   getContourClosed,
   getPathContours,
   getPathTessellation,
   getRegistrationEpoch,
   registerPathTessellation,
-  setCachedOutline,
 } from './PathTessellationRegistry'
 import {
   strokeOutline,
@@ -58,17 +67,29 @@ import {
 import { GfxPath, type FlatPath } from './GfxPath'
 import { appendStrokeFill } from './pathStroke'
 import { DashBuffer } from './dash'
-import { hasOffscreenDemand } from './offscreenDemand'
 import { SurfacePool, type Surface } from './OffscreenSurfaces'
+import { RenderTargetPool } from './RenderTargetPool'
+import { PostChain } from '../postfx/PostChain'
+import type { PostEffect } from '../postfx/PostEffect'
+import {
+  PASS_GPU_GRACE_FRAMES,
+  PostProgramCache,
+} from '../postfx/PostProgramCache'
 import {
   OffscreenCompositeProgram,
   type CompositeDraw,
 } from './programs/offscreenComposite'
-import type { PassHooks, PassMark } from './GpuBatchContext'
+import type { PassHooks } from './GpuBatchContext'
 import { MAX_CLIP_DEPTH } from './stencilRecipe'
 import type { ClipBounds } from './programs/coloredTri'
 import type { FillRule } from './stencilRecipe'
-import { TextureManager, type TextureInspector } from './TextureManager'
+import {
+  TextureManager,
+  type LabelFontTemplate,
+  type LabelTexture,
+  type TextureInspector,
+} from './TextureManager'
+import { evictOldest } from './evictOldest'
 import { VectorQuality } from '../VectorQuality'
 import { DEFAULT_LABEL_FONT, type LabelStyle } from './rasterizeLabel'
 import type { BitmapMask } from '../../assets/BitmapMask'
@@ -88,6 +109,9 @@ import type { GpuProgram } from './GpuProgram'
 import { ColoredTriProgram } from './programs/coloredTri'
 import { StrokeProgram } from './programs/stroke'
 import { resolveRadii, type RoundRectRadii } from './roundRectRadii'
+
+const NO_CLIP_RADII = [0, 0, 0, 0] as const
+import { fitSquircleCorners, squircleShadowRadiusScale } from './squircle'
 import { GradientRadialProgram } from './programs/gradientRadial'
 import { MaskedGradientProgram } from './programs/maskedGradient'
 import { ShaderQuadProgram } from './programs/shaderQuad'
@@ -99,6 +123,7 @@ import { PathShadowCompositeProgram } from './programs/pathShadowComposite'
 import {
   PathShadowCache,
   HARD_SHADOW_BLUR_PX,
+  insetMaskProjection,
   type PathShadowRequest,
 } from './PathShadowCache'
 import type { Rect } from '../../math/Rect'
@@ -108,14 +133,53 @@ import type { Rect } from '../../math/Rect'
  * the scale bucket. Newline separators cannot collide: labels are single-line,
  * so the text has none, and font/align/baseline/color never do.
  */
+/**
+ * `style` with a flat color, for the circle and round-rect strokes. A gradient
+ * stroke on those shapes is not supported: the `shape` program's paint slot
+ * serves the fill. It falls back to the gradient's first stop rather than
+ * dropping the stroke. A style that already has a flat color is returned as is,
+ * so the common case copies nothing.
+ */
+function solidStroke(style: GfxStrokeStyle): SolidStrokeStyle {
+  const color = style.color
+  if (typeof color === 'string') return style as SolidStrokeStyle
+  return { ...style, color: color.stops[0]?.color ?? '#000' }
+}
+
+/** The style a `fillText` call without one draws with. */
+const NO_TEXT_STYLE: GfxTextStyle = {}
+
+const FONT_SIZE = /(\d*\.?\d+)px/
+/** A font split around its px size, with that size, or `null` without one. */
+interface LabelFont extends LabelFontTemplate {
+  size: number
+}
+/** Fonts recently drawn, split around their size. */
+const LABEL_FONTS = new Map<string, LabelFont | null>()
+
+function labelFont(font: string): LabelFont | null {
+  let hit = LABEL_FONTS.get(font)
+  if (hit !== undefined) return hit
+  const m = FONT_SIZE.exec(font)
+  const size = m ? Number(m[1]) : NaN
+  hit =
+    m && Number.isFinite(size) && size > 0
+      ? {
+          head: font.slice(0, m.index),
+          tail: font.slice(m.index + m[0].length),
+          size,
+        }
+      : null
+  if (LABEL_FONTS.size >= 256) evictOldest(LABEL_FONTS)
+  LABEL_FONTS.set(font, hit)
+  return hit
+}
+
 function labelBaseKey(text: string, style: LabelStyle): string {
   return `${text}\n${style.font}\n${style.align}\n${style.baseline}\n${style.color}\n`
 }
 
 export type { DebugRenderMode, GpuGfxStats }
-
-/** Warn once when a clip is set under a transform its shape can't represent. */
-let warnedClipTransform = false
 
 /**
  * Counters for `Gfx2D` calls that hit a no-op path (e.g. `strokePath2D` on a
@@ -151,6 +215,18 @@ export interface UnimplementedCounts {
   strokeAlignFallback: number
 }
 
+/**
+ * Fewest segments a path stroke has before its packed instances are worth
+ * keeping on the GPU between frames.
+ */
+const RETAIN_STROKE_SEGMENTS = 256
+
+/**
+ * Fewest indices a gradient or masked fill has before its tessellation is worth
+ * keeping on the GPU between frames.
+ */
+const RETAIN_FILL_INDICES = 64
+
 /** The blend modes an offscreen composite supports. */
 const COMPOSITE_BLENDS = new Set<string>([
   'source-over',
@@ -162,9 +238,77 @@ const COMPOSITE_BLENDS = new Set<string>([
   'xor',
 ])
 
+/**
+ * Effects to run over an offscreen surface, from `beginOffscreen` until the
+ * surface's pass closes.
+ */
+interface SurfaceEffectsJob {
+  chain: PostChain
+  effects: readonly PostEffect[]
+  /** Where the chain writes, a target the composite then samples. */
+  out: RenderTarget | null
+  /**
+   * The cache entry the result is kept in, for a cached layer. It is valid once
+   * the chain has run, and then holds `signature` and the region.
+   */
+  entry: LayerCacheEntry | null
+  signature: Float64Array | null
+  signatureLength: number
+  x: number
+  y: number
+}
+
+/**
+ * The kept render of a cached layer: the processed result and what it was made
+ * from. The target is the entry's own for as long as the region keeps its
+ * size.
+ */
+interface LayerCacheEntry extends RetainedEntry {
+  out: RenderTarget
+  /** Where the region sat in the target, and its size. */
+  x: number
+  y: number
+  w: number
+  h: number
+  colorSpace: string
+  /** The signature of what was drawn, valid up to `signatureLength`. */
+  signature: Float64Array
+  signatureLength: number
+  /** Whether `out` holds a finished render of `signature`. */
+  valid: boolean
+}
+
+/** The rectangle of a texture a composite draws, a surface or an effects result. */
+type CompositeSource = Pick<
+  Surface,
+  'tex' | 'texW' | 'texH' | 'x' | 'y' | 'w' | 'h'
+>
+
+/**
+ * The state surface effects need on one device: the compiled passes shared by
+ * every chain, a pool for the chains' targets, and a chain per owner.
+ */
+interface EffectState {
+  programs: PostProgramCache
+  pool: RenderTargetPool
+  chains: Map<object, { chain: PostChain; unseen: number }>
+  /** The kept renders of cached layers, one per layer. */
+  layers: RetainedCache<LayerCacheEntry>
+  /** Cached layers drawn from their kept render this frame. */
+  layerHits: number
+}
+
 /** An open `beginOffscreen`, kept until its `endOffscreen`. */
 interface OffFrame {
-  surface: Surface
+  /**
+   * The surface being drawn into, `null` for a cached layer drawn from its kept
+   * render.
+   */
+  surface: Surface | null
+  /** The kept render composited in place of drawing, for a cache hit. */
+  hit: LayerCacheEntry | null
+  /** The effects to run over the surface, `null` for a plain surface. */
+  fx: SurfaceEffectsJob | null
   alpha: number
   blend: GfxBlend
   retain: boolean
@@ -173,6 +317,7 @@ interface OffFrame {
   clipDepth: number
   clipPushes: ClipPush[]
   saveLevel: number
+  passSamples: number
 }
 
 /** What a `GfxOffscreenHandle` holds. */
@@ -187,6 +332,25 @@ interface ClipPush {
   bounds: ClipBounds | null
   /** Whether the depth went up, `false` when the depth cap refused it. */
   raised: boolean
+}
+
+/** The segments a flattened path strokes, counting the closing one. */
+function flatSegments(flat: FlatPath): number {
+  let n = 0
+  for (let c = 0; c < flat.contourCount; c++) {
+    const len = flat.starts[c + 1] - flat.starts[c]
+    if (len < 1) continue
+    n += flat.closed[c] === 1 ? len : len - 1
+  }
+  return n
+}
+
+/** Whether the first enabled effect removes fine detail from its input. */
+function firstEffectSmooths(effects: readonly PostEffect[]): boolean {
+  for (const effect of effects) {
+    if (effect.enabled) return effect.smoothsInput === true
+  }
+  return false
 }
 
 export class GpuGfx implements Gfx2D {
@@ -239,8 +403,6 @@ export class GpuGfx implements Gfx2D {
    */
   #shadowWarmFactors: readonly number[] = []
   readonly #shadowWarmups = new Map<string, PathShadowRequest>()
-  /** Warn once per surface for a rotated/skewed inset path shadow. */
-  #warnedInsetShadowTransform = false
 
   /**
    * Every texture the GPU backend uses: atlas, per-source, gradient LUTs, clip
@@ -254,8 +416,16 @@ export class GpuGfx implements Gfx2D {
     textureBinds: 0,
     blendSwitches: 0,
     uboSlices: 0,
+    runsMerged: 0,
+    primitives: 0,
     bytesUploaded: 0,
+    streamedBytes: {},
     passCount: 0,
+    framePasses: 0,
+    frameSubmits: 0,
+    frameBindGroupsCreated: 0,
+    frameBindGroupSwitches: 0,
+    frameUniformWrites: 0,
     surfaces: 0,
     offscreenBytes: 0,
     sdfInstances: 0,
@@ -266,6 +436,12 @@ export class GpuGfx implements Gfx2D {
     outlineTessellations: 0,
     outlineCacheHits: 0,
     rampRowsWritten: 0,
+    labelRasters: 0,
+    labelUploadBytes: 0,
+    labelDedicated: 0,
+    labelHolds: 0,
+    labelPageWipes: 0,
+    labelEntries: 0,
     maskBakes: 0,
     maskBakeWork: 0,
     maskBytes: 0,
@@ -311,16 +487,15 @@ export class GpuGfx implements Gfx2D {
    */
   #stencilEnabled: boolean
   /**
-   * Whether `endFrame` blits the target to the canvas. `false` for an offscreen
-   * surface whose color texture is sampled elsewhere (a `Viewport2DNode`'s 2D
-   * render).
+   * Whether `endFrame` blits the target to the canvas. `false` when another
+   * pass samples the resolved color texture instead.
    */
   #present: boolean
   /**
    * Single-sample resolve target, allocated only when the main target is MSAA.
    * The main pass resolves into it on `endRenderPass`. `present` blits it to
    * the canvas (single-sample, so scaling is allowed) and a post-process pass
-   * or a `Viewport2DNode` samples it.
+   * samples it.
    */
   #resolveTarget: RenderTarget | null = null
   /**
@@ -329,7 +504,12 @@ export class GpuGfx implements Gfx2D {
    * takes longer).
    */
   #ready = false
+  /** Programs whose pipelines failed to build. They draw nothing. */
+  readonly failures: RenderFailures
   #warmupSeq = 0
+  /** Whether the target is drawn in the canvas's own format. */
+  readonly #canvasFormat: boolean
+  readonly #holdLabels: boolean
   /** Resolves when the current warm-up completes, awaited by tests. */
   #warmupPromise: Promise<void> = Promise.resolve()
 
@@ -339,15 +519,28 @@ export class GpuGfx implements Gfx2D {
     opts: {
       samples?: number
       present?: boolean
+      /**
+       * Draw in the canvas's own format, so the frame's last pass can resolve
+       * straight into the canvas instead of into a target that is copied
+       * there.
+       */
+      canvas?: boolean
       stencil?: boolean
       vectorQuality?: VectorQuality
+      /** Where build failures are reported. Defaults to a private collector. */
+      failures?: RenderFailures
+      /** See {@link TextureManager.holdLabels}. Default `true`. */
+      holdLabels?: boolean
     } = {},
   ) {
+    this.failures = opts.failures ?? new RenderFailures()
     this.#canvas = canvas
     this.#device = device
     this.#samples = opts.samples ?? 4
     this.#present = opts.present ?? true
+    this.#canvasFormat = opts.canvas ?? false
     this.#stencilEnabled = opts.stencil ?? false
+    this.#holdLabels = opts.holdLabels ?? true
     this.#targetWidth = canvas.width || 1
     this.#targetHeight = canvas.height || 1
     this.#target = null as unknown as RenderTarget
@@ -356,6 +549,7 @@ export class GpuGfx implements Gfx2D {
     this.#pool = new SurfacePool(device)
     this.#ctx.vectorQuality = opts.vectorQuality ?? new VectorQuality()
     this.#ctx.registerProgram(this.#coloredTri)
+    this.#ctx.registerProgram(this.#coloredTri.fan)
     this.#ctx.registerProgram(this.#stroke)
     this.#ctx.registerProgram(this.#composite)
     this.#ctx.registerProgram(this.#shape)
@@ -371,6 +565,7 @@ export class GpuGfx implements Gfx2D {
   get #programs(): GpuProgram[] {
     return [
       this.#coloredTri,
+      this.#coloredTri.fan,
       this.#stroke,
       this.#shape,
       this.#gradientRadial,
@@ -387,12 +582,22 @@ export class GpuGfx implements Gfx2D {
     return this.#ready
   }
 
-  /**
-   * Resolves once pipelines have warmed. Test hook (production polls
-   * {@link ready}).
-   */
+  /** Resolves once pipelines have warmed, when {@link ready} turns true. */
   get whenReady(): Promise<void> {
     return this.#warmupPromise
+  }
+
+  /**
+   * Whether a surface effect's pipeline is still compiling. A surface whose
+   * effects are not compiled yet composites unprocessed.
+   */
+  get effectsCompiling(): boolean {
+    return this.#fx?.programs.compiling ?? false
+  }
+
+  /** Resolves once the surface effect pipelines compiling now have finished. */
+  whenEffectsCompiled(): Promise<void> {
+    return this.#fx?.programs.whenCompiled() ?? Promise.resolve()
   }
 
   /**
@@ -434,6 +639,7 @@ export class GpuGfx implements Gfx2D {
       samples: this.#samples,
       depth: this.#depthEnabled,
       stencil: this.#stencilEnabled,
+      colorSpace: this.#canvasFormat ? 'canvas' : undefined,
     })
     this.stats.msaaSamples = this.#target.samples
     this.#publishTargetFormat()
@@ -443,6 +649,7 @@ export class GpuGfx implements Gfx2D {
       this.#textureManager.rebuild(device)
     } else {
       this.#textureManager = new TextureManager(device)
+      this.#textureManager.holdLabels = this.#holdLabels
     }
     this.#ctx.textureManager = this.#textureManager
 
@@ -451,8 +658,14 @@ export class GpuGfx implements Gfx2D {
     // here. Its own pipelines are independent of the screen target's format,
     // so this is the only place it's (re)built, unlike `#programs`.
     this.#pathShadowCache = new PathShadowCache(device)
-    void this.#pathShadowCache.warmup()
+    this.#pathShadowCache
+      .warmup()
+      .catch((err) => this.failures.report('path shadows', err))
     this.#pool.dispose()
+    // Anything the effects held lived on the old context.
+    this.#fx?.layers.clear(false)
+    this.#fx = null
+    this.#fxJobs.clear()
 
     this.#warmupPromise = this.#warmupPipelines()
   }
@@ -468,20 +681,45 @@ export class GpuGfx implements Gfx2D {
     this.#ready = false
     const seq = ++this.#warmupSeq
     this.#publishTargetFormat()
+    this.#ctx.resetPipelineSets()
     for (const p of this.#programs) {
-      await p.warmup(this.#device, this.#ctx)
+      try {
+        await p.warmup(this.#device, this.#ctx)
+      } catch (err) {
+        // The program draws nothing. Everything else still renders.
+        this.failures.report(`2D program '${p.kind}'`, err)
+      }
       if (seq !== this.#warmupSeq) return
     }
+    // The first frame waits for the smooth-corner field, so a smoothed shape
+    // never draws with circular corners first.
+    await this.#textureManager.loadSquircleField()
     if (seq === this.#warmupSeq) this.#ready = true
   }
 
   /**
+   * Whether the frame resolves straight into the canvas: a canvas-format target
+   * that presents, with samples to resolve.
+   */
+  get #resolvesToCanvas(): boolean {
+    return this.#canvasFormat && this.#present && this.#target.samples > 1
+  }
+
+  /** Where the main pass resolves its samples, if anywhere. */
+  #resolveDestination(): RenderTarget | undefined {
+    if (this.#resolvesToCanvas) return this.#device.canvasTarget()
+    return this.#resolveTarget ?? undefined
+  }
+
+  /**
    * Allocate (or reallocate) the single-sample resolve target when the main
-   * target is MSAA. Drops it when it isn't. Matches the main target's size +
-   * color space so the MSAA resolve blit is format- and bounds-compatible.
+   * target is MSAA and something samples the result. Drops it when not. Matches
+   * the main target's size + color space so the MSAA resolve is format- and
+   * bounds-compatible. A frame that resolves into the canvas has no use for
+   * it.
    */
   #ensureResolveTarget(): void {
-    if (this.#target.samples > 1) {
+    if (this.#target.samples > 1 && !this.#resolvesToCanvas) {
       if (this.#resolveTarget)
         this.#device.deleteRenderTarget(this.#resolveTarget)
       this.#resolveTarget = this.#device.createRenderTarget({
@@ -556,6 +794,7 @@ export class GpuGfx implements Gfx2D {
       samples: this.#target.samples,
       depthStencil: depthStencilFormatOf(this.#target),
     }
+    this.#ctx.passSamples = this.#target.samples
   }
 
   /**
@@ -597,6 +836,7 @@ export class GpuGfx implements Gfx2D {
       samples: this.#samples,
       depth: this.#depthEnabled,
       stencil: this.#stencilEnabled,
+      colorSpace: this.#canvasFormat ? 'canvas' : undefined,
     })
     this.stats.msaaSamples = this.#target.samples
     this.#publishTargetFormat()
@@ -631,6 +871,19 @@ export class GpuGfx implements Gfx2D {
     this.#ctx.resetSlot(this.#ctx.curSlot)
     this.#textureManager.resetLabelBudget()
     this.#ctx.resetBatchMarkers()
+    this.#frameNo++
+    const used = this.#gradientUsePrev
+    this.#gradientUsePrev = this.#gradientUse
+    this.#gradientUse = used
+    used.clear()
+    this.#stroke.cache.sweep(this.#frameNo)
+    this.#coloredTri.geometryCache.sweep(this.#frameNo)
+    this.#strokePieces.sweep(this.#frameNo)
+    this.#outlines.sweep(this.#frameNo)
+    if (this.#fx) {
+      this.#fx.layers.sweep(this.#frameNo)
+      this.#fx.layerHits = 0
+    }
     this.#clipPushes.length = 0
     this.#saveLevel = 0
     // Reset per-frame stats so the HUD reflects the frame just rendered.
@@ -643,6 +896,7 @@ export class GpuGfx implements Gfx2D {
     this.stats.passCount = 0
     this.stats.surfaces = 0
     this.stats.sdfInstances = 0
+    this.stats.primitives = 0
     this.stats.strokeInstances = 0
     this.stats.roundRectInstances = 0
     this.stats.shadowInstances = 0
@@ -654,14 +908,7 @@ export class GpuGfx implements Gfx2D {
       ? [0, 0, 0, 0]
       : rgbaTuple(parseColor(opts.clearColor))
     this.#device.beginFrame()
-    // Open the main pass: clear color (+ depth when a 3D pass follows), and
-    // resolve MSAA into the single-sample resolve target on pass end. The pass
-    // stays open across the 3D immediate draws and the 2D command-list replay
-    // (in `endFrame`), closing in `endFrame`.
-    this.#capable = hasOffscreenDemand()
-    this.#passStack.length = 0
-    this.#passStack.push({ surface: null, slot: 0, leaf: false })
-    this.#openMain(false, !this.#capable, clear)
+    this.#clear = clear
     this.#ctx.curBlend = 'source-over'
   }
 
@@ -674,55 +921,87 @@ export class GpuGfx implements Gfx2D {
    * @internal
    */
   perfMarks = false
-  #capable = false
-  /** Whether the open main segment resolves, so it can be the frame's last. */
-  #mainResolves = false
   #pool: SurfacePool
-  readonly #passStack: Array<{
-    surface: Surface | null
-    slot: number
-    leaf: boolean
-  }> = []
+  /** The main pass's clear colour, set by `beginFrame`. */
+  #clear: readonly [number, number, number, number] = [0, 0, 0, 0]
+  #mainPrelude: (() => void) | null = null
   /** Record-time stack of open `beginOffscreen` calls. */
   readonly #offStack: OffFrame[] = []
-  #warnedOffscreen = false
+  /** Surface effects state, created on first use and dropped on a restore. */
+  #fx: EffectState | null = null
+  /** Effects waiting for their surface's pass to close, by surface. */
+  readonly #fxJobs = new Map<Surface, SurfaceEffectsJob>()
+
+  /**
+   * Run `draw` at the start of the main pass, before the recorded layers. The
+   * callback issues draws straight to the device, so it runs while that pass is
+   * open. It applies to the next submitted frame only.
+   *
+   * @internal
+   */
+  setMainPrelude(draw: (() => void) | null): void {
+    this.#mainPrelude = draw
+  }
 
   readonly #hooks: PassHooks = {
-    mark: (marks, index) => {
-      const m = marks[index]
-      if (m.type === 'begin') this.#replayBegin(marks, index)
-      else this.#replayEnd(marks, index)
+    open: (surface) => {
+      if (surface) {
+        if (this.perfMarks) performance.mark('gfx-surface:start')
+        const slot = this.#ctx.acquireFrameSlot(surface.texW, surface.texH)
+        this.#ctx.useFrameSlot(slot)
+        this.#ctx.passSamples = surface.draw.samples
+        this.#openSurface(surface)
+      } else {
+        this.#ctx.useFrameSlot(0)
+        this.#ctx.passSamples = this.#target.samples
+        this.#openMain()
+        const prelude = this.#mainPrelude
+        this.#mainPrelude = null
+        prelude?.()
+      }
+    },
+    close: (surface) => {
+      this.#device.endRenderPass()
+      if (surface) this.#runSurfaceEffects(surface)
+      if (this.perfMarks && surface) {
+        performance.measure(
+          `gfx offscreen surface ${surface.w}x${surface.h}`,
+          'gfx-surface:start',
+        )
+      }
     },
   }
 
   /** The pixel size of the target currently being recorded into. */
   #viewW(): number {
-    const top = this.#offStack[this.#offStack.length - 1]
-    return top ? top.surface.w : this.#targetWidth
+    return this.#topSurface()?.w ?? this.#targetWidth
   }
   #viewH(): number {
-    const top = this.#offStack[this.#offStack.length - 1]
-    return top ? top.surface.h : this.#targetHeight
+    return this.#topSurface()?.h ?? this.#targetHeight
+  }
+
+  /** The innermost open surface, skipping layers drawn from a kept render. */
+  #topSurface(): Surface | null {
+    for (let i = this.#offStack.length - 1; i >= 0; i--) {
+      const s = this.#offStack[i].surface
+      if (s) return s
+    }
+    return null
   }
 
   /**
-   * Open the main target's pass. `load` keeps what is there, otherwise it
-   * clears to `clear`. `final` means nothing else will be drawn into the main
-   * target this frame, so multisampled samples can be resolved and dropped.
+   * Open the main target's pass. It is the frame's only pass over the target,
+   * so it resolves multisampled colour and drops everything the next frame does
+   * not read.
    */
-  #openMain(
-    load: boolean,
-    final: boolean,
-    clear: readonly [number, number, number, number] = [0, 0, 0, 0],
-  ): void {
-    const resolve = final ? (this.#resolveTarget ?? undefined) : undefined
-    this.#mainResolves = final
+  #openMain(): void {
+    const resolve = this.#resolveDestination()
     this.stats.passCount++
     this.#device.beginRenderPass({
       color: {
         target: this.#target,
-        loadOp: load ? 'load' : 'clear',
-        clearColor: load ? undefined : clear,
+        loadOp: 'clear',
+        clearColor: this.#clear,
         resolveTarget: resolve,
         // The resolve target holds the result, so the multisampled samples
         // never need to reach memory.
@@ -733,8 +1012,10 @@ export class GpuGfx implements Gfx2D {
       depth: this.#target.hasDepth
         ? {
             target: { renderTarget: this.#target },
-            loadOp: load ? 'load' : 'clear',
-            storeOp: 'store',
+            loadOp: 'clear',
+            // Nothing samples the main depth: 2D never tests it and AO draws
+            // its own G-buffer.
+            storeOp: 'discard',
           }
         : undefined,
       // Only clips and stroke de-duplication read it, and only within the
@@ -742,136 +1023,45 @@ export class GpuGfx implements Gfx2D {
       stencil: this.#target.hasStencil
         ? {
             target: this.#target,
-            loadOp: load ? 'load' : 'clear',
+            loadOp: 'clear',
             clearValue: 0,
-            storeOp: final ? 'discard' : 'store',
+            storeOp: 'discard',
           }
         : undefined,
     })
   }
 
-  /**
-   * Open a surface's pass. A leaf surface (no nested surfaces) resolves and
-   * drops its samples in the same pass. Others store them and resolve in a
-   * short pass of their own once they are complete.
-   */
-  #openSurface(surface: Surface, load: boolean, leaf: boolean): void {
-    const resolve = leaf && surface.multisampled ? surface.resolve : undefined
+  /** Open a surface's pass. It resolves and drops its samples in the same pass. */
+  #openSurface(surface: Surface): void {
+    const resolve = surface.multisampled ? surface.resolve : undefined
     this.stats.passCount++
     this.#device.beginRenderPass({
       color: {
         target: surface.draw,
-        loadOp: load ? 'load' : 'clear',
-        clearColor: load ? undefined : [0, 0, 0, 0],
+        loadOp: 'clear',
+        clearColor: surface.clear,
         resolveTarget: resolve,
         storeOp: resolve ? 'discard' : 'store',
       },
       depth: surface.draw.hasDepth
         ? {
             target: { renderTarget: surface.draw },
-            loadOp: load ? 'load' : 'clear',
-            storeOp: 'store',
+            loadOp: 'clear',
+            storeOp: 'discard',
           }
         : undefined,
       stencil: surface.draw.hasStencil
         ? {
             target: surface.draw,
-            loadOp: load ? 'load' : 'clear',
+            loadOp: 'clear',
             clearValue: 0,
-            storeOp: leaf ? 'discard' : 'store',
+            storeOp: 'discard',
           }
         : undefined,
     })
   }
 
-  /** Resolve a multisampled surface whose pass ended without resolving. */
-  #resolveSurface(surface: Surface): void {
-    if (!surface.multisampled) return
-    this.stats.passCount++
-    this.#device.beginRenderPass({
-      color: {
-        target: surface.draw,
-        loadOp: 'load',
-        storeOp: 'discard',
-        resolveTarget: surface.resolve,
-      },
-    })
-    this.#device.endRenderPass()
-  }
-
-  #replayBegin(marks: readonly PassMark[], index: number): void {
-    const surface = marks[index].surface
-    // The segment that was open ends here and resumes after the surface.
-    this.#device.endRenderPass()
-    let depth = 1
-    let leaf = true
-    for (let j = index + 1; j < marks.length && depth > 0; j++) {
-      if (marks[j].type === 'begin') {
-        depth++
-        leaf = false
-      } else depth--
-    }
-    if (this.perfMarks) performance.mark('gfx-surface:start')
-    const slot = this.#ctx.acquireFrameSlot(surface.texW, surface.texH)
-    this.#ctx.useFrameSlot(slot)
-    this.#openSurface(surface, false, leaf)
-    this.#passStack.push({ surface, slot, leaf })
-  }
-
-  #replayEnd(marks: readonly PassMark[], index: number): void {
-    const done = this.#passStack.pop()
-    this.#device.endRenderPass()
-    if (done?.surface && !done.leaf) this.#resolveSurface(done.surface)
-    if (this.perfMarks && done?.surface) {
-      performance.measure(
-        `gfx offscreen surface ${done.surface.w}x${done.surface.h}${done.leaf ? ' leaf' : ''}`,
-        'gfx-surface:start',
-      )
-    }
-    const parent = this.#passStack[this.#passStack.length - 1]
-    if (!parent) return
-    this.#ctx.useFrameSlot(parent.slot)
-    if (parent.surface) this.#openSurface(parent.surface, true, false)
-    else this.#openMain(true, index + 1 >= marks.length)
-  }
-
-  /** End the frame's last main segment, resolving it if it has not yet. */
-  #finishMain(): void {
-    // Surfaces left open by unbalanced calls are closed so the main pass ends.
-    while (this.#passStack.length > 1) {
-      const s = this.#passStack.pop()
-      this.#device.endRenderPass()
-      if (s?.surface) this.#resolveSurface(s.surface)
-      const parent = this.#passStack[this.#passStack.length - 1]
-      this.#ctx.useFrameSlot(parent.slot)
-      if (parent.surface) this.#openSurface(parent.surface, true, false)
-      else this.#openMain(true, true)
-    }
-    this.#device.endRenderPass()
-    if (!this.#mainResolves && this.#resolveTarget) {
-      this.stats.passCount++
-      this.#device.beginRenderPass({
-        color: {
-          target: this.#target,
-          loadOp: 'load',
-          storeOp: 'discard',
-          resolveTarget: this.#resolveTarget,
-        },
-      })
-      this.#device.endRenderPass()
-    }
-  }
-
   beginOffscreen(opts: GfxOffscreenOptions = {}): boolean {
-    if (!this.#capable) {
-      if (!this.#warnedOffscreen) {
-        this.#warnedOffscreen = true
-        console.warn(
-          'GpuGfx: offscreen surfaces are not enabled for this frame. A node that uses them declares it with addOffscreenDemand, so beginOffscreen returns false.',
-        )
-      }
-      return false
-    }
     this.#ctx.txStack.read(this.#ctx.txOut)
     const t = this.#ctx.txOut
     let x0 = 0
@@ -902,19 +1092,70 @@ export class GpuGfx implements Gfx2D {
     const w = x1 - x0
     const h = y1 - y0
     if (w <= 0 || h <= 0) return false
-    const surface = this.#pool.acquire(w, h, {
-      colorSpace: this.#target.colorSpace,
-      samples: this.#target.samples,
-      depth: this.#target.hasDepth,
-      stencil: this.#target.hasStencil,
-    })
+    const requested = opts.retain === true ? null : opts.effects
+    const fx =
+      requested && PostChain.hasWork(requested.effects) ? requested : null
+    if (requested?.cache) requested.cache.hit = false
+    const job = fx ? this.#prepareSurfaceEffects(fx) : null
+    if (opts.effects && !fx) opts.effects.applied = opts.retain !== true
+    const alpha = this.#ctx.stateStack.getAlpha() * (opts.opacity ?? 1)
+    const blend = opts.blend ?? this.#ctx.stateStack.getBlend()
+    if (job && fx?.cache) {
+      const kept = this.#checkLayerCache(fx, fx.cache, job, x0, y0, w, h)
+      if (kept) {
+        // The kept render stands, so nothing is drawn and the composite is the
+        // whole cost. The frame only holds the alpha and blend for
+        // `endOffscreen`.
+        this.#offStack.push({
+          surface: null,
+          hit: kept,
+          fx: null,
+          alpha,
+          blend,
+          retain: false,
+          matte: null,
+          matteMode: 'alpha',
+          clipDepth: this.#ctx.clipDepth,
+          clipPushes: [],
+          saveLevel: this.#saveLevel,
+          passSamples: this.#ctx.passSamples,
+        })
+        return true
+      }
+    }
+    // Effects position by the size of the texture they read, so the surface is
+    // exactly the captured size. A layer whose first effect smooths its input
+    // draws single-sample, once every program has pipelines for it.
+    let samples = this.#target.samples
+    if (fx && samples > 1 && firstEffectSmooths(fx.effects)) {
+      if (this.#ctx.singleSampleReady) samples = 1
+      else this.#ctx.warmSingleSample()
+    }
+    const surface = this.#pool.acquire(
+      w,
+      h,
+      {
+        colorSpace: this.#target.colorSpace,
+        samples,
+        depth: this.#target.hasDepth,
+        stencil: this.#target.hasStencil,
+      },
+      fx !== null,
+    )
+    if (opts.clearColor !== undefined) {
+      // A surface holds premultiplied color, so a translucent clear is too.
+      const c = rgbaTuple(parseColor(opts.clearColor))
+      surface.clear = [c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]]
+    }
+    if (job) {
+      job.x = x0
+      job.y = y0
+    }
     surface.x = x0
     surface.y = y0
     surface.w = w
     surface.h = h
     this.stats.surfaces++
-    const alpha = this.#ctx.stateStack.getAlpha() * (opts.opacity ?? 1)
-    const blend = opts.blend ?? this.#ctx.stateStack.getBlend()
     this.#ctx.pushPassMark('begin', surface)
     // The surface starts from a clean state, in its own pixel space.
     this.#ctx.txStack.push()
@@ -926,6 +1167,8 @@ export class GpuGfx implements Gfx2D {
     this.#ctx.stateStack.setClipMask(null)
     this.#offStack.push({
       surface,
+      hit: null,
+      fx: job,
       alpha,
       blend,
       retain: opts.retain === true,
@@ -934,8 +1177,10 @@ export class GpuGfx implements Gfx2D {
       clipDepth: this.#ctx.clipDepth,
       clipPushes: this.#clipPushes.slice(),
       saveLevel: this.#saveLevel,
+      passSamples: this.#ctx.passSamples,
     })
     this.#ctx.clipDepth = 0
+    this.#ctx.passSamples = samples
     this.#clipPushes.length = 0
     return true
   }
@@ -943,7 +1188,26 @@ export class GpuGfx implements Gfx2D {
   endOffscreen(): GfxOffscreenHandle | null {
     const frame = this.#offStack.pop()
     if (!frame) return null
-    const s = frame.surface
+    const kept = frame.hit
+    if (kept) {
+      this.#compositeSurface(
+        {
+          tex: this.#device.colorTexture(kept.out),
+          texW: kept.w,
+          texH: kept.h,
+          x: kept.x,
+          y: kept.y,
+          w: kept.w,
+          h: kept.h,
+        },
+        frame.alpha,
+        frame.blend,
+        null,
+        'alpha',
+      )
+      return null
+    }
+    const s = frame.surface!
     this.#ctx.pushPassMark('end', s)
     this.#ctx.txStack.pop()
     this.#ctx.stateStack.pop()
@@ -951,11 +1215,33 @@ export class GpuGfx implements Gfx2D {
     this.#clipPushes.length = 0
     this.#clipPushes.push(...frame.clipPushes)
     this.#saveLevel = frame.saveLevel
+    this.#ctx.passSamples = frame.passSamples
     const handle: OffscreenHandle = { surface: s }
     if (frame.retain) return handle as unknown as GfxOffscreenHandle
     const matteHandle = frame.matte as unknown as OffscreenHandle | null
+    let source: CompositeSource = s
+    const job = frame.fx
+    if (job) {
+      // The effects run when the surface's pass closes and write `out`, which
+      // the composite then draws in place of the surface. A cached layer writes
+      // the target it keeps.
+      const out =
+        job.entry?.out ??
+        this.#fx!.pool.acquireTransient(s.w, s.h, this.#target.colorSpace)
+      job.out = out
+      this.#fxJobs.set(s, job)
+      source = {
+        tex: this.#device.colorTexture(out),
+        texW: s.w,
+        texH: s.h,
+        x: s.x,
+        y: s.y,
+        w: s.w,
+        h: s.h,
+      }
+    }
     this.#compositeSurface(
-      s,
+      source,
       frame.alpha,
       frame.blend,
       matteHandle?.surface ?? null,
@@ -984,9 +1270,202 @@ export class GpuGfx implements Gfx2D {
     )
   }
 
+  /** The surface effects state, created on first use. */
+  #effectState(): EffectState {
+    return (this.#fx ??= {
+      programs: new PostProgramCache(this.#device),
+      pool: new RenderTargetPool(this.#device),
+      chains: new Map(),
+      layers: new RetainedCache<LayerCacheEntry>({
+        name: 'Layer renders',
+        idleFrames: 240,
+        budgetBytes: 64 * 1024 * 1024,
+      }),
+      layerHits: 0,
+    })
+  }
+
+  /**
+   * Get ready to run `fx` over a surface: find or create the owner's chain, add
+   * the frame's time, and make sure the pipelines are compiled for the target's
+   * color space. Reports whether they are, in `fx.applied`. Returns the job for
+   * the surface, or `null` when a pipeline is still compiling and the surface
+   * composites as it is.
+   */
+  #prepareSurfaceEffects(fx: GfxSurfaceEffects): SurfaceEffectsJob | null {
+    const state = this.#effectState()
+    let entry = state.chains.get(fx.owner)
+    if (!entry) {
+      entry = {
+        chain: new PostChain(this.#device, state.programs, state.pool),
+        unseen: 0,
+      }
+      state.chains.set(fx.owner, entry)
+    }
+    entry.unseen = 0
+    entry.chain.advance(fx.dt)
+    const ready = entry.chain.prepare(fx.effects, this.#target.colorSpace)
+    for (const effect of fx.effects) {
+      for (const pass of effect.passes) state.programs.noteLive(pass)
+    }
+    fx.applied = ready
+    return ready
+      ? {
+          chain: entry.chain,
+          effects: fx.effects,
+          out: null,
+          entry: null,
+          signature: null,
+          signatureLength: 0,
+          x: 0,
+          y: 0,
+        }
+      : null
+  }
+
+  /**
+   * Decide whether the kept render of a cached layer still stands. Returns it
+   * when it does, with `cache.hit` set. Otherwise gets the layer's entry ready
+   * to be drawn into (a new target when the region changed size) and records
+   * the signature to keep once the render has run, and returns `null`.
+   */
+  #checkLayerCache(
+    fx: GfxSurfaceEffects,
+    cache: GfxSurfaceCache,
+    job: SurfaceEffectsJob,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+  ): LayerCacheEntry | null {
+    const state = this.#fx!
+    const colorSpace = this.#target.colorSpace
+    // Asked every frame, even when the answer is a hit, so the effects' own
+    // record of what they last wrote stays current.
+    const paramsChanged = job.chain.paramsChanged(
+      { width: w, height: h },
+      fx.effects,
+    )
+    const key = state.layers.keyFor(fx.owner, 'layer')
+    let entry = state.layers.get(key)
+    const forced = cache.invalidated
+    cache.invalidated = false
+    if (
+      entry &&
+      entry.valid &&
+      !forced &&
+      !paramsChanged &&
+      entry.colorSpace === colorSpace &&
+      entry.x === x &&
+      entry.y === y &&
+      entry.w === w &&
+      entry.h === h &&
+      signaturesEqual(
+        entry.signature,
+        entry.signatureLength,
+        cache.signature,
+        cache.length,
+      )
+    ) {
+      cache.hit = true
+      state.layerHits++
+      return entry
+    }
+    if (
+      !entry ||
+      entry.w !== w ||
+      entry.h !== h ||
+      entry.colorSpace !== colorSpace
+    ) {
+      const pool = state.pool
+      const out = pool.acquireRetained(w, h, colorSpace)
+      entry = {
+        out,
+        x,
+        y,
+        w,
+        h,
+        colorSpace,
+        signature: new Float64Array(0),
+        signatureLength: 0,
+        valid: false,
+        bytes: w * h * 4,
+        release: () => pool.release(out),
+      }
+      // Replaces, and frees, the entry of the old size.
+      state.layers.add(key, entry)
+    }
+    entry.valid = false
+    job.entry = entry
+    job.signature = copySignature(
+      cache.signature,
+      cache.length,
+      new Float64Array(cache.length),
+    )
+    job.signatureLength = cache.length
+    return null
+  }
+
+  /**
+   * Run the effects queued for `surface`, now that its pass has closed and its
+   * result texture is complete. They draw between that pass and the next one.
+   */
+  #runSurfaceEffects(surface: Surface): void {
+    const job = this.#fxJobs.get(surface)
+    if (!job) return
+    this.#fxJobs.delete(surface)
+    job.chain.run(
+      { texture: surface.tex, width: surface.w, height: surface.h },
+      job.effects,
+      this.#target.colorSpace,
+      job.out,
+    )
+    this.stats.passCount += PostChain.passCount(job.effects)
+    const entry = job.entry
+    if (entry && job.signature) {
+      // The kept target now holds a finished render of this signature.
+      entry.x = job.x
+      entry.y = job.y
+      entry.signature = copySignature(
+        job.signature,
+        job.signatureLength,
+        entry.signature,
+      )
+      entry.signatureLength = job.signatureLength
+      entry.valid = true
+    }
+  }
+
+  /**
+   * Compile the pipelines of `fx` ahead of time, for the target's color space,
+   * so the first frame that uses them is not drawn unprocessed. Safe to call
+   * every frame, an already compiled pass is skipped.
+   */
+  warmEffects(fx: GfxSurfaceEffects): void {
+    const state = this.#effectState()
+    const passes = fx.effects.flatMap((e) => e.passes)
+    state.programs.warm(passes, [this.#target.colorSpace])
+  }
+
+  /**
+   * End of frame for surface effects: return the pooled targets, free the
+   * passes and chains no layer has used for a while.
+   */
+  #endEffectsFrame(): void {
+    const state = this.#fx
+    if (!state) return
+    state.pool.endFrame()
+    state.programs.endFrame()
+    for (const [owner, entry] of state.chains) {
+      if (++entry.unseen <= PASS_GPU_GRACE_FRAMES) continue
+      entry.chain.destroy()
+      state.chains.delete(owner)
+    }
+  }
+
   /** Record a quad of `s` at its rectangle in the current target. */
   #compositeSurface(
-    s: Surface,
+    s: CompositeSource,
     alpha: number,
     blend: GfxBlend,
     matte: Surface | null,
@@ -1030,7 +1509,7 @@ export class GpuGfx implements Gfx2D {
   }
 
   /**
-   * Layer boundary (Stage calls this between drawLayer calls). Under
+   * End of a draw pass (Stage calls this after the 2D walk). Under
    * record/submit this only records the pending batch as a draw-run. The GPU
    * work is deferred to `submitFrame` in `endFrame`. Doesn't advance the slot.
    */
@@ -1051,12 +1530,12 @@ export class GpuGfx implements Gfx2D {
     // frame drew has queued its warm requests by now, and leaving the factors
     // set would re-queue them for every frame after.
     this.#shadowWarmFactors = []
-    // Replay the recorded 2D command list into the still-open main pass, then
-    // close it (resolving MSAA into the resolve target).
+    // Replay the recorded 2D command list: every surface in a pass of its own,
+    // then the main pass, which resolves MSAA into the resolve target.
     const marks = this.perfMarks
     if (marks) performance.mark('gfx-submit:start')
     this.#ctx.submitFrame(this.#hooks)
-    this.#finishMain()
+    this.#ctx.passSamples = this.#target.samples
     if (marks) {
       // The profiler drops a measure's `detail`, so the counters go in the name.
       const st = this.stats
@@ -1066,6 +1545,7 @@ export class GpuGfx implements Gfx2D {
       )
     }
     this.#pool.endFrame()
+    this.#endEffectsFrame()
     this.stats.offscreenBytes = this.#pool.bytes
     // Real GPU state-change counts come from the device (post-elision).
     // `blendSwitches` is derived from the run blend transitions in submitFrame
@@ -1077,12 +1557,19 @@ export class GpuGfx implements Gfx2D {
     // `{...stats}` spread (the HUD's own read) picks them up: see
     // `GpuGfxStats`'s own fields for why these are cumulative, not per-frame.
     this.stats.rampRowsWritten = this.#textureManager.rampRowsWritten
+    const labels = this.#textureManager.labelCounters
+    this.stats.labelRasters = labels.rasters
+    this.stats.labelUploadBytes = labels.uploadBytes
+    this.stats.labelDedicated = labels.dedicated
+    this.stats.labelHolds = labels.holds
+    this.stats.labelPageWipes = labels.pageWipes
+    this.stats.labelEntries = labels.entries
     this.stats.maskBakes = this.#pathShadowCache.maskBakes
     this.stats.maskBakeWork = this.#pathShadowCache.maskBakeWork
     this.stats.maskBytes = this.#pathShadowCache.maskBytes
     this.stats.poolHits = this.#pathShadowCache.pool.hits
     this.stats.poolMisses = this.#pathShadowCache.pool.misses
-    if (this.#present) {
+    if (this.#present && !this.#resolvesToCanvas) {
       if (marks) performance.mark('gfx-present:start')
       this.#device.present(
         this.#presentSource,
@@ -1092,7 +1579,31 @@ export class GpuGfx implements Gfx2D {
       )
       if (marks) performance.measure('gfx present', 'gfx-present:start')
     }
-    this.#device.endFrame()
+    // A frame handed to post-processing is submitted once that has run.
+    if (this.#present) this.#device.endFrame()
+  }
+
+  #counted = { passes: 0, submits: 0, groups: 0, switches: 0, writes: 0 }
+
+  /**
+   * Publish the device work done since the last call as the frame's counters.
+   * The stage calls it once its frame is complete, so passes that run before
+   * `beginFrame` and after `endFrame` (shadows, AO, post-processing) count.
+   */
+  captureFrameCounters(): void {
+    const d = this.#device.deviceStats
+    const c = this.#counted
+    const s = this.stats
+    s.framePasses = d.passes - c.passes
+    s.frameSubmits = d.submits - c.submits
+    s.frameBindGroupsCreated = d.bindGroupsCreated - c.groups
+    s.frameBindGroupSwitches = d.bindGroupSwitches - c.switches
+    s.frameUniformWrites = d.uniformWrites - c.writes
+    c.passes = d.passes
+    c.submits = d.submits
+    c.groups = d.bindGroupsCreated
+    c.switches = d.bindGroupSwitches
+    c.writes = d.uniformWrites
   }
 
   /**
@@ -1101,9 +1612,10 @@ export class GpuGfx implements Gfx2D {
    * renderbuffer (`samples > 1`), which cannot be sampled. Use `samples: 1`.
    */
   get colorTexture(): Texture | null {
-    // The present source is always single-sample (the resolve target under
-    // MSAA, else the target), so it's sampleable.
-    return this.#device.colorTexture(this.#presentSource)
+    // The present source is single-sample unless the frame resolves straight
+    // into the canvas, which leaves nothing to sample.
+    const source = this.#presentSource
+    return source.samples > 1 ? null : this.#device.colorTexture(source)
   }
 
   /**
@@ -1127,7 +1639,9 @@ export class GpuGfx implements Gfx2D {
    * true again when no effects are active. Pure state flag, touches no GL.
    */
   setPresent(present: boolean): void {
+    if (present === this.#present) return
     this.#present = present
+    this.#ensureResolveTarget()
   }
 
   /**
@@ -1175,7 +1689,21 @@ export class GpuGfx implements Gfx2D {
     e: number,
     f: number,
   ): void {
-    this.#ctx.txStack.setBase(a, b, c, d, e, f)
+    const stack = this.#offStack
+    if (stack.length === 0) {
+      this.#ctx.txStack.setBase(a, b, c, d, e, f)
+      return
+    }
+    // Inside a surface the matrix is still given in target pixels. A surface's
+    // origin is in the pixels of the one around it, so the matrix moves by the
+    // origins of every open surface, and keeps the stack's depth.
+    let ox = 0
+    let oy = 0
+    for (let i = 0; i < stack.length; i++) {
+      ox += stack[i].surface?.x ?? 0
+      oy += stack[i].surface?.y ?? 0
+    }
+    this.#ctx.txStack.setTop(a, b, c, d, e - ox, f - oy)
   }
 
   save(): void {
@@ -1265,6 +1793,10 @@ export class GpuGfx implements Gfx2D {
 
   // --- Gfx2D: alpha + blend ------------------------------------------------
 
+  getAlpha(): number {
+    return this.#ctx.stateStack.getAlpha()
+  }
+
   setAlpha(alpha: number): void {
     // Absolute, matching Canvas globalAlpha (see Gfx2D docstring).
     this.#ctx.stateStack.setAlpha(alpha)
@@ -1329,15 +1861,20 @@ export class GpuGfx implements Gfx2D {
     this.#ctx.txStack.read(this.#ctx.txOut)
     const t = this.#ctx.txOut
     const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
-    const rotatedOrSkewed = Math.abs(t.b) > 1e-4 || Math.abs(t.c) > 1e-4
-    const nonUniform = Math.abs(Math.abs(t.a) - Math.abs(t.d)) > 1e-3
+    // The inverse maps a device pixel back into the space the shape was given
+    // in. A transform with no inverse clips everything: the shape is moved out
+    // of reach.
+    const det = t.a * t.d - t.b * t.c
+    const singular = !(Math.abs(det) > 1e-12)
+    const inv = singular ? 0 : 1 / det
+    const ia = singular ? 0 : t.d * inv
+    const ib = singular ? 0 : -t.b * inv
+    const ic = singular ? 0 : -t.c * inv
+    const id = singular ? 0 : t.a * inv
+    const ie = singular ? 0 : (t.c * t.f - t.d * t.e) * inv
+    const iff = singular ? 0 : (t.b * t.e - t.a * t.f) * inv
+    const far = 1e9
     if (shape.kind === 'circle') {
-      if (nonUniform && !warnedClipTransform) {
-        warnedClipTransform = true
-        console.warn(
-          'GpuGfx.setClip: non-uniform scale approximates a circle clip as one averaged radius.',
-        )
-      }
       this.#ctx.stateStack.setClip({
         kind: 1,
         cx: t.a * shape.cx + t.c * shape.cy + t.e,
@@ -1345,17 +1882,29 @@ export class GpuGfx implements Gfx2D {
         r: shape.r * scale,
         halfW: 0,
         halfH: 0,
-        rrRadius: 0,
+        radii: NO_CLIP_RADII,
+        lcx: singular ? far : shape.cx,
+        lcy: shape.cy,
+        lr: shape.r,
+        lhalfW: 0,
+        lhalfH: 0,
+        lradii: NO_CLIP_RADII,
+        ia,
+        ib,
+        ic,
+        id,
+        ie,
+        if: iff,
       })
     } else {
-      if ((rotatedOrSkewed || nonUniform) && !warnedClipTransform) {
-        warnedClipTransform = true
-        console.warn(
-          'GpuGfx.setClip: a rounded-rect clip assumes an axis-aligned transform; rotation/skew/non-uniform scale is unsupported.',
-        )
-      }
       const midX = shape.x + shape.w / 2
       const midY = shape.y + shape.h / 2
+      // A fresh tuple, since the stack keeps the clip after this call returns.
+      const lradii = resolveRadii(
+        shape.radii ?? shape.radius ?? 0,
+        shape.w,
+        shape.h,
+      )
       this.#ctx.stateStack.setClip({
         kind: 2,
         cx: t.a * midX + t.c * midY + t.e,
@@ -1363,7 +1912,24 @@ export class GpuGfx implements Gfx2D {
         r: 0,
         halfW: (shape.w / 2) * Math.abs(t.a),
         halfH: (shape.h / 2) * Math.abs(t.d),
-        rrRadius: shape.radius * scale,
+        radii: [
+          lradii[0] * scale,
+          lradii[1] * scale,
+          lradii[2] * scale,
+          lradii[3] * scale,
+        ],
+        lcx: singular ? far : midX,
+        lcy: midY,
+        lr: 0,
+        lhalfW: shape.w / 2,
+        lhalfH: shape.h / 2,
+        lradii,
+        ia,
+        ib,
+        ic,
+        id,
+        ie,
+        if: iff,
       })
     }
   }
@@ -1404,11 +1970,24 @@ export class GpuGfx implements Gfx2D {
       samples: this.#samples,
       depth: this.#depthEnabled,
       stencil: this.#stencilEnabled,
+      colorSpace: this.#canvasFormat ? 'canvas' : undefined,
     })
     this.stats.msaaSamples = this.#target.samples
     this.#ensureResolveTarget()
     // Sample count changed, so pipelines must be rebuilt for the new count.
     this.#warmupPromise = this.#warmupPipelines()
+  }
+
+  /**
+   * Whether draws that can be drawn together are joined, even across draws that
+   * share no pixels. On by default. Turn it off to compare against one draw per
+   * run.
+   */
+  get mergeRuns(): boolean {
+    return this.#ctx.mergeRuns
+  }
+  set mergeRuns(on: boolean) {
+    this.#ctx.mergeRuns = on
   }
 
   /** Current effective MSAA sample count (post-clamp). */
@@ -1513,9 +2092,19 @@ export class GpuGfx implements Gfx2D {
     h: number,
     radii: RoundRectRadii,
     fill: GfxFill,
+    smoothing = 0,
   ): void {
-    const rr = resolveRadii(radii, w, h)
-    this.#shape.fillRoundRect(this.#ctx, x, y, w, h, rr, fill)
+    this.#resolveCorners(radii, w, h, smoothing)
+    this.#shape.fillRoundRect(
+      this.#ctx,
+      x,
+      y,
+      w,
+      h,
+      this.#radii,
+      fill,
+      this.#cornerSmoothing,
+    )
   }
 
   strokeRoundRect(
@@ -1525,10 +2114,19 @@ export class GpuGfx implements Gfx2D {
     h: number,
     radii: RoundRectRadii,
     style: GfxStrokeStyle,
+    smoothing = 0,
   ): void {
-    const rr = resolveRadii(radii, w, h)
-    const color = this.#flattenStrokeColor(style.color)
-    this.#shape.strokeRoundRect(this.#ctx, x, y, w, h, rr, { ...style, color })
+    this.#resolveCorners(radii, w, h, smoothing)
+    this.#shape.strokeRoundRect(
+      this.#ctx,
+      x,
+      y,
+      w,
+      h,
+      this.#radii,
+      solidStroke(style),
+      this.#cornerSmoothing,
+    )
   }
 
   fillAndStrokeRoundRect(
@@ -1539,13 +2137,47 @@ export class GpuGfx implements Gfx2D {
     radii: RoundRectRadii,
     fill: GfxFill,
     style: GfxStrokeStyle,
+    smoothing = 0,
   ): void {
-    const rr = resolveRadii(radii, w, h)
-    const color = this.#flattenStrokeColor(style.color)
-    this.#shape.fillAndStrokeRoundRect(this.#ctx, x, y, w, h, rr, fill, {
-      ...style,
-      color,
-    })
+    this.#resolveCorners(radii, w, h, smoothing)
+    this.#shape.fillAndStrokeRoundRect(
+      this.#ctx,
+      x,
+      y,
+      w,
+      h,
+      this.#radii,
+      fill,
+      solidStroke(style),
+      this.#cornerSmoothing,
+    )
+  }
+
+  /**
+   * Resolve a round rect's corners into `#radii` and `#cornerSmoothing`. With
+   * smoothing they are fitted as Figma does (see `fitSquircleCorners`). Without
+   * it, or before the smooth-corner field has loaded, they follow the CSS
+   * radius rules and are circular.
+   */
+  #resolveCorners(
+    radii: RoundRectRadii,
+    w: number,
+    h: number,
+    smoothing: number,
+  ): void {
+    if (smoothing > 0 && this.#textureManager.getSquircleFieldTexture()) {
+      fitSquircleCorners(
+        w,
+        h,
+        radii,
+        smoothing,
+        this.#radii,
+        this.#cornerSmoothing,
+      )
+    } else {
+      resolveRadii(radii, w, h, this.#radii)
+      this.#cornerSmoothing.fill(0)
+    }
   }
 
   fillAndStrokeCircle(
@@ -1555,11 +2187,53 @@ export class GpuGfx implements Gfx2D {
     fill: GfxFill,
     style: GfxStrokeStyle,
   ): void {
-    const color = this.#flattenStrokeColor(style.color)
-    this.#shape.fillAndStrokeCircle(this.#ctx, cx, cy, r, fill, {
-      ...style,
-      color,
-    })
+    this.#shape.fillAndStrokeCircle(
+      this.#ctx,
+      cx,
+      cy,
+      r,
+      fill,
+      solidStroke(style),
+    )
+  }
+
+  fillEllipse(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    fill: GfxFill,
+  ): void {
+    this.#shape.fillEllipse(this.#ctx, cx, cy, rx, ry, fill)
+  }
+
+  strokeEllipse(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    style: GfxStrokeStyle,
+  ): void {
+    this.#shape.strokeEllipse(this.#ctx, cx, cy, rx, ry, solidStroke(style))
+  }
+
+  fillAndStrokeEllipse(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    fill: GfxFill,
+    style: GfxStrokeStyle,
+  ): void {
+    this.#shape.fillAndStrokeEllipse(
+      this.#ctx,
+      cx,
+      cy,
+      rx,
+      ry,
+      fill,
+      solidStroke(style),
+    )
   }
 
   fillConvexPoly(pts: ArrayLike<number>, count: number, fill: GfxFill): void {
@@ -1577,12 +2251,17 @@ export class GpuGfx implements Gfx2D {
    * and `shadowPath2D`'s inset branch, the two callers that have both a
    * retained and a streamed `coloredTri` path to choose between.
    */
-  #canDrawRetained(geo: GeometryHandle): boolean {
-    return (
-      geo.retained === true &&
-      this.#ctx.stateStack.getClipMask() === null &&
-      this.#ctx.curDebugMode === 'normal'
-    )
+  #canDrawRetained(geo: GeometryHandle, ownRun: boolean): boolean {
+    if (
+      this.#ctx.stateStack.getClipMask() !== null ||
+      this.#ctx.curDebugMode !== 'normal'
+    ) {
+      return false
+    }
+    // Geometry not registered to be kept is kept only where its draw is a run
+    // of its own anyway, so keeping it costs no extra draw call.
+    if (geo.retained !== true && !ownRun) return false
+    return this.#coloredTri.retains(geo)
   }
 
   fillPath2D(path: Path2D, fill: GfxFill): void {
@@ -1605,7 +2284,15 @@ export class GpuGfx implements Gfx2D {
     // clip block, so `setClip` composes without giving up the fast path.
     // The retained shader has no radial mode.
     const radial = typeof fill !== 'string' && fill.kind === 'radial'
-    if (!radial && this.#canDrawRetained(geo)) {
+    // A flat fill joins its neighbours, and so does a gradient fill another
+    // fill drew with the frame before, so only an unshared gradient is a run of
+    // its own.
+    const ownRun =
+      typeof fill !== 'string' &&
+      fill.kind === 'linear' &&
+      geo.indices.length >= RETAIN_FILL_INDICES &&
+      !this.#gradientShared(fill)
+    if (!radial && this.#canDrawRetained(geo, ownRun)) {
       this.#coloredTri.fillTessellationRetained(this.#ctx, geo, fill)
     } else {
       this.#coloredTri.fillTessellation(this.#ctx, geo, fill)
@@ -1659,7 +2346,6 @@ export class GpuGfx implements Gfx2D {
   strokePath(path: GfxPath, style: GfxStrokeStyle): void {
     if (path.released || path.isEmpty) return
     const tol = this.#flattenTolerance()
-    const flat = path.flatten(tol)
     const dash = style.dash
     const dashed = dash !== undefined && dash.length > 0
     // A gradient, or caps and joins the default stroker cannot draw, are drawn
@@ -1667,9 +2353,26 @@ export class GpuGfx implements Gfx2D {
     const geometric =
       (style.align === undefined || style.align === 'center') &&
       (typeof style.color !== 'string' || style.exactJoins === true)
-    const fillPieces = this.#strokeFill
+    // The pieces depend on the path and the stroke's shape, not on its paint or
+    // transform, so a path stroked the same way frame after frame builds them
+    // once.
+    let pieceKey: string | null = null
+    if (geometric) {
+      pieceKey = this.#strokePieces.keyFor(
+        path,
+        `${path.version}|${Math.round(-2 * Math.log2(tol))}|${style.width}|${style.cap}|${style.join}|${style.miterLimit}|${style.dash?.join(',')}|${style.dashOffset}`,
+      )
+      const hit = this.#strokePieces.get(pieceKey)
+      if (hit) {
+        this.fillPath(hit.path, style.color, 'nonzero')
+        return
+      }
+      if (!this.#strokePieces.admit(pieceKey)) pieceKey = null
+    }
+    const flat = path.flatten(tol)
+    const fillPieces = pieceKey !== null ? new GfxPath() : this.#strokeFill
     if (geometric) fillPieces.clear()
-    const closedStyle: GfxStrokeStyle = { ...style, closed: true }
+    let closedStyle: GfxStrokeStyle | null = null
     const openStyle: GfxStrokeStyle = dashed
       ? { ...style, dash: undefined, closed: false }
       : style
@@ -1694,8 +2397,27 @@ export class GpuGfx implements Gfx2D {
         )
       } else {
         const sub = pts.subarray(first * 2, (first + len) * 2)
-        this.strokePolyline(sub, len, closed ? closedStyle : openStyle)
+        this.strokePolyline(
+          sub,
+          len,
+          closed ? (closedStyle ??= { ...style, closed: true }) : openStyle,
+        )
       }
+    }
+    // One group for the whole path, so contours that cross each other do not
+    // blend twice where they overlap.
+    let grouped = false
+    if (
+      !geometric &&
+      !this.#needsOutline(style) &&
+      this.#strokeNeedsStencil(
+        style as SolidStrokeStyle,
+        dashed ? 2 : flatSegments(flat),
+      )
+    ) {
+      grouped = true
+      this.#pathGroup = true
+      this.#ctx.beginStencilGroup()
     }
     for (let c = 0; c < flat.contourCount; c++) {
       const s0 = flat.starts[c]
@@ -1715,8 +2437,19 @@ export class GpuGfx implements Gfx2D {
       }
       emit(flat.points, s0, len, closed)
     }
+    if (grouped) {
+      this.#ctx.endStencilGroup()
+      this.#pathGroup = false
+    }
     if (geometric && !fillPieces.isEmpty) {
       this.fillPath(fillPieces, style.color, 'nonzero')
+      if (pieceKey !== null) {
+        this.#strokePieces.add(pieceKey, {
+          path: fillPieces,
+          bytes: fillPieces.flatten(tol).pointCount * 8,
+          release: () => fillPieces.release(),
+        })
+      }
     }
   }
 
@@ -1724,7 +2457,9 @@ export class GpuGfx implements Gfx2D {
   #flattenTolerance(): number {
     this.#ctx.txStack.read(this.#ctx.txOut)
     const t = this.#ctx.txOut
-    const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
+    // The larger axis scale, so a curve stretched along one axis still stays
+    // within a quarter pixel there.
+    const scale = Math.max(Math.hypot(t.a, t.b), Math.hypot(t.c, t.d))
     return 0.25 / Math.max(scale, 1e-4)
   }
 
@@ -1900,9 +2635,17 @@ export class GpuGfx implements Gfx2D {
     h: number,
     radii: RoundRectRadii,
     style: GfxShadowStyle,
+    smoothing = 0,
   ): void {
-    const rr = resolveRadii(radii, w, h)
-    this.#shape.shadowRoundRect(this.#ctx, x, y, w, h, rr, style)
+    this.#resolveCorners(radii, w, h, smoothing)
+    // The analytic shadow has circular corners. A smoothed corner's shadow
+    // uses the circular radius that cuts the same area off the corner.
+    for (let i = 0; i < 4; i++) {
+      if (this.#cornerSmoothing[i] > 0) {
+        this.#radii[i] *= squircleShadowRadiusScale(this.#cornerSmoothing[i])
+      }
+    }
+    this.#shape.shadowRoundRect(this.#ctx, x, y, w, h, this.#radii, style)
   }
 
   shadowCircle(cx: number, cy: number, r: number, style: GfxShadowStyle): void {
@@ -2001,38 +2744,16 @@ export class GpuGfx implements Gfx2D {
     const offDy = t.b * offsetX + t.d * offsetY
 
     if (inset) {
-      const rotatedOrSkewed = Math.abs(t.b) > 1e-4 || Math.abs(t.c) > 1e-4
-      if (rotatedOrSkewed && !this.#warnedInsetShadowTransform) {
-        this.#warnedInsetShadowTransform = true
-        console.warn(
-          'GpuGfx.shadowPath2D: an inset path shadow assumes an axis-aligned transform; rotation/skew is unsupported.',
-        )
-      }
-      const c0x = t.a * mask.localX + t.c * mask.localY + t.e + offDx
-      const c0y = t.b * mask.localX + t.d * mask.localY + t.f + offDy
-      const c1x =
-        t.a * (mask.localX + mask.localW) +
-        t.c * (mask.localY + mask.localH) +
-        t.e +
-        offDx
-      const c1y =
-        t.b * (mask.localX + mask.localW) +
-        t.d * (mask.localY + mask.localH) +
-        t.f +
-        offDy
-      const originX = Math.min(c0x, c1x)
-      const originY = Math.min(c0y, c1y)
-      const width = Math.abs(c1x - c0x)
-      const height = Math.abs(c1y - c0y)
       const maskPaint: ResolvedMaskPaint = {
+        ...insetMaskProjection(t, offDx, offDy, mask),
         kind: 'mask',
-        originX,
-        originY,
-        invW: width > 0 ? 1 / width : 0,
-        invH: height > 0 ? 1 / height : 0,
         maskTex: mask.texture,
       }
-      if (this.#canDrawRetained(geo)) {
+      // Each path's mask is its own texture, so an inset shadow is a run of
+      // its own.
+      if (
+        this.#canDrawRetained(geo, geo.indices.length >= RETAIN_FILL_INDICES)
+      ) {
         this.#coloredTri.fillTessellationInsetShadowRetained(
           this.#ctx,
           geo,
@@ -2136,11 +2857,11 @@ export class GpuGfx implements Gfx2D {
   /**
    * Drain this frame's queued path-shadow bake requests. Must run outside any
    * open render pass (the bake opens and closes its own), so callers run it in
-   * the pre-`beginFrame` window: `Stage` before `screen .beginFrame()`,
-   * `Viewport2DNode.renderOffscreen` before its own `gpu.beginFrame()`. A
-   * request queued this way bakes at the earliest in the FOLLOWING frame's
-   * draw, one frame behind the draw call that queued it. `shadowPath2D` draws a
-   * substitute mask or the hard fallback in the meantime.
+   * the pre-`beginFrame` window, which `Stage` runs before
+   * `screen.beginFrame()`. A request queued this way bakes at the earliest in
+   * the FOLLOWING frame's draw, one frame behind the draw call that queued it.
+   * `shadowPath2D` draws a substitute mask or the hard fallback in the
+   * meantime.
    */
   processPendingShadowBakes(): void {
     this.#pathShadowCache.beginFrame()
@@ -2163,21 +2884,8 @@ export class GpuGfx implements Gfx2D {
 
   // --- Gfx2D: strokes ------------------------------------------------------
 
-  /**
-   * A gradient stroke on a circle or round rect is not reachable in this
-   * version: `shape`'s paint slot (see `ShapeProgram`) serves the fill, and
-   * giving a second shape kind its own paint slot for the stroke is a
-   * follow-up, not something any caller needs yet. Falls back to the gradient's
-   * first stop as a flat color, which is a reasonable degraded look rather than
-   * a crash or a silently dropped stroke.
-   */
-  #flattenStrokeColor(color: GfxFill): string {
-    return typeof color === 'string' ? color : (color.stops[0]?.color ?? '#000')
-  }
-
   strokeCircle(cx: number, cy: number, r: number, style: GfxStrokeStyle): void {
-    const color = this.#flattenStrokeColor(style.color)
-    this.#shape.strokeCircle(this.#ctx, cx, cy, r, { ...style, color })
+    this.#shape.strokeCircle(this.#ctx, cx, cy, r, solidStroke(style))
   }
 
   /**
@@ -2200,7 +2908,12 @@ export class GpuGfx implements Gfx2D {
     style: GfxStrokeStyle,
   ): void {
     if (this.#needsOutline(style)) {
-      this.#strokeOutlineUncached([x0, y0, x1, y1], 2, false, style)
+      const pts = this.#linePoints
+      pts[0] = x0
+      pts[1] = y0
+      pts[2] = x1
+      pts[3] = y1
+      this.#strokeOutlineUncached(pts, 2, false, style)
       return
     }
     this.#stroke.line(this.#ctx, x0, y0, x1, y1, style as SolidStrokeStyle)
@@ -2220,7 +2933,7 @@ export class GpuGfx implements Gfx2D {
       const t = this.#ctx.txOut
       const det = Math.abs(t.a * t.d - t.b * t.c)
       const localTol = CURVE_FLATTEN_TOL_PX / (Math.sqrt(det) || 1)
-      const buf = new Float32Array(CURVE_FLATTEN_MAX_POINTS * 2)
+      const buf = this.#curvePoints
       buf[0] = x0
       buf[1] = y0
       const cursor = flattenQuadratic(x0, y0, cx, cy, x1, y1, localTol, buf, 2)
@@ -2266,8 +2979,35 @@ export class GpuGfx implements Gfx2D {
    * fully batched path. A single segment has no interior join and so cannot
    * overlap itself either.
    */
+  /** Tessellated stroke outlines of registered paths, by style and scale. */
+  readonly #outlines = new RetainedCache<{
+    buffer: StrokeOutlineBuffer
+    bytes: number
+    release(): void
+  }>({
+    name: 'Stroke outlines',
+    idleFrames: 120,
+    budgetBytes: 8 * 1024 * 1024,
+  })
+
+  /** The convex pieces of strokes drawn as a filled union, by path and shape. */
+  readonly #strokePieces = new RetainedCache<{
+    path: GfxPath
+    bytes: number
+    release(): void
+  }>({
+    name: 'Stroke pieces',
+    idleFrames: 120,
+    budgetBytes: 8 * 1024 * 1024,
+  })
+
+  /** Set while `strokePath` holds one stencil group over all its contours. */
+  #pathGroup = false
+
   #strokeNeedsStencil(style: SolidStrokeStyle, segments: number): boolean {
-    if (segments < 2 || !this.#target.hasStencil) return false
+    if (this.#pathGroup || segments < 2 || !this.#target.hasStencil) {
+      return false
+    }
     const alpha = this.#ctx.stateStack.getAlpha() * parseColor(style.color).a
     return alpha < 1
   }
@@ -2334,13 +3074,14 @@ export class GpuGfx implements Gfx2D {
     // segment than an open one.
     const segments = style.closed === true ? count : count - 1
     const solidStyle = style as SolidStrokeStyle
-    if (!this.#strokeNeedsStencil(solidStyle, segments)) {
-      this.#stroke.polyline(this.#ctx, pts, count, solidStyle)
-      return
-    }
-    this.#ctx.beginStencilGroup()
-    this.#stroke.polyline(this.#ctx, pts, count, solidStyle)
-    this.#ctx.endStencilGroup()
+    this.#strokeRetained(
+      this.#replaySource,
+      'polyline',
+      segments,
+      solidStyle,
+      this.#strokeNeedsStencil(solidStyle, segments),
+      () => this.#stroke.polyline(this.#ctx, pts, count, solidStyle),
+    )
   }
 
   /**
@@ -2372,7 +3113,8 @@ export class GpuGfx implements Gfx2D {
       this.unimplemented.strokeAlignFallback++
     }
     const key = `${style.width}|${align}|${join}|${cap}|${miterLimit}|${closed}|${scaleBucket}|${anisoBucket}|${getRegistrationEpoch(path)}|${contourIndex}`
-    let buf = getCachedOutline(path, key)
+    const cacheKey = this.#outlines.keyFor(path, key)
+    let buf = this.#outlines.get(cacheKey)?.buffer
     if (buf) {
       this.stats.outlineCacheHits++
     } else {
@@ -2397,11 +3139,155 @@ export class GpuGfx implements Gfx2D {
         },
         buf,
       )
-      setCachedOutline(path, key, buf)
+      this.#outlines.add(cacheKey, {
+        buffer: buf,
+        bytes:
+          (buf.positions.length + buf.coverage.length + buf.indices.length) * 8,
+        release: () => {},
+      })
     }
     this.#coloredTri.fillOutlineTessellation(this.#ctx, buf, style.color)
     if (this.#ctx.curDebugMode === 'polygons') {
       this.#emitDebugOutlineMesh(buf)
+    }
+  }
+
+  /** What the caches that keep drawing work between frames hold and did. */
+  cacheStats(): RetainedCacheStats[] {
+    const stats = [
+      this.#stroke.cache.stats,
+      this.#coloredTri.geometryCache.stats,
+      this.#strokePieces.stats,
+      this.#outlines.stats,
+    ]
+    const layers = this.#fx
+    // A lookup that ends in a re-render is not a hit, so the count is the
+    // layers drawn from their kept render.
+    if (layers) stats.push({ ...layers.layers.stats, hits: layers.layerHits })
+    return stats
+  }
+
+  /**
+   * How many fills drew with each gradient this frame and the frame before,
+   * keyed by the gradient's device-space axis and stops. Two fills with the
+   * same key share a paint and can draw as one run.
+   */
+  #gradientUse = new Map<string, number>()
+  #gradientUsePrev = new Map<string, number>()
+
+  /**
+   * Count `fill` as drawn this frame, and report whether another fill drew with
+   * the same gradient the frame before.
+   */
+  #gradientShared(fill: GfxLinearGradient): boolean {
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const x0 = t.a * fill.x0 + t.c * fill.y0 + t.e
+    const y0 = t.b * fill.x0 + t.d * fill.y0 + t.f
+    const x1 = t.a * fill.x1 + t.c * fill.y1 + t.e
+    const y1 = t.b * fill.x1 + t.d * fill.y1 + t.f
+    let key = `${x0},${y0},${x1},${y1},${this.#ctx.stateStack.getAlpha()}`
+    for (const s of fill.stops) key += `|${s.offset}:${s.color}`
+    this.#gradientUse.set(key, (this.#gradientUse.get(key) ?? 0) + 1)
+    return (this.#gradientUsePrev.get(key) ?? 0) > 1
+  }
+
+  /** Frames begun so far, for the retained caches. */
+  #frameNo = 0
+
+  /**
+   * The recorded call being replayed, a stable identity for as long as the
+   * picture that holds it is unchanged. `null` outside a replay.
+   */
+  #replaySource: object | null = null
+
+  replaySource(token: object | null): void {
+    this.#replaySource = token
+  }
+
+  streamedBytes(): number {
+    return this.#ctx.streamedWords() * 4
+  }
+
+  /**
+   * Stroke through `emit`, from the stroke cache when the same stroke was drawn
+   * the frame before. `source` is what the points belong to, and `kind` tells
+   * apart several strokes made from one source. Strokes with no stable source,
+   * too few segments to be worth a run of their own, or a dash are drawn
+   * directly.
+   */
+  #strokeRetained(
+    source: object | null,
+    kind: string,
+    segments: number,
+    style: SolidStrokeStyle,
+    stencil: boolean,
+    emit: () => void,
+  ): void {
+    const cache = this.#stroke.cache
+    let key: string | null = null
+    if (
+      source !== null &&
+      segments >= RETAIN_STROKE_SEGMENTS &&
+      style.dash === undefined
+    ) {
+      key = cache.keyFor(source, `${kind}|${this.#strokeSignature(style)}`)
+      const hit = cache.get(key)
+      if (hit) {
+        this.#ctx.recordInstanced(hit.buffer, hit.words, hit.bounds, stencil)
+        return
+      }
+      if (!cache.admit(key)) key = null
+    }
+    if (key !== null) this.#ctx.closeRun()
+    const firstRun = this.#ctx.runCount
+    if (stencil) this.#ctx.beginStencilGroup()
+    emit()
+    if (stencil) this.#ctx.endStencilGroup()
+    if (key !== null) this.#keepStroke(key, firstRun)
+  }
+
+  /**
+   * What packed stroke instances depend on besides their points: the transform,
+   * the alpha, and the style that shapes them.
+   */
+  #strokeSignature(style: SolidStrokeStyle): string {
+    this.#ctx.txStack.read(this.#ctx.txOut)
+    const t = this.#ctx.txOut
+    const alpha = this.#ctx.stateStack.getAlpha()
+    return `${t.a},${t.b},${t.c},${t.d},${t.e},${t.f}|${alpha}|${style.color}|${style.width}|${style.join}|${style.cap}|${style.miterLimit}|${style.closed}`
+  }
+
+  /**
+   * Move the instances the runs from `firstRun` on were just packed into out of
+   * the ring and into a buffer the cache keeps, and draw from it from now on.
+   */
+  #keepStroke(key: string, firstRun: number): void {
+    const ctx = this.#ctx
+    ctx.closeRun()
+    const end = ctx.runCount
+    if (end === firstRun) return
+    let start = Infinity
+    let stop = -Infinity
+    for (let i = firstRun; i < end; i++) {
+      const run = ctx.runAt(i)
+      if (run.kind !== 'stroke' || run.instances) return
+      start = Math.min(start, run.startWord)
+      stop = Math.max(stop, run.endWord)
+    }
+    if (!(stop > start)) return
+    const bounds = new Float64Array(4)
+    if (!this.#stroke.runBounds(ctx.runAt(firstRun), bounds)) return
+    const entry = this.#stroke.keep(
+      key,
+      this.#stroke.stream.floatView.subarray(start, stop),
+      bounds,
+    )
+    for (let i = firstRun; i < end; i++) {
+      const run = ctx.runAt(i)
+      run.startWord -= start
+      run.endWord -= start
+      run.instances = { buffer: entry.buffer, bounds }
     }
   }
 
@@ -2434,16 +3320,25 @@ export class GpuGfx implements Gfx2D {
     }
     const solidStyle = style as SolidStrokeStyle
     const stencil = this.#strokeNeedsStencil(solidStyle, segments)
-    if (stencil) this.#ctx.beginStencilGroup()
-    for (let i = 0; i < contours.length; i++) {
-      const c = contours[i]
-      const count = c.length / 2
-      if (count < 2) continue
-      const closed = getContourClosed(path, i)
-      const perContourStyle: SolidStrokeStyle = { ...solidStyle, closed }
-      this.#stroke.polyline(this.#ctx, c, count, perContourStyle)
-    }
-    if (stencil) this.#ctx.endStencilGroup()
+    // A registered path's points change only with a new registration, so the
+    // path and its epoch identify them.
+    this.#strokeRetained(
+      path,
+      `path${getRegistrationEpoch(path)}`,
+      segments,
+      solidStyle,
+      stencil,
+      () => {
+        for (let i = 0; i < contours.length; i++) {
+          const c = contours[i]
+          const count = c.length / 2
+          if (count < 2) continue
+          const closed = getContourClosed(path, i)
+          const perContourStyle: SolidStrokeStyle = { ...solidStyle, closed }
+          this.#stroke.polyline(this.#ctx, c, count, perContourStyle)
+        }
+      },
+    )
   }
 
   // --- Gfx2D: images -------------------------------------------------------
@@ -2454,9 +3349,16 @@ export class GpuGfx implements Gfx2D {
     dy: number,
     dw: number,
     dh: number,
+    opts?: GfxImageOptions,
   ): void {
     this.#ctx.txStack.read(this.#ctx.txOut)
     const t = this.#ctx.txOut
+    if (
+      !this.#textureManager.isAtlasSource(img) &&
+      this.#drawImageRaster(img, dx, dy, dw, dh, opts)
+    ) {
+      return
+    }
     const entry = this.#textureManager.getOrCreateEntry(img)
     if (entry === null) return
     // Discriminate atlas entry vs standalone Texture. Atlas entries carry
@@ -2536,29 +3438,138 @@ export class GpuGfx implements Gfx2D {
     this.#textQuad.commitInstance(slot)
   }
 
+  /**
+   * Draw a small image from the shared label page, so it joins the draws of the
+   * text and shapes around it. False when the image is too large for a page
+   * slot, and the caller draws it from its own texture.
+   */
+  #drawImageRaster(
+    img: CanvasImageSource,
+    dx: number,
+    dy: number,
+    dw: number,
+    dh: number,
+    opts: GfxImageOptions | undefined,
+  ): boolean {
+    const t = this.#ctx.txOut
+    const devW = Math.hypot(t.a, t.b) * dw
+    const devH = Math.hypot(t.c, t.d) * dh
+    const label = this.#textureManager.ensureImageRaster(
+      img,
+      devW,
+      devH,
+      opts?.smoothing !== false,
+    )
+    if (label === null) return false
+    if (label.tex !== this.#textureManager.getLabelPageTexture()) return false
+    const col0x = t.a * dw
+    const col0y = t.b * dw
+    const col1x = t.c * dh
+    const col1y = t.d * dh
+    let tx = t.a * dx + t.c * dy + t.e
+    let ty = t.b * dx + t.d * dy + t.f
+    if (Math.abs(t.b) < 1e-6 && Math.abs(t.c) < 1e-6) {
+      tx = Math.round(tx)
+      ty = Math.round(ty)
+    }
+    const alpha = this.#ctx.stateStack.getAlpha()
+    const a = Math.max(0, Math.min(255, Math.round(alpha * 255)))
+    const packedTint = ((a << 24) | (a << 16) | (a << 8) | a) >>> 0
+    const sr = label.srcRect
+    this.#shape.textured(
+      this.#ctx,
+      col0x,
+      col0y,
+      col1x,
+      col1y,
+      tx,
+      ty,
+      sr[0],
+      sr[1],
+      sr[2],
+      sr[3],
+      SHAPE_TEX_LABEL,
+      packedTint,
+    )
+    return true
+  }
+
   // --- Gfx2D: text ---------------------------------------------------------
 
-  warmText(text: string, style: GfxTextStyle = {}): void {
+  warmText(text: string, style: GfxTextStyle = NO_TEXT_STYLE): void {
     if (text.length === 0) return
     this.#ctx.txStack.read(this.#ctx.txOut)
     const t = this.#ctx.txOut
     const deviceScale = Math.max(Math.hypot(t.a, t.b), Math.hypot(t.c, t.d))
     if (!(deviceScale > 0)) return
-    const resolved: LabelStyle = {
-      font: style.font ?? DEFAULT_LABEL_FONT,
-      align: style.align ?? 'left',
-      baseline: style.baseline ?? 'alphabetic',
-      color: style.color ?? '#000',
-    }
-    this.#textureManager.ensureLabelTexture(
-      labelBaseKey(text, resolved),
-      text,
-      resolved,
-      deviceScale,
-    )
+    this.#label(text, style, deviceScale)
   }
 
-  fillText(text: string, x: number, y: number, style: GfxTextStyle = {}): void {
+  /**
+   * The label for `text`. A font with a px size is keyed without it and
+   * rasterized at its size in device px, so `labelScale` is what the label's
+   * sizes are multiplied by to reach local units. Any other font is keyed whole
+   * and rasterized at the scale.
+   */
+  #label(
+    text: string,
+    style: GfxTextStyle,
+    deviceScale: number,
+  ): LabelTexture | null {
+    const resolved = this.#labelStyle
+    const fontName = style.font ?? DEFAULT_LABEL_FONT
+    resolved.font = fontName
+    resolved.align = style.align ?? 'left'
+    resolved.baseline = style.baseline ?? 'alphabetic'
+    resolved.color = style.color ?? '#000'
+    const font = labelFont(fontName)
+    if (!font) {
+      this.#labelScale = 1
+      return this.#textureManager.ensureLabelTexture(
+        labelBaseKey(text, resolved),
+        text,
+        resolved,
+        deviceScale,
+      )
+    }
+    const label = this.#textureManager.ensureTextLabel(
+      `${text}\n${font.head}\u0000${font.tail}\n${resolved.align}\n${resolved.baseline}\n${resolved.color}\n`,
+      text,
+      resolved,
+      font,
+      font.size,
+      deviceScale,
+    )
+    this.#labelScale = label?.px ? font.size / label.px : 1
+    return label
+  }
+  #labelScale = 1
+
+  /**
+   * The resolved style of the label being drawn, reused across calls. The
+   * texture cache reads it only while rasterizing and keeps no reference.
+   */
+  /** Points of an outline-stroked line or curve, reused across calls. */
+  readonly #linePoints = new Float32Array(4)
+  readonly #curvePoints = new Float32Array(CURVE_FLATTEN_MAX_POINTS * 2)
+  /** Resolved corner radii of the round rect being drawn, reused across calls. */
+  readonly #radii: [number, number, number, number] = [0, 0, 0, 0]
+  /** Each corner's fitted smoothing for the round rect being drawn. */
+  readonly #cornerSmoothing: [number, number, number, number] = [0, 0, 0, 0]
+
+  readonly #labelStyle: LabelStyle = {
+    font: DEFAULT_LABEL_FONT,
+    align: 'left',
+    baseline: 'alphabetic',
+    color: '#000',
+  }
+
+  fillText(
+    text: string,
+    x: number,
+    y: number,
+    style: GfxTextStyle = NO_TEXT_STYLE,
+  ): void {
     if (text.length === 0) return
     this.#ctx.txStack.read(this.#ctx.txOut)
     const t = this.#ctx.txOut
@@ -2567,25 +3578,16 @@ export class GpuGfx implements Gfx2D {
     const deviceScale = Math.max(Math.hypot(t.a, t.b), Math.hypot(t.c, t.d))
     if (!(deviceScale > 0)) return
 
-    const resolved: LabelStyle = {
-      font: style.font ?? DEFAULT_LABEL_FONT,
-      align: style.align ?? 'left',
-      baseline: style.baseline ?? 'alphabetic',
-      color: style.color ?? '#000',
-    }
-    const label = this.#textureManager.ensureLabelTexture(
-      labelBaseKey(text, resolved),
-      text,
-      resolved,
-      deviceScale,
-    )
+    const label = this.#label(text, style, deviceScale)
     if (label === null) return
 
-    // Local-space dst rect: bitmap top-left relative to the (x, y) anchor.
-    const dx = x - label.anchorOffsetX
-    const dy = y - label.anchorOffsetY
-    const w = label.localW
-    const h = label.localH
+    // Local-space dst rect: bitmap top-left relative to the (x, y) anchor. A
+    // label's sizes are in px of the font size it was rasterized at.
+    const ls = this.#labelScale
+    const dx = x - label.anchorOffsetX * ls
+    const dy = y - label.anchorOffsetY * ls
+    const w = label.localW * ls
+    const h = label.localH * ls
     // Affine mapping the unit square [0,1]² -> device px:
     //   pos = col0 * u + col1 * v + translate
     const col0x = t.a * w

@@ -5,8 +5,7 @@ import {
   parseColor,
   quadShader,
   type BitmapMask,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Rect,
   type ShaderReflection,
   type Vec2,
@@ -76,9 +75,7 @@ const VARIANCE_AMP = 0.1
  * A grid of dots whose size shows how lit each cell is: nothing at 0, a dot a
  * fixed fraction of the cell at 1, never touching its neighbours. The whole
  * grid is one shader quad, so a frame costs a single draw however many cells
- * are lit. Sits on the dynamic layer, above the map and under the packets. It
- * stays off `'above-static'`, where the quad draws alongside the promoted
- * region fills and the WebGPU backend floods their inset glows solid white.
+ * are lit. Sits above the map and under the packets in tree order.
  *
  * Per-frame state:
  *
@@ -91,7 +88,8 @@ const VARIANCE_AMP = 0.1
  * Both packed into a `cols × rows` texture (R warn, G pulse) the shader reads.
  * Cells are precomputed at construction on `cellSizeWorld` steps across
  * `bounds`, keeping the ones whose centre is inside the mask when there is one.
- * Nothing draws while every value is zero.
+ * Nothing draws while every value is zero. The node paints again only when the
+ * grid goes from dark to lit or back, since the texture carries the values.
  */
 export class GridOverlayNode extends Node2D {
   readonly #cellSize: number
@@ -126,7 +124,6 @@ export class GridOverlayNode extends Node2D {
 
   constructor(opts: GridOverlayOptions) {
     super('grid-overlay')
-    this.renderLayer = 'dynamic'
 
     const step = opts.cellSizeWorld
     this.#cellSize = step
@@ -277,7 +274,7 @@ export class GridOverlayNode extends Node2D {
     this.#pack()
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     if (this.#count === 0 || this.#textureClear) return
     gfx.drawShaderQuad(
       this.#quad,
@@ -311,6 +308,7 @@ export class GridOverlayNode extends Node2D {
       data[at + 1] = p * 255
     }
     if (!lit && this.#textureClear) return
+    if (this.#textureClear === lit) this.markNeedsPaint()
     this.#textureClear = !lit
     this.#cells.markDirty()
   }

@@ -5,12 +5,11 @@
  * spark carries a violet edge, so white reads on the pale map as well as on the
  * sea.
  *
- * Positions and sizes are in the parent's units, design pixels on the UI stage.
+ * Positions and sizes are in the parent's units, design pixels on the UI layer.
  */
 import {
   VectorParticleNode,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Vec2,
   type VectorParticleSpawnInit,
 } from '@src/stargazer'
@@ -24,14 +23,16 @@ const LIFE_MIN = 0.9
 const LIFE_MAX = 1.8
 const SPIN_MAX = 9
 /** Size of a diamond spark's long axis, from this to this. */
-const SIZE_MIN = 8
-const SIZE_MAX = 18
+const SIZE_MIN = 24
+const SIZE_MAX = 54
 /** Share of the sparks drawn as streaks rather than diamonds. */
 const STREAK_SHARE = 0.35
 /** The edge drawn under each spark, so white reads on a pale background. */
 const EDGE = 'rgba(98, 70, 200, 0.6)'
 /** How far the edge reaches past the spark, in the parent's units. */
 const EDGE_WIDTH = 2.5
+/** Width of a streak spark, in screen pixels. */
+const STREAK_WIDTH = 9
 
 export class ConfettiBurst extends VectorParticleNode {
   readonly #life: Float32Array
@@ -90,25 +91,20 @@ export class ConfettiBurst extends VectorParticleNode {
     return this.#age[i] >= this.#life[i]
   }
 
-  protected override drawParticle(
-    gfx: Gfx2D,
-    i: number,
-    camera: CameraView2D,
-  ): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
     const fade = 1 - this.#age[i] / this.#life[i]
     if (fade <= 0) return
     gfx.setAlpha(fade * fade)
     const s = this.#size[i]
     if (this.#streak[i]) {
-      const k = camera.strokeSpaceScale()
       gfx.strokeLine(-s * 0.6, 0, s * 0.6, 0, {
         color: EDGE,
-        width: (3 + EDGE_WIDTH * 2) * k,
+        width: { screen: STREAK_WIDTH + EDGE_WIDTH * 2 },
         cap: 'round',
       })
       gfx.strokeLine(-s * 0.6, 0, s * 0.6, 0, {
         color: '#ffffff',
-        width: 3 * k,
+        width: { screen: STREAK_WIDTH },
         cap: 'round',
       })
       return
@@ -118,7 +114,7 @@ export class ConfettiBurst extends VectorParticleNode {
   }
 
   /** A diamond `size` long and half as wide, centred on the origin. */
-  #fillDiamond(gfx: Gfx2D, size: number, color: string): void {
+  #fillDiamond(gfx: Canvas, size: number, color: string): void {
     const d = this.#diamond
     d[0] = size / 2
     d[1] = 0

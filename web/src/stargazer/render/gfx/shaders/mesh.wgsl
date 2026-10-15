@@ -4,12 +4,8 @@
 // uniform scale + rotation are exact. World position passes through for fog.
 //
 // `u_flags.x` (lit) selects flat unlit color or one directional light + ambient.
-// `u_flags.y` is the Viewport2D path: premultiplied and V-flipped from y-down 2D
-// content. `u_flags.z` is an ordinary material texture: straight alpha, upright,
-// multiplied by the object color. The two differ in every one of those, which is
-// why they are separate flags rather than one.
-// `u_flags.y` (useTexture) swaps in a sampled texture (a Viewport2DNode's 2D
-// surface), V-flipped from y-down 2D content, taken as already-premultiplied.
+// `u_flags.z` is an ordinary material texture: straight alpha, upright,
+// multiplied by the object color. `u_flags.y` is unused.
 // Output is premultiplied to match the engine's framebuffer.
 //
 // Bindings: a_position/a_normal/a_uv at LOC_POSITION/NORMAL/UV (0/1/2), FlatFrame
@@ -33,7 +29,7 @@ struct FlatFrame {
 struct FlatObject {
   model: mat4x4<f32>,
   color: vec4<f32>,      // straight (non-premultiplied) rgba
-  flags: vec4<f32>,      // x = lit, y = viewport tex, z = material tex, w = alpha cutoff
+  flags: vec4<f32>,      // x = lit, y = unused, z = material tex, w = alpha cutoff
 };
 @group(1) @binding(5) var<uniform> obj: FlatObject;
 
@@ -107,17 +103,10 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let a = obj.color.a;
   let debugMode = frame.debug.x;
   let lit = obj.flags.x;
-  let useTexture = obj.flags.y;
   let useBaseColor = obj.flags.z;
 
-  // One sample in uniform control flow. Only the coordinate differs: 2D content
-  // arrives y-down and a material texture upright.
-  let flipped = vec2<f32>(in.uv.x, 1.0 - in.uv.y);
-  let tex = textureSample(
-    u_texture,
-    u_textureSamp,
-    select(in.uv, flipped, useTexture > 0.5),
-  );
+  // One sample in uniform control flow, ahead of the early returns below.
+  let tex = textureSample(u_texture, u_textureSamp, in.uv);
 
   // AO debug view (mode 3): show the raw AO buffer as greyscale.
   if (debugMode > 2.5) {
@@ -128,12 +117,6 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   if (debugMode > 1.5) {
     let n = normalize(in.normal);
     return vec4<f32>((n * 0.5 + 0.5) * a, a);
-  }
-  if (useTexture > 0.5) {
-    // The 2D surface is premultiplied. Un-premultiply to fog the straight color,
-    // then re-apply alpha.
-    let straight = select(tex.rgb, tex.rgb / tex.a, tex.a > 0.0);
-    return vec4<f32>(applyFog(straight, in.worldPos) * tex.a, tex.a) * obj.color.a;
   }
   if (useBaseColor > 0.5) {
     // Artwork straight onto the surface, unlit and unshaded, tinted by the

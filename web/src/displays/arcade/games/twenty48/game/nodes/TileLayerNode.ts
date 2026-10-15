@@ -45,27 +45,12 @@ export class TileLayerNode extends Node2D {
 
   constructor(geom: BoardGeom) {
     super('t48-tiles')
-    this.renderLayer = 'dynamic'
     this.#geom = geom
-    this.#refit()
-  }
-
-  #refit(): void {
-    const p = this.#geom.plate
-    // Room below the plate for the deepest skirt, so culling cannot clip one.
-    const slack = this.#geom.cell * 0.2
-    this.debugBounds = {
-      x: p.x,
-      y: p.y,
-      width: p.width,
-      height: p.height + slack,
-    }
   }
 
   /** Re-place every tile after a resize. No animation: the board just refits. */
   setGeom(geom: BoardGeom, state: BoardState): void {
     this.#geom = geom
-    this.#refit()
     for (const t of state.tiles) {
       const node = this.#tiles.get(t.id)
       if (!node) continue

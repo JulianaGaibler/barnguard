@@ -3,6 +3,7 @@ import { Node2D, type EngineHost } from '@src/stargazer'
 import { daemonConfig } from '@src/stores/daemonConfig'
 import cloudUrl from '../assets/arcade-cloud.svg?url'
 import { REGION_HEIGHT } from '../world'
+import { BACKGROUND_NODE_ID } from '../games/arcadeBackdrop'
 import { publishSky } from '../uiState'
 import { type SkyPalette } from './palette'
 import {
@@ -45,7 +46,7 @@ export class BackgroundController implements PaletteSource {
   palette: SkyPalette
   version = 0
 
-  readonly #group = new Node2D('background')
+  readonly #group = new Node2D(BACKGROUND_NODE_ID)
   readonly #host: EngineHost
   #timer: ReturnType<typeof setInterval> | null = null
   #lastDrive: number | null = null

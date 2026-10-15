@@ -5,9 +5,11 @@
 // device px. The fragment branch evaluates the matching SDF or texture sample.
 //
 // Textured instances pick a fixed-unit texture (atlas or label page) via
-// texIndex. GLSL ES 3.00 forbids indexing a sampler array by a non-uniform
-// expression, and WGSL forbids `textureSample` under non-uniform control flow,
-// so both pages are sampled unconditionally and selected (identical result).
+// texIndex. Every fetch is a `textureSampleLevel` at level 0 and every edge's
+// anti-aliasing width is computed from the distance function's own gradient
+// rather than with `fwidth`, so nothing in the fragment stage needs uniform
+// control flow and each kind's branch runs only its own work. The pages and
+// the ramp atlas have no mipmaps, so level 0 is what `textureSample` read.
 //
 // A circle or round-rect fill can also be a linear gradient: a_paint carries
 // the device-space axis projection (see `packing.ts`'s `gradientAxis`) and a
@@ -19,7 +21,8 @@
 // Bindings match batchLayout.ts: attributes at LOC_SHAPE_* (0..10), Frame at
 // FRAME_UBO_BINDING (0), u_texAtlas at unit 0, u_texLabel at unit 1, u_ramp
 // (the shared ramp atlas) at unit 2, ShapeParams (the debug-mode override) at
-// SHAPE_PARAMS_UBO_BINDING (9).
+// SHAPE_PARAMS_UBO_BINDING (9), and the param table (clip records) at
+// PARAM_TABLE_BINDING (10) in the frame group.
 
 struct Frame {
   proj: mat3x3<f32>,
@@ -28,39 +31,17 @@ struct Frame {
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
 
-struct Clip {
-  kind: f32,
-  cx: f32,
-  cy: f32,
-  r: f32,
-  halfW: f32,
-  halfH: f32,
-  rrRadius: f32,
-  clipPad: f32,
-};
-@group(0) @binding(8) var<uniform> clipShape: Clip;
-
-// Analytic clip coverage in device px. frame.fragYFlip corrects WebGL2's
-// bottom-up gl_FragCoord. Multiply the premultiplied fragment output by this.
-fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
-  let q = abs(p) - b + vec2<f32>(rad);
-  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
-}
 fn devicePos(fragPos: vec2<f32>) -> vec2<f32> {
   let fy = select(fragPos.y, frame.targetH - fragPos.y, frame.fragYFlip > 0.5);
   return vec2<f32>(fragPos.x, fy);
 }
-fn clipCoverage(fragPos: vec2<f32>) -> f32 {
-  if (clipShape.kind < 0.5) { return 1.0; }
-  let p = devicePos(fragPos) - vec2<f32>(clipShape.cx, clipShape.cy);
-  var d: f32;
-  if (clipShape.kind < 1.5) {
-    d = length(p) - clipShape.r;
-  } else {
-    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
-  }
-  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
-}
+
+// Per-primitive records, read by index in the vertex stage (see ParamTable.ts).
+// Index 0 is the empty record: kind 0, which is no clip.
+@group(0) @binding(10) var<storage, read> paramTable: array<vec4<f32>>;
+
+// #include "include/clipRecord.inc.wgsl"
+// #include "include/ellipse.inc.wgsl"
 
 @group(1) @binding(0) var u_texAtlas: texture_2d<f32>;
 @group(1) @binding(16) var u_texAtlasSamp: sampler;
@@ -68,6 +49,15 @@ fn clipCoverage(fragPos: vec2<f32>) -> f32 {
 @group(1) @binding(17) var u_texLabelSamp: sampler;
 @group(1) @binding(2) var u_ramp: texture_2d<f32>;
 @group(1) @binding(18) var u_rampSamp: sampler;
+@group(1) @binding(3) var u_cornerField: texture_2d<f32>;
+@group(1) @binding(19) var u_cornerFieldSamp: sampler;
+
+// The smooth-corner field's layout. Must match squircleField.ts.
+const FIELD_TILES: f32 = 21.0;
+const FIELD_PATCH_MIN: f32 = -1.0;
+const FIELD_PATCH_SPAN: f32 = 3.0;
+// Patch span between neighboring texel centers.
+const FIELD_TEXEL: f32 = 3.0 / 64.0;
 
 // Per-run debug-mode override, the HUD's 'overdraw'/'batch-color' modes.
 // flags.x: 0 normal, 1 overdraw, 2 batch-color.
@@ -101,9 +91,18 @@ struct VOut {
   @location(5) @interpolate(flat) paramsA: vec4<f32>,
   // Flat: round-rect/shadow -> corner radii (tl, tr, br, bl). Unused otherwise.
   @location(6) @interpolate(flat) radii: vec4<f32>,
-  // Flat, kind-specific: circle (dashStart, dashPeriod, _, _); shadow
-  // (offsetX, offsetY, spread, _). Unused otherwise.
+  // Flat, kind-specific: circle (dashStart, dashPeriod, _, _); round-rect
+  // each corner's smoothing (tl, tr, br, bl); shadow (offsetX, offsetY,
+  // spread, _). Unused otherwise.
   @location(7) @interpolate(flat) paramsB: vec4<f32>,
+  // Flat: the clip's param record, four vec4s.
+  @location(8) @interpolate(flat) clip0: vec4<f32>,
+  @location(9) @interpolate(flat) clip1: vec4<f32>,
+  @location(10) @interpolate(flat) clip2: vec4<f32>,
+  @location(11) @interpolate(flat) clip3: vec4<f32>,
+  // Flat: the local displacement of one device pixel along x (xy) and y (zw),
+  // for `distanceChangePerPixel`. Identity for circles, which are in device px.
+  @location(12) @interpolate(flat) pixelStep: vec4<f32>,
 };
 
 @vertex
@@ -119,12 +118,23 @@ fn vs_main(
   @location(8) a_colorFill: vec4<f32>,   // premultiplied RGBA
   @location(9) a_colorStroke: vec4<f32>, // premultiplied RGBA
   @location(10) a_paint: vec4<f32>,      // fill gradient: see the file header
+  @location(11) a_param: u32,            // index of the primitive's param record
 ) -> VOut {
   var out: VOut;
+  let rec = a_param * 4u;
+  out.clip0 = paramTable[rec];
+  out.clip1 = paramTable[rec + 1u];
+  out.clip2 = paramTable[rec + 2u];
+  out.clip3 = paramTable[rec + 3u];
   let shape = i32(a_shape.x + 0.5);
   out.shapeType = shape;
   out.colorStroke = a_colorStroke;
   out.paint = a_paint;
+  out.pixelStep = vec4<f32>(1.0, 0.0, 0.0, 1.0);
+  // Columns of the inverse of the instance's linear transform.
+  let determinant = a_mCol0.x * a_mCol1.y - a_mCol1.x * a_mCol0.y;
+  let inverseDeterminant = select(0.0, 1.0 / determinant, abs(determinant) > 1e-12);
+  let localStep = vec4<f32>(a_mCol1.y, -a_mCol0.y, -a_mCol1.x, a_mCol0.x) * inverseDeterminant;
 
   var p: vec2<f32>;
   if (shape == 1) {
@@ -138,8 +148,8 @@ fn vs_main(
     out.colorFill = a_colorFill;
     out.paramsA = vec4<f32>(center, radius, strokeWidth);
     out.paramsB = vec4<f32>(a_params.zw, 0.0, 0.0);
-  } else if (shape == 2) {
-    // Round-rect: local centered space + affine. The quad must reach as far
+  } else if (shape == 2 || shape == 4) {
+    // Round-rect or ellipse: local centered space + affine. The quad must reach as far
     // as the fragment stage samples: the stroke coverage ramp reads up to
     // strokeOffset +/- strokeWidth * 0.5 outside the box, not just the AA
     // feather, or a wide or outside-aligned stroke's outer half falls
@@ -155,6 +165,8 @@ fn vs_main(
     out.colorFill = a_colorFill;
     out.paramsA = vec4<f32>(halfExt, strokeWidth, strokeOffset);
     out.radii = a_radii;
+    out.paramsB = a_srcRect;
+    out.pixelStep = localStep;
   } else if (shape == 3) {
     // Drop shadow: local centered space + affine, same walk as round-rect
     // (a circle's shadow is a round-rect shadow with uniform radii). The
@@ -176,6 +188,7 @@ fn vs_main(
     out.paramsA = vec4<f32>(trueHalfExt, sigma, a_shape.w);
     out.radii = a_radii;
     out.paramsB = vec4<f32>(offset, spread, 0.0);
+    out.pixelStep = localStep;
   } else {
     // Textured: affine quad, sample srcRect × tint.
     p = a_mCol0 * a_unit.x + a_mCol1 * a_unit.y + a_mTranslate;
@@ -189,24 +202,90 @@ fn vs_main(
   return out;
 }
 
-// Signed distance to a rounded box. `r` = (tl, tr, br, bl) corner radii.
-fn sdRoundBox(p: vec2<f32>, b: vec2<f32>, r: vec4<f32>) -> f32 {
-  let rr = select(r.xw, r.yz, p.x > 0.0);
-  let radius = select(rr.x, rr.y, p.y > 0.0);
-  let q = abs(p) - b + vec2<f32>(radius);
-  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - radius;
+// One smooth-corner field sample, (distance, gradient), at `inset` in the tile
+// for smoothing step `tile`. `inset` must lie within the sampled texel
+// centers, so the sample never blends in a neighboring tile.
+fn cornerFieldSample(inset: vec2<f32>, tile: f32) -> vec3<f32> {
+  let withinTile = (inset - vec2<f32>(FIELD_PATCH_MIN)) / FIELD_PATCH_SPAN;
+  let uv = vec2<f32>(withinTile.x, (tile + withinTile.y) / FIELD_TILES);
+  return textureSampleLevel(u_cornerField, u_cornerFieldSamp, uv, 0.0).xyz;
 }
 
-// Analytic AA coverage from a signed distance via its screen-space gradient.
-//
-// The one edge idiom for 2D: round-rects, circles and the analytic clip in
-// `clipCoverage` all ramp through it. Drawing a disc with `fillCircle` and then
-// clipping content to the same circle with `setClip` is ordinary, and a cubic
-// `smoothstep` against this linear ramp would leave the two edges a fraction of
-// a pixel apart. Linear is also the correct box-filter coverage for a straight
-// edge.
-fn coverage(d: f32) -> f32 {
-  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
+// Distance to a box with smooth corners, as (distance, gradient) like
+// `roundBoxDistance`. `cornerSmoothing` is each corner's fitted smoothing as
+// (top left, top right, bottom right, bottom left), see `fitSquircleCorners`.
+// A corner with no smoothing is circular.
+fn squircleBoxDistance(
+  point: vec2<f32>,
+  halfSize: vec2<f32>,
+  cornerRadii: vec4<f32>,
+  cornerSmoothing: vec4<f32>,
+) -> vec3<f32> {
+  let radiusColumn = select(cornerRadii.xw, cornerRadii.yz, point.x > 0.0);
+  let cornerRadius = select(radiusColumn.x, radiusColumn.y, point.y > 0.0);
+  let smoothingColumn = select(cornerSmoothing.xw, cornerSmoothing.yz, point.x > 0.0);
+  let smoothing = select(smoothingColumn.x, smoothingColumn.y, point.y > 0.0);
+  if (cornerRadius <= 0.0 || smoothing <= 0.0) {
+    return roundBoxDistance(point, halfSize, cornerRadii);
+  }
+  // How far the point lies inside the two sides that meet at this corner, in
+  // units of the corner radius: the field's coordinates.
+  let inset = (halfSize - abs(point)) / cornerRadius;
+  let quadrantSign = select(vec2<f32>(-1.0), vec2<f32>(1.0), point >= vec2<f32>(0.0));
+  let sampledMin = FIELD_PATCH_MIN + 0.5 * FIELD_TEXEL;
+  let sampledMax = FIELD_PATCH_MIN + FIELD_PATCH_SPAN - 0.5 * FIELD_TEXEL;
+  // Deep inside, past the corner's patch, the nearest edge is a straight side.
+  if (min(inset.x, inset.y) >= sampledMax) {
+    let nearestSide = select(vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0), inset.x < inset.y);
+    return vec3<f32>(-min(inset.x, inset.y) * cornerRadius, quadrantSign * nearestSide);
+  }
+  // Outside the sampled range, measure at its nearest point and carry the rest
+  // along the gradient, which keeps the distance continuous past the patch.
+  let sampled = clamp(inset, vec2<f32>(sampledMin), vec2<f32>(sampledMax));
+  let tileStep = smoothing * (FIELD_TILES - 1.0);
+  let lowerTile = floor(tileStep);
+  let upperTile = min(lowerTile + 1.0, FIELD_TILES - 1.0);
+  let field = mix(
+    cornerFieldSample(sampled, lowerTile),
+    cornerFieldSample(sampled, upperTile),
+    tileStep - lowerTile,
+  );
+  let insetGradient = field.yz / max(length(field.yz), 1e-6);
+  let insetDistance = field.x + dot(insetGradient, inset - sampled);
+  // Insets grow away from the sides, so each axis of the gradient turns back
+  // toward the point's own quadrant.
+  return vec3<f32>(insetDistance * cornerRadius, -quadrantSign * insetGradient);
+}
+
+// A local-space shape's fill with its stroke composited over it, from the
+// shape's (distance, gradient). The stroke is a band around the edge moved out
+// by `strokeOffset`, which aligns it inside, centered or outside. Its distance
+// changes as fast as the edge's, so both share one ramp width.
+fn fillUnderStroke(in: VOut, shape: vec3<f32>) -> vec4<f32> {
+  let strokeWidth = in.paramsA.z;
+  let strokeOffset = in.paramsA.w;
+  let changePerPixel = distanceChangePerPixel(shape.yz, in.pixelStep);
+  let fill = fillColorAt(devicePos(in.pos.xy), in.colorFill, in.paint) * coverage(shape.x, changePerPixel);
+  var stroke = vec4<f32>(0.0);
+  if (strokeWidth > 0.0) {
+    let strokeDistance = abs(shape.x - strokeOffset) - strokeWidth * 0.5;
+    stroke = in.colorStroke * coverage(strokeDistance, changePerPixel);
+  }
+  return stroke + fill * (1.0 - stroke.a);
+}
+
+// The fill's premultiplied color at device position `dp`: the flat fill, or a
+// sample of its gradient ramp. See the file header for `paint`.
+fn fillColorAt(dp: vec2<f32>, colorFill: vec4<f32>, paint: vec4<f32>) -> vec4<f32> {
+  if (paint.w <= 0.5) {
+    return colorFill;
+  }
+  let gradT = clamp(dot(dp, paint.xy) - paint.z, 0.0, 1.0);
+  // See gradientRadial.wgsl: remap onto texel centers, and ATLAS_ROWS must
+  // match TextureManager.ts.
+  let gradU = gradT * (255.0 / 256.0) + 0.5 / 256.0;
+  let gradV = (paint.w - 1.0 + 0.5) / 64.0;
+  return textureSampleLevel(u_ramp, u_rampSamp, vec2<f32>(gradU, gradV), 0.0) * colorFill.a;
 }
 
 // Evan Wallace's analytic rounded-box shadow
@@ -250,9 +329,6 @@ fn shadowBoxX(x: f32, y: f32, sigma: f32, cornerL: f32, cornerR: f32, halfExt: v
  * otherwise miss the shape entirely and band).
  */
 // `hardCoverage` is the zero-blur result, the shadow box's own SDF coverage.
-// Taken as a parameter rather than computed here because it needs a
-// derivative, which WGSL only permits in uniform control flow, and every
-// caller is inside a branch on the non-uniform `shapeType`.
 fn shadowCoverage(p: vec2<f32>, halfExt: vec2<f32>, radii: vec4<f32>, sigma: f32, hardCoverage: f32) -> f32 {
   if (sigma < 1e-4) {
     return hardCoverage;
@@ -277,59 +353,20 @@ fn shadowCoverage(p: vec2<f32>, halfExt: vec2<f32>, radii: vec4<f32>, sigma: f32
 
 @fragment
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
-  // Texture samples and SDF derivatives (fwidth) must run in uniform control
-  // flow, but shapeType is a per-instance varying so the branches below are not
-  // uniform. Evaluate all of them up front and let the branches select.
-  // `varyingPos` doubles as the UV for textured instances only; the other
-  // kinds never sample these two, so what it holds for them is irrelevant.
-  let atlasTexel = textureSample(u_texAtlas, u_texAtlasSamp, in.varyingPos);
-  let labelTexel = textureSample(u_texLabel, u_texLabelSamp, in.varyingPos);
-  // Gradient fill, sampled unconditionally alongside the two texture pages
-  // above for the same reason: there is no per-run uniform here yet to
-  // branch on (that lands with the analytic-shadow per-run block), so every
-  // shape fragment pays one more fetch regardless of shapeType or whether
-  // this instance carries a gradient.
-  let hasGradient = in.paint.w > 0.5;
-  let gradT = clamp(dot(devicePos(in.pos.xy), in.paint.xy) - in.paint.z, 0.0, 1.0);
-  // See gradientRadial.wgsl: remap onto texel centers, and ATLAS_ROWS must
-  // match TextureManager.ts.
-  let gradU = gradT * (255.0 / 256.0) + 0.5 / 256.0;
-  let gradV = (in.paint.w - 1.0 + 0.5) / 64.0;
-  let rampTexel = textureSample(u_ramp, u_rampSamp, vec2<f32>(gradU, gradV));
-  let fillColor = select(in.colorFill, rampTexel * in.colorFill.a, hasGradient);
-  let halfExt = in.paramsA.xy;
-  let rrDist = sdRoundBox(in.varyingPos, halfExt, in.radii);
-  let rrFillCoverage = coverage(rrDist);
-  let strokeWidth = in.paramsA.z;
-  let strokeOffset = in.paramsA.w;
-  let rrStrokeCoverage = coverage(abs(rrDist - strokeOffset) - strokeWidth * 0.5);
-  let center = in.paramsA.xy;
-  let radius = in.paramsA.z;
-  let circDelta = in.varyingPos - center;
-  let circDist = length(circDelta) - radius;
-  let circFillCoverage = coverage(circDist);
-  let circStrokeCoverage = coverage(abs(circDist) - in.paramsA.w * 0.5);
-  // The drop-shadow kind's own box, hoisted for its `coverage` call alone.
-  // The 4-tap blur integral itself takes no derivative, so it stays inside
-  // the branch below and a non-shadow fragment never pays for it.
-  let shadowSpread = in.paramsB.z;
-  let shadowHasRadius = step(vec4<f32>(1e-6), in.radii);
-  let shadowRadii =
-    shadowHasRadius * max(in.radii + vec4<f32>(shadowSpread), vec4<f32>(0.0));
-  let shadowHalfExt = max(halfExt + shadowSpread, vec2<f32>(0.0));
-  let shadowLocal = in.varyingPos - in.paramsB.xy;
-  let shadowHardCoverage =
-    coverage(sdRoundBox(shadowLocal, shadowHalfExt, shadowRadii));
-
   var outColor: vec4<f32>;
   if (in.shapeType == 1) {
-    // Circle SDF (distance + coverage precomputed above). paramsA = (center,
-    // radius, strokeWidth), paramsB = (dashStart, dashPeriod, _, _).
+    // Circle, measured in device px. paramsA = (center, radius, strokeWidth),
+    // paramsB = (dashStart, dashPeriod, _, _).
+    let center = in.paramsA.xy;
+    let radius = in.paramsA.z;
     let circStrokeWidth = in.paramsA.w;
-    let fill = fillColor * circFillCoverage;
+    let circDelta = in.varyingPos - center;
+    let circle = circleDistance(circDelta, radius);
+    let changePerPixel = distanceChangePerPixel(circle.yz, in.pixelStep);
+    let fill = fillColorAt(devicePos(in.pos.xy), in.colorFill, in.paint) * coverage(circle.x, changePerPixel);
     var stroke = vec4<f32>(0.0);
     if (circStrokeWidth > 0.0) {
-      var strokeAlpha = circStrokeCoverage;
+      var strokeAlpha = coverage(abs(circle.x) - circStrokeWidth * 0.5, changePerPixel);
       let dashPeriod = in.paramsB.y;
       if (dashPeriod > 0.0 && strokeAlpha > 0.0) {
         let dashStart = in.paramsB.x;
@@ -349,40 +386,51 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (outColor.a <= 0.0) {
       discard;
     }
-  } else if (in.shapeType == 2) {
-    // Round-rect SDF (distance + coverage precomputed above). paramsA =
-    // (halfExt, strokeWidth, strokeOffset).
-    let fill = fillColor * rrFillCoverage;
-    var stroke = vec4<f32>(0.0);
-    if (strokeWidth > 0.0) {
-      stroke = in.colorStroke * rrStrokeCoverage;
+  } else if (in.shapeType == 2 || in.shapeType == 4) {
+    // Round-rect or ellipse, measured in local space. paramsA = (half size,
+    // strokeWidth, strokeOffset). For an ellipse the half size is its radii.
+    var shape: vec3<f32>;
+    if (in.shapeType == 2) {
+      shape = squircleBoxDistance(in.varyingPos, in.paramsA.xy, in.radii, in.paramsB);
+    } else {
+      shape = ellipseDistance(in.varyingPos, in.paramsA.xy);
     }
-    outColor = stroke + fill * (1.0 - stroke.a);
+    outColor = fillUnderStroke(in, shape);
     if (outColor.a <= 0.0) {
       discard;
     }
   } else if (in.shapeType == 3) {
     // Drop shadow. paramsA = (true halfExt, sigma, inset), paramsB =
     // (offsetX, offsetY, spread, _). `in.colorFill` carries the shadow's
-    // own tint (the record has no separate stroke). The shadow's own box
-    // (`shadowHalfExt`/`shadowRadii`/`shadowLocal`) is built in the
-    // uniform-control-flow block above, where spread grows it only on
-    // corners that already had a radius: a spread square corner stays
+    // own tint (the record has no separate stroke). Spread changes only the
+    // corners that already have a radius: a spread square corner stays
     // square, matching `box-shadow`.
     let sigma = in.paramsA.z;
     let inset = in.paramsA.w;
-    let shadowCov = shadowCoverage(
+    let halfExt = in.paramsA.xy;
+    // As in CSS, an outset shadow is cast by the border box grown by the
+    // spread. An inset one is cast by everything outside a hole, the border
+    // box shrunk by the spread, so its coverage is the hole's turned inside
+    // out. Either box moves by the offset.
+    let grow = select(in.paramsB.z, -in.paramsB.z, inset > 0.5);
+    let shadowHasRadius = step(vec4<f32>(1e-6), in.radii);
+    let shadowRadii =
+      shadowHasRadius * max(in.radii + vec4<f32>(grow), vec4<f32>(0.0));
+    let shadowHalfExt = max(halfExt + grow, vec2<f32>(0.0));
+    let shadowLocal = in.varyingPos - in.paramsB.xy;
+    let shadowBox = roundBoxDistance(shadowLocal, shadowHalfExt, shadowRadii);
+    let blurred = shadowCoverage(
       shadowLocal,
       shadowHalfExt,
       shadowRadii,
       sigma,
-      shadowHardCoverage,
+      coverage(shadowBox.x, distanceChangePerPixel(shadowBox.yz, in.pixelStep)),
     );
-    // `rrFillCoverage` from that same block already is this shape's
-    // border-box coverage: the shadow kind's "true halfExt" and the
-    // round-rect kind's `halfExt` are both `in.paramsA.xy`, over the same
-    // `in.varyingPos` and `in.radii`.
-    let trueCoverage = rrFillCoverage;
+    let shadowCov = select(blurred, 1.0 - blurred, inset > 0.5);
+    // The shape's own border box, from the same record fields a round-rect
+    // instance reads.
+    let borderBox = roundBoxDistance(in.varyingPos, halfExt, in.radii);
+    let trueCoverage = coverage(borderBox.x, distanceChangePerPixel(borderBox.yz, in.pixelStep));
     // Outset: knocked out of the border box (CSS: "not painted inside the
     // border-box"). Inset: only inside it.
     let mask = select(1.0 - trueCoverage, trueCoverage, inset > 0.5);
@@ -390,13 +438,14 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (outColor.a <= 0.0) {
       discard;
     }
+  } else if (in.paramsA.x < 0.5) {
+    // Textured from the atlas page, times the tint.
+    outColor = textureSampleLevel(u_texAtlas, u_texAtlasSamp, in.varyingPos, 0.0) * in.colorFill;
   } else {
-    // Textured: both pages sampled above, selected here by texIndex (in
-    // paramsA.x) × tint (in colorFill).
-    let texel = select(labelTexel, atlasTexel, in.paramsA.x < 0.5);
-    outColor = texel * in.colorFill;
+    // Textured from the label page, times the tint.
+    outColor = textureSampleLevel(u_texLabel, u_texLabelSamp, in.varyingPos, 0.0) * in.colorFill;
   }
-  outColor *= clipCoverage(in.pos.xy);
+  outColor *= clipCoverageRec(devicePos(in.pos.xy), in.clip0, in.clip1, in.clip2, in.clip3);
   if (params.flags.x == 1u) {
     // Dim premultiplied red. `lighter` blend (forced per-run, see
     // `ShapeProgram.drawRun`) accumulates it into a heatmap.

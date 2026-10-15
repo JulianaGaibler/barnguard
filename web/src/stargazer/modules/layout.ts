@@ -81,10 +81,6 @@
  * (`Camera.visibleWorldRect`), not CSS pixels, and the camera's aspect fit
  * applies on top.
  *
- * Moving a static node stays correct. `arrange` moves nodes through their
- * transforms, which does not invalidate the static layer on its own, so the
- * pass invalidates it when a moved subtree holds static-layer content.
- *
  * The dirty flag is reentrancy-safe: it clears before measuring, so a
  * `markLayoutDirty` raised mid-pass re-arms it for the next frame rather than
  * looping within the current one.
@@ -93,8 +89,8 @@
  *
  * Extend {@link LayoutNode} and implement the two methods. `measure` reads the
  * incoming constraints, sizes each child, and returns its own `measuredSize`.
- * `arrange` sets its position, records its box in `debugBounds`, and arranges
- * each child in local space.
+ * `arrange` sets its position, records its box in `boundsOverride`, and
+ * arranges each child in local space.
  *
  * ```ts
  * class Frame extends LayoutNode {
@@ -108,7 +104,7 @@
  *   arrange(x: number, y: number, w: number, h: number): void {
  *     this.transform.x = x
  *     this.transform.y = y
- *     this.debugBounds = { x: 0, y: 0, width: w, height: h }
+ *     this.boundsOverride = { x: 0, y: 0, width: w, height: h }
  *     this.#child.arrange(0, 0, w, h)
  *   }
  * }

@@ -1,6 +1,6 @@
 /**
- * The per-layer index keeps up with the tree, whatever kind of node the change
- * hangs off.
+ * The painter-order index keeps up with the tree, whatever kind of node the
+ * change hangs off.
  *
  * Painter order is a property of the whole tree, but the invalidation used to
  * be raised by `Node2D`'s child hooks, so it depended on the PARENT being a
@@ -20,22 +20,20 @@ import { SceneTree } from './SceneTree'
 import { GroupNode } from './GroupNode'
 import type { Node } from './Node'
 
-/** A dynamic-layer node, the layer most game content draws on. */
+/** A drawn node. */
 function content(id: string): Node2D {
-  const n = new Node2D(id)
-  n.renderLayer = 'dynamic'
-  return n
+  return new Node2D(id)
 }
 
 const ids = (nodes: readonly Node2D[]): string[] => nodes.map((n) => n.id)
 
 /**
- * The content on `layer`, named. A `Node2D` root is itself content and shows up
- * in its own index, so it is dropped here to leave one expectation that reads
- * the same for both roots.
+ * The content in painter order, named. A `Node2D` root is itself content and
+ * shows up in its own index, so it is dropped here to leave one expectation
+ * that reads the same for both roots.
  */
-const shown = (scene: SceneTree, root: Node, layer = 'dynamic' as const) =>
-  ids(scene.getLayerNodes(layer)).filter((id) => id !== root.id)
+const shown = (scene: SceneTree, root: Node) =>
+  ids(scene.getPainterOrder()).filter((id) => id !== root.id)
 
 /**
  * The two roots a tree can have. The group root is what `new SceneTree()` and
@@ -72,7 +70,7 @@ describe.each(ROOTS)('under %s', (_name, make) => {
     // How every tutorial card and most game scenes are built: assemble
     // detached, attach once.
     const { scene, root } = make()
-    scene.getLayerNodes('dynamic')
+    scene.getPainterOrder()
 
     const branch = content('branch')
     branch.add(content('leaf-a'), content('leaf-b'))
@@ -84,7 +82,7 @@ describe.each(ROOTS)('under %s', (_name, make) => {
     const { scene, root } = make()
     const gone = content('gone')
     root.add(gone, content('stays'))
-    scene.getLayerNodes('dynamic')
+    scene.getPainterOrder()
 
     root.remove(gone)
     expect(shown(scene, root)).toEqual(['stays'])
@@ -95,7 +93,7 @@ describe.each(ROOTS)('under %s', (_name, make) => {
     const branch = content('branch')
     branch.add(content('leaf'))
     root.add(branch, content('stays'))
-    scene.getLayerNodes('dynamic')
+    scene.getPainterOrder()
 
     branch.destroy()
     expect(shown(scene, root)).toEqual(['stays'])
@@ -132,10 +130,10 @@ describe('a group node in the middle of the tree', () => {
     const scene = new SceneTree()
     const group = new GroupNode('group')
     scene.root.add(group)
-    expect(scene.getLayerNodes('dynamic')).toEqual([])
+    expect(scene.getPainterOrder()).toEqual([])
 
     group.add(content('under-group'))
-    expect(ids(scene.getLayerNodes('dynamic'))).toEqual(['under-group'])
-    expect(scene.getLayerNodes('dynamic')).toHaveLength(1)
+    expect(ids(scene.getPainterOrder())).toEqual(['under-group'])
+    expect(scene.getPainterOrder()).toHaveLength(1)
   })
 })

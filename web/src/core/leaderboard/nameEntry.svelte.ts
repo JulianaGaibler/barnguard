@@ -3,16 +3,21 @@
  * whether the run earns a row, hold the name the player types, and submit it
  * exactly once however the card goes away.
  *
+ * When the board cannot be reached, the entry waits on the backend connection
+ * and loads again the moment it is back, so a server restart at the booth still
+ * lets the player put their name down.
+ *
  * Only the part that must not drift lives here. The card's markup stays with
  * whoever renders it, because the layouts genuinely differ: most games show a
  * centred column, Data Control shows a pair of cards side by side.
  */
+import { displayName } from '@src/core/leaderboard/displayName'
 import {
-  fetchLeaderboard,
   submitScore,
   type LeaderboardEntry,
 } from '@src/core/leaderboard/leaderboardClient'
-import { enqueueSubmission, flushSubmissions } from './outbox'
+import { loadBoard } from './loadBoard'
+import { enqueueSubmission } from './outbox'
 
 /** Rows the board keeps. A run below the last of them earns nothing. */
 const MAX_ROWS = 50
@@ -56,6 +61,7 @@ export class NameEntry {
   readonly #region: string | undefined
   readonly #onFinalize: NameEntryOptions['onFinalize']
   #saved = false
+  #stopLoading: (() => void) | null = null
 
   stage = $state<NameEntryStage>('loading')
   entries = $state<LeaderboardEntry[]>([])
@@ -85,18 +91,21 @@ export class NameEntry {
    */
   get pending(): string | undefined {
     return this.keyboardOpen
-      ? this.name.toUpperCase().padEnd(this.maxLength, '_')
+      ? displayName(this.name).padEnd(this.maxLength, '_')
       : undefined
   }
 
-  /** Fetch the board and settle {@link stage}. Call once, from `onMount`. */
+  /**
+   * Fetch the board and settle {@link stage}. Call once, from `onMount`. A
+   * failed fetch leaves the stage `'unavailable'` and fetches again each time
+   * the backend connection comes back online, until the entry is saved.
+   */
   start(): void {
     const score = this.#score ?? 0
-    // Anything an earlier screen could not send goes first, so the board this
-    // fetch returns already includes it.
-    void flushSubmissions()
-      .then(() => fetchLeaderboard(this.#display, MAX_ROWS))
-      .then((list) => {
+    this.#stopLoading = loadBoard(
+      this.#display,
+      MAX_ROWS,
+      (list) => {
         this.entries = list
         // The board loads either way, so a screen can show it to a player who
         // scored nothing, but only a positive score earns a row.
@@ -104,10 +113,11 @@ export class NameEntry {
           score > 0 &&
           (list.length < MAX_ROWS || score > list[MAX_ROWS - 1].score)
         this.stage = qualifies ? 'entering' : 'closed'
-      })
-      .catch(() => {
+      },
+      () => {
         this.stage = 'unavailable'
-      })
+      },
+    )
   }
 
   /**
@@ -121,6 +131,7 @@ export class NameEntry {
   save = async (): Promise<void> => {
     if (this.#saved) return
     this.#saved = true
+    this.#stopLoading?.()
     const logged = this.#onFinalize?.(this.name)
     const score = this.#score
     const posted =

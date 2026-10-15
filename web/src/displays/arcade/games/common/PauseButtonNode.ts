@@ -15,7 +15,13 @@
  *   pause.setSize(48)
  *   chrome.add(pause)
  */
-import { ButtonBehavior, Node2D, withAlpha, type Gfx2D } from '@src/stargazer'
+import {
+  ButtonBehavior,
+  Node2D,
+  definePaintProps,
+  withAlpha,
+  type Canvas,
+} from '@src/stargazer'
 import { drawPauseGlyph } from './pauseGlyph'
 
 export interface PauseButtonOptions {
@@ -33,36 +39,36 @@ const BORDER_FRAC = 0.045
 
 export class PauseButtonNode extends Node2D {
   readonly #opts: PauseButtonOptions
-  #size = 0
-  #pressed = false
+  declare size: number
+  declare pressed: boolean
 
   constructor(opts: PauseButtonOptions) {
     super('pause-button')
     this.#opts = opts
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { size: 0, pressed: false })
     this.addBehavior(
       new ButtonBehavior({
         onClick: opts.onClick,
-        onPressedChange: (pressed) => (this.#pressed = pressed),
+        onPressedChange: (pressed) => (this.pressed = pressed),
       }),
     )
   }
 
   /** Set the side length. Also the hit rect, so this has to be called. */
   setSize(size: number): void {
-    this.#size = size
-    this.debugBounds = { x: 0, y: 0, width: size, height: size }
+    this.size = size
+    this.boundsOverride = { x: 0, y: 0, width: size, height: size }
   }
 
-  override draw(gfx: Gfx2D): void {
-    const s = this.#size
+  override paint(gfx: Canvas): void {
+    const s = this.size
     if (s <= 0) return
     const radius = s * RADIUS_FRAC
     const { fill, ink } = this.#opts
 
     gfx.fillRoundRect(0, 0, s, s, radius, fill)
     gfx.strokeRoundRect(0, 0, s, s, radius, {
-      color: withAlpha(ink, this.#pressed ? 0.5 : 0.22),
+      color: withAlpha(ink, this.pressed ? 0.5 : 0.22),
       width: s * BORDER_FRAC,
     })
     drawPauseGlyph(gfx, s / 2, s / 2, s, ink)

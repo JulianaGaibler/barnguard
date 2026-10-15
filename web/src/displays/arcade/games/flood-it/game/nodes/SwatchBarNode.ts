@@ -11,10 +11,11 @@
  */
 import {
   ButtonBehavior,
+  definePaintProps,
   easings,
   moveToward,
   Node2D,
-  type Gfx2D,
+  type Canvas,
 } from '@src/stargazer'
 import { swatchRect } from '../layout'
 import { ANIM, CELL_COLORS, CELL_GLYPHS, GEOM, GLYPH_INKS } from '../tuning'
@@ -23,24 +24,34 @@ import { drawGlyph } from './glyphs'
 
 class SwatchNode extends Node2D {
   readonly #color: Color
-  #width = 0
-  #height = 0
-  #pressed = 0
-  #ring = 1
-  #glyphT = 0
+  declare width: number
+  declare height: number
+  /** How far the button is pressed in, 0 to 1. */
+  declare pressed: number
+  /** Progress of the ring thrown out on release, 1 when it is gone. */
+  declare ring: number
+  /** How far the shape overlay has scaled in, 0 to 1. */
+  declare glyphT: number
+  /** Dimmed and inert, for the row whose player is not up. */
+  declare active: boolean
 
   glyphsOn = false
-  /** Dimmed and inert, for the row whose player is not up. */
-  active = true
 
   constructor(color: Color, onPick: (color: Color) => void) {
     super(`flood-swatch-${color}`)
     this.#color = color
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, {
+      width: 0,
+      height: 0,
+      pressed: 0,
+      ring: 1,
+      glyphT: 0,
+      active: true,
+    })
     this.addBehavior(
       new ButtonBehavior({
         onClick: () => {
-          this.#ring = 0
+          this.ring = 0
           onPick(color)
         },
         enabled: () => this.active,
@@ -54,31 +65,31 @@ class SwatchNode extends Node2D {
   setRect(rect: Bounds): void {
     this.transform.x = rect.x
     this.transform.y = rect.y
-    this.#width = rect.width
-    this.#height = rect.height
-    this.debugBounds = { x: 0, y: 0, width: rect.width, height: rect.height }
+    this.width = rect.width
+    this.height = rect.height
+    this.boundsOverride = { x: 0, y: 0, width: rect.width, height: rect.height }
   }
 
   override onUpdate(dt: number): void {
     const target = this.#pressedTarget ? 1 : 0
-    this.#pressed = moveToward(this.#pressed, target, dt / ANIM.swatchPress)
+    this.pressed = moveToward(this.pressed, target, dt / ANIM.swatchPress)
 
-    if (this.#ring < 1) {
-      this.#ring = Math.min(1, this.#ring + dt / ANIM.swatchRing)
+    if (this.ring < 1) {
+      this.ring = Math.min(1, this.ring + dt / ANIM.swatchRing)
     }
 
     const glyphTarget = this.glyphsOn ? 1 : 0
-    this.#glyphT = moveToward(this.#glyphT, glyphTarget, dt / ANIM.glyphFade)
+    this.glyphT = moveToward(this.glyphT, glyphTarget, dt / ANIM.glyphFade)
   }
 
-  override draw(gfx: Gfx2D): void {
-    const w = this.#width
-    const h = this.#height
+  override paint(gfx: Canvas): void {
+    const w = this.width
+    const h = this.height
     if (w <= 0 || h <= 0) return
 
     // Press reads as a shrink toward the centre, so the finger looks like it is
     // pushing the button rather than covering a color change.
-    const shrink = this.#pressed * h * 0.05
+    const shrink = this.pressed * h * 0.05
     const x = shrink
     const y = shrink
     const bw = w - shrink * 2
@@ -88,10 +99,10 @@ class SwatchNode extends Node2D {
 
     if (!this.active) gfx.setAlpha(0.32)
 
-    if (this.#ring < 1) {
+    if (this.ring < 1) {
       // One ring thrown outward on release, confirming which button took the
       // tap even when the board is busy flooding.
-      const t = easings.outQuad(this.#ring)
+      const t = easings.outQuad(this.ring)
       const grow = h * 0.34 * t
       gfx.setAlpha((this.active ? 1 : 0.32) * (1 - t) * 0.7)
       gfx.strokeRoundRect(
@@ -107,7 +118,7 @@ class SwatchNode extends Node2D {
 
     gfx.fillRoundRect(x, y, bw, bh, radius, color)
 
-    if (this.#glyphT > 0.01) {
+    if (this.glyphT > 0.01) {
       // Scaled in rather than faded in, so the glyph is always drawn opaque and
       // its overlapping passes never show a seam.
       drawGlyph(
@@ -115,7 +126,7 @@ class SwatchNode extends Node2D {
         CELL_GLYPHS[this.#color]!,
         x + bw / 2,
         y + bh / 2,
-        Math.min(bw, bh) * 0.52 * easings.outBack(this.#glyphT),
+        Math.min(bw, bh) * 0.52 * easings.outBack(this.glyphT),
         GLYPH_INKS[this.#color]!,
       )
     }

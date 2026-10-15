@@ -49,6 +49,8 @@ export interface Surface {
   y: number
   /** Whether `draw` is a separate multisampled target. */
   readonly multisampled: boolean
+  /** The color the surface's pass clears to, premultiplied. Set per claim. */
+  clear: [number, number, number, number]
   /** @internal pool bookkeeping */
   bytes: number
   key: string
@@ -82,17 +84,22 @@ export class SurfacePool {
     return this.#created
   }
 
-  /** Claim a surface of at least `w × h` in `format`. */
-  acquire(w: number, h: number, format: SurfaceFormat): Surface {
-    const tw = quantize(w)
-    const th = quantize(h)
-    const key = `${tw}x${th}:${format.colorSpace}:${format.samples}:${format.depth}:${format.stencil}`
+  /**
+   * Claim a surface of at least `w × h` in `format`. With `exact` the texture
+   * is exactly `w × h`, for content a shader positions by the texture's own
+   * size, and it is only reused for the same size.
+   */
+  acquire(w: number, h: number, format: SurfaceFormat, exact = false): Surface {
+    const tw = exact ? w : quantize(w)
+    const th = exact ? h : quantize(h)
+    const key = `${tw}x${th}:${format.colorSpace}:${format.samples}:${format.depth}:${format.stencil}${exact ? ':exact' : ''}`
     for (const s of this.#all) {
       if (!s.inUse && s.key === key) {
         s.inUse = true
         s.idle = 0
         s.w = w
         s.h = h
+        s.clear = [0, 0, 0, 0]
         return s
       }
     }
@@ -125,6 +132,7 @@ export class SurfacePool {
       x: 0,
       y: 0,
       multisampled,
+      clear: [0, 0, 0, 0],
       bytes: tw * th * 4 * (multisampled ? format.samples + 1 : 1),
       key,
       idle: 0,

@@ -100,7 +100,6 @@ export function buildFloodItMenuPreview(
 ): MenuPreview {
   const root = new Node2D('flood-menu-preview')
   // Behind the launcher rail's DOM, and over the arcade sky.
-  root.renderLayer = 'dynamic'
   host.engine.tree.root.add(root)
 
   const side = view.height * BOARD_SPAN

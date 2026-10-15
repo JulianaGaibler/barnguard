@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayName } from '@src/core/leaderboard/displayName'
   import { get } from 'svelte/store'
   import { t } from '@src/i18n'
   import {
@@ -113,7 +114,7 @@
             {/if}
             {#if summary?.playerName}
               <span class="game-player" title="Saved to the leaderboard as">
-                {summary.playerName.toUpperCase()}
+                {displayName(summary.playerName)}
               </span>
             {/if}
             <span class="game-score">

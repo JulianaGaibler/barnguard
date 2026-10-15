@@ -1,8 +1,8 @@
 import { createEngineHost } from '../engine/EngineHost'
 import { addDemoCamera } from './demoCamera'
 import { VectorParticleNode } from '../nodes/VectorParticleNode'
-import type { Camera } from '../camera/Camera'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import { Node2D } from '../scene/Node2D'
+import type { Canvas } from '../render/picture/Canvas'
 import type { Vec2 } from '../math/Vec2'
 import type { VectorParticleSpawnInit } from '../nodes/VectorParticleNode'
 import type { DemoFn } from './types'
@@ -23,7 +23,7 @@ const MIN_SPEED_FRAC = 0.02
  * sprite. Click spawns a self-destroying burst that despawns and calls
  * `autoDestroy` once every piece has settled. Shift-click spawns a permanent
  * variant, with no `shouldDespawn` override, that lingers until "r" clears the
- * layer. The two variants cover both lifecycle modes from the vector-particles
+ * bursts. The two variants cover both lifecycle modes from the vector-particles
  * guide.
  */
 class ShrapnelBurst extends VectorParticleNode {
@@ -77,7 +77,7 @@ class ShrapnelBurst extends VectorParticleNode {
     )
   }
 
-  protected override drawParticle(gfx: Gfx2D, i: number, camera: Camera): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
     const scale = this.#permanent
       ? 1
       : Math.min(1, Math.hypot(this.vx[i], this.vy[i]) / this.speed0[i])
@@ -95,7 +95,7 @@ class ShrapnelBurst extends VectorParticleNode {
     } else {
       gfx.strokeLine(-LINE_HALF, 0, LINE_HALF, 0, {
         color: this.#color,
-        width: 2 * camera.strokeSpaceScale(),
+        width: { screen: 2 },
         cap: 'round',
       })
     }
@@ -111,12 +111,17 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   })
   attach?.(host)
 
+  // Bursts live under their own node, so clearing them leaves the camera.
+  const bursts = new Node2D('bursts')
   await host.loadScene((scene) => {
     addDemoCamera(scene, { x: 0, y: 0, width: 1920, height: 1080 })
+    scene.root.add(bursts)
+    // A lingering burst in the middle, so the demo is not blank before a click.
+    bursts.add(new ShrapnelBurst({ x: 960, y: 540 }, PALETTE[0], true))
   })
   host.start()
 
-  let colorIdx = 0
+  let colorIdx = 1
   const onDown = (e: PointerEvent): void => {
     const rect = canvas.getBoundingClientRect()
     const w = host.engine.activeCamera?.screenToWorld(
@@ -125,12 +130,12 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     ) ?? { x: 0, y: 0 }
     const color = PALETTE[colorIdx % PALETTE.length]
     colorIdx++
-    host.engine.tree.root.add(new ShrapnelBurst(w, color, e.shiftKey))
+    bursts.add(new ShrapnelBurst(w, color, e.shiftKey))
   }
   // "r" clears every permanent burst still lingering (self-destroying bursts
   // are already gone by the time this matters).
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'r') host.engine.tree.root.destroyChildren()
+    if (e.key === 'r') bursts.destroyChildren()
   }
   canvas.addEventListener('pointerdown', onDown)
   window.addEventListener('keydown', onKeyDown)

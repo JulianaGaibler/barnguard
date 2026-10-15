@@ -9,7 +9,7 @@ const ev = (x: number, y: number, id = 1): PointerEvent2D =>
 const setup = (opts: Partial<ButtonOptions> = {}) => {
   const onClick = vi.fn()
   const node = new Node2D('btn')
-  node.debugBounds = { x: 0, y: 0, width: 100, height: 100 }
+  node.boundsOverride = { x: 0, y: 0, width: 100, height: 100 }
   node.addBehavior(new ButtonBehavior({ onClick, ...opts }))
   return { node, onClick }
 }

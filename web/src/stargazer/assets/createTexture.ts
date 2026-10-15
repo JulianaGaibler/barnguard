@@ -99,7 +99,7 @@ export function textureFromImageBitmap(
  * so the first frame is never waiting on it.
  */
 export async function createTexture(
-  source: SourceCanvas | ImageBitmap,
+  source: HTMLCanvasElement | OffscreenCanvas | ImageBitmap,
   opts: CreateTextureOptions = {},
 ): Promise<MaterialTexture> {
   if (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap) {

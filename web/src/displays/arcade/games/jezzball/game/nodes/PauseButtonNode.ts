@@ -3,7 +3,12 @@
  * bordered square with a static "II" glyph. Its fill matches the page
  * background (only the border + glyph read against it), same as the original.
  */
-import { ButtonBehavior, Node2D, type Gfx2D } from '@src/stargazer'
+import {
+  ButtonBehavior,
+  Node2D,
+  definePaintProps,
+  type Canvas,
+} from '@src/stargazer'
 import { COLORS } from '../tuning'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
 
@@ -12,16 +17,16 @@ const RADIUS = 6.4 // 0.4rem
 const PRESS_FILL = 'rgba(39, 39, 39, 0.08)'
 
 export class PauseButtonNode extends Node2D {
-  #pressed = false
+  declare pressed: boolean
 
   constructor(onClick: () => void) {
     super('jb-pause-button')
-    this.renderLayer = 'dynamic'
-    this.debugBounds = { x: 0, y: 0, width: SIZE, height: SIZE }
+    definePaintProps(this, { pressed: false })
+    this.boundsOverride = { x: 0, y: 0, width: SIZE, height: SIZE }
     this.addBehavior(
       new ButtonBehavior({
         onClick,
-        onPressedChange: (pressed) => (this.#pressed = pressed),
+        onPressedChange: (pressed) => (this.pressed = pressed),
       }),
     )
   }
@@ -31,14 +36,14 @@ export class PauseButtonNode extends Node2D {
     return SIZE
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.fillRoundRect(
       0,
       0,
       SIZE,
       SIZE,
       RADIUS,
-      this.#pressed ? PRESS_FILL : COLORS.background,
+      this.pressed ? PRESS_FILL : COLORS.background,
     )
     gfx.strokeRoundRect(0, 0, SIZE, SIZE, RADIUS, {
       color: COLORS.ink,

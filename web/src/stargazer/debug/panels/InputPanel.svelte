@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { DebugController, DebugStatsSnapshot } from '../DebugController'
-  import { DebugSection, DebugRow, ToggleButton } from '../ui'
+  import { DebugSection, MetricRow, Pill, ToggleButton } from '../ui'
   import { fmtPair } from './format'
 
   interface Props {
@@ -29,21 +29,31 @@
 </DebugSection>
 
 <DebugSection title="Coordinates" bind:open={coordsOpen}>
-  <DebugRow label="Pointer (px)" value={fmtPair(stats.pointerScreen)} />
-  <DebugRow
+  <MetricRow
+    label="Pointer (px)"
+    value={fmtPair(stats.pointerScreen)}
+    tip="The pointer in CSS pixels from the top left of the canvas."
+  />
+  <MetricRow
     label="Pointer (world)"
     value={fmtPair(stats.pointerWorld)}
-    tone="accent"
+    tip="The same point in world units, through the active camera."
   />
-  <DebugRow
+  <MetricRow
     label="Canvas CSS"
     value={`${stats.canvasCss.w.toFixed(0)} × ${stats.canvasCss.h.toFixed(0)}`}
+    tip="The size the page lays the canvas out at."
   />
-  <DebugRow
+  <MetricRow
     label="Canvas device"
     value={`${stats.canvasDevice.w} × ${stats.canvasDevice.h}`}
+    tip="The size of the drawing surface in device pixels, which render scale and the adaptive controller can lower."
   />
-  <DebugRow label="DPR" value={stats.dpr.toFixed(2)} />
+  <MetricRow
+    label="DPR"
+    value={stats.dpr.toFixed(2)}
+    tip="Device pixels per CSS pixel on this display."
+  />
 </DebugSection>
 
 <DebugSection
@@ -62,19 +72,23 @@
       <div class="pointer-item">
         <div class="pointer-item__head">
           <span class="pointer-item__id">#{p.id}</span>
-          <span class="pointer-item__kind">{p.kind}</span>
+          <Pill
+            text={p.kind}
+            tip="The kind of device that produced this pointer."
+          />
           {#if p.capturedByNodeId}
             <span class="pointer-item__cap">-> {p.capturedByNodeId}</span>
           {/if}
         </div>
-        <DebugRow label="screen" value={fmtPair(p.screen)} />
-        <DebugRow label="world" value={fmtPair(p.world)} tone="accent" />
+        <MetricRow label="screen" value={fmtPair(p.screen)} />
+        <MetricRow label="world" value={fmtPair(p.world)} />
       </div>
     {/each}
   {/if}
-  <DebugRow
-    label="slop"
+  <MetricRow
+    label="Touch slop"
     value={`${stats.touchSlopScreen.toFixed(0)}px / ${stats.touchSlopWorld.toFixed(2)}w`}
+    tip="How far a touch may move before it stops counting as a tap, in CSS pixels and in world units."
   />
 </DebugSection>
 
@@ -94,11 +108,6 @@
   .pointer-item__id
     font-weight: 600
     color: #60a5fa
-
-  .pointer-item__kind
-    color: rgba(255, 255, 255, 0.5)
-    text-transform: uppercase
-    font-size: 9px
 
   .pointer-item__cap
     color: #c084fc

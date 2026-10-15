@@ -1,6 +1,13 @@
 <script lang="ts">
   import type { DebugController, DebugStatsSnapshot } from '../DebugController'
-  import { DebugSection, DebugRow, ToggleButton } from '../ui'
+  import {
+    DebugSection,
+    MetricRow,
+    Pill,
+    StatCard,
+    StatGrid,
+    ToggleButton,
+  } from '../ui'
 
   interface PhysicsOverlayFlags {
     colliders: boolean
@@ -57,17 +64,49 @@
           <span class="world-swatch" style:background={world.accent}></span>
           <span class="world-label">{world.label}</span>
         </div>
-        <DebugRow label="Bodies" value={world.bodyCount} tone="accent" />
-        <DebugRow label="Sleeping" value={world.sleeping} />
-        <DebugRow label="Static" value={world.static} />
-        <DebugRow label="Dynamic" value={world.dynamic} />
-        <DebugRow label="Kinematic" value={world.kinematic} />
-        <DebugRow label="Contacts" value={world.contactCount} />
-        <DebugRow label="At rest" value={world.atRest ? 'yes' : 'no'} />
-        <DebugRow
-          label="Gravity"
-          value={`${world.gravity.x}, ${world.gravity.y}`}
+        <StatGrid>
+          <StatCard
+            label="Bodies"
+            value={world.bodyCount}
+            tip="Every body in this world, awake or asleep."
+          />
+          <StatCard
+            label="Contacts"
+            value={world.contactCount}
+            tip="Pairs of bodies touching this frame. The solver's cost grows with this number."
+          />
+        </StatGrid>
+        <MetricRow
+          label="Sleeping"
+          value={world.sleeping}
+          tip="Bodies at rest that the solver skips until something wakes them."
+          fill={world.bodyCount > 0 ? world.sleeping / world.bodyCount : 0}
         />
+        <MetricRow
+          label="Dynamic"
+          value={world.dynamic}
+          tip="Bodies that forces and contacts move."
+        />
+        <MetricRow
+          label="Static"
+          value={world.static}
+          tip="Bodies that never move, such as walls and floors."
+        />
+        <MetricRow
+          label="Kinematic"
+          value={world.kinematic}
+          tip="Bodies that code moves directly and that push dynamic bodies."
+        />
+        <div class="world-state">
+          <Pill
+            text={world.atRest ? 'at rest' : 'simulating'}
+            tone={world.atRest ? 'good' : 'neutral'}
+            tip={world.atRest
+              ? 'Every dynamic body is asleep, so the world costs almost nothing.'
+              : 'At least one body is awake and being stepped.'}
+          />
+          <span class="gravity">g {world.gravity.x}, {world.gravity.y}</span>
+        </div>
       </div>
     {/each}
   {/if}
@@ -94,4 +133,13 @@
 
   .world-label
     font-weight: 600
+
+  .world-state
+    display: flex
+    align-items: center
+    justify-content: space-between
+    margin-top: 4px
+
+  .gravity
+    opacity: 0.6
 </style>

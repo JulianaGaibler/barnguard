@@ -12,8 +12,17 @@
     current: string
     /** Switch the stage to `name`. */
     select: (name: string) => void
+    /** Whether the debug HUD is open. */
+    hudOpen: boolean
+    /**
+     * Whether the HUD can open on the demo on stage. The bench runs without it,
+     * so nothing runs beside what it measures.
+     */
+    hudAvailable: boolean
+    /** Open or close the debug HUD. */
+    toggleHud: () => void
   }
-  const { current, select }: Props = $props()
+  const { current, select, hudOpen, hudAvailable, toggleHud }: Props = $props()
 
   const names = Object.keys(demos)
 </script>
@@ -30,6 +39,20 @@
       {name}
     </button>
   {/each}
+  <span class="demo-nav__divider" aria-hidden="true"></span>
+  <button
+    type="button"
+    class="demo-nav__item"
+    class:demo-nav__item--active={hudOpen && hudAvailable}
+    aria-pressed={hudOpen && hudAvailable}
+    disabled={!hudAvailable}
+    title={hudAvailable
+      ? 'Toggle the stargazer debug HUD (also the backtick key)'
+      : 'This demo runs without the debug HUD'}
+    onclick={toggleHud}
+  >
+    debug
+  </button>
 </nav>
 
 <style lang="sass">
@@ -68,6 +91,20 @@
     &:focus-visible
       outline: 2px solid #60a5fa
       outline-offset: 1px
+
+    &:disabled
+      opacity: 0.4
+      cursor: default
+
+      &:hover
+        background: rgba(255, 255, 255, 0.05)
+        color: #d8dee9
+
+  .demo-nav__divider
+    align-self: stretch
+    width: 1px
+    margin-inline: 4px
+    background: rgba(255, 255, 255, 0.2)
 
   .demo-nav__item--active
     background: rgba(96, 165, 250, 0.35)

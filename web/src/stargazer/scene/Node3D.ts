@@ -51,12 +51,6 @@ export class Node3D extends Node {
    */
   readonly transform = new Transform3D()
 
-  /**
-   * Snapshot of `transform` at the start of each fixed step when render
-   * interpolation is on. `null` when off (default).
-   */
-  prevTransform: Transform3D | null = null
-
   constructor(id?: string) {
     super(id)
     this.transform.onDirty = () => this.markWorldDirty()

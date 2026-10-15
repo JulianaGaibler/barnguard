@@ -31,7 +31,7 @@ export class PacketNode extends Path2DNode {
       lineWidth: 1.5,
       hitMode: 'circle',
       hitRadiusWorld: radius + TUNING.packet.hitPadding,
-      debugBounds: hexBounds(radius),
+      bounds: hexBounds(radius),
     })
     this.radius = radius
   }

@@ -1,15 +1,29 @@
 import {
   Node2D,
+  ShaderQuad,
+  definePaintProps,
+  parseColor,
+  quadShader,
   withAlpha,
-  type CameraView2D,
-  type Gfx2D,
-  type Rect,
+  type Canvas,
+  type ShaderReflection,
   type Vec2,
 } from '@src/stargazer'
 import { TUNING } from '../data/tuning'
+import coneDotsWgsl from './coneDots.wgsl?raw'
+import coneDotsVert from './coneDots.gen.vert.glsl?raw'
+import coneDotsFrag from './coneDots.gen.frag.glsl?raw'
+import coneDotsReflect from './coneDots.reflect.json'
 
-/** Number of segments used to tessellate the cone's arc. */
-const CONE_ARC_SEGMENTS = 20
+const CONE_DOTS_SHADER = quadShader(
+  coneDotsVert,
+  coneDotsFrag,
+  coneDotsWgsl,
+  coneDotsReflect as ShaderReflection,
+)
+
+/** Bytes in the shader's `Params` block: five vec4s. */
+const PARAMS_BYTES = 80
 
 interface EpicenterNodeOptions {
   center: Vec2
@@ -24,8 +38,8 @@ interface EpicenterNodeOptions {
   coneRadiusWorld?: number
   coneSweepRad?: number
   /**
-   * Optional bitmap painted inside the apex disc, the Firefox mark in the game.
-   * Omitted, only the plain white dot is drawn.
+   * Optional bitmap painted at the apex, the Firefox Enterprise mark in the
+   * game. Omitted, a plain white dot is drawn.
    */
   apexIcon?: CanvasImageSource
   /** Rendered size of `apexIcon` in world units (square). Default 20. */
@@ -35,9 +49,14 @@ interface EpicenterNodeOptions {
 /**
  * Safe zone at a state's capital, a 60° cone opening toward the interior.
  * Capture requires apex proximity AND a valid entry heading, not a drag
- * terminating at the apex. Visuals: gradient wedge + outline (breathing via
- * `pulseScale`) then a white apex dot. Passive, packets read `center` /
- * `axisRad` / radii directly.
+ * terminating at the apex. Visuals: two fading lines along the cone's edges and
+ * a field of purple dots filling it, shrinking away from the apex, with a wave
+ * pulsing inward through them, and the Firefox Enterprise mark at the apex.
+ * Passive, packets read `center` / `axisRad` / radii directly.
+ *
+ * The dots and lines are one shader quad. `outerAlpha` is its node's transform
+ * alpha and never repaints. `outerScale` and `wavePhase` are shader params, so
+ * moving either repaints that single quad.
  */
 export class EpicenterNode extends Node2D {
   readonly captureRadius: number
@@ -50,24 +69,11 @@ export class EpicenterNode extends Node2D {
    * INWARD axis (`axisRad + π`) are considered valid entries.
    */
   readonly axisRad: number
-  /** Set by `EpicenterBehavior`, outer alpha for the breathing pulse. */
-  outerAlpha = 1
-  /**
-   * Set by `EpicenterBehavior`, grow-in scale applied on show. Kept for
-   * compatibility with the behavior, multiplied into the wedge radius.
-   */
-  outerScale = 1
-  /**
-   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 -> 1 over 2 s,
-   * resets, waits 3 s, repeats. Multiplied into the wedge radius.
-   */
-  pulseScale = 0
-  /** Retained for compatibility with `EpicenterBehavior`, unused visually. */
-  dashRotation = 0
 
-  readonly #_arcPoly: Float32Array
-  readonly #apexIcon: CanvasImageSource | null
-  readonly #apexIconSize: number
+  #outerAlpha = 1
+  #outerScale = 1
+  #wavePhase = 0
+  readonly #dots: ConeDotsNode
 
   constructor(opts: EpicenterNodeOptions) {
     super('epicenter')
@@ -85,26 +91,53 @@ export class EpicenterNode extends Node2D {
     const dy = opts.approachReference.y - opts.center.y
     this.axisRad = dx * dx + dy * dy < 1 ? -Math.PI / 2 : Math.atan2(dy, dx)
 
-    // Pre-tessellated wedge, rotation baked in so the draw path issues no
-    // `gfx.rotate` and the apex icon inherits only the node's base transform.
-    const half = this.coneSweep * 0.5
-    const r = this.coneRadius
-    const N = CONE_ARC_SEGMENTS
-    const pts = new Float32Array((N + 2) * 2)
-    pts[0] = 0
-    pts[1] = 0
-    for (let i = 0; i <= N; i++) {
-      const t = i / N
-      const a = this.axisRad - half + this.coneSweep * t
-      pts[(i + 1) * 2] = Math.cos(a) * r
-      pts[(i + 1) * 2 + 1] = Math.sin(a) * r
-    }
-    this.#_arcPoly = pts
+    this.#dots = new ConeDotsNode(this.coneRadius, this.coneSweep, this.axisRad)
+    this.add(this.#dots)
+    this.add(new ApexNode(opts.apexIcon ?? null, opts.apexIconSizeWorld ?? 20))
+  }
 
-    this.#apexIcon = opts.apexIcon ?? null
-    this.#apexIconSize = opts.apexIconSizeWorld ?? 14
+  /** Overall opacity of the dot field. */
+  get outerAlpha(): number {
+    return this.#outerAlpha
+  }
 
-    this.debugBounds = boundsFromRadius(this.coneRadius)
+  set outerAlpha(value: number) {
+    this.#outerAlpha = value
+    this.#syncVisuals()
+  }
+
+  /**
+   * Set by `EpicenterBehavior`, grow-in scale applied on show. Multiplied into
+   * the cone length the dots reach.
+   */
+  get outerScale(): number {
+    return this.#outerScale
+  }
+
+  set outerScale(value: number) {
+    this.#outerScale = value
+    this.#syncVisuals()
+  }
+
+  /**
+   * Position of the inward wave, in wavelengths, wrapped to `[0, 1)`.
+   * `EpicenterBehavior` advances it every frame.
+   */
+  get wavePhase(): number {
+    return this.#wavePhase
+  }
+
+  set wavePhase(value: number) {
+    this.#wavePhase = value - Math.floor(value)
+    this.#syncVisuals()
+  }
+
+  #syncVisuals(): void {
+    const dots = this.#dots
+    dots.reach = this.#outerScale
+    dots.phase = this.#wavePhase
+    dots.transform.alpha = this.#outerAlpha
+    dots.visible = this.#outerScale > 0.001 && this.#outerAlpha > 0.001
   }
 
   /** World coord of the safe-zone apex. Read every fixed step by packets. */
@@ -135,74 +168,84 @@ export class EpicenterNode extends Node2D {
     const tol = this.coneSweep * 0.5 + TUNING.epicenter.approachForgivenessRad
     return Math.abs(delta) <= tol
   }
+}
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const alpha = this.transform.alpha
-    if (alpha < 0.001) return
-    const s = camera.strokeSpaceScale()
+/**
+ * The cone's dot field and edge lines, one shader quad over the cone's bounding
+ * square. See `coneDots.wgsl` for the lattice, the wave and the lines. The
+ * lines' width follows the screen scale, so a zoom repaints the quad.
+ */
+class ConeDotsNode extends Node2D {
+  /** Fraction of the cone length the dots reach, the intro grow. */
+  declare reach: number
+  /** Wave phase in `[0, 1)`. */
+  declare phase: number
+  readonly #radius: number
+  readonly #quad: ShaderQuad
 
-    // Base cone wedge, always visible at full radius (with `outerScale`
-    // driving the intro grow-in). Fill sits behind the outline. The
-    // polygon is already rotated at construction, only the uniform
-    // grow-in scale is applied here.
-    if (this.outerScale > 0.001) {
-      gfx.save()
-      gfx.scale(this.outerScale, this.outerScale)
+  constructor(radius: number, sweep: number, axisRad: number) {
+    super('epicenter-dots')
+    definePaintProps(this, { reach: 1, phase: 0 })
+    this.#radius = radius
+    this.#quad = new ShaderQuad({
+      shader: CONE_DOTS_SHADER,
+      paramsBytes: PARAMS_BYTES,
+      label: 'coneDots',
+    })
+    const cfg = TUNING.epicenter.dots
+    const p = this.#quad.params
+    p[0] = radius
+    p[1] = sweep * 0.5
+    p[2] = cfg.pitchWorld
+    p[3] = cfg.dotMax
+    p[4] = Math.cos(axisRad)
+    p[5] = Math.sin(axisRad)
+    p[8] = cfg.wavelengthWorld
+    p[9] = cfg.waveAmp
+    p[10] = cfg.minFrac
+    p[11] = cfg.waveSharpness
+    const color = parseColor(cfg.color)
+    p[12] = color.r
+    p[13] = color.g
+    p[14] = color.b
+    p[15] = cfg.alpha
+    p[16] = cfg.innerRadiusWorld
+    p[17] = cfg.waveFloor
+    p[18] = cfg.ceiling
+  }
 
-      gfx.setAlpha(alpha * this.outerAlpha * 0.08)
-      gfx.fillConvexPoly(this.#_arcPoly, this.#_arcPoly.length / 2, '#36FFB9')
+  override paint(gfx: Canvas): void {
+    const p = this.#quad.params
+    p[6] = this.reach
+    p[7] = this.phase
+    p[19] = TUNING.epicenter.dots.edgeLineWidthPx * gfx.screenScale()
+    const r = this.#radius
+    gfx.drawShaderQuad(this.#quad, -r, -r, r * 2, r * 2)
+  }
+}
 
-      gfx.setAlpha(alpha * this.outerAlpha * 0.7)
-      gfx.strokePolyline(this.#_arcPoly, this.#_arcPoly.length / 2, {
-        color: '#81FFD3',
-        width: (1.5 * s) / this.outerScale,
-        closed: true,
-        join: 'round',
-      })
+/**
+ * The Firefox Enterprise mark at the apex, the exact capture centre. Falls back
+ * to a small marker dot when no icon is provided.
+ */
+class ApexNode extends Node2D {
+  readonly #icon: CanvasImageSource | null
+  readonly #iconSize: number
 
-      gfx.restore()
-    }
+  constructor(icon: CanvasImageSource | null, iconSize: number) {
+    super('epicenter-apex')
+    this.#icon = icon
+    this.#iconSize = iconSize
+  }
 
-    // Overlay pulse, a brighter wedge that grows from 0 -> outerScale and
-    // fades out as it expands. Layered on top so it reads as an
-    // "energising" sweep across the cone's face.
-    if (this.pulseScale > 0.001) {
-      const p = this.pulseScale
-      const pulseFade = Math.max(0, 1 - p)
-      const pulseAlpha = alpha * this.outerAlpha * pulseFade
-      if (pulseAlpha > 0.001) {
-        const s2 = p * this.outerScale
-        gfx.save()
-        gfx.scale(s2, s2)
-        gfx.setAlpha(pulseAlpha * 0.55)
-        gfx.fillConvexPoly(this.#_arcPoly, this.#_arcPoly.length / 2, '#81FFD3')
-        gfx.restore()
-      }
-    }
-
-    // Apex disc, the exact capture centre. Sized to host the icon (if
-    // supplied) so the mark reads clearly against the cone. Falls back
-    // to a small marker dot when no icon is provided.
-    gfx.setAlpha(alpha)
-    if (this.#apexIcon) {
-      const half = this.#apexIconSize * 0.5
-      const padding = 3
-      gfx.fillCircle(0, 0, half + padding, withAlpha('#f8fafc', 1))
-      gfx.drawImage(
-        this.#apexIcon,
-        -half,
-        -half,
-        this.#apexIconSize,
-        this.#apexIconSize,
-      )
+  override paint(gfx: Canvas): void {
+    if (this.#icon) {
+      const half = this.#iconSize * 0.5
+      gfx.drawImage(this.#icon, -half, -half, this.#iconSize, this.#iconSize)
     } else {
       gfx.fillCircle(0, 0, 4, withAlpha('#f8fafc', 1))
     }
   }
-}
-
-function boundsFromRadius(r: number): Rect {
-  return { x: -r, y: -r, width: r * 2, height: r * 2 }
 }
 
 function wrapAngle(a: number): number {

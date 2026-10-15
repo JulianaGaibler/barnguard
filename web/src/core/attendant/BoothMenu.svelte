@@ -2,7 +2,7 @@
   import { locale, setLocale, supportedLanguages } from '@src/i18n'
   import { printerLive, reloadConfig } from '@src/core/print/printerClient'
   import { stopGameHandle } from '@src/stores/gameSelection'
-  import { activeDisplay } from '@src/core/display'
+  import { activeDisplay, displayPrints } from '@src/core/display'
   import ConfirmButton from '@src/core/ui/ConfirmButton.svelte'
   import DisplaySettings from '@src/core/attendant/DisplaySettings.svelte'
   import {
@@ -97,70 +97,78 @@
         {/if}
       </span>
     </div>
-    <div class="debug-row">
-      <span class="label">Printer</span>
-      <span
-        class="status-pill"
-        class:status-pill--ok={$printerLive.connection === 'online' &&
-          ($printerLive.printer?.reachable ?? false)}
-        class:status-pill--busy={$printerLive.connection !== 'online'}
-      >
-        <span class="status-dot" aria-hidden="true"></span>
-        {#if $printerLive.connection !== 'online'}
-          unknown
-        {:else if $printerLive.printer?.reachable}
-          connected
-        {:else}
-          offline
-        {/if}
-      </span>
-    </div>
-    <div class="debug-row">
-      <span class="label">Queue</span>
-      <span class="dim">
-        {queueSize === 0 ? 'idle' : `${queueSize} in flight`}
-      </span>
-    </div>
+    {#if displayPrints($activeDisplay)}
+      <div class="debug-row">
+        <span class="label">Printer</span>
+        <span
+          class="status-pill"
+          class:status-pill--ok={$printerLive.connection === 'online' &&
+            ($printerLive.printer?.reachable ?? false)}
+          class:status-pill--busy={$printerLive.connection !== 'online'}
+        >
+          <span class="status-dot" aria-hidden="true"></span>
+          {#if $printerLive.connection !== 'online'}
+            unknown
+          {:else if $printerLive.printer?.reachable}
+            connected
+          {:else}
+            offline
+          {/if}
+        </span>
+      </div>
+      <div class="debug-row">
+        <span class="label">Queue</span>
+        <span class="dim">
+          {queueSize === 0 ? 'idle' : `${queueSize} in flight`}
+        </span>
+      </div>
+    {/if}
   </DebugSection>
 
   <DebugSection title="Panels" open>
-    <ToggleButton
-      active={$gamesPanelVisible}
-      onToggle={toggleGamesPanel}
-      label="Games"
-    />
-    {#if $activeDisplay?.leaderboardIds?.length}
+    <div class="debug-controls">
       <ToggleButton
-        active={$leaderboardPanelVisible}
-        onToggle={toggleLeaderboardPanel}
-        label="Leaderboard"
+        active={$gamesPanelVisible}
+        onToggle={toggleGamesPanel}
+        label="Games"
       />
-    {/if}
-    <ToggleButton
-      active={$printerPanelVisible}
-      onToggle={togglePrinterPanel}
-      label="Printer"
-    />
-    {#if $activeDisplay?.renderPreviewLabel}
+      {#if $activeDisplay?.leaderboardIds?.length}
+        <ToggleButton
+          active={$leaderboardPanelVisible}
+          onToggle={toggleLeaderboardPanel}
+          label="Leaderboard"
+        />
+      {/if}
+      {#if displayPrints($activeDisplay)}
+        <ToggleButton
+          active={$printerPanelVisible}
+          onToggle={togglePrinterPanel}
+          label="Printer"
+        />
+      {/if}
+      {#if $activeDisplay?.renderPreviewLabel}
+        <ToggleButton
+          active={$printStatusPillVisible}
+          onToggle={togglePrintStatusPill}
+          label="Print status pill"
+        />
+      {/if}
       <ToggleButton
-        active={$printStatusPillVisible}
-        onToggle={togglePrintStatusPill}
-        label="Print status pill"
+        active={$debugHudVisible}
+        onToggle={toggleDebugHud}
+        label="Stargazer (GFX)"
       />
-    {/if}
-    <ToggleButton
-      active={$debugHudVisible}
-      onToggle={toggleDebugHud}
-      label="Stargazer (GFX)"
-    />
+    </div>
   </DebugSection>
 
   <DebugSection title="View" open>
-    <ToggleButton
-      active={$isFullscreen}
-      onToggle={toggleFullscreen}
-      label="Fullscreen"
-    />
+    <div class="debug-controls">
+      <ToggleButton
+        active={$isFullscreen}
+        onToggle={toggleFullscreen}
+        label="Fullscreen"
+      />
+    </div>
 
     {#if $supportedLanguages.length > 1}
       <div class="debug-row">

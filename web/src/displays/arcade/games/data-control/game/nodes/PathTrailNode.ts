@@ -1,17 +1,13 @@
-import {
-  PolylineNode,
-  type CameraView2D,
-  type Gfx2D,
-  type Vec2,
-} from '@src/stargazer'
+import { PolylineNode, type Canvas, type Vec2 } from '@src/stargazer'
 import { TUNING } from '../data/tuning'
 
 /**
  * Player-drawn routing line. Decouples the packet's guidance queue from the
  * visible stroke. `markConsumed` advances an index instead of `dropHead` so
  * faded points survive briefly. `onUpdate` drops them lazily once `age >
- * fadeSec`. `draw` walks segments, ahead-of-packet full alpha, behind-packet
- * fades by consume age.
+ * fadeSec`. `paint` walks segments, ahead-of-packet full alpha, behind-packet
+ * fades by consume age. The picture is rebuilt on every change to the points
+ * and on every update while consumed points are still fading.
  */
 export class PathTrailNode extends PolylineNode {
   /**
@@ -28,12 +24,20 @@ export class PathTrailNode extends PolylineNode {
   readonly #_scratchA: Vec2 = { x: 0, y: 0 }
   readonly #_scratchB: Vec2 = { x: 0, y: 0 }
   readonly #_scratchC: Vec2 = { x: 0, y: 0 }
+  /** Stroke style reused by every sub-segment. Only alpha varies. */
+  readonly #style: {
+    color: string
+    width: number
+    join: CanvasLineJoin
+    cap: CanvasLineCap
+    dash: [number, number]
+  }
 
   constructor() {
     super({
       capacity: 256,
       // Base color is fully opaque. Per-segment alpha is applied via
-      // `ctx.globalAlpha` in `draw`.
+      // `setAlpha` in `paint`.
       strokeStyle: '#fdf6e3',
       lineWidth: 1,
       lineJoin: 'round',
@@ -42,6 +46,13 @@ export class PathTrailNode extends PolylineNode {
     })
     this.#pointConsumedAt = new Float32Array(this.capacity)
     this.#pointConsumedAt.fill(-1)
+    this.#style = {
+      color: this.strokeStyle,
+      width: this.lineWidth,
+      join: this.lineJoin,
+      cap: this.lineCap,
+      dash: [0, 0],
+    }
   }
 
   /** Next-target index for the packet's steering. */
@@ -58,6 +69,7 @@ export class PathTrailNode extends PolylineNode {
     if (this.#consumedCount >= this.pointCount) return
     this.#pointConsumedAt[this.#consumedCount] = nowSec
     this.#consumedCount++
+    this.markNeedsPaint()
   }
 
   override push(x: number, y: number): this {
@@ -76,6 +88,7 @@ export class PathTrailNode extends PolylineNode {
     // settled interior corners don't keep drifting. Consumed points are
     // skipped so the packet never sees a waypoint move under it.
     this.#smoothTail()
+    this.markNeedsPaint()
     return this
   }
 
@@ -109,6 +122,7 @@ export class PathTrailNode extends PolylineNode {
     super.clear()
     this.#pointConsumedAt.fill(-1)
     this.#consumedCount = 0
+    this.markNeedsPaint()
     return this
   }
 
@@ -120,6 +134,7 @@ export class PathTrailNode extends PolylineNode {
       this.#pointConsumedAt.copyWithin(0, dropped)
       this.#pointConsumedAt.fill(-1, this.pointCount)
       this.#consumedCount = Math.max(0, this.#consumedCount - dropped)
+      this.markNeedsPaint()
     }
     return this
   }
@@ -141,25 +156,23 @@ export class PathTrailNode extends PolylineNode {
     ) {
       this.dropHead(1)
     }
+    // Consumed segments fade with the clock.
+    if (this.#consumedCount > 0) this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D, _dt: number): void {
+  override paint(canvas: Canvas): void {
     const n = this.pointCount
     if (n < 2) return
     const fade = TUNING.path.fadeSec
     const now = this.#nowSec
-    // Stroke width + dash in CSS px, scaled by `strokeSpaceScale` to stay
+    // Stroke width + dash in CSS px, scaled by the screen scale to stay
     // visually constant across zoom. World-space stroking bypasses this.
-    const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
-    // Dashed pattern shared across every sub-segment. Only alpha varies.
-    const style = {
-      color: this.strokeStyle,
-      width: this.lineWidth * s,
-      join: this.lineJoin,
-      cap: this.lineCap,
-      dash: [6 * s, 4 * s],
-    }
-    gfx.save()
+    const s = this.strokeSpace === 'world' ? 1 : canvas.screenScale()
+    const style = this.#style
+    style.width = this.lineWidth * s
+    style.dash[0] = 6 * s
+    style.dash[1] = 4 * s
+    canvas.save()
     const pA = this.#_scratchA
     const pB = this.#_scratchB
     const pC = this.#_scratchC
@@ -170,10 +183,10 @@ export class PathTrailNode extends PolylineNode {
       this.pointAt(1, pB)
       const alpha = this.#alphaFor(0, now, fade)
       if (alpha > 0) {
-        gfx.setAlpha(alpha)
-        gfx.strokeLine(pA.x, pA.y, pB.x, pB.y, style)
+        canvas.setAlpha(alpha)
+        canvas.strokeLine(pA.x, pA.y, pB.x, pB.y, style)
       }
-      gfx.restore()
+      canvas.restore()
       return
     }
 
@@ -194,8 +207,8 @@ export class PathTrailNode extends PolylineNode {
       const my = (pA.y + pB.y) * 0.5
       const alpha = this.#alphaFor(0, now, fade)
       if (alpha > 0) {
-        gfx.setAlpha(alpha)
-        gfx.strokeLine(pA.x, pA.y, mx, my, style)
+        canvas.setAlpha(alpha)
+        canvas.strokeLine(pA.x, pA.y, mx, my, style)
       }
     }
 
@@ -210,8 +223,8 @@ export class PathTrailNode extends PolylineNode {
       const endY = (pB.y + pC.y) * 0.5
       const alpha = this.#alphaFor(i, now, fade)
       if (alpha <= 0) continue
-      gfx.setAlpha(alpha)
-      gfx.strokeQuadratic(startX, startY, pB.x, pB.y, endX, endY, style)
+      canvas.setAlpha(alpha)
+      canvas.strokeQuadratic(startX, startY, pB.x, pB.y, endX, endY, style)
     }
 
     // Last sub-segment.
@@ -222,12 +235,12 @@ export class PathTrailNode extends PolylineNode {
       const my = (pA.y + pB.y) * 0.5
       const alpha = this.#alphaFor(n - 1, now, fade)
       if (alpha > 0) {
-        gfx.setAlpha(alpha)
-        gfx.strokeLine(mx, my, pB.x, pB.y, style)
+        canvas.setAlpha(alpha)
+        canvas.strokeLine(mx, my, pB.x, pB.y, style)
       }
     }
 
-    gfx.restore()
+    canvas.restore()
   }
 
   #alphaFor(pointIdx: number, now: number, fade: number): number {

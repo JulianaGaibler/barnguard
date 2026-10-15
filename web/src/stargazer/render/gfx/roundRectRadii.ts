@@ -19,18 +19,13 @@ function scaleFor(sum: number, len: number): number {
 }
 
 /**
- * Expand the {@link RoundRectRadii} shorthand into `[tl, tr, br, bl]`, clamp
- * negatives to zero, and proportionally shrink so no two adjacent corners
- * overrun their shared side, matching how `CanvasRenderingContext2D.roundRect`
- * normalizes radii. Doing this on the CPU keeps the two rendering backends
- * pixel-identical and keeps the fill shader's signed-distance field valid (a
- * radius above the half-extent would otherwise invert the corner).
+ * Expand the {@link RoundRectRadii} shorthand into `[tl, tr, br, bl]` as given,
+ * without clamping. Writes into `out`.
  */
-export function resolveRadii(
+export function expandRadii(
   radii: RoundRectRadii,
-  w: number,
-  h: number,
-): ResolvedRadii {
+  out: [number, number, number, number],
+): [number, number, number, number] {
   let tl: number
   let tr: number
   let br: number
@@ -61,6 +56,35 @@ export function resolveRadii(
         bl = radii[3]
     }
   }
+  out[0] = tl
+  out[1] = tr
+  out[2] = br
+  out[3] = bl
+  return out
+}
+
+/**
+ * Expand the {@link RoundRectRadii} shorthand into `[tl, tr, br, bl]`, clamp
+ * negatives to zero, and proportionally shrink so no two adjacent corners
+ * overrun their shared side, matching how `CanvasRenderingContext2D.roundRect`
+ * normalizes radii. Doing this on the CPU keeps the two rendering backends
+ * pixel-identical and keeps the fill shader's signed-distance field valid (a
+ * radius above the half-extent would otherwise invert the corner).
+ *
+ * Writes into `out` and returns it when one is given, so a caller drawing every
+ * frame allocates nothing. Otherwise returns a new tuple.
+ */
+export function resolveRadii(
+  radii: RoundRectRadii,
+  w: number,
+  h: number,
+  out?: [number, number, number, number],
+): ResolvedRadii {
+  const expanded = expandRadii(radii, out ?? [0, 0, 0, 0])
+  let tl = expanded[0]
+  let tr = expanded[1]
+  let br = expanded[2]
+  let bl = expanded[3]
 
   if (w <= 0 || h <= 0) return [0, 0, 0, 0]
 
@@ -82,5 +106,10 @@ export function resolveRadii(
     br *= f
     bl *= f
   }
-  return [tl, tr, br, bl]
+  if (!out) return [tl, tr, br, bl]
+  out[0] = tl
+  out[1] = tr
+  out[2] = br
+  out[3] = bl
+  return out
 }

@@ -1,6 +1,7 @@
 import { createEngineHost, type EngineHostOptions } from '../engine/EngineHost'
 import { CameraNode2D } from '../camera/CameraNode2D'
 import { ShapeNode } from '../nodes/ShapeNode'
+import { Layer } from '../scene/Layer'
 import { DualKawaseBlur } from '../render/postfx/effects/DualKawaseBlur'
 import { FilmGrain } from '../render/postfx/effects/FilmGrain'
 import { WebGPUDevice } from '../render/gfx/webgpu/WebGPUDevice'
@@ -14,6 +15,14 @@ import type { DemoFn } from './types'
 // Each effect has its own toggle, so they can be judged one at a time, and
 // every parameter is a slider rather than an animation. Force the backend
 // with `?gfx=webgpu`.
+//
+// The panel on the right is a `Layer` with a blur of its own, which processes
+// that subtree and nothing else, so it blurs while the rest of the scene stays
+// crisp. Start with `?stage=off` to turn the stage-wide effects off and see
+// the layer on its own, `?cache=on` to start with the layer's result kept and
+// `?animate=on` to start with the bar moving. The layer can keep its rendered result (`cache`), and
+// the readout shows how many frames it was drawn from that result. Animating
+// the bar changes what the layer draws every frame, so it renders again.
 
 /** Deepest chain the sliders can reach. Warmed up front, see `DualKawaseBlur`. */
 const MAX_LEVELS = 6
@@ -111,8 +120,10 @@ function slider(
 }
 
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
-  const wantsWebGPU =
-    new URLSearchParams(window.location.search).get('gfx') === 'webgpu'
+  const params = new URLSearchParams(window.location.search)
+  const wantsWebGPU = params.get('gfx') === 'webgpu'
+  const stageOff = params.get('stage') === 'off'
+  const cacheOn = params.get('cache') === 'on'
   let gpuDevice: EngineHostOptions['gpuDevice']
   if (wantsWebGPU) {
     try {
@@ -126,9 +137,21 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     canvas,
     gpuDevice,
     clearColor: '#808080',
-    debug: 'hud',
   })
   attach?.(host)
+
+  // The panel's own blur. Built at the deepest chain and warmed there, like the
+  // stage's, so the slider never drops a frame.
+  const panelBlur = new DualKawaseBlur({ levels: MAX_LEVELS })
+  panelBlur.levels = 3
+  const panel = new Layer({
+    id: 'frosted-panel',
+    effects: [panelBlur],
+    padding: 24,
+    cache: cacheOn ? 'raster' : 'none',
+  })
+  let animate = params.get('animate') === 'on'
+  let barNode: ShapeNode | null = null
 
   await host.loadScene((scene) => {
     const root = scene.root
@@ -154,6 +177,29 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
       root.add(node)
     }
 
+    // The panel's content: a bar with two discs, off to the right.
+    const bar = new ShapeNode({
+      geometry: { kind: 'rect', width: 56, height: 90, centered: false },
+      fill: '#1f2937',
+    })
+    bar.transform.x = 98
+    bar.transform.y = -45
+    panel.add(bar)
+    barNode = bar
+    for (const [y, fill] of [
+      [-18, '#fbbf24'],
+      [22, '#60a5fa'],
+    ] as const) {
+      const disc = new ShapeNode({
+        geometry: { kind: 'circle', radius: 14 },
+        fill,
+      })
+      disc.transform.x = 126
+      disc.transform.y = y
+      panel.add(disc)
+    }
+    root.add(panel)
+
     const cam = new CameraNode2D()
     cam.setViewport({ x: -160, y: -90, width: 320, height: 180 })
     root.add(cam)
@@ -164,13 +210,43 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   // the slider reaches is already compiled and switching never drops a frame.
   const blur = new DualKawaseBlur({ levels: MAX_LEVELS })
   const grain = new FilmGrain({ enabled: false })
+  blur.enabled = !stageOff
   host.engine.postProcess.add(blur)
   host.engine.postProcess.add(grain)
   host.engine.postProcess.warm()
+  panel.warm()
   blur.levels = 3
 
-  const panel = buildPanel((p) => {
-    heading(p, 'Dual Kawase blur')
+  const readout = document.createElement('div')
+  readout.style.cssText = 'margin-top:6px;color:#60a5fa'
+  let frames = 0
+  const offFrame = host.engine.ticker.onFrame(() => {
+    frames++
+    if (animate && barNode)
+      barNode.transform.y = -45 + Math.sin(frames / 20) * 20
+  })
+  const readoutTimer = setInterval(() => {
+    const stats = host.engine.primaryStage
+      .cacheStats()
+      .find((c) => c.name === 'Layer renders')
+    readout.textContent = stats
+      ? `kept: ${stats.entries}, drawn from it: ${stats.hits}`
+      : 'kept: 0'
+  }, 200)
+
+  const controls = buildPanel((p) => {
+    heading(p, 'Subtree blur (layer effects)')
+    toggle(p, 'enabled', panelBlur.enabled, (v) => (panelBlur.enabled = v))
+    toggle(p, 'cache', panel.cache === 'raster', (v) => {
+      panel.cache = v ? 'raster' : 'none'
+    })
+    toggle(p, 'animate the bar', animate, (v) => (animate = v))
+    p.appendChild(readout)
+    slider(p, 'levels', { min: 1, max: MAX_LEVELS, step: 1, value: 3 }, (v) => {
+      panelBlur.levels = v
+    })
+
+    heading(p, 'Stage blur')
     toggle(p, 'enabled', blur.enabled, (v) => (blur.enabled = v))
     slider(p, 'levels', { min: 1, max: MAX_LEVELS, step: 1, value: 3 }, (v) => {
       blur.levels = v
@@ -218,7 +294,9 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   host.start()
 
   const stop = (): void => {
-    panel.destroy()
+    clearInterval(readoutTimer)
+    offFrame()
+    controls.destroy()
     host.destroy()
   }
   signal.addEventListener('abort', stop, { once: true })

@@ -95,4 +95,31 @@ describe('AmbientOcclusion controller', () => {
     expect(device.deletedRenderTargets).toBeGreaterThan(before)
     expect(ao.aoTexture).toBeNull()
   })
+
+  it('renders at half size, rounding up, at half resolution', async () => {
+    const { device, mesh, ao, world, camera } = await setup('webgpu')
+    ao.enabled = true
+    ao.resolution = 'half'
+    expect(ao.targetSize(129, 64)).toEqual({ w: 65, h: 32 })
+    ao.run(camera, world.root, mesh, 129, 64)
+    const gbuffer = device.renderTargets.at(-1)!
+    expect([gbuffer.width, gbuffer.height]).toEqual([65, 32])
+    // 65 / 8 rounds up to 9 workgroups, 32 / 8 is 4.
+    expect(device.computeDispatches[0].x).toBe(9)
+    expect(device.computeDispatches[0].y).toBe(4)
+  })
+
+  it('rebuilds its targets once when the resolution changes', async () => {
+    const { device, mesh, ao, world, camera } = await setup('webgl2')
+    ao.enabled = true
+    ao.run(camera, world.root, mesh, 128, 128)
+    const created = device.renderTargets.length
+    ao.resolution = 'half'
+    ao.run(camera, world.root, mesh, 128, 128)
+    ao.run(camera, world.root, mesh, 128, 128)
+    const added = device.renderTargets.slice(created)
+    // The G-buffer and the two AO buffers, once, at 64 by 64.
+    expect(added).toHaveLength(3)
+    expect(added.every((t) => t.width === 64 && t.height === 64)).toBe(true)
+  })
 })

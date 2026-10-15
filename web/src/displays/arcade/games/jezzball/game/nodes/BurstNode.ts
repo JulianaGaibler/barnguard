@@ -4,7 +4,7 @@
  * self-destructs once every shard has faded. Allocation-free (parallel typed
  * arrays), in the house style adapted from Orbo's explosion.
  */
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from '@src/stargazer'
 
 const DAMPING_PER_SEC = 3.4
 const MAX_LIFE_SEC = 0.9
@@ -20,11 +20,11 @@ export class BurstNode extends Node2D {
   readonly #spin: Float32Array
   readonly #size: Float32Array
   readonly #color: string
+  readonly #tri = new Float32Array(6)
   #life = 0
 
   constructor(x: number, y: number, color: string, count = 14) {
     super('burst')
-    this.renderLayer = 'dynamic'
     this.transform.x = x
     this.transform.y = y
     this.#color = color
@@ -60,15 +60,16 @@ export class BurstNode extends Node2D {
       const speed = Math.hypot(this.#vx[i], this.#vy[i])
       if (speed > STOP_SPEED) alive = true
     }
+    this.transform.alpha = Math.max(0, 1 - this.#life / MAX_LIFE_SEC)
+    // Every shard moves each frame, so the burst repaints for as long as it lives.
+    this.markNeedsPaint()
     if ((!alive || this.#life > MAX_LIFE_SEC) && !this.isDestroyed) {
       this.destroy()
     }
   }
 
-  override draw(gfx: Gfx2D): void {
-    const fade = Math.max(0, 1 - this.#life / MAX_LIFE_SEC)
-    gfx.setAlpha(fade)
-    const tri = new Float32Array(6)
+  override paint(gfx: Canvas): void {
+    const tri = this.#tri
     for (let i = 0; i < this.#n; i++) {
       const speed = Math.hypot(this.#vx[i], this.#vy[i])
       const s = this.#size[i] * Math.min(1, 0.3 + speed / 260)
@@ -80,6 +81,5 @@ export class BurstNode extends Node2D {
       }
       gfx.fillConvexPoly(tri, 3, this.#color)
     }
-    gfx.setAlpha(1)
   }
 }

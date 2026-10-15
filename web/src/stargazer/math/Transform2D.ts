@@ -1,3 +1,5 @@
+import { Affine2D } from './Affine2D'
+
 /**
  * A `Node2D`'s local transform: position, per-axis scale, skew, rotation, a
  * pivot origin, and alpha. Set the fields directly (`node.transform.x = 100`).
@@ -18,9 +20,9 @@
  */
 export class Transform2D {
   /** Composed local matrix, rebuilt lazily from the fields. Treat as read-only. */
-  readonly local: DOMMatrix = new DOMMatrix()
+  readonly local = new Affine2D()
   /** World matrix (`local` × parent chain), filled by the scene walk. Read-only. */
-  readonly world: DOMMatrix = new DOMMatrix()
+  readonly world = new Affine2D()
 
   /** Internal, the owning `Node2D` hooks this to mark itself dirty. */
   onDirty: (() => void) | null = null
@@ -37,9 +39,11 @@ export class Transform2D {
   #_dirty = true
 
   /**
-   * Opacity in `[0, 1]`. Applied per node by the 2D canvas render walk. It does
-   * NOT cascade there, so fold a parent's alpha in yourself. The DOM overlay
-   * sync and the 3D mesh renderer do compound it down the tree.
+   * Opacity in `[0, 1]`. It cascades: the 2D render walk, the DOM overlay sync
+   * and the 3D mesh renderer all multiply it into the nodes below. In 2D that
+   * is per draw, so overlapping content under a translucent node shows through
+   * itself. A draw that sets an opacity of its own multiplies `gfx.getAlpha()`
+   * in rather than replacing it.
    */
   alpha = 1
 
@@ -172,41 +176,40 @@ export class Transform2D {
    */
   updateLocal(): void {
     if (!this.#_dirty) return
-    const l = this.local
-    l.a = 1
-    l.b = 0
-    l.c = 0
-    l.d = 1
-    l.e = 0
-    l.f = 0
-    if (this.#_x !== 0 || this.#_y !== 0) l.translateSelf(this.#_x, this.#_y)
-    if (this.#_rotation !== 0) {
-      // DOMMatrix.rotateSelf takes degrees around Z when passed one argument,
-      // so this passes the single-arg form for 2D.
-      l.rotateSelf((this.#_rotation * 180) / Math.PI)
-    }
+    // The linear part is R · K · S, with K the skew shear, written out per
+    // column. The translation then places the origin at (x, y).
+    const cos = Math.cos(this.#_rotation)
+    const sin = Math.sin(this.#_rotation)
+    let ka = 1
+    let kb = 0
+    let kc = 0
+    let kd = 1
     if (this.#_skew !== 0) {
-      // Rot(axis) · Shear(tan skew) · Rot(-axis), written out.
+      // Rot(axis) · Shear(tan skew) · Rot(-axis).
       const t = Math.tan(this.#_skew)
-      const c = Math.cos(this.#_skewAxis)
-      const s = Math.sin(this.#_skewAxis)
-      l.multiplySelf(
-        new DOMMatrix([
-          1 - c * s * t,
-          -s * s * t,
-          c * c * t,
-          1 + c * s * t,
-          0,
-          0,
-        ]),
-      )
+      const ca = Math.cos(this.#_skewAxis)
+      const sa = Math.sin(this.#_skewAxis)
+      ka = 1 - ca * sa * t
+      kb = -sa * sa * t
+      kc = ca * ca * t
+      kd = 1 + ca * sa * t
     }
-    if (this.#_scaleX !== 1 || this.#_scaleY !== 1) {
-      l.scaleSelf(this.#_scaleX, this.#_scaleY)
-    }
-    if (this.#_originX !== 0 || this.#_originY !== 0) {
-      l.translateSelf(-this.#_originX, -this.#_originY)
-    }
+    const sx = this.#_scaleX
+    const sy = this.#_scaleY
+    const a = (cos * ka - sin * kb) * sx
+    const b = (sin * ka + cos * kb) * sx
+    const c = (cos * kc - sin * kd) * sy
+    const d = (sin * kc + cos * kd) * sy
+    const ox = this.#_originX
+    const oy = this.#_originY
+    this.local.set(
+      a,
+      b,
+      c,
+      d,
+      this.#_x - (a * ox + c * oy),
+      this.#_y - (b * ox + d * oy),
+    )
     this.#_dirty = false
   }
 }

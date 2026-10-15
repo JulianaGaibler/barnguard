@@ -4,8 +4,7 @@ import {
   flattenCubic,
   lerp,
   registerPathTessellation,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Vec2,
 } from '@src/stargazer'
 
@@ -84,7 +83,64 @@ function resolvePhase(elapsed: number): {
 }
 
 /**
- * Looping demo overlay for the tutorial mini-stage. Draws a dashed bezier arch
+ * The dashed arch. Its alpha is the parent's envelope, written on the
+ * transform.
+ */
+class HintArchNode extends Node2D {
+  #path: Path2D | null = null
+
+  constructor() {
+    super('tutorial-hint-arch')
+    this.visible = false
+  }
+
+  setPath(path: Path2D): void {
+    this.#path = path
+    this.markNeedsPaint()
+  }
+
+  override paint(canvas: Canvas): void {
+    const path = this.#path
+    if (!path) return
+    const strokeScale = canvas.screenScale()
+    canvas.strokePath2D(path, {
+      color: CURVE_COLOR,
+      width: CURVE_WIDTH_CSS_PX * strokeScale,
+      cap: 'round',
+      dash: [
+        CURVE_DASH_CSS_PX[0] * strokeScale,
+        CURVE_DASH_CSS_PX[1] * strokeScale,
+      ],
+    })
+  }
+}
+
+/**
+ * The hand, drawn with its fingertip at the node origin. The parent moves it
+ * and fades it through the transform.
+ */
+class HintHandNode extends Node2D {
+  readonly #pathBlack: Path2D
+  readonly #pathWhite: Path2D
+
+  constructor(pathBlack: Path2D, pathWhite: Path2D) {
+    super('tutorial-hint-hand')
+    this.#pathBlack = pathBlack
+    this.#pathWhite = pathWhite
+    this.transform.scaleX = HAND_SCALE
+    this.transform.scaleY = HAND_SCALE
+    this.visible = false
+  }
+
+  override paint(canvas: Canvas): void {
+    canvas.translate(-HAND_FINGERTIP_OFFSET.x, -HAND_FINGERTIP_OFFSET.y)
+    canvas.fillPath2D(this.#pathBlack, '#000000')
+    canvas.fillPath2D(this.#pathWhite, '#ffffff')
+  }
+}
+
+/**
+ * Looping demo overlay for the tutorial mini-stage. Shows a dashed bezier arch
  * between the packet spawn point and the epicenter centre, then animates a hand
  * SVG whose fingertip enters from below the packet, traces the arch, and exits
  * below the epicenter. Cycles every `CYCLE_SEC` until `stop()` is called (on
@@ -95,10 +151,10 @@ function resolvePhase(elapsed: number): {
  * even if the world viewport reshapes.
  */
 export class TutorialHintNode extends Node2D {
-  readonly #pathBlack: Path2D
-  readonly #pathWhite: Path2D
+  readonly #arch = new HintArchNode()
+  readonly #hand: HintHandNode
   /** Dashed bezier arch, rebuilt whenever `setGeometry` runs. */
-  #archPath: Path2D | null = null
+  #archReady = false
 
   readonly #p0: Vec2 = { x: 0, y: 0 }
   readonly #p1: Vec2 = { x: 0, y: 0 }
@@ -123,19 +179,14 @@ export class TutorialHintNode extends Node2D {
 
   /**
    * @param rawBlack, The SVG's first `<path>` (fill=black, hand shape).
-   * @param rawWhite, The SVG's second `<path>` (fill=white, outline). Both are
-   *   pre-translated so the fingertip sits at (0, 0), simplifies the per-frame
-   *   draw to a single `ctx.translate(handX, handY)`.
+   * @param rawWhite, The SVG's second `<path>` (fill=white, outline). The hand
+   *   node shifts both so the fingertip sits at the node origin.
    */
   constructor(rawBlack: Path2D, rawWhite: Path2D) {
     super('tutorial-hint')
-    // Keep the raw SVG paths, they're the ones registered with the GPU
-    // tessellation registry. The fingertip-origin shift is applied at
-    // draw time via `gfx.translate(-fingertipX, -fingertipY)` (see below),
-    // so `pathBlack`/`pathWhite` stay directly renderable on both
-    // backends without re-registering shifted geometries.
-    this.#pathBlack = rawBlack
-    this.#pathWhite = rawWhite
+    this.#hand = new HintHandNode(rawBlack, rawWhite)
+    this.add(this.#arch)
+    this.add(this.#hand)
   }
 
   /**
@@ -154,7 +205,7 @@ export class TutorialHintNode extends Node2D {
     this.#p2.x = packet.x + 0.75 * dx
     this.#p2.y = packet.y - arch
     this.#handOffscreenY = viewportHeight * HAND_OFFSCREEN_FRAC
-    // Pre-build the (now fixed) dashed arch so draw only sets the dash scale.
+    // Pre-build the (now fixed) dashed arch so paint only sets the dash scale.
     const archPath = new Path2D()
     archPath.moveTo(this.#p0.x, this.#p0.y)
     archPath.bezierCurveTo(
@@ -165,7 +216,8 @@ export class TutorialHintNode extends Node2D {
       this.#p3.x,
       this.#p3.y,
     )
-    this.#archPath = archPath
+    this.#arch.setPath(archPath)
+    this.#archReady = true
     // Also register a flattened polyline so the GPU backend's
     // `strokePath2D(archPath, …)` finds contours to stroke. Empty
     // geometry (triangles), the arch is stroke-only, never filled.
@@ -203,6 +255,7 @@ export class TutorialHintNode extends Node2D {
   stop(): void {
     this.#stopped = true
     this.#alpha = 0
+    this.#applyVisuals()
   }
 
   override onUpdate(dt: number): void {
@@ -240,42 +293,24 @@ export class TutorialHintNode extends Node2D {
         this.#alpha = 0
         break
     }
+    this.#applyVisuals()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const archPath = this.#archPath
-    if (this.#stopped || !this.#geometryReady || !archPath) return
-    if (this.#alpha < MIN_DRAW_ALPHA) return
-    const a = this.#alpha
-    const strokeScale = camera.strokeSpaceScale()
-
-    // Dashed bezier arch, behind the hand, alpha follows the same
-    // enter/exit envelope so the whole hint reads as one element.
-    gfx.save()
-    gfx.setAlpha(a)
-    gfx.strokePath2D(archPath, {
-      color: CURVE_COLOR,
-      width: CURVE_WIDTH_CSS_PX * strokeScale,
-      cap: 'round',
-      dash: [
-        CURVE_DASH_CSS_PX[0] * strokeScale,
-        CURVE_DASH_CSS_PX[1] * strokeScale,
-      ],
-    })
-    gfx.restore()
-
-    // Hand, move the origin to the desired fingertip position, apply the
-    // uniform `HAND_SCALE`, then apply the fingertip-origin shift on the
-    // scaled space and fill both paths in the SVG's authored order (black
-    // shape, then white outline).
-    gfx.save()
-    gfx.setAlpha(a)
-    gfx.translate(this.#handX, this.#handY)
-    gfx.scale(HAND_SCALE, HAND_SCALE)
-    gfx.translate(-HAND_FINGERTIP_OFFSET.x, -HAND_FINGERTIP_OFFSET.y)
-    gfx.fillPath2D(this.#pathBlack, '#000000')
-    gfx.fillPath2D(this.#pathWhite, '#ffffff')
-    gfx.restore()
+  /** Writes the envelope and hand position onto the children's transforms. */
+  #applyVisuals(): void {
+    const show =
+      !this.#stopped &&
+      this.#geometryReady &&
+      this.#archReady &&
+      this.#alpha >= MIN_DRAW_ALPHA
+    this.#arch.visible = show
+    this.#hand.visible = show
+    if (!show) return
+    this.#arch.transform.alpha = this.#alpha
+    const hand = this.#hand.transform
+    hand.alpha = this.#alpha
+    hand.x = this.#handX
+    hand.y = this.#handY
   }
 }
 

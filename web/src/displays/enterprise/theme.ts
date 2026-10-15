@@ -33,9 +33,9 @@ export const enterpriseTheme: Theme = {
     actionSecondaryDisabled: 'rgba(28, 28, 28, 0.35)',
 
     inputBg: '#f2f0e9',
-    // Pre-boot fallback only: the engine's own backdrop stage paints over
-    // this the moment it renders its first frame (see
-    // `background/Backdrop.svelte`).
+    // Pre-boot fallback only: the game canvas's clear color and the backdrop
+    // layer paint over this the moment it renders its first frame (see
+    // `background/createBackdropLayer.ts`).
     appBackdrop: '#D1C3F4',
     shadowCard:
       '0 0.3125rem 2.5rem #0000001a, inset 0 0.125rem 0 -0.0625rem #ffffff80',

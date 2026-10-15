@@ -11,6 +11,7 @@ export interface RenderQualityOptions {
   meshShadowsEnabled?: boolean
   anisotropy?: number
   shadowSoftness?: number
+  adaptive?: boolean
   vector?: VectorQualityOptions
 }
 
@@ -37,6 +38,14 @@ export class RenderQuality {
   #anisotropy = 8
   #shadowSoftness = 4
   #revision = 0
+  /**
+   * Whether the engine lowers quality when the GPU cannot keep up, a tier at a
+   * time: ambient occlusion resolution and preset, MSAA, shadow softness, the
+   * render scale, and last ambient occlusion and shadows off. Default true. It
+   * only steps down, so a caller that wants a fixed quality sets this to
+   * false.
+   */
+  adaptive = true
   /** 2D vector-renderer quality: path drop shadows and gradient dithering. */
   readonly vector: VectorQuality
 
@@ -46,6 +55,7 @@ export class RenderQuality {
     if (opts.meshShadowsEnabled !== undefined)
       this.meshShadowsEnabled = opts.meshShadowsEnabled
     if (opts.anisotropy !== undefined) this.anisotropy = opts.anisotropy
+    if (opts.adaptive !== undefined) this.adaptive = opts.adaptive
     if (opts.shadowSoftness !== undefined)
       this.shadowSoftness = opts.shadowSoftness
     this.vector = new VectorQuality(opts.vector)
@@ -56,8 +66,8 @@ export class RenderQuality {
    * Bumped whenever a setting changes. Nothing in the renderer reads this:
    * `MeshRenderer` rebuilds its shadow map by comparing the resolved size
    * against its own cached value instead. Kept for a consumer that wants to
-   * detect "something changed" without diffing every field, not as a signal
-   * the engine itself watches.
+   * detect "something changed" without diffing every field, not as a signal the
+   * engine itself watches.
    */
   get revision(): number {
     return this.#revision

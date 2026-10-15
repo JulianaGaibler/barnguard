@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   PathShadowCache,
+  insetMaskProjection,
   resolveMaskSize,
   kernelTruncatedMass,
   MASK_SIZE_QUANTUM,
@@ -262,5 +263,62 @@ describe('PathShadowCache', () => {
     cache.getOrBake(baseRequest())
     expect(() => cache.destroy()).not.toThrow()
     expect(device.deletedShaderModules).toBeGreaterThan(0)
+  })
+})
+
+describe('insetMaskProjection', () => {
+  const mask = { localX: -10, localY: -5, localW: 80, localH: 60 }
+
+  /** The uv a local point of the mask lands on through the projection. */
+  function uvOf(
+    t: { a: number; b: number; c: number; d: number; e: number; f: number },
+    offset: [number, number],
+    localX: number,
+    localY: number,
+  ): [number, number] {
+    const m = insetMaskProjection(t, offset[0], offset[1], mask)
+    const x = t.a * localX + t.c * localY + t.e + offset[0]
+    const y = t.b * localX + t.d * localY + t.f + offset[1]
+    return [m.ux * x + m.uy * y + m.uOffset, m.vx * x + m.vy * y + m.vOffset]
+  }
+
+  const angle = 2.2
+  const transforms = {
+    'axis-aligned': { a: 2, b: 0, c: 0, d: 3, e: 40, f: 25 },
+    rotated: {
+      a: 1.5 * Math.cos(angle),
+      b: 1.5 * Math.sin(angle),
+      c: -1.5 * Math.sin(angle),
+      d: 1.5 * Math.cos(angle),
+      e: 120,
+      f: 90,
+    },
+    skewed: { a: 1, b: 0.3, c: 0.6, d: 1, e: 10, f: 20 },
+  }
+  for (const [name, t] of Object.entries(transforms)) {
+    it(`maps the mask's corners to the uv corners when ${name}`, () => {
+      const offset: [number, number] = [4, -7]
+      const corners: [number, number, number, number][] = [
+        [-10, -5, 0, 0],
+        [70, -5, 1, 0],
+        [-10, 55, 0, 1],
+        [70, 55, 1, 1],
+      ]
+      for (const [lx, ly, u, v] of corners) {
+        const [gotU, gotV] = uvOf(t, offset, lx, ly)
+        expect(gotU).toBeCloseTo(u, 9)
+        expect(gotV).toBeCloseTo(v, 9)
+      }
+    })
+  }
+
+  it('maps nothing for a degenerate transform', () => {
+    const m = insetMaskProjection(
+      { a: 0, b: 0, c: 0, d: 0, e: 5, f: 5 },
+      0,
+      0,
+      mask,
+    )
+    expect(m).toEqual({ ux: 0, uy: 0, uOffset: 0, vx: 0, vy: 0, vOffset: 0 })
   })
 })

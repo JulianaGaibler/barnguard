@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Gfx2D } from '@src/stargazer'
+import { paintCalls } from '@src/stargazer'
 import { ConfettiNode } from './ConfettiNode'
 import type { BurstSpec } from '../flourish'
 
@@ -27,9 +27,6 @@ function spec(over: Partial<BurstSpec> = {}): BurstSpec {
   }
 }
 
-/** The camera `draw` wants. Its concrete type is not on the public barrel. */
-type DrawCamera = Parameters<NonNullable<ConfettiNode['draw']>>[1]
-
 interface Drawn {
   at: { x: number; y: number }
   alpha: number
@@ -37,7 +34,7 @@ interface Drawn {
 }
 
 /**
- * Records what each particle drew. The base class translates to a particle's
+ * Records what each particle painted. The base class translates to a particle's
  * position before handing over, so this is also how a test reads positions off
  * a node that keeps them private.
  */
@@ -45,22 +42,15 @@ function render(node: ConfettiNode): Drawn[] {
   const out: Drawn[] = []
   let at = { x: 0, y: 0 }
   let alpha = 1
-  const gfx = {
-    save: () => {},
-    restore: () => {},
-    rotate: () => {},
-    scale: () => {},
-    translate: (x: number, y: number) => {
-      at = { x, y }
-    },
-    setAlpha: (a: number) => {
-      alpha = a
-    },
-    fillCircle: (_cx: number, _cy: number, r: number) => {
-      out.push({ at, alpha, radius: r })
-    },
-  } as unknown as Gfx2D
-  node.draw?.(gfx, {} as DrawCamera, 0)
+  for (const call of paintCalls(node)) {
+    if (call.name === 'translate') {
+      at = { x: call.args[0] as number, y: call.args[1] as number }
+    } else if (call.name === 'setAlpha') {
+      alpha = call.args[0] as number
+    } else if (call.name === 'fillCircle') {
+      out.push({ at, alpha, radius: call.args[2] as number })
+    }
+  }
   return out
 }
 

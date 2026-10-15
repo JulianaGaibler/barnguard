@@ -1,4 +1,4 @@
-import { Node2D, easings, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, easings, type Canvas } from '@src/stargazer'
 import { ANIM, WIN } from '../tuning'
 
 interface Point {
@@ -20,11 +20,11 @@ export class WinLineNode extends Node2D {
   readonly #centers: readonly Point[]
   readonly #ringRadius: number
   readonly #dotRadius: number
-  #progress = 0
+  declare progress: number
 
   constructor(centers: readonly Point[], cell: number) {
     super('cf-win-line')
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { progress: 0 })
     this.#centers = centers
     this.#ringRadius = cell * WIN.ringRadiusFrac
     this.#dotRadius = cell * WIN.dotRadiusFrac
@@ -32,20 +32,20 @@ export class WinLineNode extends Node2D {
 
   override onUpdate(dt: number): void {
     // Progress keeps advancing past 1 so the last chip's ring gets its full
-    // pop-in window too. Only the line's tip position clamps to 1 in draw().
+    // pop-in window too. Only the line's tip position clamps to 1 in paint().
     const max = 1 + RING_POP_DURATION
-    if (this.#progress >= max || dt <= 0) return
-    this.#progress = Math.min(max, this.#progress + dt / ANIM.winLineDraw)
+    if (this.progress >= max || dt <= 0) return
+    this.progress = Math.min(max, this.progress + dt / ANIM.winLineDraw)
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const pts = this.#centers
     const n = pts.length
     if (n < 2) return
-    const strokeScale = camera.strokeSpaceScale()
+    const strokeScale = gfx.screenScale()
     const p0 = pts[0]
     const pLast = pts[n - 1]
-    const t = this.#progress
+    const t = this.progress
     const lineT = Math.min(1, t)
     const tipX = p0.x + (pLast.x - p0.x) * lineT
     const tipY = p0.y + (pLast.y - p0.y) * lineT

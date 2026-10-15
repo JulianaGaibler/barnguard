@@ -28,8 +28,14 @@ import {
   type BatchKind,
 } from './batchLayout'
 import { TransformStack, type TransformOut } from './TransformStack'
-import { StateStack, type ResolvedClip } from './StateStack'
-import { UboRing } from './programs/programCommon'
+import { StateStack, clipEquals, type ResolvedClip } from './StateStack'
+import { PARAM_TABLE_BINDING, ParamTable } from './ParamTable'
+import {
+  UboRing,
+  buildBlendPipelines,
+  type BlendPipelineOptions,
+  type SampledPipelines,
+} from './programs/programCommon'
 import type { ShaderQuadDraw } from './programs/shaderQuad'
 import type { Surface } from './OffscreenSurfaces'
 import type { CompositeDraw } from './programs/offscreenComposite'
@@ -89,6 +95,12 @@ export interface DrawRun {
    * with color writes off. Absent on an ordinary stroke.
    */
   strokePass?: 'core' | 'fringe' | 'reset'
+  /**
+   * Instances held in a buffer of their own instead of the program's ring. The
+   * run's word range is then relative to that buffer. `bounds` is the
+   * device-pixel box the instances touch, `[minX, minY, maxX, maxY]`.
+   */
+  instances?: { buffer: import('./GfxDevice').VBuffer; bounds: Float64Array }
   /** The quad and params slice a `'shaderQuad'` run draws. */
   shaderQuad?: ShaderQuadDraw
   /** The surface and parameters a `'composite'` run draws. */
@@ -110,6 +122,66 @@ export interface DrawRun {
   clipOffset?: number
 }
 
+/**
+ * The programs that read their clip from the param table. Their primitives
+ * carry a record index, so a change of clip does not end a run.
+ */
+export const TABLE_CLIPPED: ReadonlySet<BatchKind> = new Set<BatchKind>([
+  'shape',
+  'coloredTri',
+  'stencilFan',
+])
+
+/** Runs a later run may look back over for one to join. */
+const MERGE_LOOKBACK = 32
+/** Device pixels added to every run's box, for edge antialiasing and filtering. */
+const MERGE_PAD = 2
+
+/**
+ * The stencil rows of a path fill. Their runs join when the paths they draw do
+ * not touch, because each path counts winding only in its own pixels and its
+ * cover clears them again.
+ */
+const PATH_FILL_ROWS: ReadonlySet<StencilRow> = new Set<StencilRow>([
+  'fanNonzero',
+  'fanEvenOdd',
+  'coverNonzero',
+  'coverEvenOdd',
+])
+
+/** Whether `run` is a plain streamed range that may join an earlier run. */
+function isMergeable(run: DrawRun): boolean {
+  if (run.geometry || run.instances || run.shaderQuad || run.composite)
+    return false
+  const row = run.stencilRow
+  if (!row) return true
+  // A clip's own fan shares its rows but never joins, because the quad after
+  // it changes the clip depth the next run is tested against.
+  return (
+    PATH_FILL_ROWS.has(row) &&
+    (run.kind === 'stencilFan' || row.startsWith('cover'))
+  )
+}
+
+/** Whether `run` can extend `earlier` into one draw. */
+function canJoin(earlier: DrawRun, run: DrawRun): boolean {
+  return (
+    isMergeable(earlier) &&
+    earlier.kind === run.kind &&
+    earlier.endWord === run.startWord &&
+    earlier.blend === run.blend &&
+    earlier.clipMask === run.clipMask &&
+    earlier.texture === run.texture &&
+    earlier.lut === run.lut &&
+    earlier.debugMode === run.debugMode &&
+    earlier.stencilDepth === run.stencilDepth &&
+    (earlier.stencilRow ?? null) === (run.stencilRow ?? null) &&
+    earlier.strokePass === run.strokePass &&
+    clipEquals(earlier.clip, run.clip) &&
+    paintEquals(earlier.paint, run.paint)
+  )
+}
+
 /** A pass boundary in the command list, `at` the index of the run after it. */
 export interface PassMark {
   at: number
@@ -118,11 +190,19 @@ export interface PassMark {
 }
 
 /**
- * Pass control the batch context calls during replay. `mark(marks, i)` handles
- * `marks[i]`, with the whole list available to see what comes after it.
+ * Pass control the batch context calls during replay. Every surface is replayed
+ * in a pass of its own before the main target's pass, so the main pass is never
+ * interrupted. `null` names the main target.
  */
 export interface PassHooks {
-  mark(marks: readonly PassMark[], index: number): void
+  open(surface: Surface | null): void
+  close(surface: Surface | null): void
+}
+
+/** One pass of the replay: a surface or the main target, and its run ranges. */
+interface ReplayPass {
+  surface: Surface | null
+  ranges: number[]
 }
 
 /** Per-frame stats surfaced to the debug HUD. */
@@ -133,14 +213,33 @@ export interface GpuGfxStats {
   blendSwitches: number
   /** Per-draw uniform slices written this frame, across all rings. */
   uboSlices: number
+  /** Runs joined into an earlier one this frame, so draws it did not issue. */
+  runsMerged: number
+  /**
+   * Shapes, glyph quads, strokes and polygons written this frame, which is the
+   * renderer's per-frame work however the content got there (drawn directly or
+   * replayed from a picture).
+   */
+  primitives: number
   /** Render passes begun this frame, main and offscreen. */
   passCount: number
+  /**
+   * Device work over the whole frame, shadow, AO, main and post passes
+   * included. Filled by `GpuGfx.captureFrameCounters`.
+   */
+  framePasses: number
+  frameSubmits: number
+  frameBindGroupsCreated: number
+  frameBindGroupSwitches: number
+  frameUniformWrites: number
   /** Offscreen surfaces claimed this frame. */
   surfaces: number
   /** Bytes of offscreen surface storage currently allocated. */
   offscreenBytes: number
   /** Vertex and instance bytes uploaded this frame. */
   bytesUploaded: number
+  /** {@link GpuGfxStats.bytesUploaded}, by the program that streamed them. */
+  streamedBytes: Partial<Record<BatchKind, number>>
   sdfInstances: number
   strokeInstances: number
   roundRectInstances: number
@@ -158,6 +257,18 @@ export interface GpuGfxStats {
   outlineCacheHits: number
   /** Gradient ramp-atlas rows actually (re)painted (an LRU touch doesn't count). */
   rampRowsWritten: number
+  /** Label bitmaps rasterized and uploaded. */
+  labelRasters: number
+  /** Bytes of label bitmap uploaded. */
+  labelUploadBytes: number
+  /** Labels that took their own texture, oversized or with no page room. */
+  labelDedicated: number
+  /** Label draws served by a neighbouring scale's raster instead of a new one. */
+  labelHolds: number
+  /** Times the label page was reset. */
+  labelPageWipes: number
+  /** Entries in the label cache now, text and small images together. */
+  labelEntries: number
   /** Path-shadow masks successfully baked. */
   maskBakes: number
   /** Total tap-work (§7.6) spent on path-shadow bakes. */
@@ -189,35 +300,45 @@ export interface ResolvedGradientPaint {
 }
 
 /**
- * `coloredTri`'s resolved per-run inset-shadow mask paint: the device-space
- * rect->uv projection for the cached mask (same "project a device position"
- * shape the gradient axis uses) plus the mask texture itself. A run's mask
- * texture also joins the batch key like a gradient's ramp row does, so two
- * different inset shadows drawn back to back each get their own `DrawParams`
- * slice and their own bound texture.
+ * `coloredTri`'s resolved per-run inset-shadow mask paint: the affine map from
+ * a device position to the cached mask's uv, `u = ux·x + uy·y + uOffset` and `v
+ * = vx·x + vy·y + vOffset`, plus the mask texture itself. The map carries the
+ * draw's rotation and skew, so the mask follows the path under any transform. A
+ * run's mask texture also joins the batch key like a gradient's ramp row does,
+ * so two different inset shadows drawn back to back each get their own
+ * `DrawParams` slice and their own bound texture.
  */
 export interface ResolvedMaskPaint {
   kind: 'mask'
-  originX: number
-  originY: number
-  invW: number
-  invH: number
+  ux: number
+  uy: number
+  uOffset: number
+  vx: number
+  vy: number
+  vOffset: number
   maskTex: Texture
 }
 
 /**
- * `coloredTri`'s resolved per-run radial gradient: the focal point and the
- * vector from it to the circle's center, both in device px, the circle's radius
- * in device px, the ramp row and the draw's own alpha. Compared by value like
+ * `coloredTri`'s resolved per-run radial gradient, in the gradient's own space
+ * scaled so its circle has radius 1 and its focal point sits at the origin. A
+ * device position maps there by `x' = xx·x + xy·y + offsetX` and `y' = yx·x +
+ * yy·y + offsetY`, which carries the draw's full transform, so a rotated or
+ * unevenly scaled gradient is an ellipse on screen as it is in CSS. `(ex, ey)`
+ * is the vector from the focal point to the center in that space. Also the ramp
+ * row and the draw's own alpha. Compared by value like
  * {@link ResolvedGradientPaint}.
  */
 export interface ResolvedRadialPaint {
   kind: 'radial'
-  fx: number
-  fy: number
+  xx: number
+  xy: number
+  yx: number
+  yy: number
+  offsetX: number
+  offsetY: number
   ex: number
   ey: number
-  r: number
   rampRow: number
   opacity: number
 }
@@ -245,21 +366,26 @@ function paintEquals(
   if (a.kind === 'radial') {
     const bb = b as ResolvedRadialPaint
     return (
-      a.fx === bb.fx &&
-      a.fy === bb.fy &&
+      a.xx === bb.xx &&
+      a.xy === bb.xy &&
+      a.yx === bb.yx &&
+      a.yy === bb.yy &&
+      a.offsetX === bb.offsetX &&
+      a.offsetY === bb.offsetY &&
       a.ex === bb.ex &&
       a.ey === bb.ey &&
-      a.r === bb.r &&
       a.rampRow === bb.rampRow &&
       a.opacity === bb.opacity
     )
   }
   const bb = b as ResolvedMaskPaint
   return (
-    a.originX === bb.originX &&
-    a.originY === bb.originY &&
-    a.invW === bb.invW &&
-    a.invH === bb.invH &&
+    a.ux === bb.ux &&
+    a.uy === bb.uy &&
+    a.uOffset === bb.uOffset &&
+    a.vx === bb.vx &&
+    a.vy === bb.vy &&
+    a.vOffset === bb.vOffset &&
     a.maskTex === bb.maskTex
   )
 }
@@ -305,6 +431,56 @@ export class GpuBatchContext {
     return hasStencilAspect(this.targetFormat.depthStencil)
   }
 
+  /**
+   * The sample count of the pass being recorded into, or replayed into during
+   * submit. A program's {@link SampledPipelines} read it to pick the pipeline
+   * set that matches.
+   */
+  passSamples = 1
+
+  /** Every program's pipeline set at the target's sample count. */
+  readonly pipelineSets: {
+    options: BlendPipelineOptions
+    map: SampledPipelines
+  }[] = []
+  /** Whether every program has its single-sample pipelines. */
+  singleSampleReady = false
+  #singleSampleWarm: Promise<void> | null = null
+
+  /**
+   * Start building every program's single-sample pipelines, once. Until they
+   * exist, a surface that wants a single sample takes the target's count.
+   */
+  warmSingleSample(): void {
+    if (this.singleSampleReady || this.#singleSampleWarm) return
+    if (this.targetFormat.samples === 1) {
+      this.singleSampleReady = true
+      return
+    }
+    const sets = this.pipelineSets.slice()
+    const warm = Promise.all(
+      sets.map((set) =>
+        buildBlendPipelines(this.device, this, set.options, 1, set.map.single),
+      ),
+    ).then(
+      () => {
+        // A retarget while building leaves these for a target that is gone.
+        if (this.#singleSampleWarm === warm) this.singleSampleReady = true
+      },
+      (err: unknown) => {
+        console.error('GpuBatchContext: single-sample pipelines failed', err)
+      },
+    )
+    this.#singleSampleWarm = warm
+  }
+
+  /** Forget the pipeline sets, before a warmup builds them for a new target. */
+  resetPipelineSets(): void {
+    this.pipelineSets.length = 0
+    this.singleSampleReady = false
+    this.#singleSampleWarm = null
+  }
+
   /** Column-major 3×3 for `u_proj`. Updated once per frame. */
   readonly projMat = new Float32Array(9)
 
@@ -314,6 +490,8 @@ export class GpuBatchContext {
     ubo: UBuffer
     bg: BindGroup | null
     gen: number
+    /** The param table generation the bind group was made against. */
+    paramGen: number
   }> = []
   #slotCount = 1
   #curSlot = 0
@@ -327,7 +505,13 @@ export class GpuBatchContext {
   /** Per-run analytic clip params, bound through the frame group at binding 8. */
   #clipRing: UboRing | null = null
   #clipGen = 0
-  readonly #clipStaging = new Float32Array(8)
+  /**
+   * The per-primitive records of the frame, read by the programs in
+   * {@link TABLE_CLIPPED} through the frame group at
+   * {@link PARAM_TABLE_BINDING}.
+   */
+  readonly params = new ParamTable()
+  readonly #clipStaging = new Float32Array(CLIP_UBO_BYTES / 4)
 
   readonly txStack = new TransformStack(64)
   readonly stateStack = new StateStack(64)
@@ -360,6 +544,11 @@ export class GpuBatchContext {
   curBlend: GfxBlend = 'source-over'
   curClipMask: BitmapMask | null = null
   curClip: ResolvedClip | null = null
+  /**
+   * The param record of the clip a table-clipped program writes into its
+   * primitives. Valid after `beginBatch` for those programs.
+   */
+  curClipIndex = 0
   curShaderQuad: ShaderQuadDraw | null = null
   curComposite: CompositeDraw | null = null
   /** The recipe row of the open batch, `null` for an ordinary draw. */
@@ -376,6 +565,15 @@ export class GpuBatchContext {
 
   readonly #drawRuns: DrawRun[] = []
   readonly #marks: PassMark[] = []
+  /** Scratch for a run's box, and the boxes of the runs kept by the merge. */
+  readonly #box = new Float64Array(4)
+  #bounds = new Float64Array(0)
+
+  /**
+   * Whether `submitFrame` joins runs that can be drawn together. On by default.
+   * Turn it off to compare against one draw per run.
+   */
+  mergeRuns = true
   /** Index into `#drawRuns` where the open stencil group began, or -1. */
   #stencilGroupStart = -1
 
@@ -427,13 +625,17 @@ export class GpuBatchContext {
         type: 'uniform-buffer',
         dynamicOffset: true,
       },
+      { binding: PARAM_TABLE_BINDING, type: 'data-table' },
     ])
+    this.params.dropGpu()
+    this.params.reset()
     this.#clipGen = this.#clipRing.generation
     this.#frameSlots.length = 0
     this.#frameSlots.push({
       ubo: this.#frameUbo,
       bg: this.#createFrameBindGroup(this.#frameUbo),
       gen: this.#clipGen,
+      paramGen: this.params.generation,
     })
     this.#slotCount = 1
     this.#curSlot = 0
@@ -451,6 +653,10 @@ export class GpuBatchContext {
           uniformBuffer: this.#clipRing!.buffer,
           size: CLIP_UBO_BYTES,
         },
+      },
+      {
+        binding: PARAM_TABLE_BINDING,
+        resource: { dataTable: this.params.ensure(this.device) },
       },
     ])
   }
@@ -472,8 +678,12 @@ export class GpuBatchContext {
       throw new Error('GpuBatchContext: frame UBO not initialized')
     }
     const ring = this.#clipRing
-    if (ring && slot.gen !== ring.generation) {
-      slot.gen = ring.generation
+    if (
+      (ring && slot.gen !== ring.generation) ||
+      slot.paramGen !== this.params.generation
+    ) {
+      if (ring) slot.gen = ring.generation
+      slot.paramGen = this.params.generation
       slot.bg = this.#createFrameBindGroup(slot.ubo)
     }
     return {
@@ -496,6 +706,7 @@ export class GpuBatchContext {
         ubo: this.device.createUniformBuffer(FRAME_UBO_FLOATS * 4),
         bg: null,
         gen: -1,
+        paramGen: -1,
       })
     }
     const p = this.#slotProj
@@ -555,8 +766,12 @@ export class GpuBatchContext {
     s[3] = clip.r
     s[4] = clip.halfW
     s[5] = clip.halfH
-    s[6] = clip.rrRadius
+    s[6] = 0
     s[7] = 0
+    s[8] = clip.radii[0]
+    s[9] = clip.radii[1]
+    s[10] = clip.radii[2]
+    s[11] = clip.radii[3]
     const off = ring.push(this.device, s)
     run.clipOffset = off < 0 ? 0 : off
   }
@@ -606,10 +821,17 @@ export class GpuBatchContext {
     const wantRow = key.stencilRow ?? null
     const sameRow =
       this.curStencilRow === wantRow && this.curDepth === this.clipDepth
-    // Clip is global like blend, pulled from the state stack, so every program
+    // Clip is global like blend, pulled from the state stack. A program that
+    // reads its clip from the param table writes the clip's record index into
+    // each primitive, so the clip never breaks its batch. Every other program
     // breaks its batch when the analytic clip changes.
-    const wantClip = this.stateStack.getClip()
-    const sameClip = this.curClip === wantClip
+    let wantClip: ResolvedClip | null = null
+    if (TABLE_CLIPPED.has(kind)) {
+      this.curClipIndex = this.params.clipIndex(this.stateStack.getClip())
+    } else {
+      wantClip = this.stateStack.getClip()
+    }
+    const sameClip = clipEquals(this.curClip, wantClip)
     if (
       sameBatch &&
       sameBlend &&
@@ -712,6 +934,59 @@ export class GpuBatchContext {
     })
   }
 
+  /** Words every program has streamed so far this frame. */
+  streamedWords(): number {
+    let words = 0
+    for (const program of this.#programs.values()) {
+      words += program.stream.pendingWords[this.curSlot]
+    }
+    return words
+  }
+
+  /** Close the run being filled, so what is recorded next starts a new one. */
+  closeRun(): void {
+    this.#recordActiveRun()
+  }
+
+  /** The run recorded at `index`. */
+  runAt(index: number): DrawRun {
+    return this.#drawRuns[index]
+  }
+
+  /**
+   * Record a stroke whose instances already sit in `buffer`, as one run in the
+   * current state, or as the three passes of a stencil group.
+   */
+  recordInstanced(
+    buffer: import('./GfxDevice').VBuffer,
+    words: number,
+    bounds: Float64Array,
+    stencil: boolean,
+  ): void {
+    this.#recordActiveRun()
+    this.beginBatch('stroke')
+    const start = this.#drawRuns.length
+    this.#drawRuns.push({
+      kind: 'stroke',
+      startWord: 0,
+      endWord: words,
+      blend: this.curBlend,
+      clipMask: this.curClipMask,
+      clip: this.curClip,
+      texture: null,
+      lut: null,
+      paint: null,
+      debugMode: this.curDebugMode,
+      debugBatchIndex: this.debugBatchCounter++,
+      stencilRow: null,
+      stencilDepth: this.curDepth,
+      instances: { buffer, bounds },
+    })
+    this.curBatch = 'none'
+    this.curStencilRow = null
+    if (stencil) this.#sealStencilGroup(start)
+  }
+
   #recordActiveRun(): void {
     if (this.curBatch === 'none') return
     const program = this.#programs.get(this.curBatch)
@@ -750,13 +1025,17 @@ export class GpuBatchContext {
    */
   submitFrame(hooks: PassHooks | null = null): void {
     this.#recordActiveRun()
+    this.#mergeRuns()
     if (this.#frameUbo) this.#writeFrame(this.#frameUbo, this.projMat)
     this.#slotCount = 1
     this.#curSlot = 0
     this.resetClipRing()
     let bytes = 0
-    for (const program of this.#programs.values()) {
-      bytes += program.stream.pendingWords[this.curSlot] * 4
+    const byProgram = this.stats.streamedBytes
+    for (const [kind, program] of this.#programs) {
+      const words = program.stream.pendingWords[this.curSlot]
+      byProgram[kind] = words * 4
+      bytes += words * 4
       program.stream.upload(this.device, this.curSlot)
     }
     this.stats.bytesUploaded = bytes
@@ -769,6 +1048,7 @@ export class GpuBatchContext {
       this.#programs.get(run.kind)?.prepareRun?.(this, run)
     }
     this.#clipRing?.flush(this.device)
+    this.params.upload(this.device)
     for (const program of this.#programs.values()) {
       program.flushRings?.(this.device)
     }
@@ -776,24 +1056,27 @@ export class GpuBatchContext {
     // the running value is a real switch (a new blend-variant pipeline bind).
     let prevBlend: GfxBlend = 'source-over'
     let blendSwitches = 0
-    const marks = this.#marks
-    let mark = 0
     const runs = this.#drawRuns
-    for (let i = 0; i < runs.length; i++) {
-      while (mark < marks.length && marks[mark].at <= i) {
-        hooks?.mark(marks, mark)
-        mark++
+    const drawRange = (from: number, to: number): void => {
+      for (let i = from; i < to; i++) {
+        const run = runs[i]
+        if (run.blend !== prevBlend) {
+          blendSwitches++
+          prevBlend = run.blend
+        }
+        this.#programs.get(run.kind)?.drawRun(this, run)
       }
-      const run = runs[i]
-      if (run.blend !== prevBlend) {
-        blendSwitches++
-        prevBlend = run.blend
-      }
-      this.#programs.get(run.kind)?.drawRun(this, run)
     }
-    while (mark < marks.length) {
-      hooks?.mark(marks, mark)
-      mark++
+    if (hooks) {
+      for (const pass of this.#replayPasses(runs.length)) {
+        hooks.open(pass.surface)
+        for (let r = 0; r < pass.ranges.length; r += 2) {
+          drawRange(pass.ranges[r], pass.ranges[r + 1])
+        }
+        hooks.close(pass.surface)
+      }
+    } else {
+      drawRange(0, runs.length)
     }
     this.#marks.length = 0
     this.stats.blendSwitches = blendSwitches
@@ -803,6 +1086,9 @@ export class GpuBatchContext {
     }
     this.stats.uboSlices = slices
     this.#drawRuns.length = 0
+    // Every record written so far has been drawn from.
+    this.params.reset()
+    this.curClipIndex = 0
     // Every run queued before this call has now been replayed, so a ramp row
     // pinned earlier this frame is safe to reuse now.
     this.textureManager.flushRampRowPins()
@@ -811,16 +1097,155 @@ export class GpuBatchContext {
   }
 
   /**
+   * Split the run list into passes. A surface's runs are those between its
+   * begin and end marks, minus its nested surfaces. Passes come out in the
+   * order their surfaces end, so a nested surface precedes its parent and a
+   * retained surface precedes whatever composites it. The main target comes
+   * last.
+   */
+  #replayPasses(runCount: number): ReplayPass[] {
+    const out: ReplayPass[] = []
+    const stack: Array<{ pass: ReplayPass; from: number }> = []
+    let current: { pass: ReplayPass; from: number } = {
+      pass: { surface: null, ranges: [] },
+      from: 0,
+    }
+    const cut = (to: number): void => {
+      if (to > current.from) current.pass.ranges.push(current.from, to)
+    }
+    const finish = (at: number): void => {
+      cut(at)
+      out.push(current.pass)
+      const parent = stack.pop()
+      if (parent) {
+        parent.from = at
+        current = parent
+      }
+    }
+    for (const mark of this.#marks) {
+      if (mark.type === 'begin') {
+        cut(mark.at)
+        stack.push(current)
+        current = {
+          pass: { surface: mark.surface, ranges: [] },
+          from: mark.at,
+        }
+      } else if (stack.length > 0) {
+        finish(mark.at)
+      }
+    }
+    // A surface left open by an unbalanced call ends with the list.
+    while (stack.length > 0) finish(runCount)
+    cut(runCount)
+    out.push(current.pass)
+    return out
+  }
+
+  /**
    * Reserve `words`/`verts` for a vertex batch. Returns the word offset, or
    * `-1` if the stream is at its size limit.
    */
   reserveVerts(stream: RingStream, words: number, verts: number): number {
+    this.stats.primitives++
     return stream.reserve(this.curSlot, words, verts)
   }
 
   /** Instanced counterpart to {@link GpuBatchContext.reserveVerts}. */
   reserveInstance(stream: RingStream): number {
+    this.stats.primitives++
     return stream.reserveInstance(this.curSlot)
+  }
+
+  /**
+   * Join runs the replay would otherwise issue as separate draws. A run moves
+   * ahead of the runs between it and an earlier run of the same kind, state and
+   * stream position, as long as its pixels overlap none of them, so painter
+   * order holds wherever pixels are shared. The runs are one list per pass, so
+   * the search never crosses an offscreen pass boundary.
+   */
+  #mergeRuns(): void {
+    const runs = this.#drawRuns
+    this.stats.runsMerged = 0
+    if (!this.mergeRuns || runs.length < 2) return
+    const marks = this.#marks
+    const box = this.#box
+    const programs = this.#programs
+    if (this.#bounds.length < runs.length * 4) {
+      this.#bounds = new Float64Array(runs.length * 8)
+    }
+    const bounds = this.#bounds
+    const noBounds = (i: number): void => {
+      bounds[i * 4] = -Infinity
+      bounds[i * 4 + 1] = -Infinity
+      bounds[i * 4 + 2] = Infinity
+      bounds[i * 4 + 3] = Infinity
+    }
+    let outLen = 0
+    let segStart = 0
+    let mark = 0
+    for (let i = 0; i <= runs.length; i++) {
+      while (mark < marks.length && marks[mark].at <= i) {
+        marks[mark].at = outLen
+        segStart = outLen
+        mark++
+      }
+      if (i === runs.length) break
+      const run = runs[i]
+      // Where `run` would be written if nothing joins it.
+      const slot = outLen
+      const known = !!programs.get(run.kind)?.runBounds
+      if (
+        known &&
+        programs.get(run.kind)!.runBounds!(run, box) &&
+        box[0] <= box[2] &&
+        box[1] <= box[3]
+      ) {
+        bounds[slot * 4] = box[0] - MERGE_PAD
+        bounds[slot * 4 + 1] = box[1] - MERGE_PAD
+        bounds[slot * 4 + 2] = box[2] + MERGE_PAD
+        bounds[slot * 4 + 3] = box[3] + MERGE_PAD
+      } else {
+        noBounds(slot)
+      }
+      let joined = false
+      if (isMergeable(run) && bounds[slot * 4] > -Infinity) {
+        const floor = Math.max(segStart, outLen - MERGE_LOOKBACK)
+        for (let j = outLen - 1; j >= floor; j--) {
+          const earlier = runs[j]
+          if (canJoin(earlier, run)) {
+            earlier.endWord = run.endWord
+            bounds[j * 4] = Math.min(bounds[j * 4], bounds[slot * 4])
+            bounds[j * 4 + 1] = Math.min(
+              bounds[j * 4 + 1],
+              bounds[slot * 4 + 1],
+            )
+            bounds[j * 4 + 2] = Math.max(
+              bounds[j * 4 + 2],
+              bounds[slot * 4 + 2],
+            )
+            bounds[j * 4 + 3] = Math.max(
+              bounds[j * 4 + 3],
+              bounds[slot * 4 + 3],
+            )
+            joined = true
+            break
+          }
+          // Not joinable, so `run` would move ahead of it. That needs the two
+          // to share no pixel.
+          if (
+            bounds[j * 4] <= bounds[slot * 4 + 2] &&
+            bounds[j * 4 + 2] >= bounds[slot * 4] &&
+            bounds[j * 4 + 1] <= bounds[slot * 4 + 3] &&
+            bounds[j * 4 + 3] >= bounds[slot * 4 + 1]
+          ) {
+            break
+          }
+        }
+      }
+      if (!joined) runs[outLen++] = run
+    }
+    this.stats.runsMerged = runs.length - outLen
+    runs.length = outLen
   }
 
   /** Called once per frame, after the ring slot has advanced. */
@@ -838,6 +1263,7 @@ export class GpuBatchContext {
     this.curLut = null
     this.curClipMask = null
     this.curClip = null
+    this.curClipIndex = 0
     this.curShaderQuad = null
     this.curComposite = null
     this.curStencilRow = null

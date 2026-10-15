@@ -1,7 +1,7 @@
 import {
   Node2D,
-  type CameraView2D,
-  type Gfx2D,
+  definePaintProps,
+  type Canvas,
   type GfxFill,
   type GfxLinearGradient,
 } from '@src/stargazer'
@@ -39,40 +39,43 @@ const FILL_STOPS_SELECTED: GfxLinearGradient['stops'] = [
  * land is deepest at.
  *
  * The size is fixed on screen, so the disc is the same tap target at the map's
- * overview and zoomed in, and follows the canvas size. `radiusWorld` is the
- * radius as of the last draw, which is what a hit test reads.
+ * overview and zoomed in, and follows the canvas size. A hit test passes the
+ * world size of a CSS pixel to {@link SmallRegionDiscNode.contains}.
  */
 export class SmallRegionDiscNode extends Node2D {
   /** Whether the disc draws as the chosen region. */
-  selected = false
-
-  /** Radius in world units as of the last draw. */
-  radiusWorld = 0
+  declare selected: boolean
 
   /** Diameter on screen in CSS pixels, set by the owner as the canvas resizes. */
-  diameterCssPx = DISC_DIAMETER_CSS_PX
+  declare diameterCssPx: number
 
   readonly regionId: string
 
   constructor(regionId: string, x: number, y: number) {
     super(`disc-${regionId}`)
+    definePaintProps(this, {
+      selected: false,
+      diameterCssPx: DISC_DIAMETER_CSS_PX,
+    })
     this.regionId = regionId
     this.transform.x = x
     this.transform.y = y
   }
 
-  /** Whether world point `(x, y)` is on the disc, as of the last draw. */
-  contains(x: number, y: number): boolean {
+  /**
+   * Whether world point `(x, y)` is on the disc, given the world size of a CSS
+   * pixel in the view the point was picked in.
+   */
+  contains(x: number, y: number, worldPerCssPx: number): boolean {
     const dx = x - this.transform.x
     const dy = y - this.transform.y
-    return dx * dx + dy * dy <= this.radiusWorld * this.radiusWorld
+    const r = (this.diameterCssPx / 2) * worldPerCssPx
+    return dx * dx + dy * dy <= r * r
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const scale = camera.screenPxPerWorldUnit()
-    if (scale <= 0) return
-    const r = this.diameterCssPx / 2 / scale
-    this.radiusWorld = r
+  override paint(gfx: Canvas): void {
+    const scale = gfx.screenScale()
+    const r = (this.diameterCssPx / 2) * scale
     const fill: GfxFill = {
       kind: 'linear',
       x0: 0,
@@ -89,7 +92,7 @@ export class SmallRegionDiscNode extends Node2D {
     })
     gfx.strokeCircle(0, 0, r, {
       color: 'rgba(255, 255, 255, 0.9)',
-      width: BORDER_CSS_PX / scale,
+      width: BORDER_CSS_PX * scale,
     })
   }
 }

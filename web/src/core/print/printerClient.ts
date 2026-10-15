@@ -33,6 +33,18 @@ const BASE: string = import.meta.env.VITE_PRINTER_DAEMON_URL ?? ''
 const API = `${BASE}/api/printer`
 
 /** Client-side connection state for the SSE stream. */
+
+/**
+ * `games` with the record sharing `updated`'s id replaced by it, in place. A
+ * record the list does not hold is ignored, since the next snapshot brings it.
+ */
+export function withUpdatedGame(
+  games: readonly GameRecord[],
+  updated: GameRecord,
+): GameRecord[] {
+  return games.map((g) => (g.id === updated.id ? updated : g))
+}
+
 export type ConnectionState = 'online' | 'connecting' | 'offline'
 
 /**
@@ -392,13 +404,17 @@ export const printerLive: Readable<PrinterLiveState> =
       // touch it. Default persists until the first snapshot arrives.
       listen<DaemonConfig>('config', (c) => setDaemonConfig(c))
       // Game log: server sends `games` (full snapshot, oldest -> newest) once
-      // on connect, then `game.created` / `game.deleted` incrementally.
+      // on connect, then `game.created` / `game.updated` / `game.deleted`
+      // incrementally.
       listen<GameRecord[]>('games', (list) => {
         update({ games: [...list].reverse() })
       })
       listen<GameRecord>('game.created', (rec) => {
         if (state.games.some((g) => g.id === rec.id)) return
         update({ games: [rec, ...state.games] })
+      })
+      listen<GameRecord>('game.updated', (rec) => {
+        update({ games: withUpdatedGame(state.games, rec) })
       })
       newEs.addEventListener('game.deleted', (e) => {
         bumpHeartbeat()

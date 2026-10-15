@@ -25,11 +25,11 @@ async function makeGfx(stencil = true): Promise<{
   return { gfx, device }
 }
 
-function star(): GfxPath {
+function star(cx = 100): GfxPath {
   const p = new GfxPath()
   for (let i = 0; i < 5; i++) {
     const a = (i * 4 * Math.PI) / 5 - Math.PI / 2
-    const x = 100 + 80 * Math.cos(a)
+    const x = cx + 80 * Math.cos(a)
     const y = 100 + 80 * Math.sin(a)
     if (i === 0) p.moveTo(x, y)
     else p.lineTo(x, y)
@@ -41,7 +41,7 @@ const fillDraws = (device: MockGfxDevice): DrawRecord[] =>
   device.draws.filter((d) => d.stencil !== null)
 
 describe('fillPath', () => {
-  it('records a fan then a cover that share one reservation', async () => {
+  it('records a fan then a cover', async () => {
     const { gfx, device } = await makeGfx()
     gfx.fillPath(star(), '#ff0000')
     gfx.endFrame()
@@ -56,9 +56,56 @@ describe('fillPath', () => {
     // The cover is the bounds quad, and the fan is a triangle per extra point.
     expect(cover.count).toBe(6)
     expect(fan.count).toBe(3 * 3)
-    // The cover starts where the fan ends in the same buffer.
-    expect(cover.vertexBuffers[0].buffer).toBe(fan.vertexBuffers[0].buffer)
-    expect(cover.first).toBe(fan.first + fan.count)
+    // Fans stream into a buffer of their own, apart from the covers.
+    expect(cover.vertexBuffers[0].buffer).not.toBe(fan.vertexBuffers[0].buffer)
+  })
+
+  it('draws the fans and covers of paths that do not touch together', async () => {
+    const { gfx, device } = await makeGfx()
+    gfx.fillPath(star(100), '#ff0000')
+    gfx.fillPath(star(300), '#00ff00')
+    gfx.endFrame()
+    const [fan, cover] = fillDraws(device)
+    expect(device.draws).toHaveLength(2)
+    expect(fan.count).toBe(2 * 3 * 3)
+    expect(cover.count).toBe(2 * 6)
+  })
+
+  it('keeps paths that overlap in painter order', async () => {
+    const { gfx, device } = await makeGfx()
+    gfx.fillPath(star(100), '#ff0000')
+    gfx.fillPath(star(140), '#00ff00')
+    gfx.endFrame()
+    expect(device.draws).toHaveLength(4)
+    expect(device.draws.map((d) => d.colorWrite)).toEqual([
+      false,
+      true,
+      false,
+      true,
+    ])
+  })
+
+  it('does not join paths filled by different rules', async () => {
+    const { gfx, device } = await makeGfx()
+    gfx.fillPath(star(100), '#ff0000', 'nonzero')
+    gfx.fillPath(star(300), '#00ff00', 'evenodd')
+    gfx.endFrame()
+    expect(device.draws).toHaveLength(4)
+  })
+
+  it('keeps a fill drawn between two paths after the first one', async () => {
+    const { gfx, device } = await makeGfx()
+    gfx.fillPath(star(100), '#ff0000')
+    gfx.fillRect(60, 60, 80, 80, '#0000ff')
+    gfx.fillPath(star(300), '#00ff00')
+    gfx.endFrame()
+    const order = device.draws.map((d) =>
+      d.stencil === null ? 'rect' : d.colorWrite ? 'cover' : 'fan',
+    )
+    // The fans join across the rect, which the second path does not touch. The
+    // rect still comes after the cover of the path it overlaps, and the second
+    // cover follows it because the rect's vertices sit between the two covers.
+    expect(order).toEqual(['fan', 'cover', 'rect', 'cover'])
   })
 
   it('picks the even-odd rows for the evenodd rule', async () => {
@@ -147,5 +194,70 @@ describe('fillPath', () => {
     gfx.strokePath(solid, { color: '#ffffff', width: 4 })
     gfx.endFrame()
     expect(device.draws.length).toBeGreaterThan(before)
+  })
+})
+
+describe('strokePath pieces', () => {
+  const gradient = {
+    kind: 'linear' as const,
+    x0: 0,
+    y0: 0,
+    x1: 100,
+    y1: 0,
+    stops: [
+      { offset: 0, color: '#ff0000' },
+      { offset: 1, color: '#0000ff' },
+    ],
+  }
+
+  async function frames(
+    n: number,
+    path: () => GfxPath,
+  ): Promise<{ gfx: GpuGfx; device: MockGfxDevice }> {
+    const { gfx, device } = await makeGfx()
+    gfx.endFrame()
+    const kept = path()
+    for (let i = 0; i < n; i++) {
+      gfx.beginFrame({
+        clearColor: '#000000',
+        transparent: false,
+        pixelW: 400,
+        pixelH: 300,
+      })
+      gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
+      gfx.setAlpha(1)
+      gfx.strokePath(kept, { color: gradient, width: 6, join: 'round' })
+      gfx.endFrame()
+    }
+    return { gfx, device }
+  }
+
+  it('keeps the pieces of a path stroked the same way two frames running', async () => {
+    const { gfx } = await frames(3, () => star())
+    const stats = gfx.cacheStats().find((c) => c.name === 'Stroke pieces')
+    expect(stats?.entries).toBe(1)
+    expect(stats?.hits).toBe(1)
+  })
+
+  it('keeps nothing for a path that changes every frame', async () => {
+    const { gfx, device } = await makeGfx()
+    gfx.endFrame()
+    const path = star()
+    for (let i = 0; i < 4; i++) {
+      gfx.beginFrame({
+        clearColor: '#000000',
+        transparent: false,
+        pixelW: 400,
+        pixelH: 300,
+      })
+      gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
+      gfx.setAlpha(1)
+      path.lineTo(10 + i, 10)
+      gfx.strokePath(path, { color: gradient, width: 6, join: 'round' })
+      gfx.endFrame()
+    }
+    const stats = gfx.cacheStats().find((c) => c.name === 'Stroke pieces')
+    expect(stats?.entries).toBe(0)
+    void device
   })
 })

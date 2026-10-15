@@ -2,6 +2,7 @@
      game-over rank preview. `pending` (not yet saved) is spliced into its
      sorted position and shown with a placeholder while its name is empty. -->
 <script lang="ts">
+  import { displayName } from '@src/core/leaderboard/displayName'
   import type { LeaderboardEntry } from '@src/core/leaderboard/leaderboardClient'
   import { formatScore } from './formatScore'
   import { t } from '../i18n'
@@ -138,7 +139,7 @@
     {#if row.pending && pending?.display}
       {pending.display}
     {:else}
-      {row.name ? row.name.toUpperCase() : '______'}
+      {row.name ? displayName(row.name) : '______'}
     {/if}
   </span>
   {#if row.pending && pendingAction?.label}

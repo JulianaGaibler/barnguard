@@ -14,7 +14,7 @@
   import LeaderboardPanel from '@src/core/attendant/LeaderboardPanel.svelte'
   import BackgroundLayer from '@src/core/ui/BackgroundLayer.svelte'
   import TopBar from '@src/core/attendant/TopBar.svelte'
-  import type { DisplayManifest } from '@src/core/display'
+  import { displayPrints, type DisplayManifest } from '@src/core/display'
 
   interface Props {
     display: DisplayManifest
@@ -60,7 +60,9 @@
 {/if}
 
 <BoothMenu />
-<PrinterPanel />
+{#if displayPrints(display)}
+  <PrinterPanel />
+{/if}
 <GamesPanel />
 {#if display.leaderboardIds?.length}
   <LeaderboardPanel />

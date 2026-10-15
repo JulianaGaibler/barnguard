@@ -8,6 +8,7 @@
  */
 import { Node2D } from '../scene/Node2D'
 import type { SceneTree } from '../scene/SceneTree'
+import { viewFor } from '../scene/viewFor'
 import type { CameraView2D } from '../camera/CameraView2D'
 import type { Rect } from '../math/Rect'
 import { BoxConstraints } from './constraints'
@@ -135,18 +136,15 @@ export class LayoutRoot extends Node2D {
     const size = content.measure(this.#constraints)
     assertFiniteSize(content, size)
     content.arrange(b.x, b.y, b.width, b.height)
-    // Arrange moved nodes via their transforms, which doesn't invalidate the
-    // static layer on its own. Force invalidation when the subtree has
-    // static content so it doesn't draw at the old position.
-    if (content.subtreeHasStaticLayer) this.scene.invalidateStatic()
   }
 
   #resolveBounds(): Rect {
     if (this.#boundsFn) return this.#boundsFn()
     const engine = this.scene?.engine
+    const stage = engine?.stageForScene(this.scene)
     const cam =
       this.#camera ??
-      engine?.stageForScene(this.scene)?.currentCamera2D ??
+      (stage ? viewFor(this, stage) : null) ??
       engine?.currentCamera2D
     return cam ? cam.visibleWorldRect(this.#boundsScratch) : this.#boundsScratch
   }

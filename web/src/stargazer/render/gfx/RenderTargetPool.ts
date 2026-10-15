@@ -33,17 +33,17 @@ interface PoolEntry {
 
 /**
  * A render-target pool with two lifetimes. `acquireTransient` targets are
- * reused across calls by (size, color space, pixel format, samples) and
- * freed automatically by {@link RenderTargetPool.endFrame} once a frame
- * stops asking for a given key, the shape `PostProcessPipeline`'s ping-pong
- * buffers want. `acquireRetained` targets are refcounted and live until
- * explicitly {@link RenderTargetPool.release}d to zero, the shape a cache
- * (a path-shadow mask) wants: `endFrame` never touches them.
+ * reused across calls by (size, color space, pixel format, samples) and freed
+ * automatically by {@link RenderTargetPool.endFrame} once a frame stops asking
+ * for a given key, the shape `PostProcessPipeline`'s ping-pong buffers want.
+ * `acquireRetained` targets are refcounted and live until explicitly
+ * {@link RenderTargetPool.release}d to zero, the shape a cache (a path-shadow
+ * mask) wants: `endFrame` never touches them.
  *
- * A double release, or a release of a target this pool didn't hand out,
- * throws rather than silently no-opping: a silent no-op would hide the exact
- * aliasing bug this split exists to prevent (recycling a target a still-live
- * reference points at).
+ * A double release, or a release of a target this pool didn't hand out, throws
+ * rather than silently no-opping: a silent no-op would hide the exact aliasing
+ * bug this split exists to prevent (recycling a target a still-live reference
+ * points at).
  */
 export class RenderTargetPool {
   readonly #device: GfxDevice
@@ -67,10 +67,10 @@ export class RenderTargetPool {
   }
 
   /**
-   * A scratch target reused by key. Claimed until {@link
-   * RenderTargetPool.release}, which returns it to the pool rather than
-   * deleting it; {@link RenderTargetPool.endFrame} deletes a key's targets
-   * once nothing asked for it in the frame just finished.
+   * A scratch target reused by key. Claimed until
+   * {@link RenderTargetPool.release}, which returns it to the pool rather than
+   * deleting it; {@link RenderTargetPool.endFrame} deletes a key's targets once
+   * nothing asked for it in the frame just finished.
    */
   acquireTransient(
     w: number,
@@ -125,8 +125,8 @@ export class RenderTargetPool {
   }
 
   /**
-   * Release a target. A transient target returns to the pool, available to
-   * the next `acquireTransient` for the same key. A retained target drops one
+   * Release a target. A transient target returns to the pool, available to the
+   * next `acquireTransient` for the same key. A retained target drops one
    * reference and is deleted once its count reaches zero.
    */
   release(rt: RenderTarget): void {
@@ -153,10 +153,10 @@ export class RenderTargetPool {
 
   /**
    * Frame-end call, driven by the owner (`PostProcessPipeline`'s `run`, or
-   * `Stage` for a `PathShadowCache`'s pool): deletes any transient target
-   * whose key nothing asked for since the last call, and clears every
-   * transient target's claim. Retained targets are untouched; they have no
-   * frame-scoped lifetime.
+   * `Stage` for a `PathShadowCache`'s pool): deletes any transient target whose
+   * key nothing asked for since the last call, and clears every transient
+   * target's claim. Retained targets are untouched; they have no frame-scoped
+   * lifetime.
    */
   endFrame(): void {
     for (let i = this.#entries.length - 1; i >= 0; i--) {

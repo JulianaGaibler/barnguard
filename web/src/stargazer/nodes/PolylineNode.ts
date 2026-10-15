@@ -1,7 +1,7 @@
 import { Node2D } from '../scene/Node2D'
-import type { Camera } from '../camera/Camera'
+import { definePaintProps } from '../render/picture/paintProps'
+import type { Canvas } from '../render/picture/Canvas'
 import type { Vec2 } from '../math/Vec2'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
 
 /**
  * How a {@link PolylineNode} renders between points: `'none'` draws straight
@@ -54,14 +54,15 @@ export interface PolylineNodeOptions {
  *   trail.pushIfFar(worldX, worldY, 4)
  */
 export class PolylineNode extends Node2D {
-  // Live mirrors of PolylineNodeOptions, documented there. Points go through
-  // `push`/`clear`, not a public array.
-  strokeStyle: string
-  lineWidth: number
-  lineJoin: CanvasLineJoin
-  lineCap: CanvasLineCap
-  smoothing: PolylineSmoothing
-  strokeSpace: 'screen' | 'world'
+  // Live mirrors of PolylineNodeOptions, documented there. Each is a paint
+  // property, so writing a new value repaints the node. Points go through
+  // `push`/`clear`, not a public array, and each of those repaints it too.
+  declare strokeStyle: string
+  declare lineWidth: number
+  declare lineJoin: CanvasLineJoin
+  declare lineCap: CanvasLineCap
+  declare smoothing: PolylineSmoothing
+  declare strokeSpace: 'screen' | 'world'
 
   #data: Float32Array
   #count = 0
@@ -69,12 +70,14 @@ export class PolylineNode extends Node2D {
 
   constructor(opts: PolylineNodeOptions = {}) {
     super(opts.id)
-    this.strokeStyle = opts.strokeStyle ?? '#fdf6e3'
-    this.lineWidth = opts.lineWidth ?? 2
-    this.lineJoin = opts.lineJoin ?? 'round'
-    this.lineCap = opts.lineCap ?? 'round'
-    this.smoothing = opts.smoothing ?? 'none'
-    this.strokeSpace = opts.strokeSpace ?? 'screen'
+    definePaintProps(this, {
+      strokeStyle: opts.strokeStyle ?? '#fdf6e3',
+      lineWidth: opts.lineWidth ?? 2,
+      lineJoin: opts.lineJoin ?? ('round' as CanvasLineJoin),
+      lineCap: opts.lineCap ?? ('round' as CanvasLineCap),
+      smoothing: opts.smoothing ?? ('none' as PolylineSmoothing),
+      strokeSpace: opts.strokeSpace ?? ('screen' as 'screen' | 'world'),
+    })
     const cap = Math.max(2, opts.capacity ?? 128)
     this.#data = new Float32Array(cap * 2)
   }
@@ -106,7 +109,7 @@ export class PolylineNode extends Node2D {
     this.#data[i] = x
     this.#data[i + 1] = y
     this.#count++
-    this.#expandDebugBounds(x, y)
+    this.markNeedsPaint()
     return this
   }
 
@@ -125,7 +128,7 @@ export class PolylineNode extends Node2D {
   /** Remove all points. Returns `this` for chaining. */
   clear(): this {
     this.#count = 0
-    this.debugBounds = null
+    this.markNeedsPaint()
     return this
   }
 
@@ -133,8 +136,7 @@ export class PolylineNode extends Node2D {
    * Drop the first `count` points from the head of the polyline, used to
    * "consume" a drawn path behind a moving object (a trail that shortens from
    * the tail). `copyWithin` shifts the tail down in-place, zero allocations per
-   * call. `pointCount` reduces by `count`. `debugBounds` is invalidated
-   * (recomputed lazily by the next draw or hit test).
+   * call. `pointCount` reduces by `count`.
    *
    * Clamps to `[0, pointCount]`, a caller can safely pass any non-negative
    * integer without bounds-checking. Returns `this` for chaining.
@@ -148,7 +150,7 @@ export class PolylineNode extends Node2D {
       this.#data.copyWithin(0, clamped * 2, this.#count * 2)
     }
     this.#count = remaining
-    this.debugBounds = null
+    this.markNeedsPaint()
     return this
   }
 
@@ -167,8 +169,7 @@ export class PolylineNode extends Node2D {
   /**
    * In-place update of the point at index `i`. Used by subclasses that
    * post-process pushed points (e.g., corner-smoothing an incoming finger
-   * path). Invalidates `debugBounds`, the next debug pass will recompute.
-   * Returns `this` for chaining.
+   * path). Returns `this` for chaining.
    */
   setPoint(i: number, x: number, y: number): this {
     if (i < 0 || i >= this.#count)
@@ -176,7 +177,7 @@ export class PolylineNode extends Node2D {
     const base = i * 2
     this.#data[base] = x
     this.#data[base + 1] = y
-    this.debugBounds = null
+    this.markNeedsPaint()
     return this
   }
 
@@ -205,20 +206,20 @@ export class PolylineNode extends Node2D {
       }
     }
     this.#count = kept.length
-    this.debugBounds = null
-    for (let i = 0; i < this.#count; i++) {
-      this.#expandDebugBounds(this.#data[i * 2], this.#data[i * 2 + 1])
-    }
+    this.markNeedsPaint()
     return this
   }
 
-  override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
+  override paint(gfx: Canvas): void {
     if (this.#count < 2) return
-    const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
-    // Midpoint smoothing lives in the gfx backend's stroke program.
+    // Midpoint smoothing lives in the gfx backend's stroke program. A screen
+    // width resolves at replay, so zooming does not repaint the node.
     gfx.strokePolyline(this.#data, this.#count, {
       color: this.strokeStyle,
-      width: this.lineWidth * s,
+      width:
+        this.strokeSpace === 'world'
+          ? this.lineWidth
+          : { screen: this.lineWidth },
       join: this.lineJoin,
       cap: this.lineCap,
       smoothing: this.smoothing,
@@ -229,22 +230,6 @@ export class PolylineNode extends Node2D {
     const next = new Float32Array(this.#data.length * 2)
     next.set(this.#data)
     this.#data = next
-  }
-
-  #expandDebugBounds(x: number, y: number): void {
-    if (!this.debugBounds) {
-      this.debugBounds = { x, y, width: 0, height: 0 }
-      return
-    }
-    const b = this.debugBounds
-    const right = Math.max(b.x + b.width, x)
-    const bottom = Math.max(b.y + b.height, y)
-    const left = Math.min(b.x, x)
-    const top = Math.min(b.y, y)
-    b.x = left
-    b.y = top
-    b.width = right - left
-    b.height = bottom - top
   }
 }
 

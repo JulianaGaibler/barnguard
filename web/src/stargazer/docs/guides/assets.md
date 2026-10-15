@@ -1,18 +1,27 @@
+---
+title: Assets
+group: Features
+order: 11
+---
+
 # Assets
 
-Art arrives as SVG or as an image. This covers turning it into something the
-engine can draw, caching that work so a scene reload does not repeat it, and the
-one registration step vector paths need before they render.
+Art usually arrives as SVG or as an image. Stargazer can read an SVG as vector
+paths with {@link parseSvgPaths}, or draw it to a bitmap with
+{@link rasterizeSvg}. {@link AssetLoader} caches the result, so a scene that
+loads again doesn't repeat the work.
 
-## Loading once
+Vector paths need one extra step before they render. The GPU renderer draws
+triangles, so every `Path2D` it fills or strokes needs a registered
+tessellation. `parseSvgPaths` registers one for you when you pass
+`tessellate: true`.
 
-`AssetLoader` is a keyed async cache. Register a factory per key and every later
-`load` of that key returns the same memoized promise, so parsing artwork costs
-once even across scene swaps. A factory that rejects is evicted, so the next
-call retries.
+## Basic usage
+
+This example loads an SVG map once, then adds one region of it to a scene.
 
 ```ts
-import { AssetLoader, parseSvgPaths } from '@src/stargazer'
+import { AssetLoader, Path2DNode, parseSvgPaths } from '@src/stargazer'
 
 const assets = new AssetLoader()
 
@@ -21,69 +30,90 @@ await host.loadScene(async (scene) => {
     const svg = await fetch('/map.svg').then((r) => r.text())
     return parseSvgPaths(svg, { tessellate: true })
   })
-  // ...build nodes from map.paths
+  const north = map.paths.get('north')
+  if (north) {
+    scene.root.add(new Path2DNode({ path: north.path, fill: '#88c' }))
+  }
 })
 ```
 
-Keep the loader outside the scene builder. One per app or per display, not one
-per scene.
+The first `load` of `'map'` runs the factory. Every later `load` of that key
+returns the same promise, even after the scene is replaced. Create the loader
+outside the scene builder, once per app, so it outlives scene changes.
 
-## SVG to paths
+### Read paths from an SVG
 
-`parseSvgPaths(svgText, opts)` pulls every `<path>` out of an SVG string and
-returns a `Path2D` per key plus the source `viewBox`. Fills and strokes in the
-SVG are ignored, so color the result at render time on the node.
+`parseSvgPaths(svgText, options)` reads every `<path>` in an SVG string. It
+returns a {@link SvgPathMap}: the SVG's `viewBox` and a map from key to
+{@link SvgPathEntry}. The SVG's own fills and strokes are ignored. Set the
+colors on the node that draws the path.
 
-Keys resolve in three steps. A `<path>` with its own `id` uses that. Otherwise
-the nearest `<g id="...">` ancestor supplies the key, and every sibling path
-under that group merges into one `Path2D` with a union AABB, which is how a
-multi-region feature is usually authored. A path with neither gets
-`path-<index>`.
+Each path gets its key this way:
 
-```ts
-const { viewBox, paths } = parseSvgPaths(svgText, { tessellate: true })
+1. A `<path>` with an `id` uses that id.
+2. Otherwise the nearest ancestor element with an `id`, usually a `<g>`, gives
+   the key. All paths under that ancestor merge into one `Path2D`, with bounds
+   that cover them all. This is how a shape made of several pieces is usually
+   drawn.
+3. A path with neither gets `path-<index>`.
 
-const france = paths.get('france')
-if (france) {
-  scene.root.add(
-    new Path2DNode({ path: france.path, fill: '#88c', hitMode: 'fill' }),
-  )
-}
-```
+Each entry has `path`, a `Path2D`, and `bounds`, its axis-aligned bounds. With
+`tessellate: true` it also has `contours` and `triangles`.
 
-Each entry carries `path`, `bounds` (its local AABB), and, with `tessellate: true`,
-`contours` and `triangles`.
+### Draw an SVG as a bitmap
 
-Pass `scale` to read the artwork in other units. Every path, its bounds and the
-`viewBox` come out multiplied by it, which suits two maps drawn at different
-sizes that the game wants measured on one scale.
+Use `rasterizeSvg` for artwork that should keep its own colors, such as a
+detailed illustration or an icon. It returns a canvas that you draw with
+[`drawImage`](/module/scene/canvas#drawimage) or an {@link ImageNode}.
 
 ```ts
-const { viewBox, paths } = parseSvgPaths(svgText, {
-  tessellate: true,
-  scale: 0.5,
-})
+import { rasterizeSvg } from '@src/stargazer'
+
+const icon = await assets.load('coin', () =>
+  rasterizeSvg(coinSvg, { scale: 4 }),
+)
+
+// In a paint method:
+canvas.drawImage(icon, 0, 0, 32, 32)
 ```
 
-## Tessellation is not optional
+`scale` is a multiple of the SVG's `viewBox` size. Pass `width` and `height`
+instead to set the pixel size directly. Rasterize at least at the largest size
+the image will appear on screen.
 
-The GPU renderer draws triangles. It cannot triangulate a `Path2D` at draw time,
-because the path's `d` string is not recoverable from the object at runtime. So
-`fillPath2D` and `strokePath2D` look up a pre-registered tessellation, and a path
-without one **draws nothing**. No error, no throw. The call ticks a counter the
-debug HUD reports.
+Use paths for flat vector shapes. Paths stay sharp at any zoom, batch with
+other fills, and use no texture memory. Use a bitmap when the art has its own
+colors, gradients or detail that you don't want to rebuild as nodes.
 
-Passing `tessellate: true` to `parseSvgPaths` registers every path it parses,
-which covers artwork loaded from a file. Use it wherever it fits.
+## Advanced usage
 
-A `Path2D` built in code registers itself. Flatten the geometry to contours,
-triangulate them, and bind the result to the path:
+This section covers how path tessellation works and how to register paths you
+build in code, then SVG options, bitmap masks, textures for 3D meshes, and
+which assets stages can share.
+
+### Why paths need tessellation
+
+The GPU renderer can't triangulate a `Path2D` when it draws, because a browser
+`Path2D` doesn't expose its path data. So `fillPath2D` and `strokePath2D` look
+up a tessellation registered in advance. **A path with no registration draws
+nothing.** It doesn't throw or warn. Each skipped call adds to a counter that
+the debug HUD shows.
+
+The same applies to everything else that reads the registration. A
+{@link Path2DNode} drop shadow reads the triangles, and a stroke of any
+alignment reads the contours. If a path renders as nothing at all, check its
+registration first.
+
+### Register a path built in code
+
+For a `Path2D` you build yourself, flatten the path data to contours,
+triangulate them, and register the result with the path.
 
 ```ts
 import {
   flattenSvgPath,
-  tessellateContours,
   registerPathTessellation,
+  tessellateContours,
 } from '@src/stargazer'
 
 const d = 'M0 0 L40 0 L40 40 Z'
@@ -92,65 +122,121 @@ const path = new Path2D(d)
 registerPathTessellation(path, tessellateContours(contours), contours)
 ```
 
-The third argument is what `strokePath2D` walks, so pass it whenever the path
-will be stroked as well as filled. A fourth argument takes a per-contour
-`closed` flag, which defaults to true because SVG shape paths end in `Z`. Pass
-`false` for an open curve, or `strokePath2D` emits a closing segment that is not
-there.
+{@link registerPathTessellation} takes these arguments:
 
-For geometry built per frame rather than per load, `flattenQuadratic` and
-`flattenCubic` subdivide a single Bézier into a buffer you own, with no
-allocation, so they are safe on the render path. `getPathContours(path)` reads
-back what was registered, and `releasePathTessellation(path)` drops it, which a
-node that registers a one-off retained path should call on teardown.
+- `path`: the `Path2D` the renderer will be given.
+- `geometry`: the triangles from {@link tessellateContours}.
+- `contours`: the flattened outlines. `strokePath2D` walks them, so pass them
+  whenever the path is stroked.
+- `closed`: one flag per contour. The default is `true` for every contour,
+  which matches SVG shapes that end in `Z`. Pass `false` for an open curve, or
+  `strokePath2D` draws a closing segment that isn't there.
+- `opts.retained`: keep the triangles in GPU buffers. See below.
 
-A `strokePath2D` border (whatever its alignment) reads the registered
-contours, and a `Path2DNode`'s drop shadow reads the registered tessellation
-(the triangles its mask bakes from, or its own fill when it's below the hard
-threshold), so a path without a registration draws neither, the same silent
-no-op `fillPath2D` has.
+The second argument of {@link flattenSvgPath} is the flattening tolerance, in
+the path's own units. `tessellateContours` uses 16-bit indices and throws for a
+shape with more than 65,535 vertices.
 
-`tessellateContours` nests contours by the even-odd rule: a contour enclosed
-by an odd number of others is a hole in the nearest even-depth one, not a
-fill of its own, regardless of winding direction (SVG exporters are not
-consistent about it). That also decides hit-testing: `Path2DNode`'s `'fill'`
-mode tests with the same rule, so a hole excluded from the rendered fill is
-excluded from a tap too. A path built by hand with genuinely overlapping,
-same-winding regions (the nonzero convention) is read as nested holes
-instead, since nothing threads an SVG's own `fill-rule` through today.
+Registrations are stored per `Path2D` object and go away when the path is
+garbage collected. {@link getPathContours} reads back the registered contours,
+and {@link releasePathTessellation} drops a registration early.
+Registering the same path again replaces its tessellation.
 
-Large, long-lived geometry auto-opts into a retained upload: the triangles go to
-static GPU buffers once and each frame draws them with a model matrix, rather
-than transforming every vertex on the CPU. The threshold is 1500 indices, which
-a map crosses and a glyph does not. Nothing to configure.
+For geometry that changes every frame, {@link flattenQuadratic} and
+{@link flattenCubic} subdivide one Bézier curve into a buffer you own. They
+allocate nothing, so they are safe to call while drawing.
 
-If a path renders as nothing at all, tessellation is the first thing to check.
+### Holes and hit testing
 
-## SVG to a bitmap
+`tessellateContours` nests contours with the even-odd rule. A contour inside an
+odd number of other contours is a hole in the one around it. The winding
+direction doesn't matter, because SVG exporters don't apply it consistently.
 
-`rasterizeSvg(svgText, opts)` decodes an SVG through an `<img>` and draws it to a
-canvas, for artwork that should be a texture rather than geometry: a detailed
-illustration, an icon drawn through `gfx.drawImage`, a particle sprite. Size it
-with `scale` (a multiple of the `viewBox`) or with explicit `width` and
-`height`.
+{@link Path2DNode} uses the same rule for `hitMode: 'fill'`, so a tap inside a
+hole misses the shape. A path drawn by hand with overlapping regions that
+should both fill (the nonzero rule) gets holes where they overlap instead. The
+engine doesn't read the SVG's `fill-rule`.
 
-`svgViewBoxSize` reads the intrinsic size out of the source, and
-`sizeSvgSource(svg, w, h)` stamps a width and height onto the root element so
-the decode lands 1:1. An SVG with no intrinsic size lets the browser pick one.
+### Retained geometry
 
-`isBlankRaster(canvas)` reports a decode that produced nothing, which is how a
-headless test environment behaves.
+Geometry with 1500 or more triangle indices stays in static GPU buffers from its
+first draw. Each frame then draws it with a model matrix instead of
+transforming every vertex on the CPU. A large map crosses that threshold and a
+small icon doesn't. Smaller geometry is kept on the GPU only when it already
+draws as a batch of its own. Pass `{ retained: true }` or `{ retained: false }`
+as the fifth argument of `registerPathTessellation` to choose yourself.
 
-Prefer paths over rasters where the art is flat vector shapes. Paths stay sharp
-at any zoom, batch with every other fill, and cost no texture memory.
+### SVG path options
 
-## A texture for a 3D material
+{@link ParseSvgPathsOptions} has three options:
 
-`createTexture(source, opts)` turns a canvas or an `ImageBitmap` into the
-`MaterialTexture` a `MeshNode` material takes, which is how art gets onto a mesh
-without going through a glTF file. It pairs with `rasterizeSvg`:
+- `tessellate` (default `false`): triangulate each path and register it.
+- `flattenTol` (default `0.5`): how far a flattened curve may stray from the
+  real curve, in output units.
+- `scale` (default `1`): multiply every path, its bounds and the `viewBox` by
+  this factor. Use it to read two drawings at different sizes on one scale.
+
+`parseSvgPaths` throws when the text isn't valid XML or has no `<svg>` root.
+
+Two helpers measure a tessellated shape. {@link deepestInteriorPoint} returns
+the point inside the contours that is farthest from every edge, a good spot for
+a label or marker. `interiorThickness(entry)` returns the shape's mean width,
+`2 * area / perimeter`.
+
+### Bitmap options
+
+{@link RasterizeSvgOptions} has `scale`, `width`, `height` and `timeoutMs`
+(default 3000). Without a `viewBox`, the SVG is treated as 64 by 64.
+
+`rasterizeSvg` never rejects. When there is no 2D context or the decode fails,
+it returns a blank canvas of the right size and logs a warning.
+{@link isBlankRaster} tells you that happened, for example in a test
+environment that can't decode images.
+
+{@link svgViewBoxSize} reads the `viewBox` size from SVG text, so you can lay
+out the bitmap at its natural aspect ratio. {@link sizeSvgSource} writes a
+width and height onto the root element.
+
+A canvas from `rasterizeSvg` is sampled with one bilinear lookup when drawn. A
+bitmap drawn at a third of its size loses most of its detail, so rasterize
+close to the size it will be drawn at.
+
+### Bitmap masks
+
+`buildBitmapMask({ path, worldRect })` fills a path into a pixel mask and
+returns a {@link BitmapMask}. Its `contains(worldX, worldY)` answers whether a
+point is inside the shape with one array lookup. Use a mask for two things:
+
+- Boundary tests, such as whether a piece is inside the play area. With a
+  third argument, `insetWorld`, `contains` also tests four points that distance
+  away and returns `true` only if all are inside. This keeps the soft edge of
+  the mask from counting as inside.
+- Clipping. Pass the mask to [`setClipMask`](/module/scene/canvas#setclipmask)
+  to crop draws to the shape. For a circle or rounded rectangle, use
+  [`setClip`](/module/scene/canvas#setclip) instead. See
+  [Drawing](/guides/drawing).
+
+{@link BitmapMaskOptions} sets `resolution`, the longest edge in pixels
+(default 1024), and `alphaThreshold`, the alpha above which a pixel counts as
+inside (default 128). Building a mask reads pixels back from a canvas, which
+can stall on a GPU-backed canvas, so the function is async. Build masks while
+loading, not during play. `dispose()` releases a mask.
+
+### Textures for 3D meshes
+
+`createTexture(source, options)` turns a canvas or an `ImageBitmap` into a
+{@link MaterialTexture} for a {@link MeshNode} material. With `rasterizeSvg`, it
+puts vector art on a mesh without a glTF file.
 
 ```ts
+import {
+  MeshNode,
+  createQuadGeometry,
+  createTexture,
+  rasterizeSvg,
+} from '@src/stargazer'
+
+const quad = createQuadGeometry({ width: 2.5, height: 3.5 })
 const face = await createTexture(await rasterizeSvg(cardSvg, { scale: 2 }))
 const card = new MeshNode(quad, {
   lit: true,
@@ -160,51 +246,48 @@ const card = new MeshNode(quad, {
 })
 ```
 
-`srgb` defaults to true, which is right for base-color and emissive art. Normal,
-metallic-roughness and occlusion maps carry linear data and want `srgb: false`.
-`mipmap` defaults on, and wants turning off for alpha-MASK albedo, where
-filtered edges eat the cutout.
+{@link CreateTextureOptions} has three options:
 
-The renderer dedupes GPU textures by `TextureImage` identity, so build one
-texture per distinct picture and share it across every mesh that draws it,
-rather than one per node.
+- `srgb` (default `true`): right for base color and emissive art. Normal,
+  metallic-roughness and occlusion maps hold linear data and need `false`.
+- `mipmap` (default `true`): turn it off for albedo with an alpha cutout, where
+  filtering softens the cut edge.
+- `wrap` (default `'clamp'`): `'clamp'` or `'repeat'`.
 
-It resolves as soon as the pixels are ready to upload. From a canvas source the
-PNG re-encode that backs context-loss recovery finishes in the background, so
-the first frame never waits on it. `textureFromImageBitmap` is the synchronous
-form for a bitmap you already hold, and retains no source bytes, so a texture
-built that way does not come back after a GPU context loss.
+The renderer shares GPU textures by {@link TextureImage} identity. Create one
+texture per picture and give it to every mesh that shows it.
 
-## Bitmap masks
+`createTexture` resolves as soon as the pixels can be uploaded. For a canvas
+source, it also encodes a PNG copy in the background, which the renderer uses to
+rebuild the texture after a GPU context loss. {@link textureFromImageBitmap} is
+the synchronous form for a bitmap you already have. It keeps no copy, so its
+texture doesn't come back after a context loss. Passing an `ImageBitmap` to
+`createTexture` behaves the same way. The renderer closes the bitmap after
+uploading it, so don't use it afterwards.
 
-`buildBitmapMask({ path, worldRect })` rasterizes a filled path and hands back a
-mask with an O(1) `contains(worldX, worldY)` test. Two uses:
+glTF models load through {@link loadGltf}. See [3D](/guides/3d).
 
-- Boundary tests. "Is this token inside the play area?" against an arbitrary
-  shape, without a point-in-polygon walk. `insetWorld` samples a small band
-  around the point and requires all of it inside, which keeps an anti-aliased
-  edge from reading as inside.
-- Clipping. Pass it to `gfx.setClipMask` to crop fills to the shape. See
-  [Drawing](/guides/drawing#clipping), and prefer the analytic `setClip` for a
-  circle or rounded rect.
+### Sharing across stages
 
-It is async, because the pixel readback can stall on a GPU-backed canvas, so
-build it during a load rather than mid-game. `resolution` (default 1024) sets the
-longest edge, and `dispose()` releases it.
+A `Path2D`, a `BitmapMask` and an image hold no GPU handles, so one instance can
+back nodes on any number of stages. Tessellation registrations are global for
+the same reason. Each stage owns its nodes, not the assets.
 
-## glTF
+### Fonts
 
-3D models load through `loadGltf(url)`, which is covered in [3D](/guides/3d#loading-gltf).
+The browser shapes text from a CSS font string, and the engine can't load a
+font face for you. Load every face before the first frame. See
+[Text](/guides/text).
 
-## Sharing across stages
+## See also
 
-A `Path2D`, a `BitmapMask`, and an image are plain data with no device handles,
-so the same instance can back nodes on any number of stages. Tessellation
-registrations are process-wide for the same reason. Stages own nodes, not assets.
-
-## Fonts are not assets
-
-Text is shaped by the browser from a CSS font string, so the engine has no view
-of font loading and cannot load a face for you. Loading every face before the
-first frame is the host application's job, and getting it wrong mislays text
-rather than merely restyling it. See [Text](/guides/text#webfonts).
+- {@link AssetLoader}: cache a load by key
+- {@link parseSvgPaths}: read an SVG as paths
+- {@link registerPathTessellation}: register a path built in code
+- {@link rasterizeSvg}: draw an SVG to a canvas
+- {@link buildBitmapMask}: a pixel mask for boundary tests and clipping
+- {@link createTexture}: a texture for a 3D material
+- {@link Path2DNode}: draw a path in the scene
+- [Drawing](/guides/drawing): fills, strokes and clipping
+- [3D](/guides/3d): meshes, materials and glTF
+- [Text](/guides/text): fonts and labels

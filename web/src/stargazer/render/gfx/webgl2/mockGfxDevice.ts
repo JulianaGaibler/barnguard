@@ -41,6 +41,7 @@ import type {
   Texture2DOpts,
   TextureUploadOpts,
   UBuffer,
+  DataTable,
   VBuffer,
 } from '../GfxDevice'
 import { depthStencilFormatOf, resolveDepthStencil } from '../depthStencil'
@@ -158,10 +159,17 @@ export class MockGfxDevice implements GfxDevice {
 
   readonly deviceStats: DeviceStats = {
     pipelineSwitches: 0,
-    bindGroupSwitches: 0,
     textureBinds: 0,
+    bindGroupSwitches: 0,
+    passes: 0,
+    submits: 0,
+    bindGroupsCreated: 0,
+    uniformWrites: 0,
   }
-  readonly limits: DeviceLimits = { minUniformBufferOffsetAlignment: 256 }
+  readonly limits: DeviceLimits = {
+    minUniformBufferOffsetAlignment: 256,
+    maxDataTableVec4: 1 << 20,
+  }
   readonly backend: GfxBackend
   /** Mirrors the emulated backend: WebGPU exposes compute, WebGL2 does not. */
   readonly supportsCompute: boolean
@@ -246,6 +254,7 @@ export class MockGfxDevice implements GfxDevice {
     return Promise.resolve(p)
   }
   beginComputePass(): void {
+    this.deviceStats.passes++
     this.computePassBegins++
   }
   dispatchCompute(dispatch: ComputeDispatch): void {
@@ -268,6 +277,7 @@ export class MockGfxDevice implements GfxDevice {
     layout: BindGroupLayout,
     entries: BindGroupEntry[],
   ): BindGroup {
+    this.deviceStats.bindGroupsCreated++
     const g = {
       __gfxBindGroup: undefined as never,
       layout,
@@ -329,6 +339,7 @@ export class MockGfxDevice implements GfxDevice {
     data: ArrayBufferView,
     byteOffset = 0,
   ): void {
+    this.deviceStats.uniformWrites++
     // Copy so later caller mutations don't leak into the recorded value.
     const copy = new Uint8Array(data.byteLength)
     copy.set(
@@ -342,6 +353,39 @@ export class MockGfxDevice implements GfxDevice {
   }
   deleteUniformBuffer(_b: UBuffer): void {
     this.deletedUniformBuffers++
+  }
+
+  // --- data tables ----------------------------------------------------------
+
+  readonly dataTables: DataTable[] = []
+  /** Every `updateDataTable` call, with the data copied. */
+  readonly dataTableUploads: Array<{
+    table: DataTable
+    firstVec4: number
+    data: Float32Array
+  }> = []
+  deletedDataTables = 0
+  createDataTable(vec4Count: number): DataTable {
+    if (vec4Count > this.limits.maxDataTableVec4) {
+      throw new Error('MockGfxDevice.createDataTable: over the limit')
+    }
+    const t = { __gfxDataTable: undefined as never, capacity: vec4Count }
+    this.dataTables.push(t)
+    return t
+  }
+  updateDataTable(
+    table: DataTable,
+    firstVec4: number,
+    data: Float32Array,
+  ): void {
+    this.dataTableUploads.push({
+      table,
+      firstVec4,
+      data: new Float32Array(data),
+    })
+  }
+  deleteDataTable(_t: DataTable): void {
+    this.deletedDataTables++
   }
 
   // --- index buffers --------------------------------------------------------
@@ -389,6 +433,11 @@ export class MockGfxDevice implements GfxDevice {
     this.textureOpts.push({ ...opts })
     return t
   }
+  /** Every {@link updateTexture2DData} call, in order. */
+  dataUploads: Array<{ tex: Texture; data: ArrayBufferView }> = []
+  updateTexture2DData(tex: Texture, data: ArrayBufferView): void {
+    this.dataUploads.push({ tex, data })
+  }
   textureUploads: Array<{
     tex: Texture
     opts: TextureUploadOpts
@@ -433,6 +482,27 @@ export class MockGfxDevice implements GfxDevice {
   }
 
   // --- render targets -------------------------------------------------------
+
+  readonly canvas = { width: 800, height: 600 }
+  #canvasTarget: RenderTarget | null = null
+  canvasTarget(): RenderTarget {
+    const canvas = this.canvas
+    this.#canvasTarget ??= {
+      __gfxRenderTarget: undefined as never,
+      get width() {
+        return canvas.width
+      },
+      get height() {
+        return canvas.height
+      },
+      samples: 1,
+      colorSpace: 'canvas',
+      pixelFormat: 'rgba8',
+      hasDepth: false,
+      hasStencil: false,
+    } as RenderTarget
+    return this.#canvasTarget
+  }
 
   createRenderTarget(opts: RenderTargetOpts): RenderTarget {
     const samples = Math.max(1, Math.floor(opts.samples ?? 1))
@@ -513,10 +583,10 @@ export class MockGfxDevice implements GfxDevice {
 
   beginFrame(): void {
     this.deviceStats.pipelineSwitches = 0
-    this.deviceStats.bindGroupSwitches = 0
     this.deviceStats.textureBinds = 0
   }
   beginRenderPass(desc: RenderPassDesc): void {
+    this.deviceStats.passes++
     this.#curPass = { desc, drawCount: 0 }
     this.passes.push(this.#curPass)
     const dt = desc.depth?.target
@@ -630,6 +700,7 @@ export class MockGfxDevice implements GfxDevice {
     dstHeight: number,
     _o?: BlitOpts,
   ): void {
+    this.deviceStats.submits++
     this.presents.push({ source, dstWidth, dstHeight })
   }
 
@@ -673,6 +744,8 @@ export class MockGfxDevice implements GfxDevice {
     this.deletedRenderTargets = 0
     this.deletedShaderModules = 0
     this.deletedUniformBuffers = 0
+    this.dataTableUploads.length = 0
+    this.deletedDataTables = 0
     this.shadowLayerBegins.length = 0
     this.shadowCubeFaceBegins.length = 0
     this.shadowPassEnds = 0

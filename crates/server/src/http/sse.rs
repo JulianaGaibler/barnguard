@@ -75,6 +75,7 @@ fn event_to_sse(ev: ServerEvent) -> Event {
         ServerEvent::Queue(q) => sse_json("queue", &q),
         ServerEvent::Log(e) => sse_json("log", &e),
         ServerEvent::GameCreated(g) => sse_json("game.created", &g),
+        ServerEvent::GameUpdated(g) => sse_json("game.updated", &g),
         ServerEvent::GameDeleted(id) => Event::default().event("game.deleted").data(id.to_string()),
         ServerEvent::Config(c) => sse_json("config", &c),
     }

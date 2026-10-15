@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  MatrixPool,
   copyMatrix2D,
   multiplyMatrix2D,
   invertMatrix2D,
@@ -12,38 +11,6 @@ function isIdentity(m: DOMMatrix): boolean {
     m.a === 1 && m.b === 0 && m.c === 0 && m.d === 1 && m.e === 0 && m.f === 0
   )
 }
-
-describe('MatrixPool', () => {
-  it('acquire returns an identity 2D matrix', () => {
-    const pool = new MatrixPool()
-    const m = pool.acquire()
-    expect(isIdentity(m)).toBe(true)
-  })
-
-  it('reuses freed matrices without growing allocation count', () => {
-    const pool = new MatrixPool()
-    const a = pool.acquire()
-    const b = pool.acquire()
-    const c = pool.acquire()
-    expect(pool.allocated).toBe(3)
-    // Dirty them.
-    a.translateSelf(10, 20)
-    b.rotateSelf(45)
-    c.scaleSelf(2, 3)
-    pool.release(a)
-    pool.release(b)
-    pool.release(c)
-    const a2 = pool.acquire()
-    const b2 = pool.acquire()
-    const c2 = pool.acquire()
-    // Still exactly 3 allocated: same instances came back from the pool.
-    expect(pool.allocated).toBe(3)
-    // And they've been reset to identity.
-    expect(isIdentity(a2)).toBe(true)
-    expect(isIdentity(b2)).toBe(true)
-    expect(isIdentity(c2)).toBe(true)
-  })
-})
 
 describe('multiplyMatrix2D', () => {
   it('identity × M = M', () => {

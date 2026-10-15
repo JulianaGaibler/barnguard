@@ -1,4 +1,9 @@
-import { Node2D, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  Node2D,
+  definePaintProps,
+  type Canvas,
+  type Rect,
+} from '@src/stargazer'
 
 /** Construction options for {@link FlatBackgroundNode}. */
 export interface FlatBackgroundOptions {
@@ -26,28 +31,34 @@ export interface FlatBackgroundOptions {
  * {@link setRect} to refit it.
  */
 export class FlatBackgroundNode extends Node2D {
-  readonly #rect: Rect = { x: 0, y: 0, width: 0, height: 0 }
   readonly #color: string
+  declare rectX: number
+  declare rectY: number
+  declare rectWidth: number
+  declare rectHeight: number
 
   constructor(opts: FlatBackgroundOptions) {
     super('flat-bg')
     this.#color = opts.color
+    definePaintProps(this, { rectX: 0, rectY: 0, rectWidth: 0, rectHeight: 0 })
     this.setRect(opts.rect)
-    // Dynamic so it draws in the same pass as the shared sky. The game subtree
-    // is added after the sky, so this paints over it within the game view.
-    this.renderLayer = 'dynamic'
   }
 
   /** Refit the fill to a new world rect (e.g. after a resize). */
   setRect(rect: Rect): void {
-    this.#rect.x = rect.x
-    this.#rect.y = rect.y
-    this.#rect.width = rect.width
-    this.#rect.height = rect.height
+    this.rectX = rect.x
+    this.rectY = rect.y
+    this.rectWidth = rect.width
+    this.rectHeight = rect.height
   }
 
-  override draw(gfx: Gfx2D): void {
-    const r = this.#rect
-    gfx.fillRect(r.x, r.y, r.width, r.height, this.#color)
+  override paint(gfx: Canvas): void {
+    gfx.fillRect(
+      this.rectX,
+      this.rectY,
+      this.rectWidth,
+      this.rectHeight,
+      this.#color,
+    )
   }
 }

@@ -4,7 +4,7 @@
  * map units (packets, the epicenter, the grid, speeds) comes out the same size
  * on screen whichever map is played.
  */
-export const PLAY_VIEW_HEIGHT = 560
+export const PLAY_VIEW_HEIGHT = 700
 
 /** The screen shape {@link PLAY_VIEW_HEIGHT} holds for. */
 export const PLAY_VIEW_ASPECT = 16 / 9

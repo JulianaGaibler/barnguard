@@ -9,8 +9,8 @@ import type { DemoFn } from './types'
 /**
  * M6 demo, a single hero shape running an infinite Timeline of tweens.
  *
- * - Grow (scale 0->1, outBack) -> shift right -> shift left -> return -> fade out ->
- *   fade in -> shrink -> repeat.
+ * - Grow (scale 0->1, outBack) -> shift right -> shift left -> return -> fade out
+ *   -> fade in -> shrink -> repeat.
  * - Press `D` to destroy the hero mid-tween. All outstanding tweens reject with
  *   AbortError, `ignoreAbort` swallows them, no unhandled promise rejection
  *   warnings.

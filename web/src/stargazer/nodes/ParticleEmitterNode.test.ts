@@ -1,65 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { ParticleEmitterNode } from './ParticleEmitterNode'
-import type { Camera } from '../camera/Camera'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import { paintCalls } from '../render/picture/paintCalls'
 
 type LoggedCall = readonly [string, ...unknown[]]
 
-/**
- * Minimal `Gfx2D` test double: logs the calls this suite cares about, no-ops
- * the rest.
- */
-function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
-  const calls: LoggedCall[] = []
-  const gfx: Gfx2D = {
-    setBaseTransform: () => {},
-    save: () => calls.push(['save']),
-    restore: () => calls.push(['restore']),
-    translate: (x, y) => calls.push(['translate', x, y]),
-    rotate: (rad) => calls.push(['rotate', rad]),
-    scale: (sx, sy) => calls.push(['scale', sx, sy]),
-    transform: () => {},
-    fillPath: () => {},
-    clipPath: () => {},
-    beginOffscreen: () => false,
-    endOffscreen: () => null,
-    drawOffscreen: () => {},
-    strokePath: () => {},
-    setAlpha: (a) => calls.push(['setAlpha', a]),
-    setBlend: (mode) => calls.push(['setBlend', mode]),
-    setClipMask: () => {},
-    setClip: () => {},
-    deviceScale: () => 1,
-    snapSize: (v: number) => v,
-    fillRect: () => {},
-    fillRoundRect: () => {},
-    strokeRoundRect: () => {},
-    fillCircle: () => {},
-    fillConvexPoly: () => {},
-    fillPath2D: () => {},
-    fillCircleRadialGradient: () => {},
-    drawShaderQuad: () => {},
-    fillMaskedRadialGradient: () => {},
-    fillPolyLinearGradient: () => {},
-    fillAndStrokeRoundRect: () => {},
-    fillAndStrokeCircle: () => {},
-    shadowRoundRect: () => {},
-    shadowCircle: () => {},
-    shadowPath2D: () => {},
-    strokeCircle: () => {},
-    strokeLine: () => {},
-    strokeQuadratic: () => {},
-    strokePolyline: () => {},
-    strokePath2D: () => {},
-    drawImage: (_img, dx, dy, dw, dh) =>
-      calls.push(['drawImage', dx, dy, dw, dh]),
-    fillText: () => {},
-    warmText: () => {},
-  }
-  return { gfx, calls }
+/** The calls this suite cares about, as the node paints them. */
+function paint(node: ParticleEmitterNode): LoggedCall[] {
+  return paintCalls(node).map((c): LoggedCall => [
+    c.name,
+    ...(c.name === 'drawImage' ? c.args.slice(1, 5) : c.args),
+  ])
 }
-
-const fakeCamera = {} as Camera
 
 const SQUARE_CONFIG = {
   capacity: 10,
@@ -72,12 +23,11 @@ const SQUARE_CONFIG = {
   palette: ['#ffffff'],
 } as const
 
-describe('ParticleEmitterNode draw', () => {
+describe('ParticleEmitterNode paint', () => {
   it('takes the bare drawImage path when spinRadPerSec is unset (fast path preserved)', () => {
     const node = new ParticleEmitterNode({ config: { ...SQUARE_CONFIG } })
     node.emitter.burst(1, 0, 0)
-    const { gfx, calls } = recordingGfx()
-    node.draw(gfx, fakeCamera, 0)
+    const calls = paint(node)
     // Outer save/setBlend/restore, plus one bare drawImage call, with no
     // per-particle save/translate/rotate pair.
     expect(calls.filter((c) => c[0] === 'save').length).toBe(1)
@@ -95,8 +45,7 @@ describe('ParticleEmitterNode draw', () => {
     })
     node.emitter.burst(1, 0, 0)
     node.emitter.update(1) // angle: 0 -> 2
-    const { gfx, calls } = recordingGfx()
-    node.draw(gfx, fakeCamera, 0)
+    const calls = paint(node)
     // Outer save plus one inner per-particle save is 2, with matching restores.
     expect(calls.filter((c) => c[0] === 'save').length).toBe(2)
     expect(calls.filter((c) => c[0] === 'restore').length).toBe(2)
@@ -112,8 +61,7 @@ describe('ParticleEmitterNode draw', () => {
       config: { ...SQUARE_CONFIG, spinRadPerSec: [2, 2] },
     })
     node.emitter.burst(1, 0, 0) // angle starts at 0, no update() yet
-    const { gfx, calls } = recordingGfx()
-    node.draw(gfx, fakeCamera, 0)
+    const calls = paint(node)
     expect(calls.filter((c) => c[0] === 'rotate').length).toBe(0)
   })
 
@@ -129,8 +77,7 @@ describe('ParticleEmitterNode draw', () => {
     })
     node.emitter.burst(1, 0, 0) // speed0 = 100
     node.emitter.update(1) // v = 25 -> speedRatio = 0.25 -> t = 0.75
-    const { gfx, calls } = recordingGfx()
-    node.draw(gfx, fakeCamera, 0)
+    const calls = paint(node)
     const [, , , dw, dh] = calls.find((c) => c[0] === 'drawImage')!
     // scale = 1 + (0-1)*0.75 = 0.25 -> size = 20*0.25 = 5
     expect(dw as number).toBeCloseTo(5, 3)
@@ -149,8 +96,7 @@ describe('ParticleEmitterNode draw', () => {
     })
     node.emitter.burst(1, 0, 0)
     node.emitter.update(1) // half of a 2s life elapsed -> alpha ~0.5
-    const { gfx, calls } = recordingGfx()
-    node.draw(gfx, fakeCamera, 0)
+    const calls = paint(node)
     const alphaCalls = calls.filter((c) => c[0] === 'setAlpha')
     expect(alphaCalls.length).toBe(1)
     expect(alphaCalls[0][1] as number).toBeCloseTo(0.5, 3)

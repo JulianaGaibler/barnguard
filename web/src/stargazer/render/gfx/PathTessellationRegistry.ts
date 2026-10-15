@@ -12,25 +12,13 @@
  */
 
 import type { GeometryHandle } from './GeometryHandle'
-import type { StrokeOutlineBuffer } from './strokeOutline'
 
-/**
- * Per-path LRU of tessellated stroke outlines (one per distinct style +
- * scale bucket), bounded per path rather than globally: a `WeakMap` cannot be
- * iterated, so a global budget has nothing to sweep. The number of live
- * registered paths is already bounded by the app.
- */
-export const OUTLINE_VARIANTS_PER_PATH = 8
-
-const pathToOutlines = new WeakMap<Path2D, Map<string, StrokeOutlineBuffer>>()
 const pathToEpoch = new WeakMap<Path2D, number>()
 
 /**
- * Index-count at or above which a tessellation auto-opts into the retained GPU
- * path (upload once, GPU-transform) unless `opts.retained` says otherwise. Big,
- * long-lived geometry (the SVG map, ~15K indices) crosses it. Small one-off
- * shapes (packet glyphs, single contours) stay streamed so churning them can't
- * strand GPU buffers.
+ * Index count at or above which a tessellation is kept on the GPU from its
+ * first draw, unless `opts.retained` says otherwise. Smaller geometry is kept
+ * only once it repeats in a draw that is a run of its own.
  */
 const RETAIN_INDEX_THRESHOLD = 1500
 
@@ -72,57 +60,22 @@ export function registerPathTessellation(
   pathToEpoch.set(path, (pathToEpoch.get(path) ?? 0) + 1)
 }
 
-/** Bumped on every `registerPathTessellation` call for `path`. Part of the outline cache key. */
+/**
+ * Bumped on every `registerPathTessellation` call for `path`. Part of the
+ * outline cache key.
+ */
 export function getRegistrationEpoch(path: Path2D): number {
   return pathToEpoch.get(path) ?? 0
 }
 
 /**
- * Look up a cached stroke outline for `path` by exact key (style signature +
- * scale bucket + registration epoch, built by the caller), or `undefined` on
- * a miss.
- */
-export function getCachedOutline(
-  path: Path2D,
-  key: string,
-): StrokeOutlineBuffer | undefined {
-  return pathToOutlines.get(path)?.get(key)
-}
-
-/**
- * Cache `outline` for `path` under `key`. Evicts the oldest entry (insertion
- * order) past {@link OUTLINE_VARIANTS_PER_PATH}, per path rather than
- * globally.
- */
-export function setCachedOutline(
-  path: Path2D,
-  key: string,
-  outline: StrokeOutlineBuffer,
-): void {
-  let byKey = pathToOutlines.get(path)
-  if (!byKey) {
-    byKey = new Map()
-    pathToOutlines.set(path, byKey)
-  }
-  byKey.set(key, outline)
-  if (byKey.size > OUTLINE_VARIANTS_PER_PATH) {
-    const oldest = byKey.keys().next().value as string | undefined
-    if (oldest !== undefined) byKey.delete(oldest)
-  }
-}
-
-/**
- * Drop a path's registration. Callers holding GPU-resident geometry
- * (`GeometryHandle.gpu`) must release the GPU buffers separately (via
- * `GpuGfx`), since this registry has no device handle. Use from teardown of a
- * node that registered a one-off retained path so its arena can't grow
- * unbounded as games churn.
+ * Drop a path's registration. Buffers the renderer kept for its geometry are
+ * freed once they go undrawn for a while.
  */
 export function releasePathTessellation(path: Path2D): void {
   pathToGeometry.delete(path)
   pathToContours.delete(path)
   pathToContourClosed.delete(path)
-  pathToOutlines.delete(path)
   pathToEpoch.delete(path)
 }
 

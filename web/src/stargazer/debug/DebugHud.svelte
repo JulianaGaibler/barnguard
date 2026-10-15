@@ -18,10 +18,12 @@
     type DebugSelectOption,
   } from './ui'
   import RenderingPanel from './panels/RenderingPanel.svelte'
+  import QualityPanel from './panels/QualityPanel.svelte'
   import InputPanel from './panels/InputPanel.svelte'
   import ScenePanel from './panels/ScenePanel.svelte'
   import PhysicsPanel from './panels/PhysicsPanel.svelte'
   import { fmtMs, MISSING } from './panels/format'
+  import { MetricHistory } from './MetricHistory'
 
   interface Props {
     debug: DebugController
@@ -58,7 +60,13 @@
     max: 0,
     count: 0,
     fps: 0,
-    nodeCounts: { static: 0, aboveStatic: 0, dynamic: 0, total: 0 },
+    nodeCount: 0,
+    compose: { nodes: 0, paints: 0, replays: 0, culled: 0 },
+    composePainters: [],
+    streamers: [],
+    caches: [],
+    composeTotals: { frames: 0, framesPainted: 0, paints: 0, stale: 0 },
+    renderFailures: [],
     cameraMode: 'game',
     cameraFollowing: false,
     viewport: { x: 0, y: 0, width: 0, height: 0 },
@@ -84,8 +92,16 @@
       textureBinds: 0,
       blendSwitches: 0,
       uboSlices: 0,
+      runsMerged: 0,
+      primitives: 0,
       bytesUploaded: 0,
+      streamedBytes: {},
       passCount: 0,
+      framePasses: 0,
+      frameSubmits: 0,
+      frameBindGroupsCreated: 0,
+      frameBindGroupSwitches: 0,
+      frameUniformWrites: 0,
       surfaces: 0,
       offscreenBytes: 0,
       sdfInstances: 0,
@@ -96,6 +112,12 @@
       outlineTessellations: 0,
       outlineCacheHits: 0,
       rampRowsWritten: 0,
+      labelRasters: 0,
+      labelUploadBytes: 0,
+      labelDedicated: 0,
+      labelHolds: 0,
+      labelPageWipes: 0,
+      labelEntries: 0,
       maskBakes: 0,
       maskBakeWork: 0,
       maskBytes: 0,
@@ -108,6 +130,9 @@
     flyPointerLocked: false,
     flySpeedMultiplier: 1,
   }
+
+  /** Recent renderer readings, for the Rendering panel's sparklines. */
+  const history = new MetricHistory()
 
   let visible = $state(false)
   let stats = $state<DebugStatsSnapshot>(EMPTY_STATS)
@@ -144,6 +169,7 @@
 
   // Subpanel window open-state. Each is an independent DraggableWindow.
   let renderingOpen = $state(false)
+  let qualityOpen = $state(false)
   let inputOpen = $state(false)
   let sceneOpen = $state(false)
   let physicsOpen = $state(false)
@@ -156,6 +182,7 @@
     return (
       visible ||
       renderingOpen ||
+      qualityOpen ||
       inputOpen ||
       sceneOpen ||
       physicsOpen ||
@@ -189,6 +216,7 @@
       return
     }
     stats = debug.snapshotStats()
+    history.record(stats)
     frameRevision++
     rafId = requestAnimationFrame(tick)
   }
@@ -324,6 +352,14 @@
           ensureTicking()
         }}
         label="Rendering"
+      />
+      <ToggleButton
+        active={qualityOpen}
+        onToggle={() => {
+          qualityOpen = !qualityOpen
+          ensureTicking()
+        }}
+        label="Quality"
       />
       <ToggleButton
         active={inputOpen}
@@ -573,7 +609,25 @@
   width={300}
   onClose={() => (renderingOpen = false)}
 >
-  <RenderingPanel {debug} {stats} revision={frameRevision} />
+  <RenderingPanel
+    {debug}
+    {stats}
+    revision={frameRevision}
+    {history}
+    frameStats={debug.frameStats}
+  />
+</DraggableWindow>
+
+<DraggableWindow
+  visible={qualityOpen}
+  title="Quality"
+  storageId="stargazer-debug-panel-quality"
+  spawnedBy={HUB_STORAGE_ID}
+  side="left"
+  width={300}
+  onClose={() => (qualityOpen = false)}
+>
+  <QualityPanel {debug} {stats} revision={frameRevision} />
 </DraggableWindow>
 
 <DraggableWindow

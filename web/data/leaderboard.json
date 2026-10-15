@@ -1,0 +1,18 @@
+[
+  {
+    "id": "7183bcb0-0afd-4ee4-90c6-3b02380cd2f6",
+    "tsMs": 1792289985570,
+    "display": "enterprise-eu",
+    "name": "yaina",
+    "score": 1,
+    "region": "UKR"
+  },
+  {
+    "id": "4274766f-8505-4510-bec1-3d76aa3c9f82",
+    "tsMs": 1792332247705,
+    "display": "enterprise-eu",
+    "name": "book",
+    "score": 3,
+    "region": "ESP"
+  }
+]

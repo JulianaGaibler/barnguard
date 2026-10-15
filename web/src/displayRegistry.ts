@@ -13,6 +13,8 @@ import type { DisplayManifest } from '@src/core/display'
 export const displayRegistry: Record<string, () => Promise<DisplayManifest>> = {
   enterprise: () => import('./displays/enterprise').then((m) => m.enterprise),
   arcade: () => import('./displays/arcade').then((m) => m.arcade),
+  'age-verification': () =>
+    import('./displays/age-verification').then((m) => m.ageVerification),
 }
 
 export type DisplayId = keyof typeof displayRegistry

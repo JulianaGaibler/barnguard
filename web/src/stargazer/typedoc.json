@@ -51,7 +51,6 @@
   },
   "intentionallyNotExported": [
     "CameraHost",
-    "Camera",
     "DebugCameraMode",
     "DebugRenderMode",
     "World3DReadout",
@@ -59,7 +58,6 @@
     "GfxDevice",
     "Texture",
     "MeshRenderer",
-    "GpuGeometry",
     "TextureInspector",
     "TextureSource",
     "PointerTarget",
@@ -69,7 +67,7 @@
   "cleanJsdocTheme": {
     "siteName": "Stargazer",
     "docs": "src/stargazer/docs",
-    "docGroups": ["Guides"],
+    "docGroups": ["Getting started", "Features", "3D", "Internals"],
     "copyPage": true
   },
   "validation": {

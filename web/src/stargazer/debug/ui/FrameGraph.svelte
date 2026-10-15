@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import type { FrameStats } from '../FrameStats'
+  import { foldWorst } from '../RingSeries'
+  import { TONE_COLORS } from '../thresholds'
 
   interface Props {
     stats: FrameStats
@@ -31,9 +33,9 @@
     active = true,
   }: Props = $props()
 
-  const COLOR_GOOD = '#4ade80'
-  const COLOR_WARN = '#fbbf24'
-  const COLOR_BAD = '#f87171'
+  const COLOR_GOOD = TONE_COLORS.good
+  const COLOR_WARN = TONE_COLORS.warn
+  const COLOR_BAD = TONE_COLORS.bad
   const COLOR_GOOD_LINE = 'rgba(74, 222, 128, 0.25)'
   const COLOR_WARN_LINE = 'rgba(251, 191, 36, 0.25)'
   const COLOR_FILL = 'rgba(96, 165, 250, 0.12)'
@@ -50,6 +52,7 @@
   let xs = new Float32Array(0)
   let ys = new Float32Array(0)
   let msBuf = new Float32Array(0)
+  let folded = new Float32Array(0)
 
   function syncSize(): boolean {
     if (!canvas) return false
@@ -89,6 +92,7 @@
       xs = new Float32Array(cap)
       ys = new Float32Array(cap)
       msBuf = new Float32Array(cap)
+      folded = new Float32Array(cap)
     }
 
     const devW = canvas.width
@@ -143,24 +147,11 @@
     //    clean multiple of the available column count.
     const n = stats.readOrdered(scratch)
     if (n === 0) return
-    const drawCount = Math.min(cssW, n)
+    const drawCount = foldWorst(scratch, n, cssW, folded)
     const xStart = cssW - drawCount
     for (let c = 0; c < drawCount; c++) {
-      // Sample range [startIdx, endIdx) for this column. When n <= drawCount,
-      // this simplifies to a single sample per column.
-      const startIdx = Math.floor((c * n) / drawCount)
-      const endIdx = Math.min(
-        n,
-        Math.max(startIdx + 1, Math.floor(((c + 1) * n) / drawCount)),
-      )
-      // Worst-of-slice makes spikes survive folding, better perf diagnostic
-      // than averaging, which smooths spikes away.
-      let worst = 0
-      for (let i = startIdx; i < endIdx; i++) {
-        const v = scratch[i]
-        if (v > worst) worst = v
-      }
-      const ms = worst * 1000
+      // The worst sample of each column's slice, so spikes survive folding.
+      const ms = folded[c] * 1000
       const clamped = Math.min(Math.max(0, ms), scaleMs)
       xs[c] = xStart + c
       ys[c] = cssH - (clamped / scaleMs) * cssH

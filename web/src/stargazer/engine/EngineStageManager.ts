@@ -40,14 +40,9 @@ export class EngineStageManager {
     // Secondary stages default to transparent, the parent HTML card owns
     // the background.
     const stage = new Stage(canvas, engine, {
-      clearColor: opts.clearColor,
+      ...opts,
       transparent: opts.transparent ?? true,
-      interactive: opts.interactive,
-      name: opts.name,
       msaaSamples: opts.msaaSamples ?? engine.msaaSamples,
-      gpuDevice: opts.gpuDevice,
-      onResize: opts.onResize,
-      renderScale: opts.renderScale,
     })
     this.#_stages.add(stage)
     this.#_attachedCanvases.add(canvas)

@@ -2,8 +2,7 @@ import {
   Node2D,
   registerPathTessellation,
   tessellateContours,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Vec2,
 } from '@src/stargazer'
 
@@ -48,7 +47,8 @@ export interface PacketSpawnConvergeOptions {
  *    of the animation.
  *
  * Emission stops after `spawnDurationSec`. Remaining live particles finish
- * their lives, then the node self-destroys. Storage is a fixed pool of
+ * their lives, then the node self-destroys. Live particles move every frame, so
+ * the node repaints every frame until then. Storage is a fixed pool of
  * `Float32Array` + `Uint8Array`, no per-frame allocations.
  */
 export class PacketSpawnConvergeNode extends Node2D {
@@ -124,6 +124,9 @@ export class PacketSpawnConvergeNode extends Node2D {
       }
     }
 
+    // Every live particle moves each frame, so the picture is rebuilt.
+    if (this.#aliveCount > 0) this.markNeedsPaint()
+
     // Self-destroy once emission has ended AND no particles remain alive.
     if (
       this.#elapsedSec >= this.#spawnDuration &&
@@ -157,7 +160,7 @@ export class PacketSpawnConvergeNode extends Node2D {
     this.#aliveCount++
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const cap = this.#capacity
     const rStart = this.#ringRadius
     const rEnd = this.#ringRadius * this.#radiusEndFraction

@@ -15,8 +15,9 @@ struct Clip {
     float r;
     float halfW;
     float halfH;
-    float rrRadius;
-    float clipPad;
+    float pad0_;
+    float pad1_;
+    vec4 radii;
 };
 struct VOut {
     vec4 pos;
@@ -39,9 +40,32 @@ smooth out vec2 _vs2fs_location0;
 smooth out vec4 _vs2fs_location1;
 flat out float _vs2fs_location2;
 
-float clipRoundBox(vec2 p, vec2 b, float rad) {
-    vec2 q = ((abs(p) - b) + vec2(rad));
-    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
+vec3 circleDistance(vec2 point, float radius) {
+    float fromCenter = length(point);
+    vec2 direction = ((fromCenter > 1e-6) ? (point / vec2(fromCenter)) : vec2(1.0, 0.0));
+    return vec3((fromCenter - radius), direction);
+}
+
+vec3 roundBoxDistance(vec2 point_1, vec2 halfSize, vec4 cornerRadii) {
+    vec2 column = ((point_1.x > 0.0) ? cornerRadii.yz : cornerRadii.xw);
+    float cornerRadius = ((point_1.y > 0.0) ? column.y : column.x);
+    vec2 fromInnerBox = ((abs(point_1) - halfSize) + vec2(cornerRadius));
+    vec2 beyondInnerBox = max(fromInnerBox, vec2(0.0));
+    float gapToInnerBox = length(beyondInnerBox);
+    bool outsideInnerBox = (max(fromInnerBox.x, fromInnerBox.y) > 0.0);
+    vec2 nearestSide = ((fromInnerBox.x > fromInnerBox.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+    vec2 foldedDirection = (outsideInnerBox ? (beyondInnerBox / vec2(max(gapToInnerBox, 1e-6))) : nearestSide);
+    float distance_1 = ((outsideInnerBox ? gapToInnerBox : max(fromInnerBox.x, fromInnerBox.y)) - cornerRadius);
+    vec2 quadrantSign = mix(vec2(-1.0), vec2(1.0), greaterThanEqual(point_1, vec2(0.0)));
+    return vec3(distance_1, (quadrantSign * foldedDirection));
+}
+
+float distanceChangePerPixel(vec2 gradient, vec4 pixelStep) {
+    return (abs(dot(gradient, pixelStep.xy)) + abs(dot(gradient, pixelStep.zw)));
+}
+
+float coverage(float distance_, float changePerPixel) {
+    return clamp((0.5 - (distance_ / max(changePerPixel, 0.0001))), 0.0, 1.0);
 }
 
 float bayerValue(vec2 fragPos_1) {

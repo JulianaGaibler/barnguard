@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { GpuGfx } from './GpuGfx'
+import { GfxPath } from './GfxPath'
 import { MockGfxDevice, type DrawRecord } from './webgl2/mockGfxDevice'
 import { pipelineKey } from './pipelineKey'
 import type { PipelineDesc } from './GfxDevice'
 
 /**
  * A stencil-backed surface, as the primary stage builds. `stencil: false`
- * models a secondary surface (a `Viewport2DNode`) that has none.
+ * models a surface that has none.
  */
 async function makeGfx(stencil = true): Promise<{
   gfx: GpuGfx
@@ -179,6 +180,36 @@ describe('translucent strokes deduplicate through the stencil', () => {
       true,
       false,
     ])
+  })
+
+  it('joins the groups of translucent strokes that do not touch', async () => {
+    const { gfx, device } = await makeGfx()
+    gfx.setAlpha(0.4)
+    gfx.strokePolyline(ZIGZAG, 4, { color: '#ffffff', width: 8 })
+    gfx.strokePolyline(
+      ZIGZAG.map((v, i) => (i % 2 ? v + 150 : v)),
+      4,
+      { color: '#ff0000', width: 8 },
+    )
+    gfx.endFrame()
+
+    // Core, fringe and reset each draw both strokes. They share no pixel, so
+    // each still blends once where it lies.
+    const draws = strokeDraws(device)
+    expect(draws).toHaveLength(3)
+    expect(draws.map((d) => d.colorWrite)).toEqual([true, true, false])
+  })
+
+  it('groups every contour of a translucent strokePath once, crossing ones too', async () => {
+    const { gfx, device } = await makeGfx()
+    gfx.setAlpha(0.4)
+    const path = new GfxPath()
+    path.moveTo(10, 10).lineTo(60, 40).lineTo(110, 10)
+    path.moveTo(10, 40).lineTo(60, 10).lineTo(110, 40)
+    gfx.strokePath(path, { color: '#ffffff', width: 8 })
+    gfx.endFrame()
+
+    expect(strokeDraws(device)).toHaveLength(3)
   })
 
   it('falls back to the plain path on a surface with no stencil', async () => {

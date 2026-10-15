@@ -1,55 +1,163 @@
+---
+title: Physics
+group: Features
+order: 15
+---
+
 # Physics
 
-An opt-in 2D rigid-body world: circle, box, and convex-polygon collision, an
-impulse solver with rotation and friction, raycasting, sensors, and a
-broad-phase that scales from a handful of bodies to thousands. Physics is off
-until you enable it on a stage.
+Stargazer has an optional 2D rigid-body physics engine. A {@link PhysicsWorld} moves {@link Body} objects under gravity and forces, resolves collisions between their {@link Collider} shapes, and reports contacts and sensor overlaps as events. It also answers raycasts and region queries.
 
-## Layout
+Physics is off until you turn it on for a stage, or give part of the scene its own world. {@link RigidBodyBehavior} connects a body to a scene node, so the node follows the body.
 
-- `PhysicsWorld`, the simulation. Owns bodies, runs the `step`, reports
-  collisions and triggers, and answers raycast and region queries.
-- `Body`, a rigid body: position, rotation, velocity, mass, and its colliders.
-- `Collider` plus the `Shape` union (`circleShape`, `aabbShape`, `polygonShape`).
-- `RigidBodyBehavior`, the scene-graph binding: mirrors a body onto a
-  `Node2D` transform each frame with interpolation.
-- `PhysicsWorldBehavior`, which gives a subtree its own world so a self-contained
-  simulation can sit anywhere in the tree (see Isolated sub-worlds).
-- `BroadPhase` with two implementations, `BruteForceBroadPhase` and
-  `SpatialHashBroadPhase`. The world picks one for you.
+## Basic usage
 
-## Enabling it
-
-Physics is a per-stage subsystem the fixed-step loop drives automatically, the
-same way input is per-stage. Turn it on with the `physics` option:
+The example below turns on physics for the primary stage, adds a static floor, and drops a box onto it.
 
 ```ts
+import {
+  createEngineHost,
+  Node2D,
+  RigidBodyBehavior,
+  BodyType,
+  aabbShape,
+} from '@src/stargazer'
+
 const host = createEngineHost({
   canvas,
   physics: { gravity: { x: 0, y: 900 } },
 })
 const world = host.engine.physics! // the primary stage's world
+
+world.createBody({
+  type: BodyType.Static,
+  position: { x: 400, y: 560 },
+  colliders: [{ shape: aabbShape(400, 10) }],
+})
+
+await host.loadScene((scene) => {
+  const crate = new Node2D('crate')
+  crate.transform.x = 400
+  crate.transform.y = 100
+  crate.addBehavior(
+    new RigidBodyBehavior({
+      bodyDef: {
+        mass: 2,
+        restitution: 0.3,
+        colliders: [{ shape: aabbShape(16, 16) }],
+      },
+    }),
+  )
+  scene.root.add(crate)
+})
+host.start()
 ```
 
-`physics: true` uses the defaults. Pass a config to tune it. Secondary stages
-enable their own world through `StageOptions.physics`.
+The engine steps the world once per fixed tick. The crate falls, bounces a little, and comes to rest on the floor. `physics: true` turns physics on with the default settings. A secondary stage turns on its own world with [`StageOptions.physics`](/module/render/stageoptions#physics).
 
-To give one part of the scene its own world instead of the whole stage, attach a
-`PhysicsWorldBehavior` to a subtree (see Isolated sub-worlds). The world is also
-usable on its own, without the engine, when you want to drive the clock yourself:
+### Bodies and colliders
+
+A body has a position, rotation, velocity, mass, and one or more colliders. Create bodies with [`createBody`](/module/physics/physicsworld#createbody), which takes a {@link BodyDef}. Every field is optional. The default is a dynamic body at the origin with mass 1 and no colliders.
 
 ```ts
-const world = new PhysicsWorld({ gravity: { x: 0, y: 900 } })
-host.engine.ticker.onFixedStep((fdt) => world.step(fdt))
+const ball = world.createBody({
+  position: { x: 0, y: 0 },
+  restitution: 0.6,
+  friction: 0.2,
+  colliders: [{ shape: circleShape(20) }],
+})
 ```
 
-## Isolated sub-worlds
+There are three shapes:
 
-A scene is a tree of nodes, and any subtree can be reused by writing a function
-that builds it. Give such a subtree its own physics by attaching a
-`PhysicsWorldBehavior` to its root. The node it's attached to becomes a
-simulation boundary: `RigidBodyBehavior`s below it bind to that world instead of
-the stage world, the engine steps it each fixed tick, and the debug HUD lists it.
+- {@link circleShape}`(radius)`: a circle
+- {@link aabbShape}`(halfW, halfH)`: a box that stays axis-aligned even when its body rotates
+- {@link polygonShape}`(vertices)`: a convex polygon, with vertices in counter-clockwise order
+
+Use a polygon for a box that should turn. In development builds, `polygonShape` throws for fewer than 3 vertices or clockwise order. A collider's `offset` places it relative to the body origin. The body computes its rotational inertia from the shapes.
+
+### Body types
+
+{@link BodyType} has three values:
+
+- `BodyType.Static` never moves and has infinite mass. Use it for walls and floors.
+- `BodyType.Dynamic` is fully simulated: gravity, forces, and contacts move it.
+- `BodyType.Kinematic` moves only by its own velocity and your code. It pushes dynamic bodies, and nothing pushes it.
+
+The type decides which bodies a contact moves:
+
+| Pair                                    | Result                              |
+| --------------------------------------- | ----------------------------------- |
+| Dynamic and dynamic                     | Solved, both move, weighted by mass |
+| Dynamic and static or kinematic         | Solved, only the dynamic body moves |
+| Two bodies that are static or kinematic | Reported as a contact, never solved |
+
+`fixedRotation: true` keeps a body from rotating.
+
+### Moving bodies
+
+These methods change a body. Each one also wakes a sleeping body.
+
+```ts
+body.applyForce(fx, fy) // added up until the next step
+body.applyForceAtPoint(fx, fy, px, py) // also adds torque
+body.applyImpulse(ix, iy) // changes velocity now, by impulse / mass
+body.applyImpulseAtPoint(ix, iy, px, py)
+body.applyTorque(t)
+body.setVelocity(vx, vy)
+body.setPosition(x, y)
+body.setRotation(radians)
+```
+
+Use `setPosition` and `setRotation` when you move a body by hand. They also tell the broad phase to index the body again. Writing to `body.position` directly skips that.
+
+### Following a body with a node
+
+{@link RigidBodyBehavior} creates a body from `bodyDef`, or binds an existing `body`. It seeds a new body's position and rotation from the node's transform. Each frame it copies the body's position and rotation to the node, interpolated between fixed steps with the ticker's `fixedAlpha`, so motion looks smooth at any display rate.
+
+The body is the source of truth, and the node follows it. The behavior writes the node's own transform, so put the node directly in physics space: under the scene root for the stage world, or under the node that holds the world.
+
+When the node joins a scene, the behavior adds the body to a world. It uses the `world` option if you pass one. Otherwise it looks for a {@link PhysicsWorldBehavior} on the node or its ancestors, and then falls back to the stage world. It throws when it finds none. Removing the behavior or destroying the node removes the body.
+
+### Collision events
+
+The world reports contacts through its [`events`](/module/physics/physicsworld#events) emitter. {@link PhysicsEvents} lists the events:
+
+```ts
+world.events.on('collisionEnter', ({ a, b, manifold }) => {
+  // a and b started touching this step
+})
+world.events.on('collisionExit', ({ a, b }) => {})
+world.events.on(
+  'triggerEnter',
+  ({ sensor, other, sensorBody, otherBody }) => {},
+)
+world.events.on('triggerExit', ({ sensor, other, sensorBody, otherBody }) => {})
+world.events.on('sleep', ({ body }) => {})
+world.events.on('wake', ({ body }) => {})
+```
+
+The world reuses the event objects. Read what you need inside the handler and don't keep the object. Removing a body fires the exit events for everything it was touching.
+
+### Sensors
+
+A collider with `sensor: true` detects overlaps but never pushes anything. Bodies pass through it, and the world fires `triggerEnter` and `triggerExit`. Use it for pickups, goal zones, and areas that start an event.
+
+```ts
+world.createBody({
+  type: BodyType.Static,
+  position: { x: 700, y: 300 },
+  colliders: [{ shape: aabbShape(40, 40), sensor: true }],
+})
+```
+
+## Advanced usage
+
+This section covers isolated worlds, the step, queries, layers, kinematic movement, sleeping, sync control, and tuning.
+
+### Isolated worlds
+
+A {@link PhysicsWorldBehavior} gives a subtree its own world. The node it's attached to becomes the world's space node. Its world transform maps physics coordinates into the scene, so the subtree can sit anywhere. `RigidBodyBehavior`s below it use this world instead of the stage world.
 
 ```ts
 function buildArena(): Node2D {
@@ -57,281 +165,192 @@ function buildArena(): Node2D {
   arena.addBehavior(
     new PhysicsWorldBehavior({ config: { gravity: { x: 0, y: 0 } } }),
   )
-  arena.add(buildOrb()) // a RigidBodyBehavior inside buildOrb resolves to arena's world
+  arena.add(buildBall()) // its RigidBodyBehavior binds to arena's world
   return arena
 }
 
-// Two arenas, two independent worlds. Nothing else to wire up.
+// Two arenas, two independent worlds.
 scene.root.add(buildArena())
 scene.root.add(buildArena())
 ```
 
-The world exists as soon as the behavior is constructed, so a builder can add
-bodies before the subtree is attached, grabbing it with `behavior.world`. The node's
-world transform maps physics coordinates into scene coordinates, so the subtree
-can sit anywhere and the overlay still draws the world in place. Registration
-starts when the node enters a scene. Removing the behavior or destroying the
-node unregisters the world (and clears it, if the behavior created it).
-Reparenting the subtree keeps the world intact.
+The world exists as soon as you construct the behavior, so you can add bodies through [`world`](/module/physics/physicsworldbehavior#world) before the node joins a scene. The engine starts stepping the world when the node joins a scene. Removing the behavior or destroying the node stops it, and clears the world if the behavior created it. Moving the subtree to another parent keeps the world.
 
-The debug HUD draws every world at once, each in its own color with a boundary
-and label, and the Physics panel shows a stats block per world.
+{@link PhysicsWorldBehaviorOptions} takes `config`, or an existing `world` to adopt, and a `label` for the debug HUD. The behavior doesn't clear an adopted world.
 
-## Bodies and colliders
+### A world without the engine
 
-A body holds one or more colliders. Create bodies through the world:
+You can also create a {@link PhysicsWorld} yourself. Step it from your own fixed-step callback, or register it so the engine steps it:
 
 ```ts
-const floor = world.createBody({
-  type: BodyType.Static,
-  position: { x: 0, y: 500 },
-  colliders: [{ shape: aabbShape(400, 10) }],
-})
-
-const ball = world.createBody({
-  position: { x: 0, y: 0 },
-  restitution: 0.6,
-  colliders: [{ shape: circleShape(20) }],
-})
+const world = new PhysicsWorld({ gravity: { x: 0, y: 900 } })
+const unregister = host.engine.registerPhysicsWorld(world, { label: 'sim' })
 ```
 
-The three shapes:
+[`registerPhysicsWorld`](/module/engine/engine#registerphysicsworld) returns a function that stops the stepping. [`engine.physicsWorlds`](/module/engine/engine#physicsworlds) lists every registered world. In tests, call `world.step(dt)` directly.
 
-- `circleShape(radius)`.
-- `aabbShape(halfW, halfH)`, an axis-aligned box. It stays axis-aligned even on
-  a rotating body. Use a polygon for a box that should turn.
-- `polygonShape(vertices)`, a convex polygon wound counter-clockwise. Winding is
-  checked in dev builds and edge normals are precomputed.
+### The step
 
-Mass, restitution, friction, and damping default from the body. A collider can
-override restitution and friction through its `material`. A collider marked
-`sensor: true` is detected and reported but never resolved (see Triggers).
+The engine calls [`step`](/module/physics/physicsworld#step) on every registered world once per fixed tick, before the scene's `onFixedStep` pass. Game code in `onFixedStep` reads the state after the step. The fixed step runs at 120 Hz unless you set `fixedStepHz` on the host.
 
-## Body types
+One step does this, in order:
 
-```
-BodyType.Static     never moves, infinite mass. Walls and ground.
-BodyType.Dynamic    fully simulated: integrated, collided, resolved.
-BodyType.Kinematic  moved only by your code, pushes dynamics, unmoved by them.
-```
+1. Adds gravity and forces to velocity, applies damping, and clamps to `maxLinearSpeed`.
+2. Moves positions and rotations by velocity.
+3. Finds candidate pairs in the broad phase and builds a contact for each overlapping pair.
+4. Runs `velocityIterations` passes of the impulse solver, with restitution and friction.
+5. Runs up to `positionIterations` passes that push overlapping bodies apart.
+6. Puts slow bodies to sleep and fires the enter and exit events.
 
-The collision matrix follows from those masses:
+The same starting state and `dt` give the same result on the same build. The world reads no clock or random source and iterates bodies in a stable order. JavaScript floats can still differ across CPUs and browsers, so this isn't enough for lockstep multiplayer.
 
-| Pair                                | Result                            |
-| ----------------------------------- | --------------------------------- |
-| Dynamic ↔ Dynamic                   | solved, both move (mass-weighted) |
-| Dynamic ↔ Static                    | solved, only the dynamic moves    |
-| Dynamic ↔ Kinematic                 | solved, only the dynamic moves    |
-| Static/Kinematic ↔ Static/Kinematic | skipped, no solver work           |
+### Materials and damping
 
-Static has `invMass = invInertia = 0`, so the impulse math leaves it fixed. A
-circle body with `fixedRotation: true` gets `invInertia = 0` too, and the
-angular terms drop out through the same solver, no separate code path.
+A body's `restitution` (bounciness, 0 to 1) and `friction` both default to 0. A collider can override them with `material`. For a contact, the world uses the larger restitution of the two colliders and the geometric mean of their friction.
 
-## The step
+`linearDamping` and `angularDamping` are the share of velocity a body keeps per 1/60 second, applied as `damping^(dt * 60)`. The default 1 means no damping, and 0.98 slows a body a little every frame.
 
-The engine calls `world.step(fdt)` once per fixed tick, before the scene's
-`onFixedStep` pass, so behaviors and game code read post-step state that
-tick. `velocityIterations`, `positionIterations`, and `positionalSlop` (see
-Tuning) control the solver passes inside a step. The full sequence is on
-`PhysicsWorld.step`'s reference entry.
+### Raycasts and queries
 
-Same initial state and `dt` reproduce the same result on the same build (no
-clock or random source is read, and bodies iterate in a stable order), but
-JavaScript floats can differ across CPUs and JS engines, so this is not
-lockstep-multiplayer determinism.
-
-## Forces, impulses, and velocity
+[`raycast`](/module/physics/physicsworld#raycast) returns the nearest hit along a ray, or `null`. The direction doesn't need to be normalized.
 
 ```ts
-body.applyForce(fx, fy) // accumulates until the next step
-body.applyImpulse(ix, iy) // instant Δv = impulse * invMass
-body.applyTorque(t)
-body.applyForceAtPoint(fx, fy, px, py) // adds the resulting torque
-body.setVelocity(vx, vy)
-body.setPosition(x, y) // wakes the body and re-indexes it
-```
-
-All of them wake a sleeping body. Write straight to `body.position` /
-`body.velocity` when you are managing dirtiness yourself, but prefer
-`setPosition` when you move a body by hand.
-
-## Attaching physics to a node
-
-`RigidBodyBehavior` binds a body to a node's transform and interpolates the
-rendered position between fixed steps using the ticker's `fixedAlpha`, so motion
-stays smooth at any display rate.
-
-```ts
-const node = new Node2D('crate')
-node.transform.x = 100
-node.transform.y = 50
-node.addBehavior(
-  new RigidBodyBehavior({
-    bodyDef: {
-      mass: 2,
-      restitution: 0.3,
-      colliders: [{ shape: aabbShape(16, 16) }],
-    },
-  }),
-)
-scene.root.add(node)
-```
-
-With no `world` option the behavior resolves the nearest world at or above the
-node: it walks up the ancestors for a `PhysicsWorldBehavior` (see Isolated
-sub-worlds) and, finding none, falls back to the stage world. Pass `world`
-explicitly to override. The body is the source of truth, and the node follows it.
-
-### Suspending the sync
-
-Sometimes the node transform needs to break away from the body: a tween slides
-the node off-screen, or a finger drags it directly and you want no interpolation
-lag. Rather than hand-rolling the body->node mirror in your own `onUpdate`, gate
-the behavior's sync:
-
-- Set `rb.syncEnabled = false` to stop the per-frame sync entirely (a tween now
-  owns the transform). Set it back to `true` to resume mirroring.
-- Pass `shouldSync: () => boolean` to gate each frame declaratively (e.g. return
-  `false` while `body.isBeingDragged`).
-- Toggle `rb.interpolate` to drop from smoothed tracking to hard-tracking the
-  body's current position (useful while a finger drives the body directly).
-
-```ts
-const rb = new RigidBodyBehavior({
-  bodyDef,
-  shouldSync: () => !body.isBeingDragged, // finger owns the transform while dragging
-})
-node.addBehavior(rb)
-// ...
-rb.syncEnabled = false // a slide-off tween takes over
-```
-
-### Sync-only mode
-
-When the game adds and removes bodies from the world itself (an imperative loop
-that spawns and retires bodies on its own schedule), pass `manageBody: false`
-with an explicit `body`. The behavior then skips world resolution and
-registration and only mirrors the body onto the node. You keep full control of
-the body's lifetime, and the behavior just handles the (suspendable, interpolated)
-transform sync:
-
-```ts
-node.addBehavior(
-  new RigidBodyBehavior({
-    body, // already added to the world by the game
-    manageBody: false,
-    syncRotation: false,
-    shouldSync: () => !detached, // a tween owns the transform while this is true
-  }),
-)
-```
-
-## Raycasting and queries
-
-```ts
-const hit = world.raycast({ x: 0, y: 0 }, { x: 1, y: 0 }, 500, mask)
+const hit = world.raycast({ x: 0, y: 0 }, { x: 1, y: 0 }, 500)
 if (hit) {
-  hit.body // what was hit
-  hit.point // world position
-  hit.normal // surface normal, back toward the ray origin
-  hit.distance // along the ray
+  hit.body // what the ray hit
+  hit.collider
+  hit.point // world position of the hit
+  hit.normal // surface normal, pointing back toward the ray origin
+  hit.distance // distance along the ray
 }
-
-world.queryRegion(rect, mask, outArray) // bodies overlapping a rect
-world.queryPoint(x, y, mask, outArray) // bodies containing a point
 ```
 
-Rays are broad-phase culled and return the nearest solid hit, and sensors are
-skipped. The `mask` filters against each body's `layer`.
+Rays skip sensors. The world returns the same {@link RaycastHit} object each call, so copy what you need, or pass your own object as the fifth argument.
 
-## Layers and masks
+Two more queries fill an array you pass in:
 
-Each body has a `layer` bitmask (which layers it is in) and a `mask` (which
-layers it scans). Two bodies collide only when each is in a layer the other
-scans:
+```ts
+const found: Body[] = []
+world.queryRegion(rect, LAYER_ALL, found) // bodies whose bounds overlap rect
+world.queryPoint(x, y, LAYER_ALL, found) // bodies with a collider at the point
+```
+
+`queryPoint` tests circles exactly, and boxes and polygons by their bounding box. All three queries filter by the body's `layer` against the mask.
+
+### Layers and masks
+
+Each body has a `layer` bitmask, the layers it's in, and a `mask`, the layers it collides with. Two bodies collide only when each one's layer is in the other's mask. The defaults are [`LAYER_DEFAULT`](/module/physics/layer-default) (bit 0) and [`LAYER_ALL`](/module/physics/layer-all).
 
 ```ts
 const PLAYER = 1 << 0
 const ENEMY = 1 << 1
-const player = world.createBody({ layer: PLAYER, mask: ENEMY, colliders: [...] })
-```
-
-A collider can override its body's layer and mask.
-
-## Triggers
-
-A sensor collider reports overlaps without a physical response. Listen on the
-world's event bus:
-
-```ts
-world.events.on('triggerEnter', (e) => {
-  // e.sensor, e.other, e.sensorBody, e.otherBody
-})
-world.events.on('triggerExit', (e) => {
-  /* ... */
+const player = world.createBody({
+  layer: PLAYER,
+  mask: ENEMY,
+  colliders: [{ shape: circleShape(12) }],
 })
 ```
 
-Solid contacts fire `collisionEnter` and `collisionExit` the same way, and
-`sleep` / `wake` fire on body sleep transitions. Event payloads are pooled: read
-what you need inside the handler rather than keeping the object.
+A collider can override its body's `layer` and `mask`. {@link shouldCollide} runs the same test on four numbers.
 
-## Kinematic movement
+### Kinematic movement
 
-For a character you move by hand, `moveAndCollide` sweeps a kinematic body and
-stops at the first blocking contact. `moveAndSlide` slides the leftover motion
-along the surface instead:
+For a character you move by hand, [`moveAndCollide`](/module/physics/physicsworld#moveandcollide) moves a body, pushes it out of anything solid, and returns the deepest blocking contact as a {@link KinematicHit}, or `null`. [`moveAndSlide`](/module/physics/physicsworld#moveandslide) slides the rest of the motion along the surface it hit.
 
 ```ts
 world.moveAndSlide(player, dx, dy)
 ```
 
-The sweep sub-steps so a fast move does not tunnel through thin walls. Neither
-call changes the body's velocity, you drive that from your own movement code.
+Both split a long move into steps no longer than half the body's smallest size, so a fast move doesn't pass through thin walls. Neither changes the body's velocity. `moveAndCollide` returns a reused object, like `raycast`.
 
-## Sleeping and rest
+To free a body stuck inside others, [`resolveOverlaps`](/module/physics/physicsworld#resolveoverlaps) pushes it out over a few passes, optionally kept inside a rectangle.
 
-A body that stays below `sleepLinearThreshold` (and the angular threshold) for
-`sleepTime` seconds sleeps: its velocity zeroes and it drops out of the
-simulation until something wakes it. `world.isAtRest()` reports whether every
-awake dynamic body is below the threshold, `world.waitForSettle()` resolves when
-that happens, and `world.forceSettle()` zeroes everything and resolves waiters
-now.
+### Sleeping and rest
 
-## Tuning
+A dynamic body that stays below `sleepLinearThreshold` and `sleepAngularThreshold` for `sleepTime` seconds goes to sleep. Its velocity becomes 0 and the world skips it until a force, a setter, or a real hit wakes it. A body's own `sleepThreshold` overrides the linear threshold, and `canSleep: false` keeps it awake.
 
-The world config, with defaults:
+The world also tells you when everything has stopped:
+
+- `world.isAtRest()` returns `true` when every awake dynamic body is below the thresholds.
+- `world.waitForSettle()` resolves when the world is at rest.
+- `world.forceSettle()` stops every body now and resolves the waiters.
+
+### Taking over a node's transform
+
+Sometimes the node needs to move apart from its body, for example while a tween slides it off screen or a finger drags it. {@link RigidBodyBehavior} has three controls for this:
+
+- Set [`syncEnabled`](/module/physics/rigidbodybehavior#syncenabled) to `false` to stop copying the body to the node, and back to `true` to resume.
+- Pass `shouldSync: () => boolean` to decide each frame.
+- Set [`interpolate`](/module/physics/rigidbodybehavior#interpolate) to `false` to show the body's latest position without smoothing.
 
 ```ts
-interface PhysicsWorldConfig {
-  gravity?: { x: number; y: number } // (0, 0)
-  velocityIterations?: number // 8
-  positionIterations?: number // 3
-  positionalSlop?: number // 0.01
-  maxCorrection?: number // Infinity
-  correctionFactor?: number // 0.2
-  sleepLinearThreshold?: number // 0.05
-  sleepAngularThreshold?: number // 0.05
-  sleepTime?: number // 0.5
-  maxLinearSpeed?: number // Infinity
-  enableSleeping?: boolean // true
-  aabbMargin?: number // 0
-  broadPhase?: BroadPhase // auto
-  broadPhaseCellSize?: number // auto
-}
+let dragging = false
+const rb = new RigidBodyBehavior({
+  bodyDef,
+  shouldSync: () => !dragging, // the drag owns the transform
+})
+node.addBehavior(rb)
 ```
 
-`correctionFactor` trades softness for firmness: 0.2 keeps resting stacks calm,
-1.0 separates overlaps in one step. `maxLinearSpeed` caps per-step speed so
-nothing outruns a discrete step. It is a cheap guard rather than continuous
-collision, so very fast, thin projectiles can still pass through thin walls.
+`syncRotation: false` copies only the position.
 
-## Broad-phase
+### Sync-only mode
 
-The world starts on `BruteForceBroadPhase` (every pair, fine for small worlds)
-and upgrades itself to `SpatialHashBroadPhase` once it holds more than ~64
-bodies. Pass a `broadPhase` to choose one yourself, or `broadPhaseCellSize` to
-tune the grid. The spatial hash is fast when bodies are roughly one size. For
-wildly mixed scales the `BroadPhase` interface leaves room for a dynamic AABB
-tree without changing the step.
+When your code adds and removes bodies from the world itself, pass `manageBody: false` with an explicit `body`. The behavior then only copies the body to the node. It doesn't look for a world or add or remove the body.
+
+```ts
+node.addBehavior(
+  new RigidBodyBehavior({
+    body, // your code already added it to a world
+    manageBody: false,
+    syncRotation: false,
+  }),
+)
+```
+
+### Tuning
+
+{@link PhysicsWorldConfig} takes these options. Every one has a default, and [`world.config`](/module/physics/physicsworld#config) holds the resolved values.
+
+| Option                  | Default    | Meaning                                                            |
+| ----------------------- | ---------- | ------------------------------------------------------------------ |
+| `gravity`               | `(0, 0)`   | Acceleration on dynamic bodies, in units per second²               |
+| `velocityIterations`    | 8          | Impulse solver passes per step                                     |
+| `positionIterations`    | 3          | Overlap correction passes per step                                 |
+| `positionalSlop`        | 0.01       | Overlap left uncorrected, so resting bodies don't jitter           |
+| `correctionFactor`      | 0.2        | Share of overlap corrected per pass                                |
+| `maxCorrection`         | `Infinity` | Largest correction per pass                                        |
+| `maxLinearSpeed`        | `Infinity` | Speed clamp per step                                               |
+| `sleepLinearThreshold`  | 0.05       | Speed below which a body may sleep                                 |
+| `sleepAngularThreshold` | 0.05       | Angular speed, in radians per second, below which a body may sleep |
+| `sleepTime`             | 0.5        | Seconds below the thresholds before a body sleeps                  |
+| `enableSleeping`        | `true`     | Whether bodies may sleep at all                                    |
+| `aabbMargin`            | 0          | Extra margin on bounds in the broad phase                          |
+| `broadPhase`            | automatic  | A broad phase of your own                                          |
+| `broadPhaseCellSize`    | automatic  | Cell size for the automatic spatial hash                           |
+
+A `correctionFactor` of 0.2 keeps resting stacks calm, and 1 removes overlap in one step. `maxLinearSpeed` keeps bodies from moving too far in one step. It doesn't do continuous collision, so very fast, thin objects can still pass through thin walls.
+
+### Broad phase
+
+The broad phase finds pairs of bodies whose bounds overlap, before the exact shape test. The world starts with {@link BruteForceBroadPhase}, which tests every pair. When the world holds more than 64 bodies, it switches to a {@link SpatialHashBroadPhase} once, with a cell size of twice the average body size, at least 8 units.
+
+Pass `broadPhase` to choose one yourself, which turns the switch off. Set `broadPhaseCellSize` to set the hash cell size. The spatial hash works best when bodies are about the same size. The {@link BroadPhase} interface lets you supply another structure.
+
+### Debug overlay
+
+The debug HUD's Physics panel draws colliders, bounds, contacts, and velocities for every registered world, and shows a stats block per world. See [Debugging](/guides/debugging).
+
+## See also
+
+- {@link PhysicsWorld}: bodies, the step, events, and queries
+- {@link Body}: a rigid body and its forces
+- {@link BodyDef}: options for a new body
+- {@link ColliderDef}: shape, offset, sensor, layers, and material
+- {@link RigidBodyBehavior}: makes a node follow a body
+- {@link PhysicsWorldBehavior}: a world for one subtree
+- {@link PhysicsWorldConfig}: world tuning options
+- {@link PhysicsEvents}: collision, trigger, and sleep events
+- [Scene](/guides/scene): nodes, behaviors, and the fixed step
+- [Stages](/guides/stages): secondary stages with their own physics
+- [Debugging](/guides/debugging): the physics overlay and panel

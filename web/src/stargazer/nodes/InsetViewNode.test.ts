@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { SceneTree } from '../scene/SceneTree'
 import { Node2D } from '../scene/Node2D'
-import { StageLayerRenderer } from '../render/StageLayerRenderer'
+import { ComposeWalk } from '../render/ComposeWalk'
 import type { CameraView2D, Affine2x3 } from '../camera/CameraView2D'
 import type { Gfx2D, GfxClipShape } from '../render/gfx/Gfx2D'
 import type { Renderer } from '../render/Renderer'
-import { InsetViewNode, hasInsets } from './InsetViewNode'
+import { InsetViewNode } from './InsetViewNode'
 
 /** An outer camera at one screen pixel per world unit, no pan. */
 function identityCamera(): CameraView2D {
@@ -52,10 +52,9 @@ let recordingGfxRef = recordingGfx()
 
 function draw(scene: SceneTree): void {
   scene.updateTransforms()
-  new StageLayerRenderer().drawLayer(
+  new ComposeWalk().draw(
     scene,
     renderer,
-    'dynamic',
     recordingGfxRef.gfx,
     identityCamera(),
     render,
@@ -73,19 +72,9 @@ describe('InsetViewNode', () => {
     expect(t.x).toBeCloseTo(200, 6)
     expect(t.y).toBeCloseTo(260, 6)
   })
-
-  it('counts itself on the scene it joins and leaves', () => {
-    const scene = new SceneTree()
-    expect(hasInsets(scene)).toBe(false)
-    const inset = new InsetViewNode({ width: 10, height: 10 })
-    scene.root.add(inset)
-    expect(hasInsets(scene)).toBe(true)
-    scene.root.remove(inset)
-    expect(hasInsets(scene)).toBe(false)
-  })
 })
 
-describe('StageLayerRenderer with an inset', () => {
+describe('ComposeWalk with an inset', () => {
   it('clips a node inside the inset and clears the clip after it', () => {
     recordingGfxRef = recordingGfx()
     const scene = new SceneTree()

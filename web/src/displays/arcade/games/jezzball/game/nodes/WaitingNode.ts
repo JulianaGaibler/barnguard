@@ -3,7 +3,7 @@
  * overlay: an ink headline chip over an accent sub chip, fading in over 150ms
  * like the original `transition:fade`.
  */
-import { Node2D, textMetrics, type Gfx2D } from '@src/stargazer'
+import { Node2D, textMetrics, type Canvas } from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
 import { font, headingFont } from '../../fonts'
 
@@ -20,7 +20,6 @@ export class WaitingNode extends Node2D {
   /** `sub` omitted (or empty) renders just the headline chip. */
   constructor(headline: string, sub = '') {
     super('jb-waiting')
-    this.renderLayer = 'dynamic'
     this.transform.alpha = 0
     this.#headline = headline
     this.#sub = sub
@@ -32,9 +31,7 @@ export class WaitingNode extends Node2D {
     this.play({ alpha: visible ? 1 : 0 }, { duration: FADE_SEC })
   }
 
-  override draw(gfx: Gfx2D): void {
-    if (this.transform.alpha <= 0) return
-
+  override paint(gfx: Canvas): void {
     const headFont = headingFont(900, HEAD_FONT_PX)
     const headPadX = 17.6
     const headPadY = 4.8

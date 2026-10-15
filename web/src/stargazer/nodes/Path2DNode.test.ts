@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { Path2DNode } from './Path2DNode'
-import { Camera } from '../camera/Camera'
+import { paintCalls } from '../render/picture/paintCalls'
+import type { Rect } from '../math/Rect'
 import type {
-  Gfx2D,
   GfxFill,
   GfxShadowStyle,
   GfxStrokeStyle,
@@ -13,48 +13,33 @@ interface Call {
   args: unknown[]
 }
 
-function recordingGfx(): { gfx: Gfx2D; calls: Call[] } {
-  const calls: Call[] = []
-  const record =
-    (method: string) =>
-    (...args: unknown[]) => {
-      calls.push({ method, args })
-    }
-  const gfx = {
-    save: record('save'),
-    restore: record('restore'),
-    translate: record('translate'),
-    fillPath2D: record('fillPath2D'),
-    strokePath2D: record('strokePath2D'),
-    shadowPath2D: record('shadowPath2D'),
-  }
-  return { gfx: gfx as unknown as Gfx2D, calls }
-}
-
-function cameraWithScale(scale: number): Camera {
-  const cam = new Camera({ x: 0, y: 0, width: 100 / scale, height: 100 / scale })
-  cam.setPixelSize(100, 100)
-  return cam
+/**
+ * The drawing calls the node paints, at `screenScale` world units per CSS
+ * pixel.
+ */
+function paint(node: Path2DNode, screenScale = 1): Call[] {
+  return paintCalls(node, { screenScale }).map((c) => ({
+    method: c.name,
+    args: c.args,
+  }))
 }
 
 describe('Path2DNode', () => {
   it('fills then strokes, with no shadow', () => {
-    const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({ path, fill: '#fff', stroke: '#000' })
-    node.draw(gfx, cameraWithScale(1), 0)
+    const calls = paint(node, 1)
     expect(calls.map((c) => c.method)).toEqual(['fillPath2D', 'strokePath2D'])
   })
 
   it('draws an outset shadow via shadowPath2D before the real fill', () => {
-    const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
       path,
       fill: '#fff',
       shadow: { color: 'rgba(0,0,0,0.5)', offsetX: 2, offsetY: 4 },
     })
-    node.draw(gfx, cameraWithScale(1), 0)
+    const calls = paint(node, 1)
     expect(calls.map((c) => c.method)).toEqual(['shadowPath2D', 'fillPath2D'])
     expect(calls[0].args[0]).toBe(path)
     const style = calls[0].args[1] as GfxShadowStyle
@@ -65,13 +50,12 @@ describe('Path2DNode', () => {
   })
 
   it('scales the shadow offset/blur/spread by strokeSpaceScale, like lineWidth', () => {
-    const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
       path,
       shadow: { color: '#000', offsetX: 10, offsetY: 0, blur: 8, spread: 4 },
     })
-    node.draw(gfx, cameraWithScale(2), 0) // strokeSpaceScale() = 1/2
+    const calls = paint(node, 0.5) // strokeSpaceScale() = 1/2
     const style = calls[0].args[1] as GfxShadowStyle
     expect(style.offsetX).toBeCloseTo(5)
     expect(style.blur).toBeCloseTo(4)
@@ -79,21 +63,19 @@ describe('Path2DNode', () => {
   })
 
   it('draws an inset shadow via shadowPath2D after the real fill', () => {
-    const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
       path,
       fill: '#fff',
       shadow: { color: '#000', inset: true },
     })
-    node.draw(gfx, cameraWithScale(1), 0)
+    const calls = paint(node, 1)
     expect(calls.map((c) => c.method)).toEqual(['fillPath2D', 'shadowPath2D'])
     const style = calls[1].args[1] as GfxShadowStyle
     expect(style.inset).toBe(true)
   })
 
   it('draws outset shadows before the fill and inset shadows after it, in one call each', () => {
-    const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
       path,
@@ -103,7 +85,7 @@ describe('Path2DNode', () => {
         { color: '#222', inset: true },
       ],
     })
-    node.draw(gfx, cameraWithScale(1), 0)
+    const calls = paint(node, 1)
     expect(calls.map((c) => c.method)).toEqual([
       'shadowPath2D',
       'fillPath2D',
@@ -112,7 +94,6 @@ describe('Path2DNode', () => {
   })
 
   it('passes lineAlign/lineJoin/lineCap/miterLimit/exactJoins through to strokePath2D', () => {
-    const { gfx, calls } = recordingGfx()
     const path = new Path2D()
     const node = new Path2DNode({
       path,
@@ -124,7 +105,7 @@ describe('Path2DNode', () => {
       miterLimit: 2,
       exactJoins: true,
     })
-    node.draw(gfx, cameraWithScale(1), 0)
+    const calls = paint(node, 1)
     const style = calls[0].args[1] as GfxStrokeStyle
     expect(style.align).toBe('inside')
     expect(style.join).toBe('bevel')
@@ -134,7 +115,6 @@ describe('Path2DNode', () => {
   })
 
   it('accepts a gradient fill and stroke without narrowing them to strings', () => {
-    const { gfx, calls } = recordingGfx()
     const gradient: GfxFill = {
       kind: 'linear',
       x0: 0,
@@ -148,53 +128,86 @@ describe('Path2DNode', () => {
     }
     const path = new Path2D()
     const node = new Path2DNode({ path, fill: gradient, stroke: gradient })
-    node.draw(gfx, cameraWithScale(1), 0)
-    expect(calls[0].args[1]).toBe(gradient)
+    const calls = paint(node, 1)
+    expect(calls[0].args[1]).toEqual(gradient)
     const style = calls[1].args[1] as GfxStrokeStyle
-    expect(style.color).toBe(gradient)
+    expect(style.color).toEqual(gradient)
   })
 
-  describe('cullMargin', () => {
-    it('is 0 with no shadow and a center-aligned border', () => {
-      const node = new Path2DNode({ path: new Path2D(), stroke: '#000', lineWidth: 4 })
-      expect(node.cullMargin).toBe(0)
+  describe('culling box', () => {
+    const LOCAL = { x: 0, y: 0, width: 10, height: 10 }
+    const box = (node: Path2DNode): Rect => {
+      paint(node)
+      return node.bounds!
+    }
+
+    it('is the bounds option with no shadow and a center-aligned border', () => {
+      const node = new Path2DNode({
+        path: new Path2D(),
+        stroke: '#000',
+        lineWidth: 4,
+        bounds: LOCAL,
+      })
+      expect(box(node)).toEqual(LOCAL)
     })
 
-    it('includes the outside-aligned border width', () => {
+    it('grows by the outside-aligned border width', () => {
       const node = new Path2DNode({
         path: new Path2D(),
         stroke: '#000',
         lineWidth: 4,
         lineAlign: 'outside',
+        bounds: LOCAL,
       })
-      expect(node.cullMargin).toBe(4)
+      expect(box(node)).toEqual({ x: -4, y: -4, width: 18, height: 18 })
     })
 
-    it('includes an outset shadow offset magnitude, ignoring inset ones', () => {
+    it('grows by an outset shadow offset, ignoring inset ones', () => {
       const node = new Path2DNode({
         path: new Path2D(),
         shadow: [
           { color: '#000', offsetX: 3, offsetY: 4 }, // hypot = 5
           { color: '#000', offsetX: 1000, inset: true },
         ],
+        bounds: LOCAL,
       })
-      expect(node.cullMargin).toBeCloseTo(5)
+      expect(box(node).x).toBeCloseTo(-5)
     })
 
-    it('includes an outset shadow blur (3 sigma) and positive spread', () => {
+    it('grows by an outset shadow blur (3 sigma) and positive spread', () => {
       const node = new Path2DNode({
         path: new Path2D(),
         shadow: { color: '#000', blur: 20, spread: 6 }, // 3 * (20/2) + 6 = 36
+        bounds: LOCAL,
       })
-      expect(node.cullMargin).toBeCloseTo(36)
+      expect(box(node).x).toBeCloseTo(-36)
     })
 
-    it('clamps a negative spread to not reduce the margin', () => {
+    it('clamps a negative spread to not reduce the box', () => {
       const node = new Path2DNode({
         path: new Path2D(),
         shadow: { color: '#000', offsetX: 5, spread: -1000 },
+        bounds: LOCAL,
       })
-      expect(node.cullMargin).toBeCloseTo(5)
+      expect(box(node).x).toBeCloseTo(-5)
+    })
+
+    it('is unbounded without the bounds option, so the node is never culled', () => {
+      const node = new Path2DNode({ path: new Path2D(), fill: '#fff' })
+      paint(node)
+      expect(node.bounds).toBeNull()
+    })
+  })
+
+  it('keeps a screen-space border as a width resolved at replay', () => {
+    const node = new Path2DNode({
+      path: new Path2D(),
+      stroke: '#000',
+      lineWidth: 3,
+    })
+    const calls = paint(node, 0.25)
+    expect((calls[0].args[1] as { width: unknown }).width).toEqual({
+      screen: 3,
     })
   })
 })

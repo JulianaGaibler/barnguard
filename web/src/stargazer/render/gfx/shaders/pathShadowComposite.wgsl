@@ -16,34 +16,8 @@ struct Frame {
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
 
-struct Clip {
-  kind: f32,
-  cx: f32,
-  cy: f32,
-  r: f32,
-  halfW: f32,
-  halfH: f32,
-  rrRadius: f32,
-  clipPad: f32,
-};
-@group(0) @binding(8) var<uniform> clipShape: Clip;
+// #include "include/clipUniform.inc.wgsl"
 
-fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
-  let q = abs(p) - b + vec2<f32>(rad);
-  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
-}
-fn clipCoverage(fragPos: vec2<f32>) -> f32 {
-  if (clipShape.kind < 0.5) { return 1.0; }
-  let fy = select(fragPos.y, frame.targetH - fragPos.y, frame.fragYFlip > 0.5);
-  let p = vec2<f32>(fragPos.x, fy) - vec2<f32>(clipShape.cx, clipShape.cy);
-  var d: f32;
-  if (clipShape.kind < 1.5) {
-    d = length(p) - clipShape.r;
-  } else {
-    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
-  }
-  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
-}
 
 // 8x8 ordered (Bayer) dither. See `coloredTri.wgsl` for the full rationale;
 // kept in sync by hand (WGSL has no include).

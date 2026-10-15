@@ -4,6 +4,7 @@
  * handles WebGL context loss, returning an {@link EngineHost} for
  * start/stop/pause and scene swapping. Drop to {@link Engine} directly for finer
  * control, or {@link createTicker} for a standalone frame loop.
+ * {@link Engine.capture} renders a scene to an image outside the loop.
  *
  * @module engine
  */
@@ -19,5 +20,7 @@ export type {
   RegisteredPhysicsWorld,
   RegisterPhysicsWorldOptions,
 } from '../engine/Engine'
+export { CAPTURE_IDLE_RELEASE_SEC } from '../engine/SceneCapture'
+export type { CaptureBlobOptions, CaptureOptions } from '../engine/SceneCapture'
 export { createTicker } from '../engine/Ticker'
 export type { Ticker, TickerOptions } from '../engine/Ticker'

@@ -9,13 +9,20 @@
  * spawns in a hidden band two rows deep, and the part still up there has not
  * entered play yet.
  */
-import { easings, Node2D, type Gfx2D } from '@src/stargazer'
+import { easings, Node2D, type Canvas } from '@src/stargazer'
 import { pieceCells } from '../pieces'
 import { VISIBLE_TOP } from '../board'
 import type { ActivePiece } from '../rules'
 import { ANIM } from '../tuning'
 import type { Bounds } from '../types'
+import { sameBounds } from './tui'
 import { drawCell, drawGhostCell } from './cells'
+
+function samePiece(a: ActivePiece | null, b: ActivePiece | null): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return a.kind === b.kind && a.rot === b.rot && a.x === b.x && a.y === b.y
+}
 
 /** How solid the ghost reads against the buffer. */
 const GHOST_ALPHA = 0.42
@@ -27,37 +34,42 @@ export class PieceLayerNode extends Node2D {
   #ghost: ActivePiece | null = null
   #showGhost = true
 
-  /** Runs 0 to 1 after a hard drop, squashing the piece as it bites. */
+  /**
+   * Runs 0 to 1 after a hard drop, squashing the piece as it bites. The squash
+   * is a different picture every frame, so the layer paints each frame it
+   * runs.
+   */
   #squashT = 1
 
   constructor() {
     super('bo-piece-layer')
-    this.renderLayer = 'dynamic'
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = {
-      x: rect.x,
-      y: rect.y,
-      width: rect.width,
-      height: rect.height,
-    }
+    this.markNeedsPaint()
   }
 
+  /** The session mutates its pieces in place, so the layer keeps copies. */
   setPiece(piece: ActivePiece | null, ghost: ActivePiece | null): void {
-    this.#piece = piece
-    this.#ghost = ghost
+    if (samePiece(piece, this.#piece) && samePiece(ghost, this.#ghost)) return
+    this.#piece = piece && { ...piece }
+    this.#ghost = ghost && { ...ghost }
+    this.markNeedsPaint()
   }
 
   setGhostVisible(visible: boolean): void {
+    if (visible === this.#showGhost) return
     this.#showGhost = visible
+    this.markNeedsPaint()
   }
 
   /** Squash the piece against the stack, for a drop that arrived fast. */
   impact(): void {
     this.#squashT = 0
+    this.markNeedsPaint()
   }
 
   override onUpdate(dt: number): void {
@@ -66,9 +78,10 @@ export class PieceLayerNode extends Node2D {
       1,
       this.#squashT + dt / (ANIM.landSquash + ANIM.landRecover),
     )
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     const piece = this.#piece
     if (!piece || this.#cell <= 0) return
     const cell = this.#cell
@@ -108,7 +121,7 @@ export class PieceLayerNode extends Node2D {
   }
 
   #drawCells(
-    gfx: Gfx2D,
+    gfx: Canvas,
     piece: ActivePiece,
     cell: number,
     ghost: boolean,

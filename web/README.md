@@ -8,6 +8,10 @@ Adding an arcade game: [`docs/adding-a-game.md`](docs/adding-a-game.md) covers
 the engine, the arcade shell, the conventions every game follows, and the
 optional pieces a game can use.
 
+Writing the age verification story:
+[`docs/writing-a-story.md`](docs/writing-a-story.md) covers the story module,
+its screens and flags, and the checks that run on it.
+
 ## Text
 
 All user-facing text lives in `src/i18n/`. Components read from `$t.*`
@@ -27,7 +31,7 @@ Engine-wide:
 
 | Param | Values | Effect |
 | --- | --- | --- |
-| `?display=<id>` | `arcade`, `enterprise` | Which display to boot. |
+| `?display=<id>` | `age-verification`, `arcade`, `enterprise` | Which display to boot. |
 | `?debug=` | `hud`, `perf` | Opens the debug overlay. |
 | `?msaa=` | `0`, `2`, `4`, `8` | Multisample count, default 4. |
 | `?gfx=` | `webgpu`, `webgl2` | Forces a backend instead of picking one. |
@@ -49,3 +53,10 @@ The attendant booth menu has a Sky section with a time-of-day slider that
 overrides all of these at runtime. It rests on the booth's live clock while the
 sky follows the sun, and dragging it pins the sky and scrubs the day. "Follow
 the sun" releases it.
+
+Age verification story, in development builds only:
+
+| Param | Example | Effect |
+| --- | --- | --- |
+| `?node=<id>` | `?node=final-choice` | Opens the story at that screen, by the shortest path. |
+| `?flags=<a,b>` | `?flags=strict,checks` | With `?node`, takes a path that sets these flags. |

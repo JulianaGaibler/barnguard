@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest'
 import { TextNode } from './TextNode'
-import { Camera } from '../camera/Camera'
+import { paintCalls } from '../render/picture/paintCalls'
 import { BoxConstraints } from '../layout/constraints'
-import type { Gfx2D, GfxTextStyle } from '../render/gfx/Gfx2D'
+import type { GfxTextStyle } from '../render/gfx/Gfx2D'
 
 // `measureText` depends on a real Canvas2D text engine, unavailable under
 // happy-dom. Stub it with a deterministic width (10px/char) so `measure()`
@@ -40,18 +40,18 @@ interface FillTextCall {
   color: string
 }
 
-/**
- * Minimal `Gfx2D` stub recording each `fillText` call. `TextNode.draw` only
- * ever calls this one facade method, so a full backend isn't needed.
- */
-function recordingGfx(): {
-  gfx: Gfx2D
-  calls: FillTextCall[]
-} {
-  const calls: FillTextCall[] = []
-  const gfx = {
-    fillText(text: string, x: number, y: number, style: GfxTextStyle = {}) {
-      calls.push({
+/** The `fillText` calls the node paints, at `scale` camera zoom. */
+function paint(node: TextNode, zoom = 1): FillTextCall[] {
+  return paintCalls(node, { screenScale: 1 / zoom })
+    .filter((c) => c.name === 'fillText')
+    .map((c) => {
+      const [text, x, y, style] = c.args as [
+        string,
+        number,
+        number,
+        GfxTextStyle,
+      ]
+      return {
         text,
         x,
         y,
@@ -59,30 +59,12 @@ function recordingGfx(): {
         align: style.align ?? '',
         baseline: style.baseline ?? '',
         color: style.color ?? '',
-      })
-    },
-  }
-  return { gfx: gfx as unknown as Gfx2D, calls }
-}
-
-/**
- * Camera whose world->screen scale is `scale` (so `strokeSpaceScale()` is
- * 1/scale).
- */
-function cameraWithScale(scale: number): Camera {
-  const cam = new Camera({
-    x: 0,
-    y: 0,
-    width: 100 / scale,
-    height: 100 / scale,
-  })
-  cam.setPixelSize(100, 100)
-  return cam
+      }
+    })
 }
 
 describe('TextNode', () => {
   it('draws the text with the composed font string', () => {
-    const { gfx, calls } = recordingGfx()
     const node = new TextNode({
       text: 'hello',
       fontFamily: 'sans-serif',
@@ -90,7 +72,7 @@ describe('TextNode', () => {
       fontSize: 16,
       color: '#123',
     })
-    node.draw(gfx, cameraWithScale(1), 0)
+    const calls = paint(node, 1)
     expect(calls).toHaveLength(1)
     expect(calls[0].text).toBe('hello')
     expect(calls[0].font).toBe('700 16px sans-serif')
@@ -98,48 +80,43 @@ describe('TextNode', () => {
   })
 
   it('scales screen-space font size by 1/camera-scale (constant on-screen size)', () => {
-    const { gfx, calls } = recordingGfx()
     const node = new TextNode({ text: 'hi', fontSize: 20, sizeSpace: 'screen' })
-    node.draw(gfx, cameraWithScale(2), 0) // strokeSpaceScale() = 0.5
+    const calls = paint(node, 2) // strokeSpaceScale() = 0.5
     expect(calls[0].font).toBe('normal 10px sans-serif')
   })
 
   it('leaves world-space font size unscaled', () => {
-    const { gfx, calls } = recordingGfx()
     const node = new TextNode({ text: 'hi', fontSize: 20, sizeSpace: 'world' })
-    node.draw(gfx, cameraWithScale(2), 0)
+    const calls = paint(node, 2)
     expect(calls[0].font).toBe('normal 20px sans-serif')
   })
 
   it('does not draw an empty string', () => {
-    const { gfx, calls } = recordingGfx()
     const node = new TextNode({ text: '' })
-    node.draw(gfx, cameraWithScale(1), 0)
+    const calls = paint(node, 1)
     expect(calls).toHaveLength(0)
   })
 
   describe('multi-line', () => {
     it('draws one fillText call per line, on its own alphabetic baseline', () => {
-      const { gfx, calls } = recordingGfx()
       const node = new TextNode({
         text: 'one\ntwo\nthree',
         fontSize: 10,
         baseline: 'top',
       })
-      node.draw(gfx, cameraWithScale(1), 0)
+      const calls = paint(node, 1)
       expect(calls.map((c) => c.text)).toEqual(['one', 'two', 'three'])
       expect(calls.every((c) => c.baseline === 'alphabetic')).toBe(true)
     })
 
     it("spaces lines by the font's line height, scaled by lineHeight", () => {
-      const { gfx, calls } = recordingGfx()
       const node = new TextNode({
         text: 'a\nb',
         fontSize: 10,
         baseline: 'top',
         y: 0,
       })
-      node.draw(gfx, cameraWithScale(1), 0)
+      const calls = paint(node, 1)
       // The stub makes a 10px font 10 tall with an ascent of 8, so the first
       // baseline sits 8 below the block top and the second a line after it.
       expect(calls[0].y).toBeCloseTo(8)
@@ -147,7 +124,6 @@ describe('TextNode', () => {
     })
 
     it('honors a custom lineHeight', () => {
-      const { gfx, calls } = recordingGfx()
       const node = new TextNode({
         text: 'a\nb',
         fontSize: 10,
@@ -155,19 +131,18 @@ describe('TextNode', () => {
         lineHeight: 2,
         y: 0,
       })
-      node.draw(gfx, cameraWithScale(1), 0)
+      const calls = paint(node, 1)
       expect(calls[1].y).toBeCloseTo(28) // ascent 8 + 10 * 2
     })
 
     it('anchors the whole block on y for baseline "middle"', () => {
-      const { gfx, calls } = recordingGfx()
       const node = new TextNode({
         text: 'a\nb',
         fontSize: 10,
         baseline: 'middle',
         y: 100,
       })
-      node.draw(gfx, cameraWithScale(1), 0)
+      const calls = paint(node, 1)
       // Two lines span one gap plus one line box, 12 + 10 = 22, so the top is
       // 100 - 11 and the first baseline an ascent below that.
       expect(calls[0].y).toBeCloseTo(97)
@@ -175,14 +150,13 @@ describe('TextNode', () => {
     })
 
     it('anchors the whole block above y for baseline "bottom"', () => {
-      const { gfx, calls } = recordingGfx()
       const node = new TextNode({
         text: 'a\nb',
         fontSize: 10,
         baseline: 'bottom',
         y: 100,
       })
-      node.draw(gfx, cameraWithScale(1), 0)
+      const calls = paint(node, 1)
       expect(calls[0].y).toBeCloseTo(86) // top 78, plus an ascent of 8
       expect(calls[1].y).toBeCloseTo(98)
     })
@@ -248,10 +222,15 @@ describe('TextNode', () => {
       expect(node.y).toBe(50)
     })
 
-    it('writes debugBounds for culling/hit-testing', () => {
+    it('writes boundsOverride for culling/hit-testing', () => {
       const node = new TextNode({ text: 'hi' })
       node.arrange(10, 20, 100, 50)
-      expect(node.debugBounds).toEqual({ x: 0, y: 0, width: 100, height: 50 })
+      expect(node.boundsOverride).toEqual({
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 50,
+      })
     })
   })
 })

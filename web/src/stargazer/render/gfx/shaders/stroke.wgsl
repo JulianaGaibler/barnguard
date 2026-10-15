@@ -11,7 +11,8 @@
 // pixels for full coverage, then the fringe pass fills what is left.
 //
 // The fragment stage is a signed-distance-to-segment with round caps (endpoint
-// distance when `along` is outside [0, segLen]), 1-px smoothstep AA, and dashing
+// distance when `along` is outside [0, segLen]), the same linear coverage ramp
+// as the shape program's edges, and dashing
 // via `mod(dashStart + along, period)` fading out the off half. `dashPeriod == 0`
 // is the no-dash fast path. Colors are premultiplied, scaling by a linear
 // coverage alpha keeps that.
@@ -26,17 +27,7 @@ struct Frame {
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
 
-struct Clip {
-  kind: f32,
-  cx: f32,
-  cy: f32,
-  r: f32,
-  halfW: f32,
-  halfH: f32,
-  rrRadius: f32,
-  clipPad: f32,
-};
-@group(0) @binding(8) var<uniform> clipShape: Clip;
+// #include "include/clipUniform.inc.wgsl"
 
 struct Stroke {
   // 1 = keep only near-full coverage (the core pass), 0 = keep everything.
@@ -54,24 +45,6 @@ struct Stroke {
 // core fragment that smoothstep leaves a hair short still counts.
 const CORE_MIN_COVERAGE: f32 = 0.98;
 
-// Analytic clip coverage in device px. frame.fragYFlip corrects WebGL2's
-// bottom-up gl_FragCoord. Multiply the premultiplied fragment output by this.
-fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
-  let q = abs(p) - b + vec2<f32>(rad);
-  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
-}
-fn clipCoverage(fragPos: vec2<f32>) -> f32 {
-  if (clipShape.kind < 0.5) { return 1.0; }
-  let fy = select(fragPos.y, frame.targetH - fragPos.y, frame.fragYFlip > 0.5);
-  let p = vec2<f32>(fragPos.x, fy) - vec2<f32>(clipShape.cx, clipShape.cy);
-  var d: f32;
-  if (clipShape.kind < 1.5) {
-    d = length(p) - clipShape.r;
-  } else {
-    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
-  }
-  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
-}
 
 struct VOut {
   @builtin(position) pos: vec4<f32>,
@@ -82,6 +55,9 @@ struct VOut {
   @location(4) @interpolate(flat) dashPeriod: f32,
   @location(5) @interpolate(flat) dashOnLen: f32,
   @location(6) @interpolate(flat) color: vec4<f32>,
+  // The segment's direction in device px, to turn the distance's gradient from
+  // segment coordinates into screen axes.
+  @location(7) @interpolate(flat) tangent: vec2<f32>,
 };
 
 @vertex
@@ -115,6 +91,7 @@ fn vs_main(
   out.dashPeriod = a_widthDash.z;
   out.dashOnLen = a_widthDash.w;
   out.color = a_color;
+  out.tangent = tangent;
   return out;
 }
 
@@ -122,15 +99,20 @@ fn vs_main(
 fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   let along = in.alongPerp.x;
   let perp = in.alongPerp.y;
-  var dist: f32;
+  // Offset from the nearest point on the segment, in (along, perp): past an end
+  // it is measured from that endpoint, which rounds the cap.
+  var offset = vec2<f32>(0.0, perp);
   if (along < 0.0) {
-    dist = length(vec2<f32>(along, perp));
+    offset = vec2<f32>(along, perp);
   } else if (along > in.segLen) {
-    dist = length(vec2<f32>(along - in.segLen, perp));
-  } else {
-    dist = abs(perp);
+    offset = vec2<f32>(along - in.segLen, perp);
   }
-  var alpha = 1.0 - smoothstep(in.halfWidth - 0.5, in.halfWidth + 0.5, dist);
+  let dist = length(offset);
+  let localGradient = select(vec2<f32>(0.0, 1.0), offset / dist, dist > 1e-6);
+  let normal = vec2<f32>(-in.tangent.y, in.tangent.x);
+  let screenGradient = in.tangent * localGradient.x + normal * localGradient.y;
+  let changePerPixel = distanceChangePerPixel(screenGradient, vec4<f32>(1.0, 0.0, 0.0, 1.0));
+  var alpha = coverage(dist - in.halfWidth, changePerPixel);
   if (in.dashPeriod > 0.0) {
     let dashAlong = clamp(along, 0.0, in.segLen);
     let s = in.dashStart + dashAlong;

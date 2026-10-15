@@ -1,83 +1,10 @@
-import type {
-  BindGroupLayout,
-  ColorFormat,
-  GfxDevice,
-  Pipeline,
-  RenderTarget,
-  ShaderModule,
-  UBuffer,
-  VBuffer,
-} from '../gfx/GfxDevice'
-import type { PostEffect, PostPass, PostPassContext } from './PostEffect'
-import { POST_PARAMS_UBO_BINDING } from '../gfx/batchLayout'
+import type { ColorFormat, GfxDevice, RenderTarget } from '../gfx/GfxDevice'
+import type { PostEffect, PostPass } from './PostEffect'
 import { RenderTargetPool } from '../gfx/RenderTargetPool'
+import { PostChain } from './PostChain'
+import { PostProgramCache } from './PostProgramCache'
 
-/** Attribute location the fullscreen vertex shader forces for `a_pos`. */
-const LOC_POS = 0
-/** Attribute location for `a_uv`. */
-const LOC_UV = 1
-/** Bytes per fullscreen-triangle vertex: `vec2` position plus `vec2` uv. */
-const VERTEX_STRIDE = 16
-/** Sampler unit for the input texture `u_tex`. */
-const U_TEX = 0
-/**
- * Frames a pass's GPU resources survive after the last effect stopped listing
- * it, so an effect that cycles between pass lists does not pay a recompile each
- * time. A few seconds at 60 Hz.
- */
-const PASS_GPU_GRACE_FRAMES = 240
-
-/** Clip-space corners of the fullscreen triangle. */
-const TRI_POS: ReadonlyArray<readonly [number, number]> = [
-  [-1, -1],
-  [3, -1],
-  [-1, 3],
-]
-
-/**
- * The fullscreen triangle, interleaved as `[x, y, u, v]` per vertex. It covers
- * the whole `[-1,1]` viewport, with the two off-screen corners clipped. One
- * triangle rather than a quad avoids the diagonal seam that splits `dFdx/dFdy`
- * and hurts texture-cache locality.
- *
- * The uv is carried as an attribute rather than derived from the position in
- * the shader, because the backends disagree on which row of a sampled render
- * target is the top: WebGPU stores row 0 at the top, WebGL at the bottom. A
- * shader deriving `uv = pos * 0.5 + 0.5` therefore samples upside down on
- * WebGPU, which turned every odd-numbered ping-pong pass on its head and left a
- * single enabled effect rendering the whole frame flipped. Baking the flip into
- * three vertices costs nothing per draw and keeps the shaders backend-
- * agnostic.
- *
- * Exported so the orientation contract can be asserted for both backends
- * without a GPU.
- */
-export function fullscreenTri(flipV: boolean): Float32Array {
-  const out = new Float32Array(TRI_POS.length * 4)
-  TRI_POS.forEach(([x, y], i) => {
-    out[i * 4] = x
-    out[i * 4 + 1] = y
-    out[i * 4 + 2] = x * 0.5 + 0.5
-    out[i * 4 + 3] = flipV ? 0.5 - y * 0.5 : y * 0.5 + 0.5
-  })
-  return out
-}
-
-/** GPU resources compiled for one {@link PostPass}. */
-interface PassGpu {
-  shader: ShaderModule
-  layout: BindGroupLayout
-  paramsUbo: UBuffer | null
-  staging: Float32Array | null
-  /**
-   * Pipeline per target color format (a pass may run into linear or srgb
-   * pools).
-   */
-  pipelines: Map<ColorFormat, Pipeline>
-  pending: Set<ColorFormat>
-  /** Consecutive frames no registered effect has listed this pass. */
-  unseenFrames: number
-}
+export { fullscreenTri } from './PostProgramCache'
 
 /**
  * Runs a chain of screen-space {@link PostEffect}s over the composited frame. A
@@ -92,34 +19,47 @@ interface PassGpu {
  * asynchronously. Until they're ready the pipeline presents the source frame
  * unmodified for a frame or two.
  *
+ * @remarks
+ *   Engine developers: the pipeline holds the stage-level concerns, which are the
+ *   list of effects, the choice between presenting a result and drawing the
+ *   last pass into the canvas, and the readiness fallback. The passes
+ *   themselves run in a `PostChain`, and the compiled shaders live in a
+ *   `PostProgramCache`, which can be shared with other chains on the same
+ *   device.
  * @example
  *   stage.postProcess.add(new Vignette({ intensity: 0.6 }))
  *   stage.postProcess.add(new ChromaticAberration({ amount: 0.01 }))
  */
 export class PostProcessPipeline {
   readonly #device: GfxDevice
+  readonly #programs: PostProgramCache
   #effects: PostEffect[] = []
-
-  #vbo: VBuffer | null = null
-  #passGpu = new Map<PostPass, PassGpu>()
-
   #rtPool: RenderTargetPool
-
-  #time = 0
+  #chain: PostChain
   readonly #offRestore: () => void
 
   constructor(device: GfxDevice) {
     this.#device = device
+    this.#programs = new PostProgramCache(device)
     this.#rtPool = new RenderTargetPool(device)
+    this.#chain = new PostChain(device, this.#programs, this.#rtPool)
     this.#offRestore = device.onContextRestored(() => this.#onContextRestored())
+  }
+
+  #processedLastRun = false
+
+  /**
+   * Whether the last {@link run} applied the effects. False while a pass
+   * pipeline is still compiling, when the frame is presented unmodified. A
+   * stage that renders once and parks waits for this before it parks.
+   */
+  get processedLastRun(): boolean {
+    return this.#processedLastRun
   }
 
   /** True when at least one enabled effect has passes to run. */
   get active(): boolean {
-    for (const e of this.#effects) {
-      if (e.enabled && e.passes.length > 0) return true
-    }
-    return false
+    return PostChain.hasWork(this.#effects)
   }
 
   get effects(): readonly PostEffect[] {
@@ -145,27 +85,20 @@ export class PostProcessPipeline {
    * The color space of the frame is not known until a run, so both are warmed
    * by default. Pass one to halve the work if the surface is known.
    */
-  warm(colorSpaces: readonly ColorFormat[] = ['linear', 'srgb']): void {
-    this.#ensureVbo()
-    for (const effect of this.#effects) {
-      for (const pass of effect.passes) {
-        for (const cs of colorSpaces) this.#pipelineFor(pass, cs)
-      }
-    }
+  warm(
+    colorSpaces: readonly ColorFormat[] = ['linear', 'srgb', 'canvas'],
+  ): void {
+    const passes: PostPass[] = []
+    for (const effect of this.#effects) passes.push(...effect.passes)
+    this.#programs.warm(passes, colorSpaces)
   }
 
   remove(effect: PostEffect): void {
     const i = this.#effects.indexOf(effect)
     if (i < 0) return
     this.#effects.splice(i, 1)
-    for (const pass of effect.passes) {
-      const gpu = this.#passGpu.get(pass)
-      if (gpu) {
-        this.#device.deleteShaderModule(gpu.shader)
-        if (gpu.paramsUbo) this.#device.deleteUniformBuffer(gpu.paramsUbo)
-        this.#passGpu.delete(pass)
-      }
-    }
+    this.#chain.releaseEffect(effect)
+    for (const pass of effect.passes) this.#programs.release(pass)
   }
 
   /**
@@ -180,217 +113,63 @@ export class PostProcessPipeline {
   ): void {
     if (!this.active) return
     const device = this.#device
-    this.#time += opts.dt
-    this.#ensureVbo()
+    const chain = this.#chain
+    chain.advance(opts.dt)
 
-    const w = source.width
-    const h = source.height
     const cs = source.colorSpace
-
-    // Compile (or confirm) every enabled pass's pipeline for this color space.
-    // If any isn't ready yet, present the source unmodified this frame.
-    let ready = true
-    for (const effect of this.#effects) {
-      if (!effect.enabled) continue
-      for (const pass of effect.passes) {
-        if (!this.#pipelineFor(pass, cs)) ready = false
-      }
-    }
+    const ready = chain.prepare(this.#effects, cs)
+    this.#processedLastRun = ready
     if (!ready) {
       device.present(source, opts.canvasW, opts.canvasH, { filter: 'nearest' })
       return
     }
 
-    const uvYDown = device.ndc.textureTopDown
-
-    let read = source
+    // The last pass writes the canvas when it can, which saves copying its
+    // result there. That needs a source drawn in the canvas format, and a last
+    // pass at the source's size.
+    let last: PostPass | null = null
     for (const effect of this.#effects) {
       if (!effect.enabled) continue
-      for (const pass of effect.passes) {
-        const gpu = this.#passGpu.get(pass)!
-        const scale = pass.scale ?? 1
-        const dstW = Math.max(1, Math.floor(w * scale))
-        const dstH = Math.max(1, Math.floor(h * scale))
-        const dst = this.#rtPool.acquireTransient(dstW, dstH, cs)
-        const ctx: PostPassContext = {
-          width: dstW,
-          height: dstH,
-          texelW: 1 / dstW,
-          texelH: 1 / dstH,
-          inputWidth: read.width,
-          inputHeight: read.height,
-          inputTexelW: 1 / read.width,
-          inputTexelH: 1 / read.height,
-          uvYDown,
-          time: this.#time,
-          dt: opts.dt,
-        }
-        // Write this pass's params, then bind (input texture + params).
-        if (gpu.paramsUbo && gpu.staging && pass.writeParams) {
-          gpu.staging.fill(0)
-          pass.writeParams(ctx, gpu.staging)
-          device.updateUniformBuffer(gpu.paramsUbo, gpu.staging)
-        }
-        const entries = [
-          { binding: U_TEX, resource: { texture: device.colorTexture(read) } },
-        ]
-        if (gpu.paramsUbo) {
-          entries.push({
-            binding: POST_PARAMS_UBO_BINDING,
-            resource: { uniformBuffer: gpu.paramsUbo } as never,
-          })
-        }
-        const bindGroup = device.createBindGroup(gpu.layout, entries)
-        device.beginRenderPass({
-          color: { target: dst, loadOp: 'clear', clearColor: [0, 0, 0, 0] },
-        })
-        device.draw({
-          pipeline: gpu.pipelines.get(cs)!,
-          vertexBuffers: [{ buffer: this.#vbo!, offset: 0 }],
-          bindGroups: [{ group: 0, bindGroup }],
-          vertexCount: 3,
-        })
-        device.endRenderPass()
-        if (read !== source) this.#rtPool.release(read)
-        read = dst
-      }
+      for (const pass of effect.passes) last = pass
     }
+    const toCanvas = cs === 'canvas' && last !== null && (last.scale ?? 1) === 1
+    const dest = toCanvas ? device.canvasTarget() : null
 
-    device.present(read, opts.canvasW, opts.canvasH, { filter: 'nearest' })
-    if (read !== source) this.#rtPool.release(read)
-    this.#pruneStale()
+    const result = chain.run(
+      {
+        texture: device.colorTexture(source),
+        width: source.width,
+        height: source.height,
+      },
+      this.#effects,
+      cs,
+      dest,
+    )
+    if (result && result !== dest) {
+      device.present(result, opts.canvasW, opts.canvasH, { filter: 'nearest' })
+      chain.release(result)
+    }
+    for (const effect of this.#effects) {
+      for (const pass of effect.passes) this.#programs.noteLive(pass)
+    }
+    this.#programs.endFrame()
+    this.#rtPool.endFrame()
   }
 
   destroy(): void {
     this.#offRestore()
-    for (const gpu of this.#passGpu.values()) {
-      this.#device.deleteShaderModule(gpu.shader)
-      if (gpu.paramsUbo) this.#device.deleteUniformBuffer(gpu.paramsUbo)
-    }
-    this.#passGpu.clear()
+    this.#chain.destroy()
+    this.#programs.destroy()
     this.#rtPool.destroy()
-    if (this.#vbo) {
-      this.#device.deleteBuffer(this.#vbo)
-      this.#vbo = null
-    }
   }
 
   // --- internals -------------------------------------------------------------
 
-  #ensureVbo(): void {
-    if (this.#vbo) return
-    const tri = fullscreenTri(this.#device.ndc.textureTopDown)
-    this.#vbo = this.#device.createVertexBuffer(tri.byteLength)
-    this.#device.updateBufferSubData(this.#vbo, 0, tri)
-  }
-
-  /**
-   * Ensure a pass has GPU resources. Return its pipeline for `cs`, or null if
-   * still compiling.
-   */
-  #pipelineFor(pass: PostPass, cs: ColorFormat): Pipeline | null {
-    let gpu = this.#passGpu.get(pass)
-    if (!gpu) {
-      const device = this.#device
-      const hasParams = pass.paramsBytes > 0
-      const shader = device.createShaderModule({
-        glsl: pass.shader.glsl,
-        wgsl: pass.shader.wgsl,
-        reflection: pass.shader.reflection,
-        label: 'postfx',
-      })
-      const layout = device.createBindGroupLayout(
-        hasParams
-          ? [
-              { binding: U_TEX, type: 'texture-2d' },
-              { binding: POST_PARAMS_UBO_BINDING, type: 'uniform-buffer' },
-            ]
-          : [{ binding: U_TEX, type: 'texture-2d' }],
-      )
-      gpu = {
-        shader,
-        layout,
-        paramsUbo: hasParams
-          ? device.createUniformBuffer(pass.paramsBytes)
-          : null,
-        staging: hasParams ? new Float32Array(pass.paramsBytes / 4) : null,
-        pipelines: new Map(),
-        pending: new Set(),
-        unseenFrames: 0,
-      }
-      this.#passGpu.set(pass, gpu)
-    }
-    const existing = gpu.pipelines.get(cs)
-    if (existing) return existing
-    if (gpu.pending.has(cs)) return null
-    gpu.pending.add(cs)
-    const g = gpu
-    void this.#device
-      .createPipeline({
-        shader: g.shader,
-        vertexLayout: [
-          {
-            arrayStride: VERTEX_STRIDE,
-            stepMode: 'vertex',
-            attributes: [
-              { location: LOC_POS, format: 'float32x2', offset: 0 },
-              { location: LOC_UV, format: 'float32x2', offset: 8 },
-            ],
-          },
-        ],
-        bindGroupLayouts: [g.layout],
-        color: { format: cs, blend: 'none' },
-        depth: null,
-        cull: 'none',
-        frontFace: 'ccw',
-        primitive: 'triangle-list',
-        samples: 1,
-        label: 'postfx',
-      })
-      .then((p) => {
-        g.pipelines.set(cs, p)
-        g.pending.delete(cs)
-      })
-    return null
-  }
-
-  #pruneStale(): void {
-    this.#rtPool.endFrame()
-    // An effect that rebuilds its `passes` array (e.g. when a parameter like
-    // a blur's level count changes) orphans the old PostPass objects. Their
-    // GPU resources would otherwise leak, one shader module and uniform
-    // buffer at a time. Called only here, after this frame's last pass has
-    // drawn and presented, so a pass list swapped mid-run can never free a
-    // module still bound by a draw this frame.
-    //
-    // Freeing on the first unseen frame would punish an effect that cycles
-    // between pass lists: recompiling drops the whole chain back to
-    // presenting an unprocessed frame (see `run`), so a parameter animated
-    // across a rebuild would flash. The grace period keeps a recently-used
-    // pass warm long enough to come back for free.
-    if (this.#passGpu.size > 0) {
-      const live = new Set<PostPass>()
-      for (const effect of this.#effects) {
-        for (const pass of effect.passes) live.add(pass)
-      }
-      for (const [pass, gpu] of this.#passGpu) {
-        if (live.has(pass)) {
-          gpu.unseenFrames = 0
-          continue
-        }
-        if (++gpu.unseenFrames <= PASS_GPU_GRACE_FRAMES) continue
-        this.#device.deleteShaderModule(gpu.shader)
-        if (gpu.paramsUbo) this.#device.deleteUniformBuffer(gpu.paramsUbo)
-        this.#passGpu.delete(pass)
-      }
-    }
-  }
-
   #onContextRestored(): void {
     // GPU handles are dead after a loss. Drop references and let the next run
-    // rebuild the VBO, shaders/pipelines, and targets lazily.
-    this.#vbo = null
-    this.#passGpu.clear()
+    // rebuild the shaders, pipelines and targets lazily.
+    this.#chain.abandon()
     this.#rtPool = new RenderTargetPool(this.#device)
+    this.#chain = new PostChain(this.#device, this.#programs, this.#rtPool)
   }
 }

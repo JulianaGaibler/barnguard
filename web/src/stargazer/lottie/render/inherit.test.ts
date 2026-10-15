@@ -3,6 +3,7 @@ import type { Gfx2D } from '../../render/gfx/Gfx2D'
 import type { GfxPath } from '../../render/gfx/GfxPath'
 import { parseLottie } from '../model/parse'
 import { LottieRenderer } from './LottieRenderer'
+import { paintAll } from './paintAll.testutil'
 
 const prop = (k: unknown) => ({ a: 0, k })
 
@@ -18,13 +19,16 @@ function anim(items: unknown[]) {
   })
 }
 
-/** What the renderer asked the facade to fill, as point counts and rules. */
+/**
+ * What the renderer asked the facade to draw: paths as point counts and rules,
+ * and shapes drawn as analytic instances by their call.
+ */
 function fills(
   a: ReturnType<typeof anim>,
-): { points: number; rule?: string }[] {
+): { points?: number; rule?: string; analytic?: string }[] {
   const r = new LottieRenderer(a)
   r.evaluate(0)
-  const out: { points: number; rule?: string }[] = []
+  const out: { points?: number; rule?: string; analytic?: string }[] = []
   const gfx = {
     save() {},
     restore() {},
@@ -37,8 +41,10 @@ function fills(
     fillPath(p: GfxPath, _f: unknown, rule: string) {
       out.push({ points: p.flatten(1).pointCount, rule })
     },
+    strokeRoundRect: () => out.push({ analytic: 'strokeRoundRect' }),
+    fillRoundRect: () => out.push({ analytic: 'fillRoundRect' }),
   } as unknown as Gfx2D
-  r.draw(gfx, 1)
+  paintAll(r, gfx as never)
   return out
 }
 
@@ -56,10 +62,12 @@ describe('modifiers across groups', () => {
     const trimmed = fills(
       anim([ring, { ty: 'tm', s: prop(0), e: prop(25), o: prop(0), m: 1 }]),
     )
-    expect(plain).toHaveLength(1)
+    // The whole ring is one rect with nothing changing it, so it draws as an
+    // analytic instance. The trim reaches it from outside its group and turns
+    // it back into a path: a quarter of the rectangle, open.
+    expect(plain).toEqual([{ analytic: 'strokeRoundRect' }])
     expect(trimmed).toHaveLength(1)
-    // A quarter of the closed rectangle: far fewer points, and open.
-    expect(trimmed[0].points).toBeLessThan(plain[0].points)
+    expect(trimmed[0].points).toBeGreaterThan(0)
   })
 
   it('merge paths force the fill rule', () => {

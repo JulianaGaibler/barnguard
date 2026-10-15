@@ -68,9 +68,11 @@ class SpiralPolylineBehavior extends Behavior {
 }
 
 /**
- * M2 demo, a rotating group with nested orbiting children and a live
- * `PolylineNode` growing a spiral in quadratic-smoothing mode. Press `[T]` to
- * destroy the whole subtree, expect no exceptions and a clean canvas.
+ * A rotating group with nested orbiting children and a live `PolylineNode`
+ * growing a spiral in quadratic-smoothing mode. Press `[T]` to destroy the
+ * whole subtree, expect no exceptions and a clean canvas. Boot with
+ * `?debug=hud` to try the HUD on it: node outlines (O), the debug camera (C)
+ * and the panels.
  */
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({

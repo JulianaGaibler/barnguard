@@ -15,6 +15,7 @@
  * caches, they repopulate lazily.
  */
 
+import { evictOldest } from './evictOldest'
 import type { GfxDevice, Texture } from './GfxDevice'
 import type { GfxGradientStop } from './Gfx2D'
 import type { BitmapMask } from '../../assets/BitmapMask'
@@ -24,6 +25,7 @@ import {
   type RasterizedLabel,
 } from './rasterizeLabel'
 import { ShelfPacker } from './ShelfPacker'
+import { FIELD_HEIGHT, FIELD_WIDTH, loadField } from './squircleField'
 
 /** Sprite tile size = 64 core + 1 px transparent padding on all sides. */
 export const ATLAS_TILE_CORE = 64
@@ -43,6 +45,12 @@ export const ATLAS_TILE_SIZE = ATLAS_TILE_CORE + 2 * ATLAS_TILE_PADDING // 66
  * Nothing is lost by skipping it. A 64px tile draws at roughly 64px, and the
  * label page, gradient LUTs and clip masks are all sampled at or above 1:1.
  */
+
+/** A side length rounded up to the next scale bucket, in whole pixels. */
+function bucketSide(px: number): number {
+  const k = Math.ceil(Math.log(Math.max(px, 1)) / LOG_LABEL_BUCKET_RATIO)
+  return Math.max(1, Math.round(LABEL_SCALE_BUCKET_RATIO ** k))
+}
 
 /** Atlas texture dimensions. 1024×1024 -> 15×15 = 225 tiles capacity. */
 export const ATLAS_WIDTH = 1024
@@ -88,6 +96,18 @@ export interface LabelTexture {
   localH: number
   anchorOffsetX: number
   anchorOffsetY: number
+  /**
+   * The font size in px a text label was rasterized at, by
+   * {@link TextureManager.ensureTextLabel}, at a scale of 1. Its sizes are in px
+   * of that font.
+   */
+  px?: number
+}
+
+/** A font split around its px size, so it can be written at any size. */
+export interface LabelFontTemplate {
+  head: string
+  tail: string
 }
 
 /** Placement of a page-backed label within the label atlas page (page px). */
@@ -106,6 +126,10 @@ interface LabelBox {
  */
 interface LabelCacheEntry extends LabelTexture {
   atlasBox: LabelBox | null
+  /** The `#labelFrame` that last returned this entry. */
+  usedFrame: number
+  /** The `#labelFrame` it was cached at, or last spared from eviction at. */
+  addedFrame: number
 }
 
 /**
@@ -114,7 +138,13 @@ interface LabelCacheEntry extends LabelTexture {
  * cards) at once, so a zoom or resize tween that drifts every label across a
  * bucket boundary does not evict labels still on screen this frame.
  */
-const LABEL_CACHE_MAX = 768
+/**
+ * Entries the label cache holds before it evicts, text and small images
+ * together.
+ */
+export const LABEL_CACHE_MAX = 768
+/** Frames within which a label counts as in use and is spared from eviction. */
+const LABEL_RECENT_FRAMES = 2
 /** Shared label atlas page dimensions (matches `MAX_LABEL_TEXTURE_PX`). */
 export const LABEL_PAGE_SIZE = 2048
 /**
@@ -132,16 +162,45 @@ const LABEL_ATLAS_MAX_SIDE = 512
 const LABEL_ENTRY_SPACING = 1
 /**
  * Scale-bucket ratio. `deviceScale` is rounded UP to the nearest `ratio**k`, so
- * the texture is always ≥ on-screen size (only ever minified -> crisp). A bucket
- * spans `(ratio**(k-1), ratio**k]`, giving ~`ratio`× hysteresis: small scale
- * jitter within a bucket reuses the same texture. ~1.26× ≈ 3 buckets/octave.
+ * the texture is always ≥ on-screen size (only ever minified -> crisp). A
+ * bucket spans `(ratio**(k-1), ratio**k]`, giving ~`ratio`× hysteresis: small
+ * scale jitter within a bucket reuses the same texture. ~1.26× ≈ 3
+ * buckets/octave.
  */
 const LABEL_SCALE_BUCKET_RATIO = 2 ** (1 / 3)
+const LOG_LABEL_BUCKET_RATIO = Math.log(LABEL_SCALE_BUCKET_RATIO)
 /**
  * Cap on new label rasterizations+uploads per frame, prevents zoom-tween
  * spikes.
  */
 const LABEL_MAX_REGENS_PER_FRAME = 24
+/**
+ * Frames a label's scale must hold still before a raster at its exact bucket is
+ * made. While the scale keeps changing (a zoom, a tween), the label keeps
+ * drawing from a raster of a nearby bucket instead.
+ */
+const LABEL_SETTLE_FRAMES = 8
+/** A scale change smaller than this ratio counts as still. */
+const LABEL_SCALE_EPSILON = 0.002
+/**
+ * Buckets to look through for a raster to borrow, larger first. Larger ones
+ * only minify. The reach is 3 buckets of minification (2x) and 2 of
+ * magnification (about 1.6x, slightly soft).
+ */
+const LABEL_BORROW_OFFSETS = [1, 2, 3, -1, -2] as const
+/** Most labels whose scale motion is tracked at once. */
+const LABEL_MOTION_MAX = 2048
+
+/** How a label's requested scale has moved over recent frames. */
+interface LabelMotion {
+  /** The px size a text label was last rasterized at, or 0. */
+  lastPx?: number
+  scale: number
+  /** The `#labelFrame` when the scale last changed. */
+  since: number
+  /** The `#labelFrame` of the latest request that missed the cache. */
+  last: number
+}
 /**
  * Cap on page-backed labels evicted while hunting for a slot. Past this the
  * page is fragmented rather than merely full, and wiping it costs less than
@@ -220,6 +279,8 @@ export interface TextureInspectorSnapshot {
   /** One entry per cached label texture, with its style recovered from the key. */
   labels: TextureInspectorLabel[]
   labelCount: number
+  /** How many of {@link labelCount} are small images rather than text. */
+  labelImages: number
   labelCap: number
   labelRegensThisFrame: number
   labelMaxRegensPerFrame: number
@@ -278,12 +339,12 @@ export interface TextureInspector {
 }
 
 /**
- * One inspectable render target on a stage: the screen, or a `Viewport2DNode`'s
- * offscreen surface. Each has its own {@link TextureManager}, so the debug HUD
- * lists them as separate labeled sources. Produced by `Stage.textureSources`.
+ * One inspectable texture source on a stage: the screen or the loaded 3D
+ * models. The debug HUD lists them as separate labeled sources. Produced by
+ * `Stage.textureSources`.
  */
 export interface TextureSource {
-  /** Stable id: `'screen'`, or the `Viewport2DNode`'s node id. */
+  /** Stable id: `'screen'` or `'models'`. */
   id: string
   /** Human-readable label for the source dropdown. */
   label: string
@@ -338,6 +399,11 @@ export class TextureManager implements TextureInspector {
   // caches elsewhere in this file). Value is the row index.
   #rampRowByKey = new Map<string, number>()
   #rampAtlasTex: Texture | null = null
+  /** The smooth-corner field, see `squircleField.ts`, once uploaded. */
+  #squircleField: Texture | null = null
+  /** Its texels, kept so a lost context can upload them again. */
+  #squircleFieldData: Uint16Array | null = null
+  #squircleFieldLoad: Promise<void> | null = null
   // All rows start free, popped low-to-high. The atlas texture itself is
   // allocated lazily (on first paint), independent of this list.
   #rampFreeRows: number[] = initialFreeRampRows()
@@ -369,6 +435,15 @@ export class TextureManager implements TextureInspector {
   #labelEvictions = 0
   #labelPackWalk = 0
   #labelPageWipes = 0
+  #labelRasters = 0
+  #labelMotion = new Map<string, LabelMotion>()
+  #labelUploadBytes = 0
+  #labelDedicated = 0
+  #labelHolds = 0
+  /** Counts `resetLabelBudget` calls, one per frame. */
+  #labelFrame = 0
+  /** A page reset that waits for the next frame, see `#packLabel`. */
+  #labelWipePending = false
   #labelScaleClamps = 0
 
   // Shared label atlas page: one texture holding every non-oversized label so
@@ -378,6 +453,14 @@ export class TextureManager implements TextureInspector {
   #labelPageCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
   #labelPageCtx: CanvasRenderingContext2D | null = null
   #labelPacker = new ShelfPacker(LABEL_PAGE_SIZE, LABEL_PAGE_SIZE)
+
+  /**
+   * Whether a label whose scale is still changing, or that is over the
+   * per-frame raster budget, draws from a nearby raster instead of being
+   * rasterized at its exact size. Off for a surface whose frames are stills
+   * rather than an animation, where every label should come out exact.
+   */
+  holdLabels = true
 
   constructor(device: GfxDevice) {
     this.#device = device
@@ -405,6 +488,58 @@ export class TextureManager implements TextureInspector {
    */
   getRampAtlasTexture(): Texture | null {
     return this.#rampAtlasTex
+  }
+
+  /**
+   * The smooth-corner distance field the shape program samples, or `null` until
+   * {@link loadSquircleField} has uploaded it. A shape drawn while it is `null`
+   * falls back to circular corners.
+   */
+  getSquircleFieldTexture(): Texture | null {
+    return this.#squircleField
+  }
+
+  /**
+   * Fetch and upload the smooth-corner field, once. Never rejects: where the
+   * file can't be fetched, as in a test environment, the field stays `null`.
+   */
+  loadSquircleField(): Promise<void> {
+    this.#squircleFieldLoad ??= this.#fetchSquircleField()
+    return this.#squircleFieldLoad
+  }
+
+  async #fetchSquircleField(): Promise<void> {
+    try {
+      const field = await loadField()
+      if (field) this.setSquircleField(field)
+    } catch (err) {
+      console.warn(
+        '[stargazer] smooth corners unavailable, drawing circular corners:',
+        err,
+      )
+    }
+  }
+
+  /**
+   * Upload `data` as the smooth-corner field, in the layout `squircleField.ts`
+   * describes. {@link loadSquircleField} calls this with the shipped field.
+   */
+  setSquircleField(data: Uint16Array): void {
+    this.#squircleFieldData = data
+    this.#uploadSquircleField()
+  }
+
+  #uploadSquircleField(): void {
+    if (!this.#squircleFieldData) return
+    const tex = this.#device.createTexture2D({
+      width: FIELD_WIDTH,
+      height: FIELD_HEIGHT,
+      filter: 'linear',
+      wrap: 'clamp',
+      pixelFormat: 'rgba16f',
+    })
+    this.#device.updateTexture2DData(tex, this.#squircleFieldData)
+    this.#squircleField = tex
   }
 
   // --- lifecycle -------------------------------------------------------
@@ -450,6 +585,9 @@ export class TextureManager implements TextureInspector {
     this.#rampKeyByRef = new WeakMap()
     this.#rampRowByKey = new Map()
     this.#rampAtlasTex = null
+    // The smooth-corner field keeps its texels, so it is uploaded again now.
+    this.#squircleField = null
+    this.#uploadSquircleField()
     this.#rampFreeRows = initialFreeRampRows()
     this.#rampPinnedRows = new Set()
 
@@ -717,6 +855,26 @@ export class TextureManager implements TextureInspector {
     return this.#rampRowsWritten
   }
 
+  /** Cumulative label counters, see {@link GpuGfxStats}. */
+  get labelCounters(): {
+    rasters: number
+    uploadBytes: number
+    dedicated: number
+    holds: number
+    pageWipes: number
+    /** Entries in the cache now. */
+    entries: number
+  } {
+    return {
+      entries: this.#labelCache.size,
+      rasters: this.#labelRasters,
+      uploadBytes: this.#labelUploadBytes,
+      dedicated: this.#labelDedicated,
+      holds: this.#labelHolds,
+      pageWipes: this.#labelPageWipes,
+    }
+  }
+
   /**
    * A free row, or the least-recently-touched unpinned row, recycled. `-1` when
    * every row is pinned.
@@ -764,6 +922,9 @@ export class TextureManager implements TextureInspector {
     for (const stop of stops) {
       grad.addColorStop(Math.max(0, Math.min(1, stop.offset)), stop.color)
     }
+    // The scratch canvas still holds the previous row, and `fillRect`
+    // composites over it, so a translucent stop would show that row through.
+    ctx.clearRect(0, 0, GRADIENT_LUT_WIDTH, 1)
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, GRADIENT_LUT_WIDTH, 1)
     if (!this.#rampAtlasTex) {
@@ -833,9 +994,22 @@ export class TextureManager implements TextureInspector {
 
   // --- text labels -----------------------------------------------------------
 
-  /** Reset the per-frame label-regeneration budget. Called from `beginFrame`. */
+  /**
+   * Start a frame. Resets the label-regeneration budget and applies a page
+   * reset that `#packLabel` asked for. Called from `beginFrame`.
+   */
   resetLabelBudget(): void {
     this.#labelRegensThisFrame = 0
+    this.#labelFrame++
+    if (this.#labelWipePending) {
+      this.#labelWipePending = false
+      this.#labelPageWipes++
+      this.#labelPacker.reset()
+      this.#clearLabelPage()
+      for (const [key, entry] of this.#labelCache) {
+        if (entry.atlasBox) this.#labelCache.delete(key)
+      }
+    }
   }
 
   /**
@@ -844,10 +1018,11 @@ export class TextureManager implements TextureInspector {
    * align, baseline, color), and the scale bucket is appended internally.
    *
    * `deviceScale` is rounded UP to a bucket so the texture is always ≥
-   * on-screen size (crisp minification). When the per-frame regen budget is
-   * exhausted, a neighbouring-bucket texture is reused if present
-   * (ride-previous) so a mass bucket-crossing during a zoom can't spike. A
-   * never-seen label still rasterizes so it never flickers in.
+   * on-screen size (crisp minification). While a label's scale is changing, or
+   * when the per-frame regen budget is exhausted, a neighbouring-bucket texture
+   * is reused if present, so a zoom can't rebuild every label at every bucket
+   * crossing. A label with no raster nearby still rasterizes at once, so it
+   * never flickers in.
    */
   ensureLabelTexture(
     baseKey: string,
@@ -857,29 +1032,32 @@ export class TextureManager implements TextureInspector {
   ): LabelTexture | null {
     const k =
       deviceScale > 0
-        ? Math.ceil(Math.log(deviceScale) / Math.log(LABEL_SCALE_BUCKET_RATIO))
+        ? Math.ceil(Math.log(deviceScale) / LOG_LABEL_BUCKET_RATIO)
         : 0
     const key = `${baseKey}-${k}`
 
+    // A hit only stamps the frame. Eviction reads the stamp, so the map is not
+    // reordered on every draw.
     const hit = this.#labelCache.get(key)
     if (hit) {
-      // LRU touch: move to most-recent.
-      this.#labelCache.delete(key)
-      this.#labelCache.set(key, hit)
+      hit.usedFrame = this.#labelFrame
       return hit
     }
 
-    // Over budget: ride a nearby bucket (defers the rescale a frame or two).
-    if (this.#labelRegensThisFrame >= LABEL_MAX_REGENS_PER_FRAME) {
-      // Larger buckets first. The whole design is to rasterize at or above the
-      // on-screen size and only ever minify, so borrowing a bigger bitmap costs
-      // sharpness the sampler can recover and borrowing a smaller one does not.
-      const near =
-        this.#labelCache.get(`${baseKey}-${k + 1}`) ??
-        this.#labelCache.get(`${baseKey}-${k + 2}`) ??
-        this.#labelCache.get(`${baseKey}-${k - 1}`) ??
-        this.#labelCache.get(`${baseKey}-${k - 2}`)
-      if (near) return near
+    // A label whose scale is still changing keeps its old raster, and one that
+    // cannot be rasterized this frame borrows a neighbour's. Both defer the
+    // exact-size raster, so a zoom of many labels does not rebuild them all at
+    // every bucket crossing.
+    const settled = this.#noteLabelScale(baseKey, deviceScale)
+    if (
+      this.holdLabels &&
+      (!settled || this.#labelRegensThisFrame >= LABEL_MAX_REGENS_PER_FRAME)
+    ) {
+      const near = this.#borrowLabel(baseKey, k)
+      if (near) {
+        this.#labelHolds++
+        return near
+      }
     }
 
     const rasterScale = LABEL_SCALE_BUCKET_RATIO ** k
@@ -887,21 +1065,261 @@ export class TextureManager implements TextureInspector {
     if (!ras) return null
     if (ras.clamped) this.#labelScaleClamps++
 
+    this.#labelRasters++
+    this.#labelUploadBytes += ras.texW * ras.texH * 4
     const entry = this.#uploadLabel(ras)
+    if (!entry.atlasBox) this.#labelDedicated++
+    entry.usedFrame = this.#labelFrame
+    entry.addedFrame = this.#labelFrame
     this.#labelCache.set(key, entry)
     this.#labelRegensThisFrame++
 
-    // Evict the least-recently-used entry (Map iterates in insertion order).
-    if (this.#labelCache.size > LABEL_CACHE_MAX) {
-      const oldest = this.#labelCache.keys().next().value as string | undefined
-      if (oldest !== undefined) {
-        const victim = this.#labelCache.get(oldest)
-        this.#labelCache.delete(oldest)
-        this.#labelEvictions++
-        if (victim) this.#releaseLabel(victim)
+    if (this.#labelCache.size > LABEL_CACHE_MAX) this.#evictLabel()
+    return entry
+  }
+
+  /**
+   * The label for `text` in a font of `fontPx` drawn at `deviceScale`. It is
+   * keyed by the font without its size (`familyKey`) and the size in device px,
+   * and rasterized at exactly that size, so text at rest is drawn texel for
+   * pixel. Text whose font grows while its scale shrinks keeps one raster.
+   * While the device size keeps changing, the label draws from the raster it
+   * last made, up to 2x larger or 1.6x smaller, and a new one is made at the
+   * exact size once it settles or leaves that range.
+   */
+  ensureTextLabel(
+    familyKey: string,
+    text: string,
+    style: LabelStyle,
+    font: LabelFontTemplate,
+    fontPx: number,
+    deviceScale: number,
+  ): LabelTexture | null {
+    const device = fontPx * deviceScale
+    if (!(device > 0)) return null
+    const px = Math.round(device * 16) / 16 || 1 / 16
+    const key = `${familyKey}@${px}`
+    const hit = this.#labelCache.get(key)
+    if (hit) {
+      hit.usedFrame = this.#labelFrame
+      return hit
+    }
+    const settled = this.#noteLabelScale(familyKey, device)
+    const motion = this.#labelMotion.get(familyKey)
+    if (
+      this.holdLabels &&
+      (!settled || this.#labelRegensThisFrame >= LABEL_MAX_REGENS_PER_FRAME)
+    ) {
+      const last = motion?.lastPx ?? 0
+      const near =
+        last > 0 && last <= device * 2 && last * 1.6 >= device
+          ? this.#labelCache.get(`${familyKey}@${last}`)
+          : undefined
+      if (near) {
+        near.usedFrame = this.#labelFrame
+        this.#labelHolds++
+        return near
       }
     }
+    style.font = `${font.head}${px}px${font.tail}`
+    const ras = rasterizeLabel(text, style, 1)
+    if (!ras) return null
+    if (ras.clamped) this.#labelScaleClamps++
+    this.#labelRasters++
+    this.#labelUploadBytes += ras.texW * ras.texH * 4
+    const entry = this.#uploadLabel(ras)
+    if (!entry.atlasBox) this.#labelDedicated++
+    entry.px = px
+    entry.usedFrame = this.#labelFrame
+    entry.addedFrame = this.#labelFrame
+    this.#labelCache.set(key, entry)
+    this.#labelRegensThisFrame++
+    if (motion) motion.lastPx = px
+    if (this.#labelCache.size > LABEL_CACHE_MAX) this.#evictLabel()
     return entry
+  }
+
+  /** Ids for image sources, so a raster's cache key can name its source. */
+  readonly #sourceIds = new WeakMap<object, number>()
+  /** The cache key of the raster last returned for each image and filter. */
+  readonly #imageLast = new Map<string, string>()
+  #nextSourceId = 1
+
+  /**
+   * Whether `drawImage` of `source` should keep to the sprite atlas and the
+   * per-source texture path. Particle sprites live in the atlas.
+   */
+  isAtlasSource(source: CanvasImageSource): boolean {
+    return this.#atlasBindings.has(source) || this.#isParticleSprite(source)
+  }
+
+  /**
+   * The source drawn at `dw × dh` device pixels into the shared label page, so
+   * a small image samples the same texture as text and joins its draws. Returns
+   * `null` when the raster would not fit a page slot, for the caller to draw
+   * the image from its own texture instead.
+   *
+   * With `smooth` off the source is scaled with nearest filtering, which keeps
+   * pixel art hard-edged. A size within a hair of a whole multiple of the
+   * source is rasterized at exactly that multiple, so every source pixel comes
+   * out the same size. Any other size is rasterized at the next scale bucket
+   * up, the way labels are, so a zoom does not build a raster per frame.
+   */
+  ensureImageRaster(
+    source: CanvasImageSource,
+    dw: number,
+    dh: number,
+    smooth: boolean,
+  ): LabelTexture | null {
+    const sw = (source as { width?: number }).width ?? 0
+    const sh = (source as { height?: number }).height ?? 0
+    if (!(sw > 0 && sh > 0 && dw > 0 && dh > 0)) return null
+    let w: number
+    let h: number
+    const mx = Math.round(dw / sw)
+    const my = Math.round(dh / sh)
+    if (
+      !smooth &&
+      mx >= 1 &&
+      my >= 1 &&
+      Math.abs(dw / sw - mx) < 0.02 &&
+      Math.abs(dh / sh - my) < 0.02
+    ) {
+      w = sw * mx
+      h = sh * my
+    } else {
+      // Each axis steps through the buckets alone, so squashing an image along
+      // one axis does not resize its raster along the other.
+      w = bucketSide(dw)
+      h = bucketSide(dh)
+    }
+    if (w > LABEL_ATLAS_MAX_SIDE || h > LABEL_ATLAS_MAX_SIDE) return null
+
+    let id = this.#sourceIds.get(source as object)
+    if (id === undefined) {
+      id = this.#nextSourceId++
+      this.#sourceIds.set(source as object, id)
+    }
+    const baseKey = `img:${id}:${smooth ? 1 : 0}`
+    const key = `${baseKey}:${w}x${h}`
+    const hit = this.#labelCache.get(key)
+    if (hit) {
+      hit.usedFrame = this.#labelFrame
+      this.#imageLast.set(baseKey, key)
+      return hit
+    }
+    // Past the per-frame raster budget an image keeps the raster it last drew
+    // with, so a burst of new sizes (many images flipping at once) is spread
+    // over frames instead of stalling one.
+    if (this.#labelRegensThisFrame >= LABEL_MAX_REGENS_PER_FRAME) {
+      const lastKey = this.#imageLast.get(baseKey)
+      const last = lastKey ? this.#labelCache.get(lastKey) : undefined
+      if (last) {
+        last.usedFrame = this.#labelFrame
+        this.#labelHolds++
+        return last
+      }
+    }
+    const canvas =
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(w, h)
+        : typeof document !== 'undefined'
+          ? Object.assign(document.createElement('canvas'), {
+              width: w,
+              height: h,
+            })
+          : null
+    const ctx = canvas?.getContext('2d') as CanvasRenderingContext2D | null
+    if (!canvas || !ctx) return null
+    ctx.imageSmoothingEnabled = smooth
+    if (smooth) ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(source, 0, 0, w, h)
+    const entry = this.#uploadLabel({
+      canvas,
+      texW: w,
+      texH: h,
+      clamped: false,
+      localW: w,
+      localH: h,
+      advance: w,
+      ascent: h,
+      descent: 0,
+      anchorOffsetX: 0,
+      anchorOffsetY: 0,
+    })
+    this.#labelRasters++
+    this.#labelUploadBytes += w * h * 4
+    entry.usedFrame = this.#labelFrame
+    entry.addedFrame = this.#labelFrame
+    this.#labelCache.set(key, entry)
+    this.#imageLast.set(baseKey, key)
+    this.#labelRegensThisFrame++
+    if (this.#labelCache.size > LABEL_CACHE_MAX) this.#evictLabel()
+    return entry
+  }
+
+  /**
+   * Evict one label, oldest first in insertion order. An entry drawn again in
+   * the last {@link LABEL_RECENT_FRAMES} frames since it was cached gets a
+   * second chance: it moves to the back and counts as cached now, so it is
+   * spared once per use and an eviction stays cheap.
+   */
+  #evictLabel(): void {
+    const cache = this.#labelCache
+    const frame = this.#labelFrame
+    for (let tries = cache.size; tries > 0; tries--) {
+      const victim = evictOldest(cache)
+      if (!victim) return
+      const entry = victim[1]
+      if (
+        tries > 1 &&
+        entry.usedFrame > entry.addedFrame &&
+        entry.usedFrame >= frame - LABEL_RECENT_FRAMES
+      ) {
+        entry.addedFrame = frame
+        cache.set(victim[0], entry)
+        continue
+      }
+      this.#labelEvictions++
+      this.#releaseLabel(victim[1])
+      return
+    }
+  }
+
+  /**
+   * Record a cache miss for the label's scale and report whether the scale has
+   * held still for {@link LABEL_SETTLE_FRAMES}.
+   */
+  #noteLabelScale(baseKey: string, scale: number): boolean {
+    const frame = this.#labelFrame
+    let m = this.#labelMotion.get(baseKey)
+    if (!m || frame - m.last > 1) {
+      m = { scale, since: frame, last: frame }
+      this.#labelMotion.set(baseKey, m)
+      if (this.#labelMotion.size > LABEL_MOTION_MAX) {
+        evictOldest(this.#labelMotion)
+      }
+    } else {
+      if (Math.abs(scale / m.scale - 1) > LABEL_SCALE_EPSILON) {
+        m.scale = scale
+        m.since = frame
+      }
+      m.last = frame
+    }
+    return frame - m.since >= LABEL_SETTLE_FRAMES
+  }
+
+  /** A cached raster of a nearby bucket, touched so it stays resident. */
+  #borrowLabel(baseKey: string, k: number): LabelCacheEntry | null {
+    for (const offset of LABEL_BORROW_OFFSETS) {
+      const key = `${baseKey}-${k + offset}`
+      const entry = this.#labelCache.get(key)
+      if (entry) {
+        entry.usedFrame = this.#labelFrame
+        return entry
+      }
+    }
+    return null
   }
 
   /**
@@ -958,6 +1376,8 @@ export class TextureManager implements TextureInspector {
             anchorOffsetX: ras.anchorOffsetX,
             anchorOffsetY: ras.anchorOffsetY,
             atlasBox: { x: box.x, y: box.y, w: box.w, h: box.h },
+            usedFrame: 0,
+            addedFrame: 0,
           }
         }
       }
@@ -980,6 +1400,8 @@ export class TextureManager implements TextureInspector {
       anchorOffsetX: ras.anchorOffsetX,
       anchorOffsetY: ras.anchorOffsetY,
       atlasBox: null,
+      usedFrame: 0,
+      addedFrame: 0,
     }
   }
 
@@ -1023,9 +1445,17 @@ export class TextureManager implements TextureInspector {
 
   /**
    * Reserve a `w × h` slot in the page, evicting least-recently-used
-   * page-backed labels (freeing their spans) if the page is full, and resetting
-   * the page as a last resort. Returns the slot, or `null` only if no 2D page
-   * exists.
+   * page-backed labels (freeing their spans) if the page is full. Returns the
+   * slot, or `null` when there is no 2D page or no room is left. The caller
+   * then gives the label its own texture.
+   *
+   * @remarks
+   *   Draws are recorded and replayed at `submitFrame`, while this runs mid-frame
+   *   from inside `fillText`. A slot that a label returned this frame is
+   *   therefore never freed, because its recorded draws still sample it. When
+   *   only such labels are left, or fragmentation defeats the eviction walk,
+   *   the page is reset at the start of the next frame and this label takes a
+   *   dedicated texture for now.
    */
   #packLabel(w: number, h: number): LabelBox | null {
     let box = this.#labelPacker.pack(w, h)
@@ -1037,7 +1467,7 @@ export class TextureManager implements TextureInspector {
     // the free and the retry cost a scan and this runs inside one `fillText`.
     let walked = 0
     for (const [key, entry] of this.#labelCache) {
-      if (!entry.atlasBox) continue
+      if (!entry.atlasBox || entry.usedFrame === this.#labelFrame) continue
       if (++walked > LABEL_PACK_EVICT_LIMIT) break
       this.#labelPacker.free(
         entry.atlasBox.x,
@@ -1053,28 +1483,8 @@ export class TextureManager implements TextureInspector {
       }
     }
     this.#labelPackWalk += walked
-
-    // Still no room (fragmentation): reset the page and drop what it held. A
-    // single slot no larger than the oversized threshold always fits a fresh
-    // page, so this terminates. The re-adds this frame bypass the regen budget
-    // naturally, because the dropped labels are cache misses that rasterize on
-    // demand, so this is the worst frame the text path has.
-    this.#labelPageWipes++
-    this.#labelPacker.reset()
-    // Mirror only, deliberately. Draws are recorded and replayed at
-    // `submitFrame`, while this runs mid-frame from inside `fillText`, so
-    // instances already recorded this frame still point at slots this wipe just
-    // invalidated. Their texels hold the old ink and draw wrong. Zeroing the
-    // page would make them draw nothing at all. That frame is lost either way.
-    // TODO: deferring the wipe to the end of the frame, after `submitFrame`
-    // has replayed the runs that still reference the old slots, would let this
-    // zero the page the way `clearLabelCache` does.
-    this.#clearLabelPage()
-    for (const [key, entry] of this.#labelCache) {
-      if (entry.atlasBox) this.#labelCache.delete(key)
-    }
-    box = this.#labelPacker.pack(w, h)
-    return box ? { x: box.x, y: box.y, w, h } : null
+    this.#labelWipePending = true
+    return null
   }
 
   /**
@@ -1263,6 +1673,9 @@ export class TextureManager implements TextureInspector {
       perSource,
       labels,
       labelCount: this.#labelCache.size,
+      labelImages: [...this.#labelCache.keys()].filter((k) =>
+        k.startsWith('img:'),
+      ).length,
       labelCap: LABEL_CACHE_MAX,
       labelRegensThisFrame: this.#labelRegensThisFrame,
       labelMaxRegensPerFrame: LABEL_MAX_REGENS_PER_FRAME,

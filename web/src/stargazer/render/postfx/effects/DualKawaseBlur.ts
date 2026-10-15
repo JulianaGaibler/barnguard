@@ -61,6 +61,8 @@ export interface DualKawaseBlurOptions {
  */
 export class DualKawaseBlur implements PostEffect {
   enabled: boolean
+  /** A blur removes the edges multisampling would have smoothed. */
+  readonly smoothsInput = true
   /** Per-pass tap spread in texels. Tweakable live. */
   offset: number
   passes: readonly PostPass[]

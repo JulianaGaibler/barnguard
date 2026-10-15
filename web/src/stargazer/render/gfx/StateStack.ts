@@ -5,11 +5,17 @@ import type { BitmapMask } from '../../assets/BitmapMask'
 import type { GfxBlend } from './Gfx2D'
 
 /**
- * An analytic clip shape resolved to device px (a snapshot of the shape under
- * the transform active when `setClip` ran). `kind` 1 = circle, 2 =
- * rounded-rect. The renderer feeds these fields to the shared clip UBO, and the
- * fragment stage evaluates an SDF against them. Reference identity drives batch
- * breaks, so a fresh object per `setClip` is intentional.
+ * An analytic clip shape, as a snapshot of the shape under the transform active
+ * when `setClip` ran. `kind` 1 = circle, 2 = rounded-rect.
+ *
+ * It carries two forms. The programs that read the clip from the per-run clip
+ * UBO use the device-space form (`cx`, `cy`, `r`, `halfW`, `halfH`, `radii`),
+ * which approximates a circle under a non-uniform scale and a rounded rect
+ * under rotation. The programs that read it from the param table use the exact
+ * form: the shape in local space (`l*`) and the inverse of the transform
+ * (`ia`..`if`), which maps a device pixel back into local space. Batches
+ * compare clips with {@link clipEquals}, so a fresh object per `setClip` does
+ * not break a run.
  */
 export interface ResolvedClip {
   kind: 1 | 2
@@ -17,10 +23,65 @@ export interface ResolvedClip {
   cy: number
   /** Circle radius (device px). */
   r: number
-  /** Rounded-rect half extents + corner radius (device px). */
+  /** Rounded-rect half extents (device px). */
   halfW: number
   halfH: number
-  rrRadius: number
+  /** Rounded-rect corner radii, clockwise from the top left (device px). */
+  radii: readonly [number, number, number, number]
+  /**
+   * The shape in local space: centre, circle radius, half extents, and corner
+   * radii clockwise from the top left.
+   */
+  lcx: number
+  lcy: number
+  lr: number
+  lhalfW: number
+  lhalfH: number
+  lradii: readonly [number, number, number, number]
+  /** Device to local affine: `x' = ia*x + ic*y + ie`, `y' = ib*x + id*y + if`. */
+  ia: number
+  ib: number
+  ic: number
+  id: number
+  ie: number
+  if: number
+}
+
+function sameRadii(
+  a: readonly [number, number, number, number],
+  b: readonly [number, number, number, number],
+): boolean {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3]
+}
+
+/** Whether two resolved clips describe the same shape. */
+export function clipEquals(
+  a: ResolvedClip | null,
+  b: ResolvedClip | null,
+): boolean {
+  if (a === b) return true
+  if (a === null || b === null) return false
+  return (
+    a.kind === b.kind &&
+    a.cx === b.cx &&
+    a.cy === b.cy &&
+    a.r === b.r &&
+    a.halfW === b.halfW &&
+    a.halfH === b.halfH &&
+    sameRadii(a.radii, b.radii) &&
+    a.lcx === b.lcx &&
+    a.lcy === b.lcy &&
+    a.lr === b.lr &&
+    a.lhalfW === b.lhalfW &&
+    a.lhalfH === b.lhalfH &&
+    sameRadii(a.lradii, b.lradii) &&
+    a.ia === b.ia &&
+    a.ib === b.ib &&
+    a.ic === b.ic &&
+    a.id === b.id &&
+    a.ie === b.ie &&
+    a.if === b.if
+  )
 }
 
 /**

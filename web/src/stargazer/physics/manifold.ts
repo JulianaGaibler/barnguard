@@ -141,8 +141,8 @@ function collideCircleCircle(a: Collider, b: Collider, m: Manifold): boolean {
 
 /**
  * Circle (`circleCol`) vs axis-aligned box (`boxCol`). Computes the normal from
- * circle toward box. `flip` negates it so the result reads `a -> b` when the box
- * was `a`.
+ * circle toward box. `flip` negates it so the result reads `a -> b` when the
+ * box was `a`.
  */
 function collideCircleAABB(
   circleCol: Collider,

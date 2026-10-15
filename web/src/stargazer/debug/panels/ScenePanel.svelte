@@ -3,15 +3,22 @@
   import { SvelteSet } from 'svelte/reactivity'
   import type { DebugController, DebugStatsSnapshot } from '../DebugController'
   import type { Node, NodeKind } from '../../scene/Node'
-  import type { Node2D, RenderLayer } from '../../scene/Node2D'
+  import type { Node2D } from '../../scene/Node2D'
   import type { Node3D } from '../../scene/Node3D'
   import { MeshNode } from '../../nodes/MeshNode'
-  import { Viewport2DNode } from '../../nodes/Viewport2DNode'
   import { CameraNode2D } from '../../camera/CameraNode2D'
   import { CameraNode3D } from '../../camera/CameraNode3D'
   import { PhysicsWorldBehavior } from '../../physics/PhysicsWorldBehavior'
   import { RigidBodyBehavior } from '../../physics/RigidBodyBehavior'
-  import { DebugSection, DebugRow, DebugTree, type TreeNode } from '../ui'
+  import {
+    DebugSection,
+    DebugRow,
+    DebugTree,
+    MetricRow,
+    StatCard,
+    StatGrid,
+    type TreeNode,
+  } from '../ui'
   import { isMeasurable } from '../../layout/LayoutNode'
   import { fmtCoord } from './format'
 
@@ -32,19 +39,10 @@
   /** Metadata attached to each tree row, read by the row snippet. */
   interface NodeMeta {
     node: Node
-    /**
-     * What the overlay highlights when this row is selected. Usually `node`,
-     * but for a node inside a `Viewport2DNode`'s embedded scene it's the
-     * containing viewport quad. That node lives in an offscreen texture space,
-     * so its own outline can't be drawn in the main overlay.
-     */
-    highlightTarget: Node
     type: string
     kind: NodeKind
     dot: string
     visible: boolean
-    /** 2D render layer, or `null` for 3D/group nodes. */
-    layer: RenderLayer | null
     /** Alive particles (2D emitters); 0 otherwise. */
     particleCount: number
     /** Triangle count (3D meshes); 0 otherwise. */
@@ -72,7 +70,6 @@
     // 3D node types read as a purple/violet family.
     Node3D: '#c4b5fd',
     MeshNode: '#c084fc',
-    Viewport2DNode: '#e879f9',
     // Cameras read as amber, distinct from content.
     CameraNode2D: '#f59e0b',
     CameraNode3D: '#f59e0b',
@@ -130,25 +127,16 @@
 
   /**
    * Build one flat, depth-tagged list from the whole tree (2D, 3D, and group
-   * nodes together). A `Viewport2DNode`'s embedded 2D scene is shown nested
-   * under it (the SubViewport bridge). Rows are keyed by tree path, not
-   * `node.id` (ids aren't unique, so a duplicate key would cross-link
-   * expansion/selection).
+   * nodes together). Rows are keyed by tree path, not `node.id` (ids aren't
+   * unique, so a duplicate key would cross-link expansion/selection).
    */
   function buildTree(root: Node, expanded: Set<string>): TreeNode[] {
     const out: TreeNode[] = []
     const roots = root.children
-    for (let i = 0; i < roots.length; i++) visit(roots[i], 0, `r${i}`, null)
+    for (let i = 0; i < roots.length; i++) visit(roots[i], 0, `r${i}`)
     return out
 
-    // `embeddedIn` is the containing Viewport2DNode when walking its embedded 2D
-    // scene, so those rows highlight the viewport quad instead of themselves.
-    function visit(
-      node: Node,
-      depth: number,
-      key: string,
-      embeddedIn: Node | null,
-    ): void {
+    function visit(node: Node, depth: number, key: string): void {
       const type = node.constructor.name
       const is2d = node.kind === '2d'
       const n2 = is2d ? (node as Node2D) : null
@@ -163,12 +151,10 @@
         (node instanceof CameraNode3D && stage.currentCamera3D === node)
       const meta: NodeMeta = {
         node,
-        highlightTarget: embeddedIn ?? node,
         type,
         kind: node.kind,
         dot: colorForType(type),
         visible: node.visible,
-        layer: n2 ? n2.renderLayer : null,
         particleCount: n2 ? n2.particleCount : 0,
         tris:
           node instanceof MeshNode && node.geometry
@@ -181,11 +167,8 @@
         isCamera,
         isCurrentCamera,
       }
-      // Regular children, plus a Viewport2DNode's embedded 2D scene root.
       const kids = node.children
-      const innerKids =
-        node instanceof Viewport2DNode ? node.scene.root.children : []
-      const hasChildren = kids.length > 0 || innerKids.length > 0
+      const hasChildren = kids.length > 0
       const isExpanded = expanded.has(key)
       out.push({
         id: key,
@@ -197,12 +180,7 @@
       })
       if (hasChildren && isExpanded) {
         for (let i = 0; i < kids.length; i++) {
-          visit(kids[i], depth + 1, `${key}.${i}`, embeddedIn)
-        }
-        // Descendants of a Viewport2DNode's embedded scene highlight the viewport.
-        const innerOwner = node instanceof Viewport2DNode ? node : embeddedIn
-        for (let i = 0; i < innerKids.length; i++) {
-          visit(innerKids[i], depth + 1, `${key}.s${i}`, innerOwner)
+          visit(kids[i], depth + 1, `${key}.${i}`)
         }
       }
     }
@@ -228,7 +206,7 @@
   function selectNode(id: string): void {
     selectedId = selectedId === id ? null : id
     const row = selectedId ? treeNodes.find((n) => n.id === selectedId) : null
-    const target = row ? (row.metadata as NodeMeta).highlightTarget : null
+    const target = row ? (row.metadata as NodeMeta).node : null
     debug.setHighlighted(target)
   }
 
@@ -238,7 +216,7 @@
   }
 
   // Live properties of the selected node, refreshed on the hub tick. Shape
-  // varies by kind: 2D nodes show affine transform + layer, 3D nodes show the
+  // varies by kind: 2D nodes show affine transform, 3D nodes show the
   // 3D transform, group nodes just identity + visibility.
   const selected = $derived.by(() => {
     void revision
@@ -280,8 +258,7 @@
         scaleX: t.scaleX,
         scaleY: t.scaleY,
         alpha: t.alpha,
-        layer: n.renderLayer,
-        bounds: n.debugBounds,
+        bounds: n.bounds,
         measured: isMeasurable(n)
           ? { w: n.measuredSize.w, h: n.measuredSize.h }
           : null,
@@ -387,11 +364,21 @@
     {/each}
   </div>
 
-  <DebugRow label="Viewport x" value={fmtCoord(stats.viewport.x)} />
-  <DebugRow label="Viewport y" value={fmtCoord(stats.viewport.y)} />
-  <DebugRow label="Viewport w" value={fmtCoord(stats.viewport.width)} />
-  <DebugRow label="Viewport h" value={fmtCoord(stats.viewport.height)} />
-  <DebugRow label="px / world" value={stats.screenPxPerWorldUnit.toFixed(3)} />
+  <MetricRow
+    label="Viewport"
+    value={`${fmtCoord(stats.viewport.x)}, ${fmtCoord(stats.viewport.y)}`}
+    tip="The top left corner of the world area the camera shows, in world units."
+  />
+  <MetricRow
+    label="Viewport size"
+    value={`${fmtCoord(stats.viewport.width)} × ${fmtCoord(stats.viewport.height)}`}
+    tip="The width and height of the world area the camera shows, in world units."
+  />
+  <MetricRow
+    label="px / world"
+    value={stats.screenPxPerWorldUnit.toFixed(3)}
+    tip="CSS pixels per world unit. Pictures that depend on scale, such as text, repaint when this changes enough."
+  />
 
   {#if stats.world3d}
     <div class="cam-sub">3D</div>
@@ -420,28 +407,42 @@
       label="Projection"
       value={fmtProjection(stats.world3d.camera.projectionness)}
     />
-    <DebugRow label="FOV" value={`${stats.world3d.camera.fovY.toFixed(0)}°`} />
-    <DebugRow
+    <MetricRow
+      label="FOV"
+      value={`${stats.world3d.camera.fovY.toFixed(0)}°`}
+      tip="The vertical field of view of the 3D camera."
+    />
+    <MetricRow
       label="Near / Far"
       value={`${stats.world3d.camera.near} / ${stats.world3d.camera.far}`}
+      tip="The clip planes. Depth precision spreads across this range, so a tighter range removes z-fighting."
     />
-    <DebugRow
+    <MetricRow
       label="Focal dist"
       value={stats.world3d.camera.focalDistance.toFixed(1)}
+      tip="The distance at which one world unit covers the same pixels as in 2D."
     />
-    <DebugRow
+    <MetricRow
       label="Eye"
       value={`${stats.world3d.camera.position.x.toFixed(1)}, ${stats.world3d.camera.position.y.toFixed(1)}, ${stats.world3d.camera.position.z.toFixed(1)}`}
+      tip="The camera position in world space."
     />
   {/if}
 </DebugSection>
 
 <DebugSection title="Scene" bind:open={sceneOpen}>
-  <DebugRow label="Total nodes" value={stats.nodeCounts.total} />
-  <DebugRow label="Static" value={stats.nodeCounts.static} />
-  <DebugRow label="Above-static" value={stats.nodeCounts.aboveStatic} />
-  <DebugRow label="Dynamic" value={stats.nodeCounts.dynamic} />
-  <DebugRow label="Particles" value={stats.aliveParticles} tone="accent" />
+  <StatGrid>
+    <StatCard
+      label="Nodes"
+      value={stats.nodeCount}
+      tip="Every node in this stage's tree."
+    />
+    <StatCard
+      label="Particles"
+      value={stats.aliveParticles}
+      tip="Live particles across every emitter in this stage."
+    />
+  </StatGrid>
 </DebugSection>
 
 {#snippet nodeRow(node: TreeNode)}
@@ -468,9 +469,6 @@
       {/if}
     {:else if meta.kind !== '2d'}
       <span class="chip kind">{meta.kind === '3d' ? '3D' : 'group'}</span>
-    {/if}
-    {#if meta.layer && meta.layer !== 'dynamic'}
-      <span class="chip">{meta.layer}</span>
     {/if}
     {#if !meta.visible}
       <span class="chip muted">hidden</span>
@@ -555,10 +553,6 @@
           tone="accent"
         />
       {/if}
-      <div class="info-row">
-        <span class="label">Layer:</span>
-        <span class="badge layer">{selected.layer}</span>
-      </div>
       {#if selected.bounds}
         <DebugRow
           label="Bounds"
@@ -794,7 +788,4 @@
       background: rgba(248, 113, 113, 0.22)
       color: rgb(252, 165, 165)
 
-    &.layer
-      text-transform: uppercase
-      letter-spacing: 0.04em
 </style>

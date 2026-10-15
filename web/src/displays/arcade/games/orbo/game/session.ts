@@ -39,6 +39,7 @@ import { FieldNode } from './nodes/FieldNode'
 import { IndicatorNode } from './nodes/IndicatorNode'
 import { ScoringCountNode } from './nodes/ScoringCountNode'
 import { PanelNode } from './nodes/PanelNode'
+import { RevealRef } from './nodes/RevealRef'
 import { FlickController } from './FlickController'
 import {
   ANIM,
@@ -169,7 +170,7 @@ export async function startGame(
   const fieldMask = await createOrboFieldMask(bounds)
   // Reveal fraction (0 = hidden, 1 = full) driving the horizontal clip opening.
   // Shared by reference with the panel + field nodes, tweened on match start.
-  const reveal = { frac: 0 }
+  const reveal = new RevealRef(0)
 
   const orbLayer = new Node2D('orb-layer')
   // orbLayer owns the orbo physics world. Orb nodes are its children with

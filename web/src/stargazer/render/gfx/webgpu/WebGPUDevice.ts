@@ -52,11 +52,14 @@ import type {
   TargetPixelFormat,
   Texture,
   Texture2DOpts,
+  TexturePixelFormat,
   TextureUploadOpts,
   UBuffer,
+  DataTable,
   VBuffer,
   VertexBufferLayout,
 } from '../GfxDevice'
+import { PassBindingState } from './bindingState'
 import {
   colorFormatToGPU,
   colorTargetToGPU,
@@ -67,7 +70,10 @@ import {
   frontFaceToGPU,
   indexTypeToGPU,
   roundUp4,
+  sampleCountToGPU,
   targetPixelFormatToGPU,
+  texturePixelBytes,
+  texturePixelFormatToGPU,
   topologyToGPU,
   vertexFormatToGPU,
 } from './conv'
@@ -125,6 +131,10 @@ interface WebGPUUniformBuffer extends UBuffer {
   byteSize: number
 }
 
+interface WebGPUDataTable extends DataTable {
+  gpu: GPUBuffer
+}
+
 interface WebGPUIndexBuffer extends IBuffer {
   gpu: GPUBuffer
   byteSize: number
@@ -140,6 +150,7 @@ interface WebGPUTexture extends Texture {
   srgb: boolean
   mipmap: boolean
   anisotropy: number
+  pixelFormat: TexturePixelFormat
   /**
    * Set when the handle wraps a render target's color texture (via
    * `colorTexture`), so `deleteTexture` on it doesn't destroy a texture the
@@ -159,6 +170,11 @@ interface WebGPUShadowCube extends ShadowCube {
 }
 
 type WebGPURenderTarget = RenderTarget & {
+  /**
+   * The canvas target. Its `color` is the swapchain texture of the current
+   * frame, so it is read through a getter and never owned.
+   */
+  isCanvas?: true
   /** Sampleable single-sample color texture (present unless MSAA is on). */
   color?: GPUTexture
   /** Multisample color texture, allocated only when `samples > 1`. */
@@ -182,9 +198,15 @@ type WebGPURenderTarget = RenderTarget & {
 
 // --- device -----------------------------------------------------------------
 
+/** Submits whose timestamps can wait to be read at once. */
+const QUERY_SLOTS = 4
+
 export class WebGPUDevice implements GfxDevice {
   readonly #device: GPUDevice
   readonly #context: GPUCanvasContext
+  /** The format the canvas context was configured with. */
+  readonly #canvasFormat: GPUTextureFormat
+  #canvasTarget: WebGPURenderTarget | null = null
 
   #lost = false
   #destroying = false
@@ -212,6 +234,8 @@ export class WebGPUDevice implements GfxDevice {
   #computePass: GPUComputePassEncoder | null = null
   /** Last pipeline set on the open pass, for the `pipelineSwitches` stat. */
   #lastPipeline: GPURenderPipeline | null = null
+  /** What the open render pass already has bound, see {@link PassBindingState}. */
+  readonly #bindings = new PassBindingState<GPUBuffer, GPUBindGroup>()
   /** Pass state a draw may change: reset to the WebGPU defaults per pass. */
   #stencilRef = 0
   #scissorSet = false
@@ -232,8 +256,12 @@ export class WebGPUDevice implements GfxDevice {
 
   readonly deviceStats: DeviceStats = {
     pipelineSwitches: 0,
-    bindGroupSwitches: 0,
     textureBinds: 0,
+    bindGroupSwitches: 0,
+    passes: 0,
+    submits: 0,
+    bindGroupsCreated: 0,
+    uniformWrites: 0,
   }
 
   readonly limits: DeviceLimits
@@ -271,7 +299,12 @@ export class WebGPUDevice implements GfxDevice {
     if (!adapter) {
       throw new Error('WebGPUDevice: requestAdapter returned null')
     }
-    const device = await adapter.requestDevice()
+    // Timestamps time the GPU work of each frame, for the benchmark and the
+    // quality panel. Some browsers keep the feature behind a setting.
+    const timestamps = adapter.features.has('timestamp-query')
+    const device = await adapter.requestDevice(
+      timestamps ? { requiredFeatures: ['timestamp-query'] } : undefined,
+    )
     if (!device) {
       throw new Error('WebGPUDevice: requestDevice returned null')
     }
@@ -280,7 +313,12 @@ export class WebGPUDevice implements GfxDevice {
       throw new Error('WebGPUDevice: failed to acquire a webgpu context')
     }
     const format = navigator.gpu.getPreferredCanvasFormat()
-    context.configure({ device, format, alphaMode: 'premultiplied' })
+    context.configure({
+      device,
+      format,
+      alphaMode: 'premultiplied',
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST,
+    })
     return new WebGPUDevice(device, context, format)
   }
 
@@ -291,10 +329,17 @@ export class WebGPUDevice implements GfxDevice {
   ) {
     this.#device = device
     this.#context = context
+    this.#canvasFormat = preferredFormat
     this.#blit = new BlitPass(device, preferredFormat)
     this.limits = {
       minUniformBufferOffsetAlignment:
         device.limits.minUniformBufferOffsetAlignment,
+      maxDataTableVec4: Math.floor(
+        Math.min(
+          device.limits.maxStorageBufferBindingSize,
+          device.limits.maxBufferSize,
+        ) / 16,
+      ),
     }
     // A device loss fires once and never restores. Ignore the loss that a
     // deliberate `destroy` triggers so teardown doesn't spuriously fire the
@@ -310,12 +355,6 @@ export class WebGPUDevice implements GfxDevice {
       )
       for (const cb of this.#lostCbs) cb()
     })
-  }
-
-  /** MSAA is capped at 4× (the value WebGPU guarantees for a `count`). */
-  #clampSamples(samples: number): number {
-    if (samples <= 1) return 1
-    return Math.min(4, Math.floor(samples))
   }
 
   // --- shaders --------------------------------------------------------------
@@ -384,14 +423,14 @@ export class WebGPUDevice implements GfxDevice {
         cullMode: cullModeToGPU(desc.cull),
         frontFace: frontFaceToGPU(desc.frontFace),
       },
-      multisample: { count: this.#clampSamples(desc.samples) },
+      multisample: { count: sampleCountToGPU(desc.samples) },
     }
 
     if (desc.color !== null) {
       descriptor.fragment = {
         module: shader.module,
         entryPoint: shader.fragmentEntry,
-        targets: [colorTargetToGPU(desc.color)],
+        targets: [colorTargetToGPU(desc.color, this.#canvasFormat)],
       }
     }
 
@@ -455,13 +494,24 @@ export class WebGPUDevice implements GfxDevice {
         })
         continue
       }
+      if (e.type === 'data-table') {
+        gpuEntries.push({
+          binding: e.binding,
+          visibility: vis,
+          buffer: { type: 'read-only-storage' },
+        })
+        continue
+      }
       if (e.type === 'storage-texture-2d') {
         gpuEntries.push({
           binding: e.binding,
           visibility: GPUShaderStage.FRAGMENT | GPUShaderStage.COMPUTE,
           storageTexture: {
             access: e.storageAccess ?? 'write-only',
-            format: colorFormatToGPU(e.storageFormat ?? 'linear'),
+            format: colorFormatToGPU(
+              e.storageFormat ?? 'linear',
+              this.#canvasFormat,
+            ),
             viewDimension: '2d',
           },
         })
@@ -530,6 +580,7 @@ export class WebGPUDevice implements GfxDevice {
     layout: BindGroupLayout,
     entries: BindGroupEntry[],
   ): BindGroup {
+    this.deviceStats.bindGroupsCreated++
     const l = layout as WebGPUBindGroupLayout
     const gpuEntries: GPUBindGroupEntry[] = []
     for (const e of entries) {
@@ -550,6 +601,11 @@ export class WebGPUDevice implements GfxDevice {
             // `size` fixes the bound slice length. Required for dynamic entries.
             size: res.size,
           },
+        })
+      } else if ('dataTable' in res) {
+        gpuEntries.push({
+          binding: e.binding,
+          resource: { buffer: (res.dataTable as WebGPUDataTable).gpu },
         })
       } else if ('texture' in res) {
         const tex = res.texture as WebGPUTexture
@@ -771,6 +827,7 @@ export class WebGPUDevice implements GfxDevice {
     data: ArrayBufferView,
     byteOffset = 0,
   ): void {
+    this.deviceStats.uniformWrites++
     const b = buf as WebGPUUniformBuffer
     this.#writeAligned(
       b.gpu,
@@ -783,6 +840,46 @@ export class WebGPUDevice implements GfxDevice {
 
   deleteUniformBuffer(buf: UBuffer): void {
     this.#destroyDeferred((buf as WebGPUUniformBuffer).gpu)
+  }
+
+  // --- data tables ----------------------------------------------------------
+
+  createDataTable(vec4Count: number): DataTable {
+    if (vec4Count > this.limits.maxDataTableVec4) {
+      throw new Error(
+        `WebGPUDevice.createDataTable: ${vec4Count} elements exceed the limit ${this.limits.maxDataTableVec4}`,
+      )
+    }
+    const gpu = this.#device.createBuffer({
+      size: Math.max(1, vec4Count) * 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    })
+    return {
+      __gfxDataTable: undefined as never,
+      capacity: Math.max(1, vec4Count),
+      gpu,
+    } as WebGPUDataTable
+  }
+
+  updateDataTable(
+    table: DataTable,
+    firstVec4: number,
+    data: Float32Array,
+  ): void {
+    if (firstVec4 + (data.length >> 2) > table.capacity) {
+      throw new Error('WebGPUDevice.updateDataTable: range past the capacity')
+    }
+    this.#device.queue.writeBuffer(
+      (table as WebGPUDataTable).gpu,
+      firstVec4 * 16,
+      data.buffer as ArrayBuffer,
+      data.byteOffset,
+      data.byteLength,
+    )
+  }
+
+  deleteDataTable(table: DataTable): void {
+    this.#destroyDeferred((table as WebGPUDataTable).gpu)
   }
 
   // --- index buffers --------------------------------------------------------
@@ -830,9 +927,10 @@ export class WebGPUDevice implements GfxDevice {
     const width = Math.max(1, opts.width)
     const height = Math.max(1, opts.height)
     const mipLevelCount = mipmap ? mipLevels(width, height) : 1
+    const pixelFormat = opts.pixelFormat ?? 'rgba8'
     const gpu = this.#device.createTexture({
       size: [width, height, 1],
-      format: srgb ? 'rgba8unorm-srgb' : 'rgba8unorm',
+      format: texturePixelFormatToGPU(pixelFormat, srgb),
       usage:
         GPUTextureUsage.TEXTURE_BINDING |
         GPUTextureUsage.COPY_DST |
@@ -850,8 +948,22 @@ export class WebGPUDevice implements GfxDevice {
       srgb,
       mipmap,
       anisotropy: opts.anisotropy ?? 1,
+      pixelFormat,
       owned: true,
     } as WebGPUTexture
+  }
+
+  updateTexture2DData(tex: Texture, data: ArrayBufferView): void {
+    const t = tex as WebGPUTexture
+    this.#device.queue.writeTexture(
+      { texture: t.gpu },
+      data as GPUAllowSharedBufferSource,
+      {
+        bytesPerRow: t.width * texturePixelBytes(t.pixelFormat),
+        rowsPerImage: t.height,
+      },
+      [t.width, t.height, 1],
+    )
   }
 
   updateTextureSubImage2D(
@@ -1023,7 +1135,7 @@ export class WebGPUDevice implements GfxDevice {
 
   createRenderTarget(opts: RenderTargetOpts): RenderTarget {
     const device = this.#device
-    const samples = this.#clampSamples(opts.samples ?? 1)
+    const samples = sampleCountToGPU(opts.samples ?? 1)
     const width = Math.max(1, opts.width)
     const height = Math.max(1, opts.height)
     const colorSpace: ColorFormat = opts.colorSpace ?? 'linear'
@@ -1033,7 +1145,10 @@ export class WebGPUDevice implements GfxDevice {
         `WebGPUDevice.createRenderTarget: pixelFormat '${pixelFormat}' is single-sample only (no renderable multisample R8/RG8 target)`,
       )
     }
-    const format = targetPixelFormatToGPU(pixelFormat)
+    const format =
+      colorSpace === 'canvas' && pixelFormat === 'rgba8'
+        ? this.#canvasFormat
+        : targetPixelFormatToGPU(pixelFormat)
     const aspects = depthStencilFormatFor(opts)
 
     const rt: WebGPURenderTarget = {
@@ -1062,8 +1177,7 @@ export class WebGPUDevice implements GfxDevice {
       rt.color = device.createTexture({
         size: [width, height, 1],
         format,
-        usage:
-          GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        usage: this.#colorUsage(format),
       })
     }
 
@@ -1116,8 +1230,7 @@ export class WebGPUDevice implements GfxDevice {
       r.color = device.createTexture({
         size: [w, h, 1],
         format,
-        usage:
-          GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        usage: this.#colorUsage(format),
       })
     }
     if (r.depthTex) {
@@ -1144,8 +1257,46 @@ export class WebGPUDevice implements GfxDevice {
     ;(r as { height: number }).height = h
   }
 
+  /** A color texture is sampleable, and copyable when it matches the canvas. */
+  #colorUsage(format: GPUTextureFormat): GPUTextureUsageFlags {
+    return (
+      GPUTextureUsage.RENDER_ATTACHMENT |
+      GPUTextureUsage.TEXTURE_BINDING |
+      (format === this.#canvasFormat ? GPUTextureUsage.COPY_SRC : 0)
+    )
+  }
+
+  canvasTarget(): RenderTarget {
+    if (!this.#canvasTarget) {
+      const context = this.#context
+      const canvas = (): { width: number; height: number } =>
+        context.canvas as HTMLCanvasElement
+      this.#canvasTarget = {
+        __gfxRenderTarget: undefined as never,
+        get width() {
+          return Math.max(1, canvas().width)
+        },
+        get height() {
+          return Math.max(1, canvas().height)
+        },
+        samples: 1,
+        colorSpace: 'canvas',
+        pixelFormat: 'rgba8',
+        colorFormat: this.#canvasFormat,
+        hasDepth: false,
+        hasStencil: false,
+        isCanvas: true,
+        get color() {
+          return context.getCurrentTexture()
+        },
+      } as WebGPURenderTarget
+    }
+    return this.#canvasTarget
+  }
+
   deleteRenderTarget(rt: RenderTarget): void {
     const r = rt as WebGPURenderTarget
+    if (r.isCanvas) return
     if (r.color) this.#destroyDeferred(r.color)
     if (r.colorMs) this.#destroyDeferred(r.colorMs)
     if (r.depthTex) this.#destroyDeferred(r.depthTex)
@@ -1154,9 +1305,9 @@ export class WebGPUDevice implements GfxDevice {
 
   colorTexture(rt: RenderTarget): Texture {
     const r = rt as WebGPURenderTarget
-    if (r.samples > 1 || !r.color) {
+    if (r.samples > 1 || !r.color || r.isCanvas) {
       throw new Error(
-        'WebGPUDevice.colorTexture: target is multisample (not sampleable); resolve it first',
+        'WebGPUDevice.colorTexture: target is multisample or the canvas (not sampleable); resolve it first',
       )
     }
     // Borrow the render target's color texture. `owned: false` keeps
@@ -1171,6 +1322,7 @@ export class WebGPUDevice implements GfxDevice {
       srgb: r.colorSpace === 'srgb',
       mipmap: false,
       anisotropy: 1,
+      pixelFormat: r.pixelFormat,
       owned: false,
     } as WebGPUTexture
   }
@@ -1193,6 +1345,8 @@ export class WebGPUDevice implements GfxDevice {
       srgb: false,
       mipmap: false,
       anisotropy: 1,
+      // A depth texture has no color layout. It is never uploaded to.
+      pixelFormat: 'rgba8',
       owned: false,
     } as WebGPUTexture
   }
@@ -1254,9 +1408,8 @@ export class WebGPUDevice implements GfxDevice {
 
   beginFrame(): void {
     this.deviceStats.pipelineSwitches = 0
-    this.deviceStats.bindGroupSwitches = 0
     this.deviceStats.textureBinds = 0
-    // The engine opens render passes for the shadow / Viewport2D pre-passes
+    // The engine opens render passes for the shadow and AO pre-passes
     // BEFORE `beginFrame`, so the encoder is lazy: whichever pass comes first
     // in the frame opens it, everything up to `endFrame` shares it (one submit,
     // ordered so a pass that writes a texture precedes one that samples it).
@@ -1268,9 +1421,12 @@ export class WebGPUDevice implements GfxDevice {
   }
 
   beginRenderPass(desc: RenderPassDesc): void {
+    this.deviceStats.passes++
     this.#ensureEncoder()
     const encoder = this.#encoder!
     const descriptor: GPURenderPassDescriptor = { colorAttachments: [] }
+    const writes = this.#timestampWrites()
+    if (writes) descriptor.timestampWrites = writes
 
     if (desc.color) {
       const target = desc.color.target as WebGPURenderTarget
@@ -1311,6 +1467,7 @@ export class WebGPUDevice implements GfxDevice {
 
     this.#pass = encoder.beginRenderPass(descriptor)
     this.#lastPipeline = null
+    this.#bindings.reset()
     this.#stencilRef = 0
     this.#scissorSet = false
     this.#scissorKey = ''
@@ -1413,8 +1570,12 @@ export class WebGPUDevice implements GfxDevice {
   }
 
   beginComputePass(): void {
+    this.deviceStats.passes++
     this.#ensureEncoder()
-    this.#computePass = this.#encoder!.beginComputePass()
+    const writes = this.#timestampWrites()
+    this.#computePass = this.#encoder!.beginComputePass(
+      writes ? { timestampWrites: writes } : undefined,
+    )
   }
 
   dispatchCompute(dispatch: ComputeDispatch): void {
@@ -1451,9 +1612,109 @@ export class WebGPUDevice implements GfxDevice {
    */
   #flush(): void {
     if (!this.#encoder) return
+    this.deviceStats.submits++
+    const readback = this.#resolveTimestamps(this.#encoder)
     this.#device.queue.submit([this.#encoder.finish()])
     this.#encoder = null
     this.#drainPendingDestroy()
+    if (readback) this.#readTimestamps(readback)
+  }
+
+  // --- GPU frame timing -----------------------------------------------------
+
+  readonly #timeListeners = new Set<(ms: number) => void>()
+  #querySet: GPUQuerySet | null = null
+  #queryResolve: GPUBuffer | null = null
+  /** Readback buffers not waiting on a map. */
+  readonly #queryReadbacks: GPUBuffer[] = []
+  #queryBuffersMade = 0
+  /** Whether a pass since the last submit has written the start timestamp. */
+  #timedSinceSubmit = false
+  /** The query slot the current submit writes, one pair of timestamps each. */
+  #querySlot = 0
+  /** The slot the previous submit wrote, resolved by this one, or -1. */
+  #queryPending = -1
+
+  onGpuFrameTime(listener: (ms: number) => void): (() => void) | null {
+    if (!this.#device.features.has('timestamp-query')) return null
+    if (!this.#querySet) {
+      this.#querySet = this.#device.createQuerySet({
+        type: 'timestamp',
+        count: QUERY_SLOTS * 2,
+      })
+      this.#queryResolve = this.#device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
+      })
+    }
+    this.#timeListeners.add(listener)
+    return () => this.#timeListeners.delete(listener)
+  }
+
+  /**
+   * The timestamp writes for a pass while a listener waits: the first pass
+   * after a submit writes the start, and every pass writes the end, so the last
+   * pass's end stands.
+   */
+  #timestampWrites(): GPURenderPassTimestampWrites | undefined {
+    if (this.#timeListeners.size === 0 || !this.#querySet) return undefined
+    const first = !this.#timedSinceSubmit
+    this.#timedSinceSubmit = true
+    const base = this.#querySlot * 2
+    return first
+      ? {
+          querySet: this.#querySet,
+          beginningOfPassWriteIndex: base,
+          endOfPassWriteIndex: base + 1,
+        }
+      : { querySet: this.#querySet, endOfPassWriteIndex: base + 1 }
+  }
+
+  /**
+   * Copy out the timestamps of the previous submit, or skip when no readback is
+   * free. A submit's own end timestamp can land after a resolve in the same
+   * submit, so each pair is read one submit later from its own slot.
+   */
+  #resolveTimestamps(encoder: GPUCommandEncoder): GPUBuffer | null {
+    const prev = this.#queryPending
+    this.#queryPending = -1
+    if (this.#timedSinceSubmit) {
+      this.#queryPending = this.#querySlot
+      this.#querySlot = (this.#querySlot + 1) % QUERY_SLOTS
+    }
+    this.#timedSinceSubmit = false
+    if (prev < 0 || !this.#querySet || !this.#queryResolve) return null
+    let readback = this.#queryReadbacks.pop()
+    if (!readback) {
+      // Enough in flight to cover the frames a map takes to come back under
+      // load. A frame with none free goes untimed.
+      if (this.#queryBuffersMade >= 8) return null
+      this.#queryBuffersMade++
+      readback = this.#device.createBuffer({
+        size: 16,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      })
+    }
+    encoder.resolveQuerySet(this.#querySet, prev * 2, 2, this.#queryResolve, 0)
+    encoder.copyBufferToBuffer(this.#queryResolve, 0, readback, 0, 16)
+    return readback
+  }
+
+  #readTimestamps(readback: GPUBuffer): void {
+    readback.mapAsync(GPUMapMode.READ).then(
+      () => {
+        const t = new BigUint64Array(readback.getMappedRange())
+        const ns = t[1] > t[0] ? Number(t[1] - t[0]) : 0
+        readback.unmap()
+        this.#queryReadbacks.push(readback)
+        if (ns > 0) {
+          for (const listener of this.#timeListeners) listener(ns / 1e6)
+        }
+      },
+      () => {
+        // A lost device rejects the map. The buffer goes with it.
+      },
+    )
   }
 
   /**
@@ -1492,10 +1753,15 @@ export class WebGPUDevice implements GfxDevice {
     this.#applyScissor(pass, call.scissor)
     for (let i = 0; i < call.vertexBuffers.length; i++) {
       const vb = call.vertexBuffers[i]
-      pass.setVertexBuffer(i, (vb.buffer as WebGPUBuffer).gpu, vb.offset)
+      const gpu = (vb.buffer as WebGPUBuffer).gpu
+      if (this.#bindings.vertexBufferChanged(i, gpu, vb.offset)) {
+        pass.setVertexBuffer(i, gpu, vb.offset)
+      }
     }
     for (const dg of call.bindGroups) {
       const bg = dg.bindGroup as WebGPUBindGroup
+      if (!this.#bindings.bindGroupChanged(dg.group, bg.gpu, dg.dynamicOffsets))
+        continue
       if (dg.dynamicOffsets && dg.dynamicOffsets.length > 0) {
         pass.setBindGroup(dg.group, bg.gpu, dg.dynamicOffsets)
       } else {
@@ -1508,7 +1774,10 @@ export class WebGPUDevice implements GfxDevice {
     const instances = call.instanceCount ?? 1
     if (call.indexBuffer) {
       const ib = call.indexBuffer as WebGPUIndexBuffer
-      pass.setIndexBuffer(ib.gpu, indexTypeToGPU(ib.indexType))
+      const format = indexTypeToGPU(ib.indexType)
+      if (this.#bindings.indexBufferChanged(ib.gpu, format)) {
+        pass.setIndexBuffer(ib.gpu, format)
+      }
       pass.drawIndexed(call.indexCount ?? 0, instances, first, 0, 0)
     } else {
       pass.draw(call.vertexCount ?? 0, instances, first, 0)
@@ -1564,18 +1833,32 @@ export class WebGPUDevice implements GfxDevice {
         'WebGPUDevice.present: source is multisample (not sampleable); resolve it first',
       )
     }
-    // Submit anything still recorded before the blit reads it. The blit runs on
-    // its own encoder and submits immediately, so work left open in the frame
-    // encoder would be queued AFTER it and the blit would sample whatever the
-    // source held beforehand: the previous frame's contents, or uninitialised
-    // memory the first time a target is used. Post-processing made this
-    // visible, since its passes are recorded after the scene's own `endFrame`.
+    const canvasTexture = this.#context.getCurrentTexture()
+    if (
+      r.colorFormat === canvasTexture.format &&
+      r.width === canvasTexture.width &&
+      r.height === canvasTexture.height
+    ) {
+      // Same format and size: a copy on the frame's encoder, ordered after the
+      // passes that drew the source and submitted with them.
+      this.#ensureEncoder()
+      this.#encoder!.copyTextureToTexture(
+        { texture: r.color },
+        { texture: canvasTexture },
+        [r.width, r.height, 1],
+      )
+      return
+    }
+    // Any other source needs a draw. The blit runs on an encoder of its own and
+    // submits at once, so work still recorded in the frame encoder is submitted
+    // first or the blit would sample whatever the source held beforehand.
     this.#flush()
-    // Present runs outside the frame's render pass. The source is top-down,
-    // matching the swapchain, so the blit does not V-flip.
+    this.deviceStats.submits++
+    // The source is top-down, matching the swapchain, so the blit does not
+    // V-flip.
     this.#blit.blit(
       r.color.createView(),
-      this.#context.getCurrentTexture().createView(),
+      canvasTexture.createView(),
       opts.filter === 'nearest' ? 'nearest' : 'linear',
     )
   }

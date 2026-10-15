@@ -59,6 +59,18 @@ describe('StageOptions.renderScale', () => {
     engine.destroy()
   })
 
+  it('resizes the backing store when set at runtime', () => {
+    const canvas = document.createElement('canvas')
+    canvas.getBoundingClientRect = () => ({ width: 100, height: 50 }) as DOMRect
+    const engine = new Engine({ canvas, gpuDevice: new MockGfxDevice() })
+    const stage = engine.primaryStage
+    expect(stage.renderer.pixelSize).toEqual({ w: 200, h: 100 })
+    stage.renderScale = 0.5
+    expect(stage.renderScale).toBe(0.5)
+    expect(stage.renderer.pixelSize).toEqual({ w: 100, h: 50 })
+    engine.destroy()
+  })
+
   it('clamps to [0.1, 2]', () => {
     const engine = makeEngine()
     const low = engine.attachStage(document.createElement('canvas'), {

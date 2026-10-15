@@ -47,7 +47,7 @@ export interface SpawnPacketOpts {
 
 /**
  * Spawn one packet with the same visual and behavioral stack the live game
- * uses, hex node, shooting-star motion trail (`PacketMotionTrailNode`),
+ * uses, hex node, comet-tail motion trail (`PacketMotionTrailNode`),
  * decaying-hex wake emitter, `PacketBehavior`, and, once travel-ready,
  * `PathDrawBehavior` bound to the packet.
  *
@@ -78,12 +78,12 @@ export function spawnPacketInSession(
   packet.transform.scaleX = 0
   packet.transform.scaleY = 0
 
-  // Shooting-star ribbon, added to the packet layer BEFORE the packet so
+  // Comet tail, added to the packet layer BEFORE the packet so
   // DFS draws it under the hex. Auto-destroyed with the packet below.
   const motionTrail = new PacketMotionTrailNode()
   packetLayer.add(motionTrail)
 
-  // Wake of decaying magenta hexes, sits above the ribbon but under the
+  // Wake of decaying white hexes, sits above the tail but under the
   // main packet. Origin is written per-frame from PacketBehavior so
   // hexes spawn at the packet's live position and stay in world space.
   // Constructed with `ratePerSec: 0` so no hexes emit during the packet's
@@ -161,8 +161,8 @@ export function spawnPacketInSession(
       // Emergence pulse, big translucent hex that scales up and fades out
       // from the packet's spawn position, marking the transition into
       // travel mode. Same visual grammar as `lossAnim.impactFlash` but at
-      // spawn instead of collision, and in the trail color so the packet
-      // reads as "arriving" from its own ribbon.
+      // spawn instead of collision, and in the epicenter's purple so the
+      // packet reads as part of the same system.
       spawnEmergencePulse(packetLayer, worldPos, packetId)
       // Attach the path-draw behavior only after travel starts, before
       // that, the packet has no meaningful "current world position" for

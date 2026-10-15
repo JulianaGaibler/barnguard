@@ -11,16 +11,15 @@
  * graph that slid continuously would put motion on every frame, right beside a
  * board the player is trying to read.
  *
+ * That is also how often it paints. The live reading drifts between samples, so
+ * the picture is repainted when a sample lands or a displayed percentage
+ * changes, and rests otherwise.
+ *
  * Column headers are inverse video, which is the oldest table idiom a terminal
  * has and the cheapest way to make three numbers read as a readout rather than
  * as a caption.
  */
-import {
-  Node2D,
-  textAdvance,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from '@src/stargazer'
 import { seededRandom, type Random } from '../../../common/rng'
 import { font } from '../../fonts'
 import { MAX_LEVEL } from '../gravity'
@@ -35,7 +34,14 @@ import {
 } from '../telemetry'
 import { accentForLevel, COLORS, FRAME } from '../tuning'
 import type { Bounds } from '../types'
-import { capBaseline, drawFrame, drawInverse, drawRun, ruleWidth } from './tui'
+import {
+  capBaseline,
+  drawFrame,
+  drawInverse,
+  drawRun,
+  ruleWidth,
+  sameBounds,
+} from './tui'
 
 const ZERO: Bounds = { x: 0, y: 0, width: 0, height: 0 }
 
@@ -61,10 +67,11 @@ export class GraphPaneNode extends Node2D {
   #cell = 1
   #accent = accentForLevel(1)
   #load = 0
+  /** The live reading as shown, in whole percent. */
+  #shownPct = -1
 
   constructor(opts: GraphPaneOptions) {
     super(`bo-graph-${opts.title}`)
-    this.renderLayer = 'dynamic'
     this.#title = opts.title
     this.#columns = opts.columns
     this.#history = createHistory(SAMPLES, opts.seed)
@@ -73,26 +80,38 @@ export class GraphPaneNode extends Node2D {
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    const accent = accentForLevel(level)
     this.#load = loadFor(level, MAX_LEVEL)
+    if (accent === this.#accent) return
+    this.#accent = accent
+    this.markNeedsPaint()
   }
 
   override onUpdate(dt: number): void {
     if (this.#rect.width <= 0) return
-    stepHistory(this.#history, dt, this.#load, this.#random)
+    const h = this.#history
+    const since = h.since
+    stepHistory(h, dt, this.#load, this.#random)
+    const pct = Math.round(h.gauge.value * 100)
+    // A sample lands when the timer wraps, which moves every bar.
+    if (h.since < since || pct !== this.#shownPct) {
+      this.#shownPct = pct
+      this.markNeedsPaint()
+    }
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
-    const scale = camera.strokeSpaceScale()
-    const rule = ruleWidth(gfx, FRAME.rulePx, scale)
+    const scale = gfx.screenScale()
+    const rule = ruleWidth(gfx, FRAME.rulePx)
     const size = Math.max(textFloor(scale), this.#cell * 0.34)
     const face = font(400, size)
     const advance = textAdvance('0', face)
@@ -123,7 +142,7 @@ export class GraphPaneNode extends Node2D {
 
   /** An inverse header strip, and the three readings under it. */
   #drawColumns(
-    gfx: Gfx2D,
+    gfx: Canvas,
     x: number,
     w: number,
     y: number,
@@ -165,7 +184,7 @@ export class GraphPaneNode extends Node2D {
 
   /** The bars, newest at the right, with the peak ruled across them. */
   #drawGraph(
-    gfx: Gfx2D,
+    gfx: Canvas,
     x: number,
     w: number,
     y: number,

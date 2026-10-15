@@ -1,215 +1,216 @@
+---
+title: Accessibility
+group: Features
+order: 18
+---
+
 # Accessibility
 
-Everything stargazer draws lives on a `<canvas>`, which is opaque to assistive
-technology. For a touchscreen kiosk that is fine. For an interactive website it
-is not: a screen reader sees nothing, and there is no keyboard navigation.
+A screen reader can't read what Stargazer draws on a `<canvas>`, and a keyboard can't reach it. The accessibility layer adds a hidden HTML tree that mirrors the scene nodes you describe. A screen reader reads that tree, and a keyboard moves through it and activates its controls.
 
-The accessibility layer fixes this without changing how you build scenes. You
-attach optional semantics (role, label, state) to the scene nodes that matter,
-and the engine mirrors them into a hidden HTML tree a screen reader can read and
-a keyboard can drive. It is entirely opt-in: an engine that never touches
-`engine.a11y` allocates nothing and adds no DOM, so a kiosk pays no cost.
+You describe a node with {@link Semantics}: a role, a label and optional state. The engine creates one hidden HTML element per described node inside a mount element that you provide. Your scene and its drawing don't change. The layer is reached as `engine.a11y`, an {@link AccessibilityTree}, and only exists once you use it. An engine that never touches `engine.a11y` creates no elements.
 
-## The shape
+The layer works on {@link Node2D} nodes.
 
-- Register a node with `engine.a11y.attach(node, semantics)`. The subsystem
-  keeps a registry of these nodes. The scene tree itself is untouched.
-- Each registered node becomes a real, hidden HTML element (`<button>`, a
-  heading, a `role="gridcell"` div, …) inside a mount element you provide. The
-  elements nest by scene hierarchy and read in scene (painter) order.
-- Nodes with no semantics are absent from the tree, so decorative content is
-  hidden by simply not registering it.
-- The mirror rebuilds only when something changes (a handle `update`, an
-  attach/detach, or a node destroy), never per frame. Screen readers ignore
-  position, so a static scene reconciles zero times.
+## Basic usage
 
-## Mounting the hidden root
-
-The subsystem needs an element to fill. It must be one your app owns, placed
-where its reading order relative to the canvas is correct: a sibling right
-after the `<canvas>`. From Svelte, use the `a11yRoot` action. The engine makes
-the element visually hidden but screen-reader readable:
+Give the engine a mount element right after the canvas, then describe a node. In Svelte, the {@link a11yRoot} action mounts the element:
 
 ```svelte
-<main class="stage" style="position: relative">
+<main style="position: relative">
   <canvas use:mountEngine={{ onReady }}></canvas>
   <div use:a11yRoot={{ engine: host.engine }}></div>
 </main>
 ```
 
-Without Svelte, call `engine.a11y.mount(element)` directly.
-
-## Describing nodes
+Then add semantics to a node with [`node.a11y()`](/module/scene/node2d#a11y):
 
 ```ts
-// A landmark group for the whole board.
-engine.a11y.attach(boardNode, { role: 'grid', label: 'Connect Four board' })
+import { ShapeNode } from '@src/stargazer'
 
-// Each cell is a focusable, activatable gridcell.
-const cell = engine.a11y.attach(cellNode, {
-  role: 'gridcell',
-  label: 'Column 1, row 1, empty',
-  posInSet: 1,
-  setSize: 42,
-  onActivate: () => dropDisc(0),
-  onFocus: () => focusRing.show(cellNode),
-  onBlur: () => focusRing.hide(cellNode),
-})
-
-// State changes go through the handle. The element is patched in place.
-cell.update({ label: 'Column 1, row 1, red', states: { selected: true } })
-```
-
-`onActivate` fires on click and on Enter/Space when focused. `onFocus` /
-`onBlur` let you draw a focus ring on the canvas in response to keyboard focus.
-
-There are two ways to register the same thing: the imperative
-`engine.a11y.attach(node, …)` shown above, and a chainable `node.a11y(…)` that
-reads well when you build the node, used below.
-
-## Upgrading a node
-
-Making a node accessible is purely additive: you don't restructure the scene or
-touch how the node draws. Take a start button that today only handles touch:
-
-```ts
-const startBtn = new ShapeNode({
-  geometry: { kind: 'rect', width: 240, height: 64 },
-  fill: '#3a7',
-})
-startBtn.bindPointer({ down: () => startGame() })
-panel.add(startBtn)
-```
-
-Upgrade it by chaining `.a11y(...)` onto the node. The drawing and the pointer
-handler stay exactly as they were. This just adds a hidden `<button>` that a
-screen reader announces and a keyboard activates, reusing the same handler:
-
-```ts
-const startBtn = new ShapeNode({
+const startButton = new ShapeNode({
   geometry: { kind: 'rect', width: 240, height: 64 },
   fill: '#3a7',
 }).a11y({
   role: 'button',
   label: 'Start game',
-  onActivate: () => startGame(), // the same thing the tap does
+  onActivate: () => startGame(),
 })
-startBtn.bindPointer({ down: () => startGame() })
-panel.add(startBtn)
+startButton.bindPointer({ down: () => startGame() })
+panel.add(startButton)
 ```
 
-`.a11y()` returns the node, so it composes with the other chainable setters
-(`.setVisible()`, `.setHitEnabled()`, `.setRenderLayer()`). `bindPointer` is the
-exception: it returns an unbind function, so call it separately. Registration
-is deferred until the node joins a scene, so `.a11y()` on a freshly-built node is
-fine. Nothing about the visual node, its transform, or its touch behavior
-changes.
+The hidden tree gets a `<button>` with the name "Start game". A screen reader announces it, Tab moves focus to it, and Enter, Space or a click calls `onActivate`. `.a11y()` doesn't change how the shape draws or handles touch.
 
-## Changing a11y info
+### Mount the hidden root
 
-Update by calling `.a11y()` again with only the fields that changed. It merges
-into the current semantics and patches the existing element in place, so focus
-and screen-reader state survive (no re-announcement of the whole node). A mute
-toggle, for example:
+The mount element must be an element your app owns. Put it where its reading order next to the canvas is right, usually the next sibling after the `<canvas>`. The engine gives it a style that hides it on screen but keeps it readable for screen readers.
+
+Without Svelte, call [`engine.a11y.mount(element)`](/module/a11y/accessibilitytree#mount). The engine builds the tree only after it has a mount element. You can describe nodes before or after you mount.
+
+### Describe a node
+
+There are two ways to describe a node:
+
+- `node.a11y(semantics)` returns the node, so it chains with `setVisible()` and `setHitEnabled()`. If the node is not in a scene yet, the engine registers it when it joins one.
+- [`engine.a11y.attach(node, semantics)`](/module/a11y/accessibilitytree#attach) registers the node at once and returns a {@link SemanticsHandle}.
+
+```ts
+const cell = engine.a11y.attach(cellNode, {
+  role: 'gridcell',
+  label: 'Column 1, row 1, empty',
+  posInSet: 1,
+  setSize: 42,
+  onActivate: () => dropPiece(0),
+  onFocus: () => focusRing.show(cellNode),
+  onBlur: () => focusRing.hide(cellNode),
+})
+```
+
+`onActivate` runs on a click and on Enter or Space while the element has focus. `onFocus` and `onBlur` run when keyboard focus enters and leaves the element. Use them to draw a focus ring on the canvas. `bindPointer` returns an unbind function, not the node, so call it on its own line.
+
+A destroyed node leaves the hidden tree by itself. Nodes you don't describe are not in the tree, so decorative content needs no work.
+
+### Change the description
+
+Call `node.a11y()` again with only the fields that changed. The engine merges them into the current semantics and updates the existing element. Focus stays where it is, and the screen reader doesn't announce the whole element again.
 
 ```ts
 muteNode.a11y({
   role: 'button',
   label: 'Mute',
-  states: { pressed: false }, // a toggle button -> aria-pressed
+  states: { pressed: false }, // a toggle button, sets aria-pressed
   onActivate: toggleMute,
 })
 
-// on toggle, merges, patched in place:
+// When the state changes:
 muteNode.a11y({ label: 'Unmute', states: { pressed: true } })
 ```
 
-The imperative equivalent is `handle.update(...)` on the handle returned by
-`engine.a11y.attach(...)`.
+With a handle, call [`update`](/module/a11y/semanticshandle#update) the same way. [`detach`](/module/a11y/semanticshandle#detach) removes the node from the hidden tree.
 
-## Nested nodes
+### Nested nodes
 
-You register only the nodes that carry meaning. The hidden tree follows the
-scene hierarchy, but **unregistered nodes collapse out**: a decorative
-background or a pure layout container leaves no trace, and its registered
-descendants reattach to the nearest registered ancestor. So a menu built like
-this:
+The hidden tree follows the scene tree, but only described nodes appear in it. A node you don't describe, such as a background or a layout container, leaves no element. Its described children move up under the nearest described ancestor. Take this menu:
 
 ```
-panel        (Node2D)
-├─ background (ShapeNode)   ← decorative
-├─ titleText  (TextNode)
-└─ buttonRow  (Node2D)   ← pure layout wrapper
-   ├─ startBtn   (ShapeNode)
-   └─ optionsBtn (ShapeNode)
+panel          (Node2D)
+├─ background  (ShapeNode)   decorative
+├─ titleText   (TextNode)
+└─ buttonRow   (Node2D)      layout only
+   ├─ startButton   (ShapeNode)
+   └─ optionsButton (ShapeNode)
 ```
 
-is made accessible by describing just the four meaningful nodes as you build
-them (and `add` takes as many children as you like):
+Describe the four nodes that carry meaning:
 
 ```ts
 const panel = new Node2D().a11y({ role: 'group', label: 'Main menu' })
-const titleText = new TextNode({ text: 'Barn Guard' }).a11y({
+const titleText = new TextNode({ text: 'Welcome' }).a11y({
   role: 'heading',
   headingLevel: 1,
-  label: 'Barn Guard',
+  label: 'Welcome',
 })
-const startBtn = new ShapeNode({ geometry }).a11y({
+const startButton = new ShapeNode({ geometry }).a11y({
   role: 'button',
   label: 'Start game',
   onActivate: startGame,
 })
-const optionsBtn = new ShapeNode({ geometry }).a11y({
+const optionsButton = new ShapeNode({ geometry }).a11y({
   role: 'button',
   label: 'Options',
   onActivate: openOptions,
 })
 panel.add(background, titleText, buttonRow)
-buttonRow.add(startBtn, optionsBtn)
+buttonRow.add(startButton, optionsButton)
 ```
 
-which the engine mirrors into this hidden HTML. Note that `background` and
-`buttonRow` are gone, and the buttons sit directly under the panel:
+The engine creates this hidden HTML. `background` and `buttonRow` have no element, and the buttons sit directly under the panel:
 
 ```html
 <div role="group" aria-label="Main menu">
-  <h1>Barn Guard</h1>
+  <h1>Welcome</h1>
   <button>Start game</button>
   <button>Options</button>
 </div>
 ```
 
-Children read in scene (painter) order. Nudge a sibling with `order` on its
-semantics if you need a different order than the tree gives. To turn the buttons
-into a single arrow-navigable tab stop, give `panel` a composite role
-(`toolbar`, `radiogroup`, …) instead of `group`, described below.
+Children read in the order the scene draws them. To change the order among siblings, set `order` on their semantics. Lower values come first, and the default is `0`.
 
-## Keyboard navigation
+### Keyboard navigation
 
-Independent controls are natural tab stops. A composite role (`grid`,
-`radiogroup`, `listbox`, `toolbar`) becomes a **single** tab stop whose members
-rove with the arrow keys (and Home/End), so a 42-cell board is one stop, not 42.
-Native `<button>`s activate on Enter/Space for free. Other widgets are activated
-by the subsystem.
+Each control outside a composite role is its own Tab stop. A composite role, `grid`, `radiogroup`, `listbox` or `toolbar`, is a single Tab stop. Inside it, the arrow keys move focus between its members:
 
-## Announcing events
+- Right and Down move to the next member.
+- Left and Up move to the previous member.
+- Home and End move to the first and last member.
+- Focus wraps from the last member to the first, and back.
 
-Transient events that aren't tied to a node, such as "your turn" or "Red wins", go
-through a live region:
+A board of 42 cells is therefore one Tab stop, not 42. The arrow keys follow reading order, so in a `grid`, Down moves to the next cell, not to the cell below.
+
+### Announce events
+
+For messages that don't belong to a node, such as "Your turn", use [`announce`](/module/a11y/accessibilitytree#announce). It writes into a live region that the screen reader reads.
 
 ```ts
-engine.a11y.announce('Red played column 3') // polite
+engine.a11y.announce('Red played column 3') // waits for a pause
 engine.a11y.announce('Red wins!', 'assertive') // interrupts
 ```
 
-## Linking to HTML overlays
+The same message twice in a row is announced twice.
 
-Real overlay HTML (a pause menu, a HUD) built as `domAnchor` elements is already
-natively accessible and lives in its own DOM. The two trees stay **separate**:
-they are not merged. To connect them for the screen reader, point a canvas
-node's proxy at the overlay with a relationship link (rendered as
-`aria-controls` / `aria-labelledby` / `aria-describedby` / `aria-details` /
-`aria-flowto`):
+## Advanced usage
+
+This section lists every semantics field and role, and covers links to HTML overlays, modal dialogs and how the hidden tree updates.
+
+### Semantics fields
+
+A {@link Semantics} object takes these fields. Only `role` is required.
+
+| Field             | HTML result                                                                      |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `role`            | The element and its `role`. See the next section.                                |
+| `label`           | `aria-label`, or the text content for `heading` and `status`                     |
+| `description`     | `aria-description`                                                               |
+| `roleDescription` | `aria-roledescription`, which changes how the role is announced                  |
+| `value`           | `aria-valuenow` when it is a number, or the text content for `status`            |
+| `valueText`       | `aria-valuetext`, a readable form of `value`, or the text content for `status`   |
+| `live`            | `aria-live`, so the element announces its own changes                            |
+| `disabled`        | `aria-disabled="true"`                                                           |
+| `states`          | `aria-checked`, `aria-selected`, `aria-pressed`, `aria-expanded`, `aria-current` |
+| `headingLevel`    | `<h1>` to `<h6>` for `role: 'heading'`. The default is `<h2>`.                   |
+| `posInSet`        | `aria-posinset`, starting at 1                                                   |
+| `setSize`         | `aria-setsize`                                                                   |
+| `order`           | Reading order among siblings. The default is `0`.                                |
+| `links`           | Relationship attributes to other HTML. See below.                                |
+| `onActivate`      | Called on click, and on Enter or Space while focused                             |
+| `onFocus`         | Called when the element gets focus                                               |
+| `onBlur`          | Called when the element loses focus                                              |
+
+`disabled` only sets `aria-disabled`. The engine still calls `onActivate`, so check the disabled state in your handler. `states.current` also takes `'page'`, `'step'` or `'location'`.
+
+### Roles
+
+An {@link A11yRole} decides which element the engine creates:
+
+- `button` creates a `<button>`. The browser handles Enter and Space for it.
+- `heading` creates `<h1>` to `<h6>`, with `label` as its text.
+- `link` creates an `<a>` with `role="link"`.
+- Every other role creates a `<div>` with that `role`: `checkbox`, `radio`, `group`, `grid`, `gridcell`, `row`, `radiogroup`, `listbox`, `option`, `toolbar`, `region`, `application` and `status`.
+
+The roles `button`, `checkbox`, `radio`, `link`, `gridcell` and `option` can take focus. A node with any other role also takes focus when it has an `onActivate`. A focusable element that is not a `<button>` gets Enter and Space handling from the engine.
+
+A `status` element shows `valueText`, `value` or `label` as its text, in that order of preference. Changing the role replaces the element. Every other change updates the existing element.
+
+### Link to HTML overlays
+
+HTML overlays attached with `domAnchor` are normal HTML, so screen readers can already read them. They stay in their own part of the page and are not merged into the hidden tree. To connect a canvas node to an overlay, add a link. Each relation maps to one attribute:
+
+- `controls` sets `aria-controls`.
+- `labelledBy` sets `aria-labelledby`.
+- `describedBy` sets `aria-describedby`.
+- `details` sets `aria-details`.
+- `flowTo` sets `aria-flowto`.
 
 ```ts
 engine.a11y.attach(helpButtonNode, {
@@ -220,20 +221,17 @@ engine.a11y.attach(helpButtonNode, {
 })
 ```
 
-Prefer a stable id string (the overlay already has one), so no app-owned DOM is
-mutated. An id that isn't in the DOM yet, such as an overlay behind `{#if}`, is fine.
-The browser resolves it once the element mounts. This is deliberately **not**
-`aria-owns`: reparenting into one tree diverges from focus order and is fragile
-across screen readers.
+An {@link A11yLink} `target` is an id string, with or without `#`, or an `HTMLElement`. Prefer the id string, so the engine changes nothing in your own HTML. An element without an id gets one assigned. An id that is not in the page yet, such as an overlay inside an `{#if}` block, still works. The browser resolves it when the element appears. Several links with the same relation share one attribute.
 
-## Modal overlays
+The layer doesn't use `aria-owns` to merge the overlay into the tree, because then reading order and focus order would differ.
 
-When an app-owned dialog opens, hide the game region from assistive tech and
-trap focus in the dialog, then restore on close:
+### Modal dialogs
+
+When your app opens a dialog, hide the hidden tree from screen readers and from Tab with [`setInert(true)`](/module/a11y/accessibilitytree#setinert). It sets `inert` and `aria-hidden` on the mount element. Call `setInert(false)` when the dialog closes.
 
 ```ts
 function openPause() {
-  engine.a11y.setInert(true) // game region: inert + aria-hidden
+  engine.a11y.setInert(true)
   pauseDialog.focus()
 }
 function closePause() {
@@ -241,13 +239,36 @@ function closePause() {
 }
 ```
 
-## Things to watch
+### How the hidden tree updates
 
-- Cross-region reading order follows DOM order. Keep the a11y root right after
-  the canvas and app overlays after that.
-- Use `role: 'application'` only on a composite subtree that needs raw arrow
-  keys, never the whole page. It suppresses the screen reader's browse mode.
-- `roleDescription` overrides how AT announces the role. Use it sparingly.
-- Automated checks (axe-core, keyboard) catch structure and attribute bugs, but
-  verify reading order and announcements with a real screen reader (NVDA,
-  VoiceOver, TalkBack).
+The engine rebuilds the hidden tree on the engine's `frame` event, and only when something changed. These calls mark it as changed:
+
+- `attach`, `node.a11y()` or `update`
+- `detach`, or the destruction of a described node
+- `mount`
+
+Node positions don't matter to a screen reader, so a still scene costs nothing per frame. The engine moves existing elements instead of creating new ones, and restores focus after a rebuild, so an update never moves focus to the page body.
+
+The layer doesn't watch the scene tree itself. If you move a described node to another parent or reorder siblings, the hidden tree shows the new order at the next rebuild, which any of the calls above starts. Nodes in the primary scene read first, then nodes in other stages' scenes.
+
+`engine.destroy()` disposes the layer, which removes its elements from the mount element.
+
+### Things to watch
+
+Keep these points in mind:
+
+- Reading order across the page follows DOM order. Put the mount element right after the canvas, and app overlays after that.
+- Use `role: 'application'` only on a small part that needs raw arrow keys, never on the whole page. It turns off the screen reader's reading mode.
+- Use `roleDescription` rarely, because it replaces the role name the user knows.
+- Automated checks such as axe-core find wrong structure and attributes. Check reading order and announcements with a real screen reader, such as NVDA, VoiceOver or TalkBack.
+
+## See also
+
+- {@link AccessibilityTree}: the hidden tree, reached as `engine.a11y`
+- {@link Semantics}: the description of one node
+- {@link SemanticsHandle}: update or detach a described node
+- {@link A11yRole}: the supported roles
+- {@link A11yLink}: links to HTML outside the hidden tree
+- {@link a11yRoot}: the Svelte action that mounts the hidden root
+- [HTML overlays](/guides/html-overlays): HTML elements pinned to scene nodes
+- [Input](/guides/input): pointer handling with `bindPointer`

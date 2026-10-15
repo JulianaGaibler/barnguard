@@ -7,8 +7,12 @@ export const TUNING = {
   packet: {
     /** Hexagon inradius in world units, the visible size. */
     radius: 8,
-    /** Extra hit-target padding beyond `radius`. ~4.5 mm at kiosk fit scale. */
-    hitPadding: 18,
+    /**
+     * Extra hit-target padding beyond `radius`. ~4.5 mm at kiosk fit scale.
+     * Sized for a finger, so it scales with `maps/playScale`'s
+     * `PLAY_VIEW_HEIGHT` to keep that physical size.
+     */
+    hitPadding: 22.5,
     /** Duration of the scale 0 -> 1 grow before travel starts. */
     spawnGrowSec: 1.0,
     /**
@@ -43,25 +47,52 @@ export const TUNING = {
      * curves past its target still counts as reached, prevents endless orbits.
      */
     consumeRadius: 12,
-    /** Shooting-star ribbon behind each travelling packet. */
+    /**
+     * Comet tail behind each travelling packet: a halo hex around the packet
+     * that stretches back along its recent path. Colours follow the data-comet
+     * artwork.
+     */
     trail: {
       /** Ring-buffer capacity (samples). */
-      sampleCapacity: 22,
+      sampleCapacity: 18,
       /**
        * Minimum world dist between samples. Below this, `sample()` is a no-op
        * so a stationary packet doesn't overwrite history with duplicates.
+       * `sampleCapacity × minSampleDistWorld` is the full tail length, about
+       * nine packet radii.
        */
       minSampleDistWorld: 4,
       /**
-       * Half-width at the head (world units). Flush with the packet's visible
-       * radius so the trail attaches to the back edge.
+       * Radius of the halo hex at the head as a multiple of `packet.radius`.
+       * The tail starts as wide as this hex and tapers to a point.
        */
-      halfWidthWorld: 6,
-      /** Opaque near head, fades to transparent at the tail via linear grad. */
-      color: '#2E1CFF',
+      glowScale: 1.45,
+      /** Fill ramp, head to tail. */
+      fillStops: [
+        { offset: 0, color: '#FD7444' },
+        { offset: 0.5, color: '#FEAE51' },
+        { offset: 1, color: 'rgba(255, 221, 171, 0)' },
+      ],
+      /** Outline ramp, head to tail. */
+      strokeStops: [
+        { offset: 0.317, color: '#FD4444' },
+        { offset: 1, color: 'rgba(255, 221, 171, 0)' },
+      ],
+      /** Outline width (world units). */
+      strokeWidthWorld: 1.2,
+      /**
+       * How sharply the tail may bend (radians per world unit). It starts at
+       * `bendHeadRadPerWorld` and loosens with the square of the distance along
+       * the tail to `bendTipRadPerWorld` at `stiffLengthWorld`, staying there
+       * for the rest. So the first stretch keeps its shape behind the packet
+       * and the rest follows the path freely.
+       */
+      bendHeadRadPerWorld: 0.02,
+      bendTipRadPerWorld: 0.6,
+      stiffLengthWorld: 16,
     },
     /**
-     * Subtler second trail: pink hexagons dropped in the packet's wake,
+     * Subtler second trail: white hexagons dropped in the packet's wake,
      * decaying over their short lifespan.
      */
     hexParticles: {
@@ -82,15 +113,14 @@ export const TUNING = {
       spreadRad: Math.PI * 0.12,
       /**
        * Exponential drag. A hex at packet speed decays to ~5 % within ~0.6 s so
-       * the wake distance matches the shooting-star ribbon.
+       * the wake distance matches the comet tail.
        */
       dampingPerSec: 5,
       /** Alpha over life, spawn opaque, fade to zero. */
       alphaOverLife: [1, 0] as readonly [number, number],
       /** Scale over life, hexes shrink to a remnant while fading. */
       scaleOverLife: [1, 0.25] as readonly [number, number],
-      /** Matches the packet's stroke. */
-      color: '#D84EFF',
+      color: '#ffffff',
     },
     /**
      * Grow-in emitter: hex particles spawn on a ring around the spawn point,
@@ -124,8 +154,8 @@ export const TUNING = {
        * 0 for the remainder.
        */
       alphaGrowFraction: 0.72,
-      /** Matches packet stroke so the ring reads as the same object. */
-      color: '#D84EFF',
+      /** Matches `spawnPulse` so the ring reads as the same object. */
+      color: '#7543E3',
     },
     /**
      * Emergence pulse fired when grow-in completes. Big translucent hex scales
@@ -141,29 +171,44 @@ export const TUNING = {
       alphaFrom: 0.45,
       /** Base hex radius (world units). */
       worldRadius: 14,
-      /** Matches the shooting-star trail. */
-      color: '#2E1CFF',
+      /** The epicenter's colour, so new packets read as part of the system. */
+      color: '#7543E3',
     },
   },
   difficulty: {
-    // Speed mix: every packet is EITHER regular OR slow (two discrete tiers).
-    // Slow packets are the difficulty knob, they hang around long enough that
-    // regulars must route around them. Slow share grows over the round but
-    // caps below 50 % so regulars always dominate.
-    /** Regular travel speed (wu/s). First spawn is always regular. */
+    // Speed mix: every packet travels at one of three discrete tiers. Mixed
+    // speeds are the difficulty knob, since a packet at another speed must be
+    // routed around rather than alongside. Tiers unlock with the score, and
+    // regular keeps whatever share the unlocked tiers leave.
+    /** Regular travel speed (wu/s). Every spawn is regular until slow unlocks. */
     regularSpeedWorld: 75,
     /**
-     * Slow packets travel at this fraction of regular. 40 % is behind enough to
-     * require routing without reading as stalled.
+     * Slow packets travel at 40 % of regular, behind enough to require routing
+     * without reading as stalled. Their share of the board grows per point past
+     * `unlockScore`.
      */
-    slowSpeedFactor: 0.4,
+    slow: {
+      speedFactor: 0.4,
+      unlockScore: 3,
+      shareStart: 0.15,
+      shareGrowthPerPoint: 0.02,
+      shareCap: 0.4,
+    },
     /**
-     * Chance a new spawn rolls slow. Starts at `slowChanceStart`, grows by
-     * `slowChanceGrowthPer` per spawn, caps at `slowChanceCap`.
+     * Medium packets sit between slow and regular, close enough to regular that
+     * timing a path around one is hard. Kept a small, fixed share.
      */
-    slowChanceStart: 0,
-    slowChanceGrowthPer: 0.03,
-    slowChanceCap: 0.45,
+    medium: {
+      speedFactor: 0.7,
+      unlockScore: 15,
+      share: 0.12,
+    },
+    /**
+     * How strongly a tier's chance follows its shortfall on the board. At 0
+     * every spawn rolls the target shares. At 1.5 a tier holding 0.1 more of
+     * the board than its share has its chance cut by 0.15.
+     */
+    mixBiasGain: 1.5,
     // Cadence
     /** First interval after `spawn.firstDelaySec`. */
     startIntervalSec: 2.8,
@@ -190,14 +235,19 @@ export const TUNING = {
      * doesn't run over an emerging hex during its `preGrowDelaySec`.
      */
     minDistFromPacketWorld: 90,
-    /** Retries per spawn slot before skipping. */
+    /** Positions tried per spawn slot. Each is tried with every heading. */
     maxRetries: 20,
     /**
-     * Ample-runway probe for the initial heading. `pickInitialHeading` sweeps
-     * the candidate ray in small steps up to this distance, tracking how long
-     * it stays inside the mask. Longest surviving ray wins, a full sweep is
-     * accepted immediately. Bump higher if late-round wall crashes feel
-     * unfair.
+     * Spacing of the grid of spawnable points, built once per view. The spacing
+     * widens past `gridMaxCells` so a wide view stays cheap to scan.
+     */
+    gridStepWorld: 8,
+    gridMaxCells: 20000,
+    /**
+     * Ample-runway probe for the initial heading. `probeRunway` sweeps the
+     * candidate ray in small steps up to this distance, tracking how long it
+     * stays inside the mask. A full sweep with a clear path is accepted
+     * immediately. Bump higher if late-round wall crashes feel unfair.
      */
     initialHeadingProbeWorld: 250,
     /** Step size for the ray sweep. Smaller = finer but more mask samples. */
@@ -207,8 +257,24 @@ export const TUNING = {
      * headings in cramped spots like the Baltic coast.
      */
     initialHeadingClearInsetWorld: 20,
-    /** Random headings to try before falling back to the deepest so far. */
+    /** Random headings tried per position. */
     initialHeadingMaxTries: 32,
+    /**
+     * Trajectory check for each spawn candidate. Every live packet's path and
+     * the candidate's are predicted over `horizonSec`, and the candidate must
+     * stay `collision.pairThresholdWorld + marginWorld` from each at every
+     * step. When no candidate passes, the one with the most separation spawns.
+     */
+    safety: {
+      horizonSec: 6,
+      /**
+       * Two packets close at most twice the regular speed, so a pass-through
+       * between steps is caught while `stepSec × 2 × regularSpeedWorld` stays
+       * under `pairThresholdWorld + marginWorld`.
+       */
+      stepSec: 0.1,
+      marginWorld: 35,
+    },
   },
   epicenter: {
     /**
@@ -218,20 +284,62 @@ export const TUNING = {
     captureRadius: 20,
     /** Visual outer bound of the cone / pulse. */
     visualRadius: 22,
-    /** Breathing pulse period on the outer ring alpha. */
-    pulsePeriodSec: 2.1,
     /**
      * Cone geometry. Apex at the state capital, axis points toward Germany's
      * geographic centre, wedge opens in that direction.
      */
     coneSweepRad: Math.PI / 3, // 60°
-    coneRadiusWorld: 40,
+    coneRadiusWorld: 60,
     /**
      * Angular slack beyond ±(coneSweep / 2) that still counts as valid.
      * Approaches outside this band get auto-routed via two inserted waypoints
      * (entry point + apex) so the packet U-turns into the cone.
      */
     approachForgivenessRad: (Math.PI * 3) / 40, // 13.5°
+    /**
+     * The cone drawn as a field of dots that shrink away from the apex, with a
+     * wave pulsing inward through them to show where to drag.
+     */
+    dots: {
+      /** Lattice pitch (world units). */
+      pitchWorld: 4,
+      /** Largest resting dot, next to the apex, as a fraction of the pitch. */
+      dotMax: 0.4,
+      /**
+       * Resting dot at the cone's far end as a fraction of `dotMax`. Below 0
+       * the outer dots rest at nothing and only show while a crest passes.
+       */
+      minFrac: -0.4,
+      /** Radius around the apex left free for the logo (world units). */
+      innerRadiusWorld: 11,
+      /** Distance between wave crests (world units). */
+      wavelengthWorld: 60,
+      /** How much a crest enlarges a dot, `1` doubles it. */
+      waveAmp: 0.8,
+      /**
+       * Size a crest adds to every dot as a fraction of `dotMax`, so dots that
+       * rest at nothing still light up as it passes.
+       */
+      waveFloor: 1.1,
+      /**
+       * Soft cap on a dot's diameter as a fraction of the pitch. Sizes ease
+       * into it, so small dots keep growing almost linearly with the wave while
+       * the largest level off short of touching. Keep it below 1.
+       */
+      ceiling: 0.8,
+      /**
+       * Width of the two lines marking the cone's edges, in CSS pixels. They
+       * fade from full opacity at the logo to nothing at the cone's end.
+       */
+      edgeLineWidthPx: 1.5,
+      /** Crest sharpness, higher gives a narrower band of grown dots. */
+      waveSharpness: 3,
+      /** Seconds for a crest to travel one wavelength toward the apex. */
+      wavePeriodSec: 2.6,
+      color: '#7543E3',
+      /** Opacity of a dot. */
+      alpha: 1,
+    },
   },
   path: {
     /**
@@ -373,7 +481,7 @@ export const TUNING = {
       color: '#ffffff',
     },
     /**
-     * Debris ring: magenta triangles + lines that fly outward, decelerate under
+     * Debris ring: orange triangles + lines that fly outward, decelerate under
      * drag, settle into a permanent ring with slow residual rotation. Never
      * self-destroys, cleared by `session.reset()`.
      */
@@ -408,7 +516,8 @@ export const TUNING = {
       lineLengthWorld: 3,
       /** CSS px, screen-space scaled at draw. */
       lineWidthCssPx: 1.5,
-      color: '#D84EFF',
+      /** Each piece picks one at random. */
+      colors: ['#FE9F4E', '#FFC781'],
     },
     /**
      * Border-breach variant. Lines only, cone fired along exit velocity,

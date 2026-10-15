@@ -28,8 +28,10 @@
   import Launcher from './launcher/Launcher.svelte'
   import { browseState } from './launcher/browseState.svelte'
   import ReturnToLauncherOverlay from './ReturnToLauncherOverlay.svelte'
-  import IdleNotice from './IdleNotice.svelte'
-  import { IDLE_POLL_MS, isExpired, isWarning } from './idle'
+  import IdleNotice from '@src/core/ui/IdleNotice.svelte'
+  import RobotIcon from './RobotIcon.svelte'
+  import { t } from './i18n'
+  import { IDLE_POLL_MS, IDLE_WARN_MS, isExpired, isWarning } from './idle'
   import { runExitTasks } from './exitTasks'
   import { msSinceInput, pokeActivity } from '@src/core/activity'
   import { fontScope, themeScope } from '@src/core/ui/themeScope'
@@ -203,7 +205,7 @@
       const lr = launcherVisibleRect(px.w, px.h)
       anchor.transform.x = lr.x
       anchor.transform.y = lr.y
-      anchor.debugBounds = { x: 0, y: 0, width: lr.width, height: lr.height }
+      anchor.boundsOverride = { x: 0, y: 0, width: lr.width, height: lr.height }
       h.engine.tree.root.add(anchor)
       launcherAnchor = anchor
       launcherRect = lr
@@ -423,7 +425,13 @@
     onConfirm={exit}
   />
 
-  <IdleNotice visible={idleWarning} />
+  <IdleNotice
+    visible={idleWarning}
+    message={$t.arcade.idle.returningToLauncher}
+    durationMs={IDLE_WARN_MS}
+  >
+    {#snippet icon()}<RobotIcon size={20} />{/snippet}
+  </IdleNotice>
 </main>
 
 {#if host}

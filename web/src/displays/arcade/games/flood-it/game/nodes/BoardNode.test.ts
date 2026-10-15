@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Gfx2D } from '@src/stargazer'
+import { paintCalls } from '@src/stargazer'
 import { seededRandom } from '../../../common/rng'
 import {
   applyMove,
@@ -17,63 +17,31 @@ const STYLES: Record<number, RegionStyle> = {
 }
 
 /**
- * A stub that records the alphas a node asks for and swallows the geometry.
- *
- * `Gfx2D.setAlpha` is absolute, so a node that dims itself has to fold its
- * opacity into every alpha it sets. Nothing but a recording of those calls can
- * show that none escaped.
+ * What a node's picture asks the renderer for, split into the lists these tests
+ * read: the alphas it sets, the method names in call order, the colors handed
+ * to `fillRoundRect` (which is how cells are drawn) and the clips it sets.
  */
-function recordingGfx(): {
-  gfx: Gfx2D
+function record(node: BoardNode): {
   alphas: number[]
   /** Method names in call order, so a missing pass is visible. */
   calls: string[]
-  /** Colors handed to `fillRoundRect`, which is how cells are drawn. */
   fills: string[]
   /** Shapes handed to `setClip`, `null` for a clear. */
   clips: unknown[]
   draws: number
 } {
-  const alphas: number[] = []
-  const calls: string[] = []
-  const fills: string[] = []
-  const clips: unknown[] = []
-  const state = { draws: 0 }
-  const note = (name: string) => (): void => {
-    state.draws++
-    calls.push(name)
-  }
-  const gfx = {
-    setAlpha: (a: number) => alphas.push(a),
-    fillRect: note('fillRect'),
-    fillRoundRect: (...args: unknown[]) => {
-      state.draws++
-      calls.push('fillRoundRect')
-      fills.push(String(args[5]))
-    },
-    fillCircle: note('fillCircle'),
-    fillConvexPoly: note('fillConvexPoly'),
-    strokeLine: note('strokeLine'),
-    strokeQuadratic: note('strokeQuadratic'),
-    strokePolyline: note('strokePolyline'),
-    strokeRoundRect: note('strokeRoundRect'),
-    fillText: note('fillText'),
-    save: () => calls.push('save'),
-    restore: () => calls.push('restore'),
-    setClip: (shape: unknown) => {
-      calls.push('setClip')
-      clips.push(shape)
-    },
-  } as unknown as Gfx2D
+  const recorded = paintCalls(node)
+  const state = new Set(['setAlpha', 'save', 'restore', 'setClip'])
   return {
-    gfx,
-    alphas,
-    calls,
-    fills,
-    clips,
-    get draws() {
-      return state.draws
-    },
+    alphas: recorded
+      .filter((c) => c.name === 'setAlpha')
+      .map((c) => c.args[0] as number),
+    calls: recorded.map((c) => c.name),
+    fills: recorded
+      .filter((c) => c.name === 'fillRoundRect')
+      .map((c) => String(c.args[5])),
+    clips: recorded.filter((c) => c.name === 'setClip').map((c) => c.args[0]),
+    draws: recorded.filter((c) => !state.has(c.name)).length,
   }
 }
 
@@ -88,62 +56,34 @@ function settledNode(opts: { glyphs?: boolean } = {}): BoardNode {
   // Settle the deal-in, take a move, then leave it part way through its wave so
   // the cross-fade path is exercised too.
   node.onUpdate(2)
-  applyMove(board, 1, (board.color[0]! + 1) % 4, createMoveResult(board))
+  const result = createMoveResult(board)
+  applyMove(board, 1, (board.color[0]! + 1) % 4, result)
+  node.applyWave(result)
   node.onUpdate(0.05)
   return node
 }
 
 describe('board opacity', () => {
-  it('draws at full strength by default', () => {
+  it('paints at full strength by default', () => {
     const node = settledNode()
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
     expect(rec.draws).toBeGreaterThan(0)
     expect(Math.max(...rec.alphas)).toBe(1)
+    expect(node.transform.alpha).toBe(1)
   })
 
-  it('never exceeds the opacity it was given', () => {
+  it('fades the whole board through the node alpha, not its own', () => {
+    // Alpha set inside a picture multiplies the node's cascaded alpha, so the
+    // fade has to ride on the transform for everything to stay uniform.
     for (const opacity of [0.32, 0.5, 0.75]) {
       const node = settledNode({ glyphs: true })
       node.setOpacity(opacity)
-      const rec = recordingGfx()
-      node.draw(rec.gfx)
-      expect(rec.alphas.length, `opacity ${opacity}`).toBeGreaterThan(0)
-      expect(Math.max(...rec.alphas), `opacity ${opacity}`).toBeCloseTo(
-        opacity,
-        9,
-      )
+      expect(node.transform.alpha).toBe(opacity)
+      expect(Math.max(...record(node).alphas), `opacity ${opacity}`).toBe(1)
     }
   })
 
-  it('sets an alpha before its first draw, so nothing rides in opaque', () => {
-    // The layer walker installs `transform.alpha`, which an absolute `setAlpha`
-    // later in the pass would discard. The node has to state its own alpha up
-    // front instead.
-    const node = settledNode()
-    node.setOpacity(0.4)
-    const calls: string[] = []
-    const gfx = new Proxy(
-      {},
-      {
-        get: (_t, prop: string) => () => calls.push(prop),
-      },
-    ) as unknown as Gfx2D
-    node.draw(gfx)
-    expect(calls[0]).toBe('setAlpha')
-  })
-
-  it('keeps the dim uniform while a flood is mid-wave', () => {
-    // Mid-wave is where the cross-fade sets a partial alpha, which is exactly
-    // where a stray reset to 1 would show as a bright patch.
-    const node = settledNode()
-    node.setOpacity(0.32)
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
-    for (const a of rec.alphas) expect(a).toBeLessThanOrEqual(0.32 + 1e-9)
-  })
-
-  it('scales the loss dim and the win sweep too', () => {
+  it('scales the loss dim and the win sweep with the board', () => {
     for (const configure of [
       (n: BoardNode) => n.setDimmed(true),
       (n: BoardNode) => n.celebrate(),
@@ -152,10 +92,57 @@ describe('board opacity', () => {
       configure(node)
       node.setOpacity(0.32)
       node.onUpdate(0.1)
-      const rec = recordingGfx()
-      node.draw(rec.gfx)
-      expect(Math.max(...rec.alphas)).toBeLessThanOrEqual(0.32 + 1e-9)
+      expect(node.transform.alpha).toBe(0.32)
+      expect(Math.max(...record(node).alphas)).toBeLessThanOrEqual(1)
     }
+  })
+})
+
+describe('board repaint', () => {
+  /** A board that has finished every animation. */
+  function resting(): BoardNode {
+    const node = settledNode()
+    node.onUpdate(10)
+    return node
+  }
+
+  it('stays clean while nothing moves', () => {
+    const node = resting()
+    node._paintDirty = false
+    node.onUpdate(0.016)
+    expect(node._paintDirty).toBe(false)
+  })
+
+  it('repaints while a wave is moving, and not after it settles', () => {
+    const node = settledNode()
+    node._paintDirty = false
+    node.onUpdate(0.016)
+    expect(node._paintDirty).toBe(true)
+    node.onUpdate(10)
+    node._paintDirty = false
+    node.onUpdate(0.016)
+    expect(node._paintDirty).toBe(false)
+  })
+
+  it('repaints for the overlay, the dim and the win sweep', () => {
+    for (const configure of [
+      (n: BoardNode) => n.setGlyphs(true),
+      (n: BoardNode) => n.setDimmed(true),
+      (n: BoardNode) => n.celebrate(),
+    ]) {
+      const node = resting()
+      configure(node)
+      node._paintDirty = false
+      node.onUpdate(0.016)
+      expect(node._paintDirty).toBe(true)
+    }
+  })
+
+  it('repaints for a look change', () => {
+    const node = resting()
+    node._paintDirty = false
+    node.setLook({ outline: false })
+    expect(node._paintDirty).toBe(true)
   })
 })
 
@@ -165,8 +152,7 @@ describe('board look', () => {
 
   it('traces the owned region by default', () => {
     const node = settledNode()
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
     expect(strokes(rec.calls)).toBeGreaterThan(0)
   })
 
@@ -175,21 +161,18 @@ describe('board look', () => {
     // drawing rather than a fainter line.
     const node = settledNode()
     node.setLook({ outline: false })
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
     expect(strokes(rec.calls)).toBe(0)
     expect(rec.draws).toBeGreaterThan(0)
   })
 
   it('draws the recess by default and not when it is null', () => {
-    const withWell = recordingGfx()
-    settledNode().draw(withWell.gfx)
+    const withWell = record(settledNode())
     expect(withWell.fills).toContain(COLORS.well)
 
     const node = settledNode()
     node.setLook({ well: null })
-    const without = recordingGfx()
-    node.draw(without.gfx)
+    const without = record(node)
     expect(without.fills).not.toContain(COLORS.well)
   })
 
@@ -197,8 +180,7 @@ describe('board look', () => {
     const palette = ['#000001', '#000002', '#000003', '#000004']
     const node = settledNode()
     node.setLook({ palette, outline: false, well: null })
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
     expect(rec.fills.length).toBeGreaterThan(0)
     for (const fill of rec.fills) expect(palette).toContain(fill)
   })
@@ -206,8 +188,7 @@ describe('board look', () => {
   it('leaves the game palette alone on a board that overrides nothing', () => {
     const node = settledNode()
     node.setLook({ outline: false, well: null })
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
     for (const fill of rec.fills) expect(CELL_COLORS).toContain(fill)
   })
 })
@@ -223,8 +204,7 @@ describe('board clip', () => {
     const node = settledNode()
     const clip = { x: 10, y: 20, width: 300, height: 400 }
     node.setLook({ clip })
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
 
     expect(rec.calls[0]).toBe('save')
     expect(rec.calls[1]).toBe('setClip')
@@ -246,8 +226,7 @@ describe('board clip', () => {
     // The board in play fills its own rect, so it has nothing to crop and
     // should not pay for a clip.
     const node = settledNode()
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
     expect(rec.calls).not.toContain('setClip')
     expect(rec.calls).not.toContain('save')
   })
@@ -256,8 +235,7 @@ describe('board clip', () => {
     // Guards against the clip branch returning early and drawing nothing.
     const node = settledNode()
     node.setLook({ clip: { x: 0, y: 0, width: 600, height: 600 } })
-    const rec = recordingGfx()
-    node.draw(rec.gfx)
+    const rec = record(node)
     expect(rec.calls).toContain('fillRoundRect')
     expect(rec.draws).toBeGreaterThan(30)
   })

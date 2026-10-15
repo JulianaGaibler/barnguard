@@ -4,7 +4,7 @@
  * between the body's last two fixed-step positions by the ticker's `fixedAlpha`
  * so motion stays smooth regardless of display rate vs the 120 Hz simulation.
  */
-import { Node2D, lerp, type Body, type Gfx2D } from '@src/stargazer'
+import { Node2D, lerp, type Body, type Canvas } from '@src/stargazer'
 
 export class BallNode extends Node2D {
   readonly body: Body
@@ -16,15 +16,8 @@ export class BallNode extends Node2D {
     this.body = body
     this.#radius = radius
     this.#color = color
-    this.renderLayer = 'dynamic'
     this.transform.x = body.position.x
     this.transform.y = body.position.y
-    this.debugBounds = {
-      x: -radius,
-      y: -radius,
-      width: radius * 2,
-      height: radius * 2,
-    }
   }
 
   override onUpdate(): void {
@@ -34,7 +27,7 @@ export class BallNode extends Node2D {
     this.transform.y = lerp(prev.y, this.body.position.y, alpha)
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.fillCircle(0, 0, this.#radius, this.#color)
   }
 }

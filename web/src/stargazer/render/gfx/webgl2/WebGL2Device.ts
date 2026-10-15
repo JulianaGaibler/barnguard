@@ -10,8 +10,8 @@
  *
  * - `antialias: false`, we own AA (shader-distance / offscreen MSAA).
  * - Premultiplied alpha end-to-end so the compositor doesn't double-multiply.
- * - `UNPACK_COLORSPACE_CONVERSION_WEBGL = NONE` guards against silent sRGB->linear
- *   on `ImageBitmap` / `HTMLImageElement` upload.
+ * - `UNPACK_COLORSPACE_CONVERSION_WEBGL = NONE` guards against silent
+ *   sRGB->linear on `ImageBitmap` / `HTMLImageElement` upload.
  *
  * Binding-number convention: `@binding` numbers are treated as globally unique
  * flat indices. Uniform-buffer bindings index GL uniform-block binding points,
@@ -55,15 +55,19 @@ import type {
   ShadowArray,
   ShadowCube,
   TargetPixelFormat,
+  TexturePixelFormat,
   Texture,
   Texture2DOpts,
   TextureUploadOpts,
   UBuffer,
+  DataTable,
   VBuffer,
   VertexBufferLayout,
   VertexFormat,
 } from '../GfxDevice'
+import { DATA_TABLE_WIDTH, dataTableRows, dataTableSpans } from '../dataTable'
 import { pipelineKey } from '../pipelineKey'
+import { UniformBindingCache } from './uniformBindings'
 import {
   getSourceWidth,
   getSourceHeight,
@@ -86,6 +90,8 @@ interface WebGL2Vao {
   gl: WebGLVertexArrayObject
   slotOffsets: number[]
   indexType?: IndexType
+  /** Ids of the vertex and index buffers it was built against. */
+  bufferIds: number[]
 }
 
 interface WebGL2Pipeline extends Pipeline {
@@ -109,6 +115,14 @@ interface WebGL2Pipeline extends Pipeline {
    * buffer).
    */
   vaoCache: Map<string, WebGL2Vao>
+  /**
+   * The VAO of the pipeline's previous draw and the buffers it was found for.
+   * Consecutive draws of one pipeline almost always use the same buffers, so
+   * this skips building the cache key.
+   */
+  lastVao: WebGL2Vao | null
+  lastVertexBuffers: object[]
+  lastIndexBuffer: object | null
 }
 
 interface WebGL2BindGroupLayout extends BindGroupLayout {
@@ -129,6 +143,7 @@ interface ResolvedBinding {
   tex?: WebGL2Texture
   shadowArray?: WebGL2ShadowArray
   shadowCube?: WebGL2ShadowCube
+  dataTable?: WebGL2DataTable
 }
 
 interface WebGL2BindGroup extends BindGroup {
@@ -161,7 +176,13 @@ interface WebGL2Texture extends Texture {
   wrap: 'clamp' | 'repeat'
   srgb: boolean
   mipmap: boolean
-  pixelFormat: TargetPixelFormat
+  pixelFormat: TexturePixelFormat
+}
+
+/** A {@link DataTable} stored as an `RGBA32F` texture, see `dataTable.ts`. */
+interface WebGL2DataTable extends DataTable {
+  gl: WebGLTexture
+  rows: number
 }
 
 interface WebGL2ShadowArray extends ShadowArray {
@@ -198,6 +219,8 @@ interface FormatInfo {
   glType: number
   normalized: boolean
   byteSize: number
+  /** Read as an integer by the shader, so it needs `vertexAttribIPointer`. */
+  integer?: boolean
 }
 
 /**
@@ -207,7 +230,7 @@ interface FormatInfo {
  */
 function pixelFormatGl(
   gl: WebGL2RenderingContext,
-  pixelFormat: TargetPixelFormat,
+  pixelFormat: TexturePixelFormat,
   srgb: boolean,
 ): { internalFormat: number; format: number; type: number } {
   switch (pixelFormat) {
@@ -221,6 +244,12 @@ function pixelFormatGl(
       return { internalFormat: gl.R8, format: gl.RED, type: gl.UNSIGNED_BYTE }
     case 'rg8':
       return { internalFormat: gl.RG8, format: gl.RG, type: gl.UNSIGNED_BYTE }
+    case 'rgba16f':
+      return {
+        internalFormat: gl.RGBA16F,
+        format: gl.RGBA,
+        type: gl.HALF_FLOAT,
+      }
   }
 }
 
@@ -268,6 +297,7 @@ export class WebGL2Device implements GfxDevice {
    */
   #activeUnit = 0
   #boundArrayBuffer: WebGLBuffer | null = null
+  readonly #uniformBindings = new UniformBindingCache()
   #nextBufferId = 1
 
   /** Color attachment of the open pass, for the resolve on `endRenderPass`. */
@@ -276,14 +306,22 @@ export class WebGL2Device implements GfxDevice {
     resolveTarget?: WebGL2RenderTarget
     /** MSAA color is not read after the pass, so it can be invalidated. */
     discardColor: boolean
+    /** Packed depth and stencil attachment whose contents die with the pass. */
+    discardDepthStencil: boolean
     /** Stencil-only attachment whose contents die with the pass. */
     discardStencil: boolean
   } | null = null
 
+  #canvasTarget: WebGL2RenderTarget | null = null
+
   readonly deviceStats: DeviceStats = {
     pipelineSwitches: 0,
-    bindGroupSwitches: 0,
     textureBinds: 0,
+    bindGroupSwitches: 0,
+    passes: 0,
+    submits: 0,
+    bindGroupsCreated: 0,
+    uniformWrites: 0,
   }
 
   readonly limits: DeviceLimits
@@ -330,6 +368,7 @@ export class WebGL2Device implements GfxDevice {
       minUniformBufferOffsetAlignment: gl.getParameter(
         gl.UNIFORM_BUFFER_OFFSET_ALIGNMENT,
       ) as number,
+      maxDataTableVec4: DATA_TABLE_WIDTH * this.maxTextureSize,
     }
     this.#anisoExt = gl.getExtension('EXT_texture_filter_anisotropic')
     this.#maxAnisotropy = this.#anisoExt
@@ -518,6 +557,9 @@ export class WebGL2Device implements GfxDevice {
       mode: desc.primitive === 'line-list' ? gl.LINES : gl.TRIANGLES,
       samples: desc.samples,
       vaoCache: new Map(),
+      lastVao: null,
+      lastVertexBuffers: [],
+      lastIndexBuffer: null,
     }
     this.#pipelineCache.set(key, pipeline)
     return Promise.resolve(pipeline)
@@ -559,6 +601,7 @@ export class WebGL2Device implements GfxDevice {
     layout: BindGroupLayout,
     entries: BindGroupEntry[],
   ): BindGroup {
+    this.deviceStats.bindGroupsCreated++
     const l = layout as WebGL2BindGroupLayout
     const bindings: ResolvedBinding[] = entries.map((e) => {
       const le = l.entries.find((x) => x.binding === e.binding)
@@ -579,6 +622,8 @@ export class WebGL2Device implements GfxDevice {
         r.size = res.size
       } else if ('texture' in res) {
         r.tex = res.texture as WebGL2Texture
+      } else if ('dataTable' in res) {
+        r.dataTable = res.dataTable as WebGL2DataTable
       } else if ('shadowArray' in res) {
         r.shadowArray = res.shadowArray as WebGL2ShadowArray
       } else {
@@ -652,6 +697,7 @@ export class WebGL2Device implements GfxDevice {
   deleteBuffer(buf: VBuffer): void {
     const b = buf as WebGL2Buffer
     if (this.#boundArrayBuffer === b.gl) this.#boundArrayBuffer = null
+    this.#dropVaosUsing(b.id)
     this.#gl.deleteBuffer(b.gl)
   }
 
@@ -680,6 +726,7 @@ export class WebGL2Device implements GfxDevice {
     byteOffset = 0,
   ): void {
     const gl = this.#gl
+    this.deviceStats.uniformWrites++
     const b = buf as WebGL2UniformBuffer
     gl.bindBuffer(gl.UNIFORM_BUFFER, b.gl)
     gl.bufferSubData(gl.UNIFORM_BUFFER, byteOffset, data)
@@ -688,6 +735,74 @@ export class WebGL2Device implements GfxDevice {
 
   deleteUniformBuffer(buf: UBuffer): void {
     this.#gl.deleteBuffer((buf as WebGL2UniformBuffer).gl)
+  }
+
+  // --- data tables ----------------------------------------------------------
+
+  createDataTable(vec4Count: number): DataTable {
+    if (vec4Count > this.limits.maxDataTableVec4) {
+      throw new Error(
+        `WebGL2Device.createDataTable: ${vec4Count} elements exceed the limit ${this.limits.maxDataTableVec4}`,
+      )
+    }
+    const gl = this.#gl
+    const tex = gl.createTexture()
+    if (!tex) {
+      throw new Error(
+        'WebGL2Device.createDataTable: createTexture returned null',
+      )
+    }
+    const rows = dataTableRows(vec4Count)
+    gl.bindTexture(gl.TEXTURE_2D, tex)
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, DATA_TABLE_WIDTH, rows)
+    // Float textures are not filterable without an extension, and a table is
+    // only ever read with `texelFetch`.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    this.#invalidateActiveUnit()
+    return {
+      __gfxDataTable: undefined as never,
+      capacity: rows * DATA_TABLE_WIDTH,
+      gl: tex,
+      rows,
+    } as WebGL2DataTable
+  }
+
+  updateDataTable(
+    table: DataTable,
+    firstVec4: number,
+    data: Float32Array,
+  ): void {
+    const t = table as WebGL2DataTable
+    const count = data.length >> 2
+    if (firstVec4 + count > t.capacity) {
+      throw new Error('WebGL2Device.updateDataTable: range past the capacity')
+    }
+    const gl = this.#gl
+    gl.bindTexture(gl.TEXTURE_2D, t.gl)
+    for (const span of dataTableSpans(firstVec4, count)) {
+      gl.texSubImage2D(
+        gl.TEXTURE_2D,
+        0,
+        span.x,
+        span.y,
+        span.width,
+        span.height,
+        gl.RGBA,
+        gl.FLOAT,
+        data,
+        span.first * 4,
+      )
+    }
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    this.#invalidateActiveUnit()
+  }
+
+  deleteDataTable(table: DataTable): void {
+    this.#gl.deleteTexture((table as WebGL2DataTable).gl)
   }
 
   // --- index buffers --------------------------------------------------------
@@ -737,6 +852,7 @@ export class WebGL2Device implements GfxDevice {
   }
 
   deleteIndexBuffer(buf: IBuffer): void {
+    this.#dropVaosUsing((buf as WebGL2IndexBuffer).id)
     this.#gl.deleteBuffer((buf as WebGL2IndexBuffer).gl)
   }
 
@@ -847,6 +963,33 @@ export class WebGL2Device implements GfxDevice {
     )
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0)
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    gl.bindTexture(gl.TEXTURE_2D, null)
+    this.#invalidateActiveUnit()
+  }
+
+  updateTexture2DData(tex: Texture, data: ArrayBufferView): void {
+    const gl = this.#gl
+    const t = tex as WebGL2Texture
+    const { format, type } = pixelFormatGl(gl, t.pixelFormat, t.srgb)
+    gl.bindTexture(gl.TEXTURE_2D, t.gl)
+    this.#boundTexInvalidate(t.gl)
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, 0)
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, 0)
+    // Rows are tightly packed, and a one- or two-channel row need not be a
+    // multiple of the default 4 byte alignment.
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      t.width,
+      t.height,
+      format,
+      type,
+      data,
+    )
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
     gl.bindTexture(gl.TEXTURE_2D, null)
     this.#invalidateActiveUnit()
   }
@@ -969,7 +1112,7 @@ export class WebGL2Device implements GfxDevice {
         width: clampedW,
         height: clampedH,
         samples,
-        colorSpace: 'linear',
+        colorSpace: opts.colorSpace ?? 'linear',
         pixelFormat,
         hasDepth: !!opts.depth,
         hasStencil: rtHasStencil(opts),
@@ -1144,8 +1287,32 @@ export class WebGL2Device implements GfxDevice {
     ;(r as { height: number }).height = clampedH
   }
 
+  canvasTarget(): RenderTarget {
+    if (!this.#canvasTarget) {
+      const gl = this.#gl
+      // The default framebuffer is `null`, which has no attachments to name.
+      this.#canvasTarget = {
+        __gfxRenderTarget: undefined as never,
+        fbo: null,
+        get width() {
+          return gl.drawingBufferWidth
+        },
+        get height() {
+          return gl.drawingBufferHeight
+        },
+        samples: 1,
+        colorSpace: 'canvas',
+        pixelFormat: 'rgba8',
+        hasDepth: false,
+        hasStencil: false,
+      } as unknown as WebGL2RenderTarget
+    }
+    return this.#canvasTarget
+  }
+
   deleteRenderTarget(rt: RenderTarget): void {
     const r = rt as WebGL2RenderTarget
+    if (r === this.#canvasTarget) return
     this.#gl.deleteFramebuffer(r.fbo)
     if (r.colorRb !== undefined) {
       this.#gl.deleteRenderbuffer(r.colorRb)
@@ -1308,11 +1475,11 @@ export class WebGL2Device implements GfxDevice {
 
   beginFrame(): void {
     this.deviceStats.pipelineSwitches = 0
-    this.deviceStats.bindGroupSwitches = 0
     this.deviceStats.textureBinds = 0
   }
 
   beginRenderPass(desc: RenderPassDesc): void {
+    this.deviceStats.passes++
     const gl = this.#gl
     const depthTarget = desc.depth?.target
     // Depth-only shadow pass: a shadow array layer / cube face, no color.
@@ -1405,10 +1572,17 @@ export class WebGL2Device implements GfxDevice {
       target,
       resolveTarget: color.resolveTarget as WebGL2RenderTarget | undefined,
       discardColor: color.storeOp === 'discard',
+      // A target with depth carries it packed with stencil, so both aspects
+      // are dropped together or not at all. One without depth has a stencil
+      // renderbuffer of its own.
+      discardDepthStencil:
+        target.hasDepth &&
+        desc.depth?.storeOp === 'discard' &&
+        (!target.hasStencil || desc.stencil?.storeOp === 'discard'),
       discardStencil:
-        desc.stencil?.storeOp === 'discard' &&
+        !target.hasDepth &&
         target.hasStencil &&
-        !target.hasDepth,
+        desc.stencil?.storeOp === 'discard',
     }
   }
 
@@ -1446,6 +1620,7 @@ export class WebGL2Device implements GfxDevice {
     }
     const invalidate: number[] = []
     if (pass.discardColor) invalidate.push(gl.COLOR_ATTACHMENT0)
+    if (pass.discardDepthStencil) invalidate.push(gl.DEPTH_STENCIL_ATTACHMENT)
     if (pass.discardStencil) invalidate.push(gl.STENCIL_ATTACHMENT)
     if (invalidate.length > 0) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, s.fbo)
@@ -1533,14 +1708,56 @@ export class WebGL2Device implements GfxDevice {
   }
 
   #vaoFor(p: WebGL2Pipeline, call: DrawCall): WebGL2Vao {
+    const buffers = call.vertexBuffers
+    const last = p.lastVertexBuffers
+    if (
+      p.lastVao &&
+      p.lastIndexBuffer === (call.indexBuffer ?? null) &&
+      last.length === buffers.length
+    ) {
+      let same = true
+      for (let i = 0; i < buffers.length; i++) {
+        if (last[i] !== buffers[i].buffer) {
+          same = false
+          break
+        }
+      }
+      if (same) return p.lastVao
+    }
     const key =
-      call.vertexBuffers.map((v) => (v.buffer as WebGL2Buffer).id).join(',') +
+      buffers.map((v) => (v.buffer as WebGL2Buffer).id).join(',') +
       (call.indexBuffer ? '|' + (call.indexBuffer as WebGL2IndexBuffer).id : '')
     let vao = p.vaoCache.get(key)
-    if (vao) return vao
-    vao = this.#createVao(p, call)
-    p.vaoCache.set(key, vao)
+    if (!vao) {
+      vao = this.#createVao(p, call)
+      p.vaoCache.set(key, vao)
+    }
+    p.lastVao = vao
+    p.lastIndexBuffer = call.indexBuffer ?? null
+    p.lastVertexBuffers = buffers.map((v) => v.buffer)
     return vao
+  }
+
+  /**
+   * Delete every cached VAO built against buffer `id`. A buffer that is deleted
+   * or replaced (a ring that grew) would otherwise keep its VAOs, and the
+   * buffer they reference, alive for the life of the pipeline.
+   */
+  #dropVaosUsing(id: number): void {
+    const gl = this.#gl
+    for (const p of this.#pipelineCache.values()) {
+      const pipeline = p as WebGL2Pipeline
+      for (const [key, vao] of pipeline.vaoCache) {
+        if (!vao.bufferIds.includes(id)) continue
+        if (this.#curVaoGl === vao.gl) {
+          gl.bindVertexArray(null)
+          this.#curVaoGl = null
+        }
+        gl.deleteVertexArray(vao.gl)
+        pipeline.vaoCache.delete(key)
+        if (pipeline.lastVao === vao) pipeline.lastVao = null
+      }
+    }
   }
 
   #createVao(p: WebGL2Pipeline, call: DrawCall): WebGL2Vao {
@@ -1559,25 +1776,39 @@ export class WebGL2Device implements GfxDevice {
       for (const attr of layout.attributes) {
         const fmt = FORMAT_INFO[attr.format]
         gl.enableVertexAttribArray(attr.location)
-        gl.vertexAttribPointer(
-          attr.location,
-          fmt.size,
-          fmt.glType,
-          fmt.normalized,
-          layout.arrayStride,
-          attr.offset + binding.offset,
-        )
+        if (fmt.integer) {
+          gl.vertexAttribIPointer(
+            attr.location,
+            fmt.size,
+            fmt.glType,
+            layout.arrayStride,
+            attr.offset + binding.offset,
+          )
+        } else {
+          gl.vertexAttribPointer(
+            attr.location,
+            fmt.size,
+            fmt.glType,
+            fmt.normalized,
+            layout.arrayStride,
+            attr.offset + binding.offset,
+          )
+        }
         gl.vertexAttribDivisor(attr.location, divisor)
       }
       slotOffsets[i] = binding.offset
     }
     let indexType: IndexType | undefined
+    const bufferIds = call.vertexBuffers.map(
+      (v) => (v.buffer as WebGL2Buffer).id,
+    )
     if (call.indexBuffer) {
       const ib = call.indexBuffer as WebGL2IndexBuffer
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib.gl)
       indexType = ib.indexType
+      bufferIds.push(ib.id)
     }
-    return { gl: glVao, slotOffsets, indexType }
+    return { gl: glVao, slotOffsets, indexType, bufferIds }
   }
 
   #bindVao(vao: WebGL2Vao): void {
@@ -1606,14 +1837,24 @@ export class WebGL2Device implements GfxDevice {
       const divisor = layout.stepMode === 'instance' ? 1 : 0
       for (const attr of layout.attributes) {
         const fmt = FORMAT_INFO[attr.format]
-        gl.vertexAttribPointer(
-          attr.location,
-          fmt.size,
-          fmt.glType,
-          fmt.normalized,
-          layout.arrayStride,
-          attr.offset + binding.offset,
-        )
+        if (fmt.integer) {
+          gl.vertexAttribIPointer(
+            attr.location,
+            fmt.size,
+            fmt.glType,
+            layout.arrayStride,
+            attr.offset + binding.offset,
+          )
+        } else {
+          gl.vertexAttribPointer(
+            attr.location,
+            fmt.size,
+            fmt.glType,
+            fmt.normalized,
+            layout.arrayStride,
+            attr.offset + binding.offset,
+          )
+        }
         gl.vertexAttribDivisor(attr.location, divisor)
       }
       vao.slotOffsets[i] = binding.offset
@@ -1642,24 +1883,33 @@ export class WebGL2Device implements GfxDevice {
                 `WebGL2Device: uniform buffer offset ${off} (binding ${b.binding}) is not a multiple of ${align}`,
               )
             }
-            gl.bindBufferRange(
-              gl.UNIFORM_BUFFER,
-              b.binding,
-              ubo.gl,
-              off,
-              b.size,
-            )
-          } else {
+            if (this.#uniformBindings.needsBind(b.binding, ubo.gl, off, b.size))
+              gl.bindBufferRange(
+                gl.UNIFORM_BUFFER,
+                b.binding,
+                ubo.gl,
+                off,
+                b.size,
+              )
+          } else if (
+            this.#uniformBindings.needsBind(b.binding, ubo.gl, 0, -1)
+          ) {
             gl.bindBufferBase(gl.UNIFORM_BUFFER, b.binding, ubo.gl)
           }
         } else {
           const target =
-            b.type === 'texture-2d' || b.type === 'texture-2d-depth'
+            b.type === 'texture-2d' ||
+            b.type === 'texture-2d-depth' ||
+            b.type === 'data-table'
               ? gl.TEXTURE_2D
               : b.type === 'texture-cube-shadow'
                 ? gl.TEXTURE_CUBE_MAP
                 : gl.TEXTURE_2D_ARRAY
-          const handle = b.tex?.gl ?? b.shadowArray?.gl ?? b.shadowCube!.gl
+          const handle =
+            b.tex?.gl ??
+            b.dataTable?.gl ??
+            b.shadowArray?.gl ??
+            b.shadowCube!.gl
           this.#bindTextureUnit(b.binding, target, handle)
         }
       }
@@ -1700,6 +1950,7 @@ export class WebGL2Device implements GfxDevice {
     opts: BlitOpts = {},
   ): void {
     const gl = this.#gl
+    this.deviceStats.submits++
     this.#setScissor(undefined)
     const r = source as WebGL2RenderTarget
     // A multisample source resolve via blitFramebuffer requires NEAREST and
@@ -1952,6 +2203,7 @@ export class WebGL2Device implements GfxDevice {
     this.#boundTex = []
     this.#boundTexTarget = []
     this.#boundArrayBuffer = null
+    this.#uniformBindings.clear()
     this.#passColor = null
     // Pipelines' cached programs/VAOs are dead. A rebuild recreates them.
     this.#pipelineCache.clear()
@@ -1989,6 +2241,7 @@ export class WebGL2Device implements GfxDevice {
 // happy-dom and would crash at module load). FLOAT = 0x1406, UBYTE = 0x1401.
 const GL_FLOAT = 0x1406
 const GL_UNSIGNED_BYTE = 0x1401
+const GL_UNSIGNED_INT = 0x1405
 const FORMAT_INFO: Record<VertexFormat, FormatInfo> = {
   float32: { size: 1, glType: GL_FLOAT, normalized: false, byteSize: 4 },
   float32x2: { size: 2, glType: GL_FLOAT, normalized: false, byteSize: 8 },
@@ -2005,6 +2258,13 @@ const FORMAT_INFO: Record<VertexFormat, FormatInfo> = {
     glType: GL_UNSIGNED_BYTE,
     normalized: false,
     byteSize: 4,
+  },
+  uint32: {
+    size: 1,
+    glType: GL_UNSIGNED_INT,
+    normalized: false,
+    byteSize: 4,
+    integer: true,
   },
 }
 

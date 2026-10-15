@@ -91,6 +91,7 @@ export class ModelTextureInspector implements TextureInspector {
       perSource,
       labels: [],
       labelCount: 0,
+      labelImages: 0,
       labelCap: 0,
       labelRegensThisFrame: 0,
       labelMaxRegensPerFrame: 0,

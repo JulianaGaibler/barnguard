@@ -10,12 +10,8 @@
       "glslName": "Frame_block_0Vertex"
     },
     {
-      "binding": 8,
-      "glslName": "Clip_block_1Fragment"
-    },
-    {
       "binding": 9,
-      "glslName": "ShapeParams_block_2Fragment"
+      "glslName": "ShapeParams_block_1Fragment"
     }
   ],
   "samplers": [
@@ -30,6 +26,14 @@
     {
       "binding": 2,
       "glslName": "_group_1_binding_2_fs"
+    },
+    {
+      "binding": 3,
+      "glslName": "_group_1_binding_3_fs"
+    },
+    {
+      "binding": 10,
+      "glslName": "_group_0_binding_10_vs"
     }
   ]
 }

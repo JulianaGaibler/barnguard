@@ -15,8 +15,9 @@ struct Clip {
     float r;
     float halfW;
     float halfH;
-    float rrRadius;
-    float clipPad;
+    float pad0_;
+    float pad1_;
+    vec4 radii;
 };
 struct Params {
     vec4 shape;
@@ -40,7 +41,9 @@ smooth in vec2 _vs2fs_location0;
 flat in float _vs2fs_location1;
 layout(location = 0) out vec4 _fs2p_location0;
 
-float clipRoundBox(vec2 p, vec2 b, float rad) {
+float clipRoundBox(vec2 p, vec2 b, vec4 radii) {
+    vec2 column = ((p.x > 0.0) ? radii.yz : radii.xw);
+    float rad = ((p.y > 0.0) ? column.y : column.x);
     vec2 q = ((abs(p) - b) + vec2(rad));
     return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
 }
@@ -64,7 +67,7 @@ float clipCoverage(vec2 fragPos) {
     } else {
         float _e42 = _group_0_binding_8_fs.halfW;
         float _e45 = _group_0_binding_8_fs.halfH;
-        float _e49 = _group_0_binding_8_fs.rrRadius;
+        vec4 _e49 = _group_0_binding_8_fs.radii;
         float _e50 = clipRoundBox(p_1, vec2(_e42, _e45), _e49);
         d = _e50;
     }

@@ -135,6 +135,47 @@ export interface PathShadowMask {
   exact: boolean
 }
 
+/**
+ * The affine map from a device position to `mask`'s uv, for a path drawn with
+ * the linear map and translation of `t` and a shadow offset of `(offsetX,
+ * offsetY)` device px. It inverts the draw's transform, so the uv follows the
+ * path under rotation and skew as well as scale.
+ */
+export function insetMaskProjection(
+  t: { a: number; b: number; c: number; d: number; e: number; f: number },
+  offsetX: number,
+  offsetY: number,
+  mask: Pick<PathShadowMask, 'localX' | 'localY' | 'localW' | 'localH'>,
+): {
+  ux: number
+  uy: number
+  uOffset: number
+  vx: number
+  vy: number
+  vOffset: number
+} {
+  const det = t.a * t.d - t.b * t.c
+  if (Math.abs(det) < 1e-12 || mask.localW <= 0 || mask.localH <= 0) {
+    return { ux: 0, uy: 0, uOffset: 0, vx: 0, vy: 0, vOffset: 0 }
+  }
+  // Where the shadow's local origin lands on the device.
+  const originX = t.e + offsetX
+  const originY = t.f + offsetY
+  // The inverse linear map, row by row: device offset to local position.
+  const lxx = t.d / det
+  const lxy = -t.c / det
+  const lyx = -t.b / det
+  const lyy = t.a / det
+  return {
+    ux: lxx / mask.localW,
+    uy: lxy / mask.localW,
+    uOffset: (-(lxx * originX + lxy * originY) - mask.localX) / mask.localW,
+    vx: lyx / mask.localH,
+    vy: lyy / mask.localH,
+    vOffset: (-(lyx * originX + lyy * originY) - mask.localY) / mask.localH,
+  }
+}
+
 /** One live mask entry, flattened for the debug texture inspector. */
 export interface PathShadowMaskSummary {
   width: number
@@ -333,10 +374,7 @@ export class PathShadowCache {
     this.#createResources()
   }
 
-  /**
-   * This cache's own render-target pool, for `Stage`/`Viewport2DNode` to prune
-   * once per frame.
-   */
+  /** This cache's own render-target pool, for `Stage` to prune once per frame. */
   get pool(): RenderTargetPool {
     return this.#pool
   }
@@ -633,9 +671,8 @@ export class PathShadowCache {
   /**
    * `peek`, and if there is no EXACT hit, also attempt a bake (budget
    * permitting). Opens and closes its own render passes, so it must only ever
-   * run outside any other open pass: the pre-`beginFrame` window
-   * `Stage`/`Viewport2DNode` drain `GpuGfx`'s queued requests in, never at draw
-   * time.
+   * run outside any other open pass: the pre-`beginFrame` window `Stage` drains
+   * `GpuGfx`'s queued requests in, never at draw time.
    */
   getOrBake(req: PathShadowRequest): PathShadowMask | null {
     if (!req.quality.pathShadowsEnabled) return null

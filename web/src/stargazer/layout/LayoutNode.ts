@@ -52,7 +52,7 @@ export type MeasurableNode = Node2D & Measurable
  * any other node.
  *
  * `arrange` should set `transform.x`/`transform.y` for position (never scale)
- * and write `debugBounds = { x: 0, y: 0, width: w, height: h }` so the node
+ * and write `boundsOverride = { x: 0, y: 0, width: w, height: h }` so the node
  * culls and hit-tests correctly. Call {@link markLayoutDirty} whenever an input
  * that affects your measured size changes (a child added, a size prop set). It
  * schedules one coalesced layout pass on the next frame.
@@ -73,7 +73,7 @@ export type MeasurableNode = Node2D & Measurable
  *     arrange(x: number, y: number, w: number, h: number): void {
  *       this.transform.x = x
  *       this.transform.y = y
- *       this.debugBounds = { x: 0, y: 0, width: w, height: h }
+ *       this.boundsOverride = { x: 0, y: 0, width: w, height: h }
  *     }
  *   }
  */

@@ -7,6 +7,10 @@
  * players on 12 behind a 14 are both second and the next one is fourth.
  */
 import type { LeaderboardEntry } from '@src/core/leaderboard/leaderboardClient'
+import {
+  mapHigh,
+  type EnterpriseHighScores,
+} from '@src/displays/enterprise/game-log'
 
 /** The leaderboard `display` key a map's board is kept under. */
 export function boardDisplay(mapId: string): string {
@@ -46,6 +50,18 @@ export interface MapBest {
   region: string
 }
 
+/** The map's best and the region that holds it, or null before any score. */
+export function mapBest(
+  scores: EnterpriseHighScores,
+  mapId: string,
+): MapBest | null {
+  const score = mapHigh(scores, mapId)
+  if (score <= 0) return null
+  const regions = scores.byState[mapId] ?? {}
+  const region = Object.keys(regions).find((id) => regions[id] === score) ?? ''
+  return { score, region }
+}
+
 export interface PendingEntry {
   name: string
   score: number
@@ -56,7 +72,7 @@ type UnrankedRow = Omit<LeaderboardRow, 'rank'>
 
 /** The key the server stores a name under. */
 export function normalizeName(name: string): string {
-  return name.trim().toLowerCase().slice(0, NAME_MAX)
+  return name.trim().normalize('NFC').toLowerCase().slice(0, NAME_MAX)
 }
 
 /**

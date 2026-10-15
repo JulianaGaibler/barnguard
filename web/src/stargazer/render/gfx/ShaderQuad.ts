@@ -89,7 +89,7 @@ export interface ShaderQuadOptions {
   shader: QuadShaderSource
   /** Byte size of the shader's `Params` block, std140. `0` for none. */
   paramsBytes?: number
-  /** Up to {@link MAX_QUAD_TEXTURES}, bound at `u_tex0` to `u_tex3`. */
+  /** Up to 4, bound at `u_tex0` to `u_tex3`. */
   textures?: readonly DataTexture[]
   /** Debug label surfaced in backend error messages. */
   label?: string

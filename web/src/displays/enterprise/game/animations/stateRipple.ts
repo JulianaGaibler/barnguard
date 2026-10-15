@@ -9,8 +9,8 @@ import { TUNING } from '../data/tuning'
  * from distance when it has none).
  *
  * The flash is rendered as a temporary overlay `Path2DNode` cloned from the
- * region's own path, mounted on `'above-static'` so it doesn't churn the map's
- * static bake. Each overlay auto-destroys once its rise + fall tweens complete
+ * region's own path, added to the region's parent so it draws over the fills.
+ * Each overlay auto-destroys once its rise + fall tweens complete
  * (`riseSec` in, `fallSec` out, ~600 ms per region total).
  *
  * Called from `session` on region selection, collision, and border breach.
@@ -41,10 +41,8 @@ async function pulseState(
   try {
     if (delaySec > 0) await stateNode.wait(delaySec)
 
-    // Clone the state's Path2D into a temporary overlay. Sits on the
-    // `'above-static'` layer so its lifecycle doesn't invalidate the map's
-    // static bake, the layer's neither present at add time nor at
-    // destroy time as far as the bake is concerned.
+    // Clone the state's Path2D into a temporary overlay, added after the
+    // fills so it draws over them.
     const overlay = new Path2DNode({
       id: `ripple:${stateNode.id}`,
       path: stateNode.path,
@@ -52,7 +50,6 @@ async function pulseState(
       hitMode: 'none',
     })
     overlay.transform.alpha = 0
-    overlay.renderLayer = 'above-static'
     parent.add(overlay)
 
     // `autoDestroy` handles the "tween -> destroy" pair. Chain the two

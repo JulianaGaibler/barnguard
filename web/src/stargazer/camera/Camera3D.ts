@@ -276,7 +276,10 @@ export class Camera3D implements CameraView3D {
     return this.#_viewProj
   }
 
-  /** Inverse of {@link Camera3D.viewProjection} (clip -> world), for unprojecting. */
+  /**
+   * Inverse of {@link Camera3D.viewProjection} (clip -> world), for
+   * unprojecting.
+   */
   get invViewProjection(): Mat4 {
     void this.viewProjection // ensure current
     return this.#_invViewProj

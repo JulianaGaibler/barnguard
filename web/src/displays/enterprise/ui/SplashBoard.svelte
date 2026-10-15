@@ -1,22 +1,28 @@
 <script lang="ts">
   /**
    * The map's top three in the splash's top right corner, on a glass card like
-   * the game over score card. The board is fetched each time the splash comes
-   * up, and the card stays away while nobody has put a name on it or an
-   * attendant has switched it off.
+   * the game over score card. The board and the high scores are fetched each
+   * time the splash comes up, so a map best nobody named heads the card as it
+   * heads the game over board. The card stays away while nobody has put a name
+   * on the board, while the backend is unreachable, or while an attendant has
+   * switched it off. A reconnect fetches the board again.
    */
   import { onDestroy } from 'svelte'
   import type { Engine } from '@src/stargazer'
   import { fetchLeaderboard } from '@src/core/leaderboard/leaderboardClient'
+  import { printerLive } from '@src/core/print/printerClient'
+  import { onReconnect } from '@src/core/print/reconnect'
   import { t } from '@src/displays/enterprise/i18n'
+  import { fetchEnterpriseHighScores } from '@src/displays/enterprise/game-log'
   import { splashBoardEnabled } from '@src/displays/enterprise/attendant/splashBoard'
   import BoardRow from './BoardRow.svelte'
   import {
     boardDisplay,
     leaderboardRows,
+    mapBest,
     type LeaderboardRow,
   } from './leaderboardRows'
-  import { Reveal } from './reveal.svelte'
+  import { Reveal } from '@src/core/ui/reveal.svelte'
 
   interface Props {
     engine: Engine
@@ -36,22 +42,38 @@
 
   $effect(() => {
     if (!active) return
-    let stale = false
-    fetchLeaderboard(boardDisplay(mapId), SHOWN)
-      .then((entries) => {
-        if (!stale) rows = leaderboardRows(entries, null, null, SHOWN)
-      })
-      .catch(() => {
-        if (!stale) rows = []
-      })
+    let latest = 0
+    const load = (): void => {
+      const request = ++latest
+      // Without the high scores the card still shows the named top three.
+      const best = fetchEnterpriseHighScores()
+        .then((scores) => mapBest(scores, mapId))
+        .catch(() => null)
+      Promise.all([fetchLeaderboard(boardDisplay(mapId), SHOWN), best])
+        .then(([entries, best]) => {
+          if (request !== latest) return
+          rows =
+            entries.length > 0
+              ? leaderboardRows(entries, null, best, SHOWN)
+              : []
+        })
+        .catch(() => {
+          if (request === latest) rows = []
+        })
+    }
+    load()
+    const unwatch = onReconnect(printerLive, load)
     return () => {
-      stale = true
+      latest = -1
+      unwatch()
     }
   })
 
   $effect(() => {
-    if (active && $splashBoardEnabled && rows.length > 0) reveal.show()
-    else void reveal.hide()
+    const online = $printerLive.connection === 'online'
+    if (active && online && $splashBoardEnabled && rows.length > 0) {
+      reveal.show()
+    } else void reveal.hide()
   })
 
   onDestroy(() => reveal.destroy())

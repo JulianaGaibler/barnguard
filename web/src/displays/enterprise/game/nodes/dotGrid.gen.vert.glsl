@@ -15,8 +15,9 @@ struct Clip {
     float r;
     float halfW;
     float halfH;
-    float rrRadius;
-    float clipPad;
+    float pad0_;
+    float pad1_;
+    vec4 radii;
 };
 struct Params {
     vec4 shape;
@@ -36,7 +37,9 @@ layout(location = 2) in vec4 _p2vs_location2;
 smooth out vec2 _vs2fs_location0;
 flat out float _vs2fs_location1;
 
-float clipRoundBox(vec2 p, vec2 b, float rad) {
+float clipRoundBox(vec2 p, vec2 b, vec4 radii) {
+    vec2 column = ((p.x > 0.0) ? radii.yz : radii.xw);
+    float rad = ((p.y > 0.0) ? column.y : column.x);
     vec2 q = ((abs(p) - b) + vec2(rad));
     return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
 }

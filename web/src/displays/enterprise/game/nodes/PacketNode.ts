@@ -6,13 +6,13 @@ import {
 } from '@src/stargazer'
 import { TUNING } from '../data/tuning'
 
-const HEX_STROKE_DEFAULT = '#D84EFF'
-const HEX_FILL_DEFAULT = '#ffffff'
+const HEX_FILL = '#FBF9FF'
 
 /**
- * A regular hexagon "data packet". Extends `Path2DNode` so it renders +
- * hit-tests through the same primitive as any Path2D-based node, but the hex
- * geometry is built once at construction from the tuning radius.
+ * A regular hexagon "data packet", a plain white hex with no outline. Its comet
+ * tail is a separate `PacketMotionTrailNode`. Extends `Path2DNode` so it
+ * renders + hit-tests through the same primitive as any Path2D-based node, but
+ * the hex geometry is built once at construction from the tuning radius.
  *
  * Hit mode is `'circle'` with `hitRadiusWorld = radius + hitPadding` so the
  * finger target stays generous even when the visible hex is small.
@@ -26,12 +26,10 @@ export class PacketNode extends Path2DNode {
     super({
       id: opts.id ?? 'packet',
       path,
-      fill: HEX_FILL_DEFAULT,
-      stroke: HEX_STROKE_DEFAULT,
-      lineWidth: 1.5,
+      fill: HEX_FILL,
       hitMode: 'circle',
       hitRadiusWorld: radius + TUNING.packet.hitPadding,
-      debugBounds: hexBounds(radius),
+      bounds: hexBounds(radius),
     })
     this.radius = radius
   }

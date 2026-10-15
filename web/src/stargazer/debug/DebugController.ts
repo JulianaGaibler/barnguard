@@ -1,3 +1,5 @@
+import type { RetainedCacheStats } from '../render/gfx/RetainedCache'
+import type { RenderFailure } from '../render/gfx/RenderFailures'
 import { createEmitter, type Emitter } from '../events/Emitter'
 import type { Engine, RegisteredPhysicsWorld } from '../engine/Engine'
 import type { CameraView2D } from '../camera/CameraView2D'
@@ -12,21 +14,16 @@ import { FrameStats } from './FrameStats'
 import type { CameraView3D } from '../camera/CameraView3D'
 import type { Node3D } from '../scene/Node3D'
 import { MeshNode } from '../nodes/MeshNode'
-import { Viewport2DNode } from '../nodes/Viewport2DNode'
 import type { DebugLine3DRenderer } from '../render/gfx/DebugLine3DRenderer'
 import { Light3D } from '../nodes/Light3D'
 import type { RenderQuality } from '../render/RenderQuality'
 import type { AmbientOcclusion } from '../render/gfx/ao/AmbientOcclusion'
 import { walkTree } from '../scene/traverse'
 import { drawGrid } from './DebugGridRenderer'
-import {
-  pushObb,
-  drawLightGizmo,
-  pushWireframe,
-  pushQuadWireframe,
-} from './DebugGizmo3DRenderer'
+import { pushObb, drawLightGizmo, pushWireframe } from './DebugGizmo3DRenderer'
 import { drawNodeOutlines } from './DebugOutlineRenderer'
 import { drawLayoutOutlines } from './DebugLayoutRenderer'
+import { viewFor } from '../scene/viewFor'
 import { drawPointerOverlay } from './DebugPointerRenderer'
 import {
   drawPhysicsOverlay,
@@ -106,8 +103,8 @@ export interface StageChip {
 /**
  * Per-frame GPU pipeline counters for the HUD. A direct alias of
  * {@link GpuGfxStats} (the field `Stage.gpuStats`/`GpuGfx.stats` actually
- * carry), kept as its own exported name so this module's public surface
- * doesn't shift if that one's internal home does.
+ * carry), kept as its own exported name so this module's public surface doesn't
+ * shift if that one's internal home does.
  */
 export type DebugGpuStatsReadout = GpuGfxStats
 
@@ -127,16 +124,28 @@ export interface DebugStatsSnapshot {
    * the FPS cap and vsync. `0` when not yet measured.
    */
   fps: number
-  nodeCounts: {
-    static: number
-    aboveStatic: number
-    dynamic: number
-    total: number
+  /** 2D nodes in the active stage's tree. */
+  nodeCount: number
+  /** What the 2D walk did last frame: nodes, pictures painted and replayed. */
+  compose: { nodes: number; paints: number; replays: number; culled: number }
+  /** The pictures that streamed the most bytes to the GPU last frame. */
+  streamers: readonly (readonly [string, number])[]
+  /** What the renderer's retained caches hold and did last frame. */
+  caches: readonly RetainedCacheStats[]
+  /** The node classes that painted pictures last frame, most first. */
+  composePainters: readonly (readonly [string, number])[]
+  composeTotals: {
+    frames: number
+    framesPainted: number
+    paints: number
+    stale: number
   }
   /** Per-frame GPU pipeline stats for the active stage. */
   gpu: DebugGpuStatsReadout
   /** Which rendering backend the active stage's device is. */
   backend: GfxBackend
+  /** GPU resources the active stage could not build, such as a rejected shader. */
+  renderFailures: readonly RenderFailure[]
   cameraMode: 'game' | 'debug'
   cameraFollowing: boolean
   viewport: { x: number; y: number; width: number; height: number }
@@ -175,8 +184,6 @@ export interface DebugStatsSnapshot {
 export interface World3DReadout {
   nodeCount: number
   meshCount: number
-  /** RTT surfaces (Viewport2DNodes) in the world. */
-  rttSurfaces: number
   /** Total triangles across all mesh geometry (not culled). */
   triangleCount: number
   /** Meshes + surfaces actually drawn last frame. */
@@ -952,15 +959,12 @@ export class DebugController {
     const p = this.frameStats.percentiles()
     const fi = this.#frameIntervalStats.percentiles()
     const active = this.activeStage
-    const counts = { static: 0, aboveStatic: 0, dynamic: 0, total: 0 }
+    let nodeCount = 0
     let aliveParticles = 0
     walkTree(active.tree.root, (node) => {
       if (node.kind !== '2d') return
       const n = node as Node2D
-      counts.total++
-      if (n.renderLayer === 'static') counts.static++
-      else if (n.renderLayer === 'above-static') counts.aboveStatic++
-      else counts.dynamic++
+      nodeCount++
       aliveParticles += n.particleCount
     })
     // The active stage's "active" camera, debug or game depending on toggle.
@@ -994,9 +998,17 @@ export class DebugController {
       fps: fi.p50 > 0 ? 1 / fi.p50 : 0,
       max: p.max,
       count: p.count,
-      nodeCounts: counts,
+      nodeCount,
+      compose: { ...active.composeStats },
+      streamers: [...active.composeStreamers]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5),
+      caches: active.cacheStats(),
+      composePainters: [...active.composePainters].sort((a, b) => b[1] - a[1]),
+      composeTotals: { ...active.composeTotals },
       gpu,
       backend: active.backend,
+      renderFailures: active.failures.list,
       cameraMode: this.#_cameraActive ? 'debug' : 'game',
       cameraFollowing: this.#_followGameCamera,
       viewport: cam ? { ...cam.viewport } : { x: 0, y: 0, width: 0, height: 0 },
@@ -1029,7 +1041,6 @@ export class DebugController {
     if (!stage.tree.has3D && !this.camera3dActive) return null
     let nodeCount = 0
     let meshCount = 0
-    let rttSurfaces = 0
     let triangleCount = 0
     walkTree(stage.tree.root, (n) => {
       nodeCount++
@@ -1037,8 +1048,6 @@ export class DebugController {
         meshCount++
         const g = n.geometry
         if (g) triangleCount += g.indices.length / 3
-      } else if (n instanceof Viewport2DNode) {
-        rttSurfaces++
       }
     })
     const s = stage.render3dStats
@@ -1049,7 +1058,6 @@ export class DebugController {
     return {
       nodeCount,
       meshCount,
-      rttSurfaces,
       triangleCount,
       visible: s?.visible ?? 0,
       drawCalls: s?.draws ?? 0,
@@ -1205,7 +1213,11 @@ export class DebugController {
     }
 
     if (this.#highlightedNode && this.#highlightedNode.scene === stage.tree) {
-      this.#drawNodeHighlight(gfx, activeCamera, this.#highlightedNode)
+      const highlighted = this.#highlightedNode
+      const view =
+        viewFor(highlighted, stage, { activeCameraFor: () => activeCamera }) ??
+        activeCamera
+      this.#drawNodeHighlight(gfx, view, highlighted)
     }
 
     // Only meaningful when the debug camera is active, the pip shows the
@@ -1251,15 +1263,6 @@ export class DebugController {
               [0.4, 0.9, 1, 0.9],
               false,
             )
-        } else if (n instanceof Viewport2DNode) {
-          pushObb(
-            lines,
-            { x: -0.5, y: -0.5, z: 0 },
-            { x: 0.5, y: 0.5, z: 0 },
-            n.worldMatrix,
-            [1, 0.7, 0.2, 0.9],
-            false,
-          )
         }
       })
     }
@@ -1269,9 +1272,6 @@ export class DebugController {
       walkTree(stage.tree.root, (n) => {
         if (n instanceof MeshNode && n.geometry && n.visible) {
           pushWireframe(lines, n)
-        } else if (n instanceof Viewport2DNode && n.visible) {
-          // The viewport quad is two triangles. Show its border + diagonal.
-          pushQuadWireframe(lines, n.worldMatrix)
         }
       })
     }
@@ -1282,17 +1282,6 @@ export class DebugController {
       if (hi instanceof MeshNode) {
         const b = hi.localBounds()
         if (b) pushObb(lines, b.min, b.max, hi.worldMatrix, c, true)
-      } else if (hi instanceof Viewport2DNode) {
-        // Flat quad, matching the viewport surface (also used when a node inside
-        // its embedded 2D scene is selected in the tree).
-        pushObb(
-          lines,
-          { x: -0.5, y: -0.5, z: 0 },
-          { x: 0.5, y: 0.5, z: 0 },
-          hi.worldMatrix,
-          c,
-          true,
-        )
       } else if (hi instanceof Light3D) {
         drawLightGizmo(lines, hi)
       } else {
@@ -1527,14 +1516,14 @@ export class DebugController {
   /**
    * Outline a node's bounds (through its world transform) and label it with the
    * node id. Falls back to a small ring at the node origin when the node has no
-   * `debugBounds`.
+   * bounds.
    */
   #drawNodeHighlight(gfx: Gfx2D, cam: CameraView2D, node: Node2D): void {
     // Bright line over a dark halo so the highlight reads on any background.
     const color = 'rgba(255, 255, 255, 0.98)'
     const halo = 'rgba(0, 0, 0, 0.85)'
     const m = node.transform.world
-    const b = node.debugBounds
+    const b = node.bounds
     if (!b) {
       const o = cam.worldToScreen(m.e, m.f)
       gfx.strokeCircle(o.x, o.y, 6, { color: halo, width: 4 })

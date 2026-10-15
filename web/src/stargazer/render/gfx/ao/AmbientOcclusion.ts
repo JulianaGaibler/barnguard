@@ -26,6 +26,13 @@ import blurFragSrc from '../shaders/ao_blur.gen.frag.glsl?raw'
 import blurReflect from '../shaders/ao_blur.reflect.json'
 import blurComputeWgsl from '../shaders/ao_blur.compute.wgsl?raw'
 
+/**
+ * The resolution AO renders at. `'half'` runs the G-buffer, generate and blur
+ * at half the width and height, about a quarter of the cost, and the mesh pass
+ * upsamples the result with linear filtering.
+ */
+export type AoResolution = 'full' | 'half'
+
 /** Quality preset: slice/step budget and the occlusion feel. */
 export type AoPreset = 'low' | 'medium' | 'high'
 
@@ -74,6 +81,7 @@ export class AmbientOcclusion {
   readonly #device: GfxDevice
   #enabled = false
   #preset: AoPreset = 'medium'
+  #resolution: AoResolution = 'full'
   #intensityOverride: number | null = null
   #radiusOverride: number | null = null
   #directStrength = 0
@@ -138,6 +146,23 @@ export class AmbientOcclusion {
   }
   set preset(p: AoPreset) {
     this.#preset = p
+  }
+
+  /**
+   * The resolution AO renders at, see {@link AoResolution}. A change rebuilds
+   * the targets on the next run.
+   */
+  get resolution(): AoResolution {
+    return this.#resolution
+  }
+  set resolution(r: AoResolution) {
+    this.#resolution = r
+  }
+
+  /** The size AO renders at for a render target of `pixelW` by `pixelH`. */
+  targetSize(pixelW: number, pixelH: number): { w: number; h: number } {
+    if (this.#resolution === 'full') return { w: pixelW, h: pixelH }
+    return { w: Math.ceil(pixelW / 2), h: Math.ceil(pixelH / 2) }
   }
 
   /**
@@ -310,10 +335,11 @@ export class AmbientOcclusion {
     pixelH: number,
   ): void {
     if (!this.#enabled || !this.#ready) return
-    this.#ensureTargets(pixelW, pixelH)
+    const { w, h } = this.targetSize(pixelW, pixelH)
+    this.#ensureTargets(w, h)
     meshRenderer.renderGBuffer(camera, root, this.#gbuffer!)
-    this.#writeGenParams(camera, pixelW, pixelH)
-    if (this.#device.supportsCompute) this.#runCompute(pixelW, pixelH)
+    this.#writeGenParams(camera, w, h)
+    if (this.#device.supportsCompute) this.#runCompute(w, h)
     else this.#runFragment()
   }
 

@@ -33,7 +33,7 @@ import {
   warmupBlendPipelines,
 } from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
-import textQuadWgsl from '../shaders/textQuad.wgsl?raw'
+import textQuadWgsl from '../shaders/textQuad.gen.wgsl?raw'
 import textQuadVertSrc from '../shaders/textQuad.gen.vert.glsl?raw'
 import textQuadFragSrc from '../shaders/textQuad.gen.frag.glsl?raw'
 import textQuadReflect from '../shaders/textQuad.reflect.json'
@@ -127,6 +127,36 @@ export class TextQuadProgram implements GpuProgram {
 
   get uintView(): Uint32Array {
     return this.#stream.uintView
+  }
+
+  runBounds(run: DrawRun, out: Float64Array): boolean {
+    const f = this.#stream.floatView
+    const words = TEXT_QUAD_INSTANCE_STRIDE / 4
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let w = run.startWord; w < run.endWord; w += words) {
+      // The quad is `translate + col0 * u + col1 * v` over the unit square.
+      const tx = f[w + 4]
+      const ty = f[w + 5]
+      for (let k = 0; k < 4; k++) {
+        const u = k & 1
+        const v = k >> 1
+        const x = tx + f[w] * u + f[w + 2] * v
+        const y = ty + f[w + 1] * u + f[w + 3] * v
+        if (x < minX) minX = x
+        if (x > maxX) maxX = x
+        if (y < minY) minY = y
+        if (y > maxY) maxY = y
+      }
+    }
+    if (!(minX <= maxX && minY <= maxY)) return false
+    out[0] = minX
+    out[1] = minY
+    out[2] = maxX
+    out[3] = maxY
+    return true
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {

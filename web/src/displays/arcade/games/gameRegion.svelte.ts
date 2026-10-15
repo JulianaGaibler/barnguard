@@ -87,7 +87,7 @@ export class GameRegion {
     const rect = gameVisibleRect(pixelW, pixelH)
     this.anchor.transform.x = rect.x
     this.anchor.transform.y = rect.y
-    this.anchor.debugBounds = {
+    this.anchor.boundsOverride = {
       x: 0,
       y: 0,
       width: rect.width,

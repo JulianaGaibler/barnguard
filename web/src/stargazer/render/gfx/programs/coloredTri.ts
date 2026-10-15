@@ -9,6 +9,7 @@
 // debug-mode uniforms/blend override inside `flush`.
 
 import type { GeometryHandle, GpuGeometry } from '../GeometryHandle'
+import { RetainedCache, type RetainedEntry } from '../RetainedCache'
 import { parseColor, type RGBA } from '../parseColor'
 import { RingStream } from '../RingStream'
 import {
@@ -17,6 +18,7 @@ import {
   packColor,
   packRgba,
   resolvePaint,
+  coloredVertexParam,
   writeColoredVert,
 } from '../packing'
 import {
@@ -25,6 +27,7 @@ import {
   COLORED_TRI_WORDS,
   DRAWPARAMS_UBO_BINDING,
   LOC_COLORED_COLOR,
+  LOC_COLORED_PARAM,
   LOC_COLORED_POS,
   LOC_COLORED_UV,
   MODELCOLOR_UBO_BINDING,
@@ -33,6 +36,7 @@ import type {
   DrawRun,
   GpuBatchContext,
   ResolvedMaskPaint,
+  ResolvedRadialPaint,
   ResolvedRunPaint,
 } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
@@ -60,28 +64,26 @@ import type { FlatPath } from '../GfxPath'
 import type { ShaderReflection } from '../GfxDevice'
 import type { GfxFill } from '../Gfx2D'
 import earcut from 'earcut'
-import coloredTriWgsl from '../shaders/coloredTri.wgsl?raw'
+import coloredTriWgsl from '../shaders/coloredTri.gen.wgsl?raw'
 import coloredTriVertSrc from '../shaders/coloredTri.gen.vert.glsl?raw'
 import coloredTriFragSrc from '../shaders/coloredTri.gen.frag.glsl?raw'
 import coloredTriReflect from '../shaders/coloredTri.reflect.json'
-import coloredTriRetainedWgsl from '../shaders/coloredTriRetained.wgsl?raw'
+import coloredTriRetainedWgsl from '../shaders/coloredTriRetained.gen.wgsl?raw'
 import coloredTriRetainedVertSrc from '../shaders/coloredTriRetained.gen.vert.glsl?raw'
 import coloredTriRetainedFragSrc from '../shaders/coloredTriRetained.gen.frag.glsl?raw'
 import coloredTriRetainedReflect from '../shaders/coloredTriRetained.reflect.json'
 
 /**
- * `DrawParams` block size (std140): four vec4-sized members (debugColor, paint,
- * misc, flags) = 64 B. Not "just enough" (48 would be, for this feature):
- * `UboRing` rounds a slice up to `minUniformBufferOffsetAlignment` (commonly
- * 256) anyway, so the extra 16 B costs nothing in slices and leaves room for
- * the next per-run field.
+ * `DrawParams` block size (std140): five vec4-sized members (debugColor, paint,
+ * misc, flags, paintMap) = 80 B. `UboRing` rounds a slice up to
+ * `minUniformBufferOffsetAlignment` (commonly 256) anyway.
  */
-const DRAWPARAMS_BYTES = 64
+const DRAWPARAMS_BYTES = 80
 /**
  * `ModelColor` block size (std140): mat3 (3×vec4) + vec4 color + vec4 paint +
- * vec4<u32> flags = 96 B.
+ * vec4<u32> flags + vec4 paintOffset = 112 B.
  */
-const MODELCOLOR_BYTES = 96
+const MODELCOLOR_BYTES = 112
 /** Texture unit for the shared gradient ramp atlas, in this program's group 1. */
 const RAMP_ATLAS_BINDING = 3
 /** Texture unit for an inset path-shadow's coverage mask, in group 1. */
@@ -115,6 +117,53 @@ const FILL_ROWS: StencilRow[] = [
   'clipApplyEvenOdd',
   'clipPop',
 ]
+
+/** A tessellation's buffers, kept by the geometry cache. */
+interface GeometryEntry extends RetainedEntry {
+  gpu: GpuGeometry
+}
+
+/**
+ * The map from a device position into a radial gradient's own space, scaled so
+ * its circle has radius 1 with the focal point at the origin, for a gradient
+ * drawn with the linear map and translation of `t`. Inverting the full
+ * transform keeps the rings elliptical under rotation and uneven scale. The
+ * focal point is pulled inside the circle, where the rings are defined.
+ */
+export function radialProjection(
+  t: { a: number; b: number; c: number; d: number; e: number; f: number },
+  g: { cx: number; cy: number; r: number; fx?: number; fy?: number },
+): Omit<ResolvedRadialPaint, 'kind' | 'rampRow' | 'opacity'> {
+  const det = t.a * t.d - t.b * t.c
+  if (Math.abs(det) < 1e-12 || g.r <= 0) {
+    return { xx: 0, xy: 0, yx: 0, yy: 0, offsetX: 0, offsetY: 0, ex: 0, ey: 0 }
+  }
+  let focalX = (g.fx ?? g.cx) - g.cx
+  let focalY = (g.fy ?? g.cy) - g.cy
+  const maxFocal = g.r * 0.99
+  const focalLength = Math.hypot(focalX, focalY)
+  if (focalLength > maxFocal && focalLength > 0) {
+    focalX *= maxFocal / focalLength
+    focalY *= maxFocal / focalLength
+  }
+  focalX += g.cx
+  focalY += g.cy
+  // The inverse linear map, divided by the radius.
+  const xx = t.d / det / g.r
+  const xy = -t.c / det / g.r
+  const yx = -t.b / det / g.r
+  const yy = t.a / det / g.r
+  return {
+    xx,
+    xy,
+    yx,
+    yy,
+    offsetX: -(xx * t.e + xy * t.f) - focalX / g.r,
+    offsetY: -(yx * t.e + yy * t.f) - focalY / g.r,
+    ex: (g.cx - focalX) / g.r,
+    ey: (g.cy - focalY) / g.r,
+  }
+}
 
 export class ColoredTriProgram implements GpuProgram {
   readonly kind = 'coloredTri' as const
@@ -175,11 +224,21 @@ export class ColoredTriProgram implements GpuProgram {
   /** Device-space copy of a path's points, grown in place and reused. */
   #devPts = new Float32Array(512)
   readonly #uvScratch = [0, 0]
-  #retainedHandles = new Set<GeometryHandle>()
+  /**
+   * Tessellations uploaded to buffers of their own and drawn with a model
+   * matrix.
+   */
+  geometryCache!: RetainedCache<GeometryEntry>
 
   get stream(): RingStream {
     return this.#stream
   }
+
+  /**
+   * The path fans' own program, so consecutive fans sit next to each other in a
+   * stream and the replay can join them into one draw.
+   */
+  readonly fan = new StencilFanProgram(this)
 
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
     this.#device = device
@@ -207,6 +266,7 @@ export class ColoredTriProgram implements GpuProgram {
           { location: LOC_COLORED_POS, format: 'float32x2', offset: 0 },
           { location: LOC_COLORED_COLOR, format: 'unorm8x4', offset: 8 },
           { location: LOC_COLORED_UV, format: 'float32x2', offset: 12 },
+          { location: LOC_COLORED_PARAM, format: 'uint32', offset: 20 },
         ],
       },
     ]
@@ -273,9 +333,13 @@ export class ColoredTriProgram implements GpuProgram {
     this.#retainedBindGroups = new WeakMap()
 
     // A rebuild (context restore) re-runs init with fresh GL objects, so the
-    // old per-handle descriptors are dead. Drop them and re-upload on next draw.
-    for (const geo of this.#retainedHandles) geo.gpu = undefined
-    this.#retainedHandles.clear()
+    // old buffers are already gone. Drop them and re-upload on next draw.
+    this.geometryCache?.clear(false)
+    this.geometryCache = new RetainedCache<GeometryEntry>({
+      name: 'Fill geometry',
+      idleFrames: 120,
+      budgetBytes: 32 * 1024 * 1024,
+    })
   }
 
   async warmup(device: GfxDevice, ctx: GpuBatchContext): Promise<void> {
@@ -318,16 +382,55 @@ export class ColoredTriProgram implements GpuProgram {
    * the handle). `geo.vertices` is already `[x0,y0,...]` tightly packed, so it
    * maps straight onto the position attribute.
    */
+  /**
+   * Whether `geo` draws from a buffer of its own this frame: it is kept
+   * already, it was registered to be kept, or it was drawn the frame before.
+   */
+  retains(geo: GeometryHandle): boolean {
+    const cache = this.geometryCache
+    const key = cache.keyFor(geo, '')
+    if (cache.has(key) || geo.retained === true) return true
+    return cache.admit(key)
+  }
+
   #ensureGeometry(geo: GeometryHandle): GpuGeometry {
-    if (geo.gpu) return geo.gpu
+    const cache = this.geometryCache
+    const key = cache.keyFor(geo, '')
+    const kept = cache.get(key)
+    if (kept) return kept.gpu
     const device = this.#device
     const vbo = device.createVertexBuffer(geo.vertices.byteLength)
     device.updateBufferSubData(vbo, 0, geo.vertices)
     const ibo = device.createIndexBuffer(geo.indices.byteLength)
     device.updateIndexBufferSubData(ibo, 0, geo.indices)
-    const gpu: GpuGeometry = { vbo, ibo, indexCount: geo.indices.length }
-    geo.gpu = gpu
-    this.#retainedHandles.add(geo)
+    const v = geo.vertices
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let i = 0; i < v.length; i += 2) {
+      if (v[i] < minX) minX = v[i]
+      if (v[i] > maxX) maxX = v[i]
+      if (v[i + 1] < minY) minY = v[i + 1]
+      if (v[i + 1] > maxY) maxY = v[i + 1]
+    }
+    const gpu: GpuGeometry = {
+      vbo,
+      ibo,
+      indexCount: geo.indices.length,
+      minX,
+      minY,
+      maxX,
+      maxY,
+    }
+    cache.add(key, {
+      gpu,
+      bytes: geo.vertices.byteLength + geo.indices.byteLength,
+      release: () => {
+        device.deleteBuffer(vbo)
+        device.deleteIndexBuffer(ibo)
+      },
+    })
     return gpu
   }
 
@@ -338,6 +441,28 @@ export class ColoredTriProgram implements GpuProgram {
    * break the batch rather than merge into the gradient's run and draw with its
    * `DrawParams` slice.
    */
+  /**
+   * Reserve vertex words in the stream and note the clip record the vertices
+   * written next should carry.
+   */
+  #reserveVerts(
+    ctx: GpuBatchContext,
+    words: number,
+    verts: number,
+    stream: RingStream = this.#stream,
+  ): number {
+    coloredVertexParam.index = ctx.curClipIndex
+    return ctx.reserveVerts(stream, words, verts)
+  }
+
+  #beginFan(ctx: GpuBatchContext, rule: FillRule): void {
+    ctx.beginBatch('stencilFan', {
+      clipMask: ctx.stateStack.getClipMask(),
+      paint: null,
+      stencilRow: fanRow(rule),
+    })
+  }
+
   begin(
     ctx: GpuBatchContext,
     paint: ResolvedRunPaint | null = null,
@@ -379,29 +504,11 @@ export class ColoredTriProgram implements GpuProgram {
         : null
     }
     if (g.kind === 'radial') {
-      const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
-      const dcx = t.a * g.cx + t.c * g.cy + t.e
-      const dcy = t.b * g.cx + t.d * g.cy + t.f
-      // Keep the focal point inside the circle, where the rings are defined.
-      let lfx = (g.fx ?? g.cx) - g.cx
-      let lfy = (g.fy ?? g.cy) - g.cy
-      const maxF = g.r * 0.99
-      const flen = Math.hypot(lfx, lfy)
-      if (flen > maxF && flen > 0) {
-        lfx *= maxF / flen
-        lfy *= maxF / flen
-      }
-      const dfx = t.a * (g.cx + lfx) + t.c * (g.cy + lfy) + t.e
-      const dfy = t.b * (g.cx + lfx) + t.d * (g.cy + lfy) + t.f
       return {
         packedColor: 0,
         paint: {
+          ...radialProjection(t, g),
           kind: 'radial',
-          fx: dfx,
-          fy: dfy,
-          ex: dcx - dfx,
-          ey: dcy - dfy,
-          r: g.r * scale,
           rampRow,
           opacity: ctx.stateStack.getAlpha(),
         },
@@ -441,6 +548,58 @@ export class ColoredTriProgram implements GpuProgram {
     return this.#stream.uintView
   }
 
+  runBounds(
+    run: DrawRun,
+    out: Float64Array,
+    stream: RingStream = this.#stream,
+  ): boolean {
+    const g = run.geometry
+    if (g) {
+      const m = run.model
+      if (!m || !(g.minX <= g.maxX)) return false
+      // The local box through the model matrix, `[a, b, 0, c, d, 0, e, f, 1]`.
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+      for (let i = 0; i < 4; i++) {
+        const x = i === 1 || i === 2 ? g.maxX : g.minX
+        const y = i >= 2 ? g.maxY : g.minY
+        const dx = m[0] * x + m[3] * y + m[6]
+        const dy = m[1] * x + m[4] * y + m[7]
+        if (dx < minX) minX = dx
+        if (dx > maxX) maxX = dx
+        if (dy < minY) minY = dy
+        if (dy > maxY) maxY = dy
+      }
+      out[0] = minX
+      out[1] = minY
+      out[2] = maxX
+      out[3] = maxY
+      return true
+    }
+    const f = stream.floatView
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let w = run.startWord; w < run.endWord; w += COLORED_TRI_WORDS) {
+      const x = f[w]
+      const y = f[w + 1]
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+    }
+    // A NaN or an empty run leaves the box unusable.
+    if (!(minX <= maxX && minY <= maxY)) return false
+    out[0] = minX
+    out[1] = minY
+    out[2] = maxX
+    out[3] = maxY
+    return true
+  }
+
   /** `Gfx2D.fillRect`. */
   fillRect(
     ctx: GpuBatchContext,
@@ -459,7 +618,7 @@ export class ColoredTriProgram implements GpuProgram {
     const slot = ctx.curSlot
     // 6 verts × 5 words each.
     const wordsNeeded = 6 * COLORED_TRI_WORDS
-    const off = ctx.reserveVerts(this.#stream, wordsNeeded, 6)
+    const off = this.#reserveVerts(ctx, wordsNeeded, 6)
     if (off < 0) return
     // Four local corners of the rect.
     const x0 = x
@@ -567,7 +726,7 @@ export class ColoredTriProgram implements GpuProgram {
     const slot = ctx.curSlot
     const vertCount = (count - 2) * 3
     const wordsNeeded = vertCount * COLORED_TRI_WORDS
-    const off = ctx.reserveVerts(this.#stream, wordsNeeded, vertCount)
+    const off = this.#reserveVerts(ctx, wordsNeeded, vertCount)
     if (off < 0) return
     const mask = ctx.curClipMask
     const mrx = mask ? mask.worldRect.x : 0
@@ -638,7 +797,7 @@ export class ColoredTriProgram implements GpuProgram {
     const triCount = geo.indices.length / 3
     const vertCount = geo.indices.length
     const wordsNeeded = vertCount * COLORED_TRI_WORDS
-    const off = ctx.reserveVerts(this.#stream, wordsNeeded, vertCount)
+    const off = this.#reserveVerts(ctx, wordsNeeded, vertCount)
     if (off < 0) return
     const mask = ctx.curClipMask
     const mrx = mask ? mask.worldRect.x : 0
@@ -724,7 +883,7 @@ export class ColoredTriProgram implements GpuProgram {
     const triCount = geo.indices.length / 3
     const vertCount = geo.indices.length
     const wordsNeeded = vertCount * COLORED_TRI_WORDS
-    const off = ctx.reserveVerts(this.#stream, wordsNeeded, vertCount)
+    const off = this.#reserveVerts(ctx, wordsNeeded, vertCount)
     if (off < 0) return
     const clipMask = ctx.curClipMask
     const mrx = clipMask ? clipMask.worldRect.x : 0
@@ -821,7 +980,7 @@ export class ColoredTriProgram implements GpuProgram {
     const slot = ctx.curSlot
     const vertCount = outline.indices.length
     const wordsNeeded = vertCount * COLORED_TRI_WORDS
-    const off = ctx.reserveVerts(this.#stream, wordsNeeded, vertCount)
+    const off = this.#reserveVerts(ctx, wordsNeeded, vertCount)
     if (off < 0) return
     const mask = ctx.curClipMask
     const mrx = mask ? mask.worldRect.x : 0
@@ -945,7 +1104,7 @@ export class ColoredTriProgram implements GpuProgram {
     const slot = ctx.curSlot
     const vertCount = triCount * 3
     const wordsNeeded = vertCount * COLORED_TRI_WORDS
-    const off = ctx.reserveVerts(this.#stream, wordsNeeded, vertCount)
+    const off = this.#reserveVerts(ctx, wordsNeeded, vertCount)
     if (off < 0) return
     const cStart = parseColor(colorStart)
     const cEnd = parseColor(colorEnd)
@@ -1086,16 +1245,13 @@ export class ColoredTriProgram implements GpuProgram {
     const slot = ctx.curSlot
     const maskPresent = ctx.stateStack.getClipMask() !== null
 
-    this.begin(ctx, null, fanRow(rule))
-    const off = ctx.reserveVerts(
-      this.#stream,
-      fanWords + coverWords,
-      triCount * 3 + 6,
-    )
-    if (off < 0) return false
-    const f = this.#stream.floatView
-    const u = this.#stream.uintView
-    let cursor = off
+    this.#beginFan(ctx, rule)
+    const fanStream = this.fan.stream
+    const fanOff = this.#reserveVerts(ctx, fanWords, triCount * 3, fanStream)
+    if (fanOff < 0) return false
+    const ff = fanStream.floatView
+    const fu = fanStream.uintView
+    let cursor = fanOff
     for (let c = 0; c < flat.contourCount; c++) {
       const s0 = flat.starts[c]
       const len = flat.starts[c + 1] - s0
@@ -1104,10 +1260,10 @@ export class ColoredTriProgram implements GpuProgram {
       const p0y = dev[s0 * 2 + 1]
       for (let i = 1; i < len - 1; i++) {
         const a = (s0 + i) * 2
-        writeColoredVert(f, u, cursor, p0x, p0y, 0, 0, 0)
+        writeColoredVert(ff, fu, cursor, p0x, p0y, 0, 0, 0)
         writeColoredVert(
-          f,
-          u,
+          ff,
+          fu,
           cursor + COLORED_TRI_WORDS,
           dev[a],
           dev[a + 1],
@@ -1116,8 +1272,8 @@ export class ColoredTriProgram implements GpuProgram {
           0,
         )
         writeColoredVert(
-          f,
-          u,
+          ff,
+          fu,
           cursor + 2 * COLORED_TRI_WORDS,
           dev[a + 2],
           dev[a + 3],
@@ -1128,9 +1284,14 @@ export class ColoredTriProgram implements GpuProgram {
         cursor += 3 * COLORED_TRI_WORDS
       }
     }
-    this.#stream.commit(slot, fanWords, triCount * 3)
+    fanStream.commit(slot, fanWords, triCount * 3)
 
     this.begin(ctx, resolved.paint, coverRow(rule))
+    const coverOff = this.#reserveVerts(ctx, coverWords, 6)
+    if (coverOff < 0) return false
+    const f = this.#stream.floatView
+    const u = this.#stream.uintView
+    cursor = coverOff
     // Mask UVs are in local space, so a bitmap clip needs the device corners
     // mapped back through the inverse transform.
     const det = t.a * t.d - t.b * t.c
@@ -1216,11 +1377,7 @@ export class ColoredTriProgram implements GpuProgram {
     const quadWords = 6 * COLORED_TRI_WORDS
     const slot = ctx.curSlot
     this.begin(ctx, null, fanRow(rule))
-    const off = ctx.reserveVerts(
-      this.#stream,
-      fanWords + quadWords,
-      triCount * 3 + 6,
-    )
+    const off = this.#reserveVerts(ctx, fanWords + quadWords, triCount * 3 + 6)
     if (off < 0) return null
     const f = this.#stream.floatView
     const u = this.#stream.uintView
@@ -1275,7 +1432,7 @@ export class ColoredTriProgram implements GpuProgram {
   clipPop(ctx: GpuBatchContext, bounds: ClipBounds): void {
     const quadWords = 6 * COLORED_TRI_WORDS
     this.begin(ctx, null, 'clipPop')
-    const off = ctx.reserveVerts(this.#stream, quadWords, 6)
+    const off = this.#reserveVerts(ctx, quadWords, 6)
     if (off < 0) return
     this.#writeQuad(this.#stream.floatView, this.#stream.uintView, off, bounds)
     this.#stream.commit(ctx.curSlot, quadWords, 6)
@@ -1330,25 +1487,39 @@ export class ColoredTriProgram implements GpuProgram {
       s[7] = paint.rampRow
     } else if (paint?.kind === 'radial') {
       paintMode = 3
-      s[4] = paint.fx
-      s[5] = paint.fy
-      s[6] = paint.ex
-      s[7] = paint.ey
+      s[4] = paint.xx
+      s[5] = paint.xy
+      s[6] = paint.yx
+      s[7] = paint.yy
     } else if (paint?.kind === 'mask') {
       paintMode = 2
-      s[4] = paint.originX
-      s[5] = paint.originY
-      s[6] = paint.invW
-      s[7] = paint.invH
+      s[4] = paint.ux
+      s[5] = paint.uy
+      s[6] = paint.vx
+      s[7] = paint.vy
     } else {
       s[4] = s[5] = s[6] = s[7] = 0
     }
-    s[8] = paint?.kind === 'radial' ? paint.r : 0 // misc.x: radial radius
-    // misc.y: gradient alpha multiplier
-    s[9] =
-      paint?.kind === 'gradient' || paint?.kind === 'radial' ? paint.opacity : 0
-    s[10] = paint?.kind === 'radial' ? paint.rampRow : 0 // misc.z: radial ramp row
+    if (paint?.kind === 'mask') {
+      // misc.xy: the mask uv's offsets
+      s[8] = paint.uOffset
+      s[9] = paint.vOffset
+      s[10] = 0
+    } else {
+      s[8] = 0
+      // misc.y: gradient alpha multiplier
+      s[9] =
+        paint?.kind === 'gradient' || paint?.kind === 'radial'
+          ? paint.opacity
+          : 0
+      s[10] = paint?.kind === 'radial' ? paint.rampRow : 0 // misc.z: radial ramp row
+    }
     s[11] = 0
+    // paintMap: the radial's offset and its focal-to-center vector
+    s[16] = paint?.kind === 'radial' ? paint.offsetX : 0
+    s[17] = paint?.kind === 'radial' ? paint.offsetY : 0
+    s[18] = paint?.kind === 'radial' ? paint.ex : 0
+    s[19] = paint?.kind === 'radial' ? paint.ey : 0
     su[12] = clipMaskTex ? 1 : 0 // flags.x: clipEnabled
     su[13] = debugModeInt // flags.y: debugMode
     su[14] = paintMode // flags.z: paintMode (0 none, 1 linear, 2 inset mask, 3 radial)
@@ -1368,7 +1539,11 @@ export class ColoredTriProgram implements GpuProgram {
     this.#modelColorRing.flush(device)
   }
 
-  drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+  drawRun(
+    ctx: GpuBatchContext,
+    run: DrawRun,
+    stream: RingStream = this.#stream,
+  ): void {
     // Retained geometry: GPU-transform a pre-uploaded static buffer with a
     // per-draw model matrix + flat color. Recorded into the same command list,
     // so painter order with streamed runs holds.
@@ -1412,7 +1587,7 @@ export class ColoredTriProgram implements GpuProgram {
         : clipped
           ? stencilReferenceFor('clipTest', depth)
           : undefined,
-      vertexBuffers: [{ buffer: this.#stream.buffers[ctx.curSlot], offset: 0 }],
+      vertexBuffers: [{ buffer: stream.buffers[ctx.curSlot], offset: 0 }],
       bindGroups: [
         ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
         {
@@ -1466,15 +1641,19 @@ export class ColoredTriProgram implements GpuProgram {
       s[19] = paint.rampRow
     } else if (paint?.kind === 'mask') {
       paintMode = 2
-      s[16] = paint.originX
-      s[17] = paint.originY
-      s[18] = paint.invW
-      s[19] = paint.invH
+      s[16] = paint.ux
+      s[17] = paint.uy
+      s[18] = paint.vx
+      s[19] = paint.vy
     } else {
       s[16] = s[17] = s[18] = s[19] = 0
     }
     su[20] = paintMode
     su[21] = su[22] = su[23] = 0
+    // paintOffset.xy: the mask uv's offsets
+    s[24] = paint?.kind === 'mask' ? paint.uOffset : 0
+    s[25] = paint?.kind === 'mask' ? paint.vOffset : 0
+    s[26] = s[27] = 0
     run.paramsOffset = this.#modelColorRing.push(this.#device, s)
   }
 
@@ -1599,5 +1778,46 @@ export class ColoredTriProgram implements GpuProgram {
       byMask.set(maskTex, bg)
     }
     return bg
+  }
+}
+
+/**
+ * The winding fans of path fills, in a stream of their own. A fan and its cover
+ * are recorded back to back, so in one stream the fans of consecutive paths
+ * would sit apart with the covers between them. Here they are adjacent, which
+ * lets the replay join the fans of paths that do not touch into one draw. It
+ * draws through {@link ColoredTriProgram}'s pipelines and per-run uniforms.
+ */
+export class StencilFanProgram implements GpuProgram {
+  readonly kind = 'stencilFan' as const
+  stream!: RingStream
+
+  readonly #tri: ColoredTriProgram
+
+  constructor(tri: ColoredTriProgram) {
+    this.#tri = tri
+  }
+
+  init(device: GfxDevice): void {
+    this.stream = new RingStream(
+      device,
+      COLORED_TRI_BUFFER_BYTES / 4,
+      COLORED_TRI_STRIDE,
+      'stencilFan',
+    )
+  }
+
+  async warmup(): Promise<void> {}
+
+  drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    this.#tri.drawRun(ctx, run, this.stream)
+  }
+
+  runBounds(run: DrawRun, out: Float64Array): boolean {
+    return this.#tri.runBounds(run, out, this.stream)
+  }
+
+  prepareRun(ctx: GpuBatchContext, run: DrawRun): void {
+    this.#tri.prepareRun(ctx, run)
   }
 }

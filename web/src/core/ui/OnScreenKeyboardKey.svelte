@@ -1,105 +1,46 @@
 <!--
-  A single key for `OnScreenKeyboard`. Commits its character on `pointerdown`.
-  Release is heard on `window` rather than the button itself, since a
-  touchscreen's own `pointerup` can land on a different target, get dropped
-  after the implicit touch capture, or get lost to a system gesture, any of
-  which would leave the key looking stuck pressed.
+  A single key for `OnScreenKeyboard`. It only draws: the keyboard's gesture
+  controller owns every pointer, so a key has no listeners and cannot be left
+  pressed on its own. `data-key-id` is how the keyboard finds the key's box.
 -->
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { SvelteSet } from 'svelte/reactivity'
+  import type { KeyVariant } from './keyboard/layout'
 
   interface Props {
+    id: string
     label: string
     /** Accessible name, when `label` is a glyph rather than a letter. */
     ariaLabel?: string
-    /**
-     * Raw SVG markup (a `?raw` import) shown instead of `label`, for the
-     * non-letter keys (close, backspace, enter).
-     */
+    /** Raw SVG markup (a `?raw` import) shown instead of `label`. */
     icon?: string
-    onTap: () => void
+    variant?: KeyVariant
+    /** Grid columns the key spans. A letter spans 2. */
+    span: number
+    pressed?: boolean
     disabled?: boolean
-    /** As wide as five keys, for a space bar. */
-    wide?: boolean
   }
   const {
+    id,
     label,
     ariaLabel = label,
     icon,
-    onTap,
+    variant = 'char',
+    span,
+    pressed = false,
     disabled = false,
-    wide = false,
   }: Props = $props()
-
-  let active = $state(false)
-  const activePointers = new SvelteSet<number>()
-  let listening = false
-
-  function attach(): void {
-    if (listening) return
-    listening = true
-    window.addEventListener('pointerup', onWindowRelease)
-    window.addEventListener('pointercancel', onWindowRelease)
-  }
-  function detach(): void {
-    if (!listening) return
-    listening = false
-    window.removeEventListener('pointerup', onWindowRelease)
-    window.removeEventListener('pointercancel', onWindowRelease)
-  }
-  function releasePointer(id: number): void {
-    if (!activePointers.delete(id)) return
-    if (active && activePointers.size === 0) {
-      active = false
-      detach()
-    }
-  }
-  function onWindowRelease(e: PointerEvent): void {
-    releasePointer(e.pointerId)
-  }
-  /**
-   * Force-release. Called on window blur / tab hide and on unmount, so a
-   * pressed key can never outlive the component.
-   */
-  function clearAll(): void {
-    detach()
-    activePointers.clear()
-    active = false
-  }
-
-  function down(e: PointerEvent): void {
-    if (disabled) return
-    e.preventDefault()
-    activePointers.add(e.pointerId)
-    attach()
-    active = true
-    onTap()
-  }
-
-  onMount(() => {
-    const onWinBlur = (): void => clearAll()
-    const onVisibility = (): void => {
-      if (document.visibilityState === 'hidden') clearAll()
-    }
-    window.addEventListener('blur', onWinBlur)
-    document.addEventListener('visibilitychange', onVisibility)
-    return () => {
-      window.removeEventListener('blur', onWinBlur)
-      document.removeEventListener('visibilitychange', onVisibility)
-      clearAll()
-    }
-  })
 </script>
 
 <button
   type="button"
-  class="key"
-  class:active
-  class:key--wide={wide}
-  {disabled}
+  class="key key--{variant}"
+  class:pressed
+  class:disabled
+  data-key-id={id}
+  style:grid-column="span {span}"
   aria-label={ariaLabel}
-  onpointerdown={down}
+  aria-disabled={disabled}
+  tabindex="-1"
 >
   {#if icon}
     {@html icon}
@@ -113,31 +54,37 @@
     display: flex
     align-items: center
     justify-content: center
-    flex-shrink: 0
-    width: var(--space-48)
     height: var(--space-64)
+    padding: 0
     background: var(--color-input-bg)
     border: none
     border-radius: var(--radius-card)
     color: var(--color-text)
+    font: inherit
     font-weight: 800
-    text-transform: uppercase
     user-select: none
     -webkit-user-select: none
+    -webkit-touch-callout: none
     touch-action: none
     cursor: pointer
-    transition: transform 0.2s linear
 
-    &.key--wide
-      width: calc(var(--space-48) * 5 + var(--space-8) * 4)
+    &.key--fn
+      background: color-mix(in srgb, var(--color-input-bg) 30%, transparent)
 
-    &.active
-      transform: scale(1.2)
+    &.key--enter
+      background: var(--color-text)
+      color: var(--color-input-bg)
+
+    &.pressed
       background: color-mix(in srgb, var(--color-text) 16%, var(--color-input-bg))
 
-    &:disabled
-      opacity: 0.35
-      cursor: not-allowed
+    &.key--enter.pressed
+      background: color-mix(in srgb, var(--color-input-bg) 24%, var(--color-text))
+
+    // Only the label dims, so an empty field does not make the keys that
+    // delete or space look switched off as a whole.
+    &.disabled
+      color: color-mix(in srgb, currentColor 35%, transparent)
 
     :global(svg)
       width: var(--space-16)

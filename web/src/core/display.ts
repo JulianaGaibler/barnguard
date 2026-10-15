@@ -37,11 +37,13 @@ export interface PreviewLabelContext extends LabelRenderContext {
 }
 
 /**
- * A "display" is one event's variant of the kiosk: theme + game viewport +
- * label renderer. Each display module exports a `DisplayManifest` and is
- * registered in `displayRegistry.ts` under a stable id. `main.ts` resolves the
- * manifest from the `?display=` URL parameter, applies the theme, sets the
- * active-display store, and hands the manifest to `App.svelte`.
+ * A "display" is one event's variant of the kiosk: a theme, a viewport, and,
+ * for a booth with a printer, a label renderer. A display without one prints
+ * nothing and the attendant UI leaves the printer out. Each display module
+ * exports a `DisplayManifest` and is registered in `displayRegistry.ts` under a
+ * stable id. `main.ts` resolves the manifest from the `?display=` URL
+ * parameter, applies the theme, sets the active-display store, and hands the
+ * manifest to `App.svelte`.
  */
 export interface DisplayManifest {
   /** Stable id, matches the URL parameter and the server `display` tag. */
@@ -68,9 +70,10 @@ export interface DisplayManifest {
    * not the manifest's own `id`. For the arcade that's every board declared by
    * every game (`GameMeta.leaderboards`), e.g. `['jezzball']`, since the
    * leaderboard is scoped per arcade game and a game with modes that do not
-   * compare keeps one board per mode. Empty/omitted gates the attendant
-   * BoothMenu's "Leaderboard" panel toggle off entirely, since the enterprise
-   * display has no name-entry concept.
+   * compare keeps one board per mode. For the enterprise display it's one board
+   * per map, e.g. `['enterprise-eu', 'enterprise-de']`. Empty/omitted gates the
+   * attendant BoothMenu's "Leaderboard" panel toggle off entirely, for a
+   * display with no boards.
    */
   leaderboardIds?: string[]
   /**
@@ -144,4 +147,12 @@ export const activeDisplay: Readable<DisplayManifest | null> = {
 
 export function setActiveDisplay(m: DisplayManifest): void {
   displayStore.set(m)
+}
+
+/**
+ * Whether a display prints at all. A display with neither label renderer stands
+ * at a booth with no printer, so the attendant UI leaves the printer out.
+ */
+export function displayPrints(m: DisplayManifest | null): boolean {
+  return !!(m?.renderLabelForRecord || m?.renderPreviewLabel)
 }

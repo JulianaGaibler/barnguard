@@ -34,9 +34,12 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     gpuDevice,
     clearColor: '#101418',
     msaaSamples: 4,
-    debug: 'hud',
     fog: { enabled: false },
-    quality: { meshShadowsEnabled: true, shadowMapSize: 2048, shadowSoftness: 9 },
+    quality: {
+      meshShadowsEnabled: true,
+      shadowMapSize: 2048,
+      shadowSoftness: 9,
+    },
   })
   attach?.(host)
 

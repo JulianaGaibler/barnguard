@@ -1,6 +1,5 @@
 import { Node2D } from '../scene/Node2D'
-import type { Camera } from '../camera/Camera'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { Canvas } from '../render/picture/Canvas'
 import {
   ParticleEmitter,
   type ParticleEmitterConfig,
@@ -16,9 +15,10 @@ export interface ParticleEmitterNodeOptions {
 
 /**
  * Scene-graph wrapper around a {@link ParticleEmitter}. Advances the emitter in
- * {@link Node2D.onUpdate} and draws its sprites in {@link Node2D.draw}. Reach the
- * emitter through {@link ParticleEmitterNode.emitter} to emit, burst, or move
- * the origin.
+ * {@link Node2D.onUpdate} and paints its sprites in {@link Node2D.paint}, which
+ * runs every frame while any particle is alive and never while none is. Reach
+ * the emitter through {@link ParticleEmitterNode.emitter} to emit, burst, or
+ * move the origin.
  *
  * Particles live in the node's local coordinate space. `emitter.setOrigin(x,
  * y)` is a node-local point, so parenting this node under a moving object makes
@@ -56,11 +56,22 @@ export class ParticleEmitterNode extends Node2D {
     return this.emitter.aliveCount
   }
 
+  /**
+   * Whether the last paint held any particle, so the frame that empties it
+   * repaints.
+   */
+  #hadParticles = false
+
   override onUpdate(dt: number): void {
     this.emitter.update(dt)
+    // Every particle moves each frame, so the picture is stale while any is
+    // alive. One more repaint after the last dies clears them.
+    const alive = this.emitter.aliveCount > 0
+    if (alive || this.#hadParticles) this.markNeedsPaint()
+    this.#hadParticles = alive
   }
 
-  override draw(gfx: Gfx2D, _camera: Camera, _dt: number): void {
+  override paint(gfx: Canvas): void {
     const cfg = this.emitter.config
     const pool = this.emitter.pool
     if (pool.aliveCount === 0) return

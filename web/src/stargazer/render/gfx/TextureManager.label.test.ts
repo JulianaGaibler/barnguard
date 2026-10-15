@@ -110,7 +110,12 @@ describe('TextureManager label cache', () => {
     // Buckets step by 2**(1/3), so a device scale of 2 sits at k = 3 and these
     // two land exactly one bucket either side of it.
     const bigger = tm.ensureLabelTexture('k', 't', style, 2.4) // k + 1
-    const smaller = tm.ensureLabelTexture('k', 't', style, 1.5) // k - 1
+    // Hold the scale still until the exact raster is made.
+    let smaller = bigger
+    for (let i = 0; i < 10; i++) {
+      tm.resetLabelBudget()
+      smaller = tm.ensureLabelTexture('k', 't', style, 1.5) // k - 1
+    }
     expect(smaller).not.toBe(bigger)
     for (let i = 0; i < 24; i++) {
       tm.ensureLabelTexture(`filler${i}`, 't', style, 2)
@@ -198,6 +203,59 @@ describe('label page instrumentation', () => {
   it('counts an eviction once the entry cap is passed', () => {
     for (let i = 0; i <= 800; i++) tm.ensureLabelTexture(`k${i}`, 't', style, 1)
     expect(tm.snapshot().labelEvictions).toBeGreaterThan(0)
+  })
+})
+
+describe('label raster hold', () => {
+  const frame = (): void => tm.resetLabelBudget()
+  const rasters = (): number => device.subImageUploads.length
+
+  it('keeps drawing from a nearby raster while the scale keeps changing', () => {
+    const first = tm.ensureLabelTexture('k', 't', style, 2)
+    const before = rasters()
+    // Scale drifts across several bucket boundaries, a step each frame.
+    for (let i = 1; i <= 6; i++) {
+      frame()
+      tm.ensureLabelTexture('k', 't', style, 2 * 1.05 ** i)
+    }
+    expect(rasters()).toBe(before)
+    frame()
+    expect(tm.ensureLabelTexture('k', 't', style, 2 * 1.05 ** 7)).toBe(first)
+  })
+
+  it('rasterizes the exact bucket once the scale has held still', () => {
+    tm.ensureLabelTexture('k', 't', style, 2)
+    frame()
+    tm.ensureLabelTexture('k', 't', style, 3)
+    const before = rasters()
+    for (let i = 0; i < 9; i++) {
+      frame()
+      tm.ensureLabelTexture('k', 't', style, 3)
+    }
+    expect(rasters()).toBe(before + 1)
+  })
+
+  it('rasterizes at once when no raster is within reach', () => {
+    tm.ensureLabelTexture('k', 't', style, 1)
+    frame()
+    const before = rasters()
+    tm.ensureLabelTexture('k', 't', style, 30)
+    expect(rasters()).toBe(before + 1)
+  })
+})
+
+describe('label page overflow', () => {
+  it("keeps this frame's slots intact and resets the page on the next frame", () => {
+    // Each label takes about 400 by 160 px, so a 2048 page holds about 60.
+    const first = tm.ensureLabelTexture('k0', 't', style, 40)
+    for (let i = 1; i < 100; i++) tm.ensureLabelTexture(`k${i}`, 't', style, 40)
+    expect(tm.snapshot().labelPageWipes).toBe(0)
+    expect(tm.ensureLabelTexture('k0', 't', style, 40)).toBe(first)
+
+    tm.resetLabelBudget()
+    expect(tm.snapshot().labelPageWipes).toBe(1)
+    expect(tm.snapshot().labelPage.usedHeight).toBe(0)
+    expect(tm.ensureLabelTexture('k0', 't', style, 40)).not.toBe(first)
   })
 })
 

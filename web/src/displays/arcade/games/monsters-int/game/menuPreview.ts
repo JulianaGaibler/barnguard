@@ -22,10 +22,11 @@
  *   preview.destroy()
  */
 import {
+  definePaintProps,
   easings,
   Node2D,
+  type Canvas,
   type EngineHost,
-  type Gfx2D,
   type Rect,
 } from '@src/stargazer'
 import { seededRandom } from '../../common/rng'
@@ -127,26 +128,56 @@ interface Faller {
   turn: number
 }
 
+/**
+ * One falling card. Its picture is the card face, and its transform is the
+ * fall.
+ */
+class FallerNode extends Node2D {
+  declare image: HTMLCanvasElement | null
+  declare width: number
+  declare height: number
+
+  constructor() {
+    super('monsters-int-menu-faller')
+    definePaintProps(this, { image: null, width: 0, height: 0 })
+  }
+
+  override paint(gfx: Canvas): void {
+    if (!this.image) return
+    gfx.drawImage(
+      this.image,
+      -this.width / 2,
+      -this.height / 2,
+      this.width,
+      this.height,
+    )
+  }
+}
+
 class MenuPreviewNode extends Node2D {
-  readonly #view: Rect
   readonly #region: Rect
   readonly #fallers: Faller[] = []
+  readonly #nodes: FallerNode[] = []
   /**
    * Seeded, and kept, so the whole sequence is the same every time the booth
    * opens the menu rather than subtly different on each visit.
    */
   readonly #random = seededRandom(0x30071e)
   #images: CardImages | null = null
-  #face: MenuFace | null = null
+  /** The cream wash, which is painted once, and the monster over it. */
+  declare view: Rect
+  declare face: MenuFace | null
   #elapsed = 0
 
   constructor(view: Rect, region: Rect) {
     super('monsters-int-menu-preview')
-    // Above the shared sky, which draws in the `static` layer over the whole
-    // 3D pass. A preview below it would never be seen.
-    this.renderLayer = 'dynamic'
-    this.#view = view
+    definePaintProps(this, { view, face: null })
     this.#region = region
+    // Clipped to the region rather than to the cover rect. The cover rect
+    // overflows on purpose so the wash has no visible edge, and without this
+    // the overflow hangs into the launcher and shows during the pan. The clip
+    // covers the falling cards, which are children.
+    this.clip = { ...region }
 
     const random = this.#random
     for (let i = 0; i < COUNT; i++) {
@@ -160,8 +191,10 @@ class MenuPreviewNode extends Node2D {
         tilt: (random() * 2 - 1) * TILT,
         turn: (random() * 2 - 1) * 0.25,
       })
+      const node = new FallerNode()
+      this.#nodes.push(node)
+      this.add(node)
     }
-    this.debugBounds = { ...view }
   }
 
   #nextFace(): string {
@@ -171,7 +204,7 @@ class MenuPreviewNode extends Node2D {
   /** Art arrives after the menu is already up, so the node is built without it. */
   setArt(images: CardImages, face: MenuFace): void {
     this.#images = images
-    this.#face = face
+    this.face = face
   }
 
   override onUpdate(dt: number): void {
@@ -185,68 +218,58 @@ class MenuPreviewNode extends Node2D {
       f.face = this.#nextFace()
       f.lane = this.#random() * 2 - 1
     }
-  }
-
-  override draw(gfx: Gfx2D): void {
-    const r = this.#region
-    gfx.save()
-    // Clipped to the region rather than to the cover rect. The cover rect
-    // overflows on purpose so the wash has no visible edge, and without this
-    // the overflow hangs into the launcher and shows during the pan.
-    gfx.setClip({
-      kind: 'roundRect',
-      x: r.x,
-      y: r.y,
-      w: r.width,
-      h: r.height,
-      radius: 0,
-    })
-    // The table's own surface. The shared sky spans both regions, so something
-    // in here has to paint over it.
-    const v = this.#view
-    gfx.fillRect(v.x, v.y, v.width, v.height, COLORS.cream)
-
-    const face = this.#face
-    if (face) {
-      const w = r.width * FACE_WIDTH_FRAC
-      const h = w / face.aspect
-      const x = r.x + r.width - w
-      const y = r.y + r.height - h
-      gfx.drawImage(face.image, x, y, w, h)
-      // Over the monster rather than behind him, so a card is its own object
-      // for the whole fall. What eats it is a clip at the rim of the opening,
-      // set per card in `#drawFallers`.
-      this.#drawFallers(gfx, x, y, w, h)
-    }
-    gfx.restore()
+    this.#placeFallers()
   }
 
   /**
-   * The stream, aimed down the opening of the face drawn at `(x, y, w, h)`.
+   * Aim the stream down the opening of the monster, and write each card's place
+   * into its transform.
    *
-   * Over the monster and under nothing but the region clip already in force, so
-   * a card is its own object for the whole fall. What ends it is the dark: the
-   * fall carries on until the card is inside the opening, which is printed in
-   * the same ink the faces are, so it is gone before it wraps.
+   * Over the monster rather than behind him, so a card is its own object for
+   * the whole fall. What ends it is the dark: the fall carries on until the
+   * card is inside the opening, which is printed in the same ink the faces are,
+   * so it is gone before it wraps.
    */
-  #drawFallers(gfx: Gfx2D, x: number, y: number, w: number, h: number): void {
+  #placeFallers(): void {
+    const face = this.face
     const images = this.#images
-    if (!images) return
+    if (!face || !images) return
+    const r = this.#region
+    const w = r.width * FACE_WIDTH_FRAC
+    const h = w / face.aspect
+    const x = r.x + r.width - w
+    const y = r.y + r.height - h
     const cardW = w * CARD_WIDTH_FRAC
     const cardH = cardW * CARD_ASPECT
     const centerX = x + w * MENU_MOUTH.centerXFrac
     const half = w * MENU_MOUTH.halfWidthFrac * SPREAD
-    const from = this.#region.y - cardH
+    const from = r.y - cardH
     const to = y + h * swallow().center
 
-    for (const f of this.#fallers) {
-      const image = images[f.face]
-      if (!image) continue
-      gfx.save()
-      gfx.translate(centerX + f.lane * half, from + f.t * (to - from))
-      gfx.rotate(f.tilt + f.turn * this.#elapsed)
-      gfx.drawImage(image, -cardW / 2, -cardH / 2, cardW, cardH)
-      gfx.restore()
+    for (let i = 0; i < this.#fallers.length; i++) {
+      const f = this.#fallers[i]!
+      const node = this.#nodes[i]!
+      node.image = images[f.face] ?? null
+      node.width = cardW
+      node.height = cardH
+      node.transform.x = centerX + f.lane * half
+      node.transform.y = from + f.t * (to - from)
+      node.transform.rotation = f.tilt + f.turn * this.#elapsed
+    }
+  }
+
+  override paint(gfx: Canvas): void {
+    // The table's own surface. The shared sky spans both regions, so something
+    // in here has to paint over it.
+    const v = this.view
+    gfx.fillRect(v.x, v.y, v.width, v.height, COLORS.cream)
+
+    const face = this.face
+    if (face) {
+      const r = this.#region
+      const w = r.width * FACE_WIDTH_FRAC
+      const h = w / face.aspect
+      gfx.drawImage(face.image, r.x + r.width - w, r.y + r.height - h, w, h)
     }
   }
 }

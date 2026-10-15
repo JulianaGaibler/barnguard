@@ -1,20 +1,25 @@
 import { describe, it, expect, vi } from 'vitest'
 
 // Mock the rasterizer so fillText runs without a real 2D canvas context. The
-// stub reports a fixed local size + anchor, and texW/texH scale with the request.
+// stub reports a local size and anchor proportional to the font's px size (10 by
+// 4 with the anchor at (1, 3) for a 10px font), and texW/texH scale with the
+// request.
 vi.mock('./rasterizeLabel', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./rasterizeLabel')>()
   return {
     ...actual,
-    rasterizeLabel: (_text: string, _style: unknown, scale: number) => ({
-      canvas: {} as HTMLCanvasElement,
-      texW: Math.max(1, Math.round(10 * scale)),
-      texH: Math.max(1, Math.round(4 * scale)),
-      localW: 10,
-      localH: 4,
-      anchorOffsetX: 1,
-      anchorOffsetY: 3,
-    }),
+    rasterizeLabel: (_text: string, style: { font: string }, scale: number) => {
+      const f = actual.parseFontSizePx(style.font) / 10
+      return {
+        canvas: {} as HTMLCanvasElement,
+        texW: Math.max(1, Math.round(10 * f * scale)),
+        texH: Math.max(1, Math.round(4 * f * scale)),
+        localW: 10 * f,
+        localH: 4 * f,
+        anchorOffsetX: 1 * f,
+        anchorOffsetY: 3 * f,
+      }
+    },
   }
 })
 
@@ -77,6 +82,18 @@ describe('GpuGfx.fillText', () => {
     expect(fv[21]).toBeCloseTo(4 / 2048) // v1
     const uv = new Uint32Array(d.bufferSnapshot as ArrayBuffer)
     expect(uv[22]).toBe(0xffffffff) // white × alpha(1)
+  })
+
+  it('keeps one raster for text whose font grows as its scale shrinks', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    gfx.setAlpha(1)
+    gfx.setBaseTransform(2, 0, 0, 2, 0, 0)
+    gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
+    gfx.setBaseTransform(1, 0, 0, 1, 0, 0)
+    gfx.fillText('hi', 0, 0, { font: '20px x', color: '#fff' })
+    gfx.endFrame()
+    expect(gfx.stats.labelRasters).toBe(1)
   })
 
   it('reuses one label slot across rotation changes (rotation is free)', async () => {

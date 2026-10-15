@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
    * The round's header: the time survived, the score, and the region's name, as
-   * three pills along the top edge. An HTML node on the UI stage, pinned to the
+   * three pills along the top edge. An HTML node on the UI layer, pinned to the
    * region's top corners so it stays there at any window shape.
    *
    * Tapping any pill pauses the round. The space between them takes no pointer
@@ -20,8 +20,8 @@
     monoChars,
     splitScore,
   } from '@src/displays/enterprise/format/splitScore'
-  import type { UiRegion } from './uiRegion.svelte'
-  import { Reveal } from './reveal.svelte'
+  import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
+  import { Reveal } from '@src/core/ui/reveal.svelte'
   import MonoDigits from './MonoDigits.svelte'
 
   interface Props {

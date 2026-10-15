@@ -1,5 +1,4 @@
 import { Node2D } from '../scene/Node2D'
-import type { NodeOwner } from '../scene/Node'
 import type { Affine2x3, CameraView2D } from '../camera/CameraView2D'
 import type { Rect } from '../math/Rect'
 import type { Vec2 } from '../math/Vec2'
@@ -16,14 +15,6 @@ export interface InsetViewOptions {
    * height`, one inset unit per parent unit.
    */
   viewport?: Rect
-}
-
-/** How many insets each owner holds, so a scene with none skips the lookup. */
-const insetCounts = new WeakMap<NodeOwner, number>()
-
-/** Whether `owner` has any {@link InsetViewNode} attached. */
-export function hasInsets(owner: NodeOwner | null): boolean {
-  return owner !== null && (insetCounts.get(owner) ?? 0) > 0
 }
 
 /**
@@ -69,14 +60,13 @@ export class InsetViewNode extends Node2D {
   readonly height: number
   readonly radius: number
   #viewport: Rect
-  #counted: NodeOwner | null = null
 
   constructor(opts: InsetViewOptions, id?: string) {
     super(id ?? 'inset-view')
     this.width = opts.width
     this.height = opts.height
     this.radius = opts.radius ?? 0
-    this.debugBounds = { x: 0, y: 0, width: opts.width, height: opts.height }
+    this.boundsOverride = { x: 0, y: 0, width: opts.width, height: opts.height }
     this.content = new Node2D(`${this.id}-content`)
     this.add(this.content)
     this.#viewport = { x: 0, y: 0, width: opts.width, height: opts.height }
@@ -98,21 +88,6 @@ export class InsetViewNode extends Node2D {
     t.scaleY = s
     t.x = (this.width - vw * s) / 2 - rect.x * s
     t.y = (this.height - vh * s) / 2 - rect.y * s
-  }
-
-  override onAttachedToScene(owner: NodeOwner): void {
-    super.onAttachedToScene(owner)
-    insetCounts.set(owner, (insetCounts.get(owner) ?? 0) + 1)
-    this.#counted = owner
-  }
-
-  override onDetachedFromScene(): void {
-    const owner = this.#counted
-    if (owner) {
-      insetCounts.set(owner, Math.max(0, (insetCounts.get(owner) ?? 1) - 1))
-      this.#counted = null
-    }
-    super.onDetachedFromScene()
   }
 }
 

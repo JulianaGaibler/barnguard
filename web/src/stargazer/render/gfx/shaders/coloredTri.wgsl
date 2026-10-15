@@ -11,8 +11,9 @@
 // The clip is a multiply (not a `discard` hard cut) so it doesn't defeat the
 // MSAA coverage AA on polygon edges.
 //
-// Bindings match batchLayout.ts: a_pos/a_color/a_uv at LOC_COLORED_* (0/1/2),
-// Frame at FRAME_UBO_BINDING (0), DrawParams at DRAWPARAMS_UBO_BINDING (2),
+// Bindings match batchLayout.ts: a_pos/a_color/a_uv/a_param at LOC_COLORED_*
+// (0 to 3), Frame at FRAME_UBO_BINDING (0), the param table (clip records) at
+// PARAM_TABLE_BINDING (10), DrawParams at DRAWPARAMS_UBO_BINDING (2),
 // u_clipTex at texture unit 1, u_ramp (the shared ramp atlas) at texture unit
 // 3, u_mask (an inset path-shadow's coverage mask) at texture unit 4. Sampler
 // at texture_binding + 16 (see gradientRadial.wgsl for the convention).
@@ -24,18 +25,6 @@ struct Frame {
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
 
-struct Clip {
-  kind: f32,
-  cx: f32,
-  cy: f32,
-  r: f32,
-  halfW: f32,
-  halfH: f32,
-  rrRadius: f32,
-  clipPad: f32,
-};
-@group(0) @binding(8) var<uniform> clipShape: Clip;
-
 // Device-px fragment position, corrected for WebGL2's bottom-up
 // `gl_FragCoord.y`. Shared by the analytic clip and the gradient axis
 // projection, both of which were computed CPU-side in this same convention.
@@ -44,23 +33,11 @@ fn devicePos(fragPos: vec2<f32>) -> vec2<f32> {
   return vec2<f32>(fragPos.x, fy);
 }
 
-// Analytic clip coverage in device px. Multiply the premultiplied fragment
-// output by this.
-fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
-  let q = abs(p) - b + vec2<f32>(rad);
-  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
-}
-fn clipCoverage(fragPos: vec2<f32>) -> f32 {
-  if (clipShape.kind < 0.5) { return 1.0; }
-  let p = devicePos(fragPos) - vec2<f32>(clipShape.cx, clipShape.cy);
-  var d: f32;
-  if (clipShape.kind < 1.5) {
-    d = length(p) - clipShape.r;
-  } else {
-    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
-  }
-  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
-}
+// Per-primitive records, read by index in the vertex stage (see ParamTable.ts).
+// Index 0 is the empty record: kind 0, which is no clip.
+@group(0) @binding(10) var<storage, read> paramTable: array<vec4<f32>>;
+
+// #include "include/clipRecord.inc.wgsl"
 
 // 8x8 ordered (Bayer) dither, values 0..63. Breaks up 8-bit quantization
 // banding on a smooth ramp (a gradient, an analytic shadow, the outset
@@ -83,15 +60,15 @@ fn bayerValue(fragPos: vec2<f32>) -> f32 {
 
 // Per-run paint/debug/clip params. `paint`'s meaning depends on `flags.z`
 // (paintMode): gradient mode reads it as the axis projection (scaleDirX,
-// scaleDirY, startOffset, rampRow); inset-mask mode reads it as the mask
-// rect's device-px origin and reciprocal extent (originX, originY, invW,
-// invH), the same "project a device position into a sample" shape the
-// gradient axis already uses.
+// scaleDirY, startOffset, rampRow); inset-mask mode reads it as the rows of
+// the device-to-mask-uv map (u row in xy, v row in zw), with the offsets in
+// `misc.xy`.
 struct DrawParams {
   debugColor: vec4<f32>, // premultiplied hue for batch-color mode
   paint: vec4<f32>,
-  misc: vec4<f32>,       // reserved for a future per-run field (opacity at .y)
+  misc: vec4<f32>,       // radial: (unused, opacity, ramp row), mask: uv offsets
   flags: vec4<u32>,      // (clipEnabled, debugMode, paintMode, dither)
+  paintMap: vec4<f32>,   // radial: (offset.xy, focal-to-center vector)
 };
 @group(1) @binding(2) var<uniform> params: DrawParams;
 
@@ -106,6 +83,11 @@ struct VOut {
   @builtin(position) pos: vec4<f32>,
   @location(0) color: vec4<f32>,
   @location(1) uv: vec2<f32>,
+  // Flat: the clip's param record, four vec4s.
+  @location(2) @interpolate(flat) clip0: vec4<f32>,
+  @location(3) @interpolate(flat) clip1: vec4<f32>,
+  @location(4) @interpolate(flat) clip2: vec4<f32>,
+  @location(5) @interpolate(flat) clip3: vec4<f32>,
 };
 
 @vertex
@@ -113,8 +95,14 @@ fn vs_main(
   @location(0) a_pos: vec2<f32>,
   @location(1) a_color: vec4<f32>,
   @location(2) a_uv: vec2<f32>,
+  @location(3) a_param: u32,
 ) -> VOut {
   var out: VOut;
+  let rec = a_param * 4u;
+  out.clip0 = paramTable[rec];
+  out.clip1 = paramTable[rec + 1u];
+  out.clip2 = paramTable[rec + 2u];
+  out.clip3 = paramTable[rec + 3u];
   let clip = frame.proj * vec3<f32>(a_pos, 1.0);
   out.pos = vec4<f32>(clip.xy, 0.0, 1.0);
   out.color = a_color;
@@ -138,17 +126,18 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let v = (params.paint.w + 0.5) / 64.0;
     c = textureSample(u_ramp, u_rampSamp, vec2<f32>(u, v)) * params.misc.y;
   } else if (paintMode == 3u) {
-    // Radial gradient with a focal point. `paint` is (focal.xy, focal-to-center
-    // vector) in device px, `misc` is (radius, opacity, ramp row). `t` is the
-    // scale of the circle through this pixel whose center slides from the focal
-    // point to the center as its radius grows to `misc.x`. With the focal point
-    // inside the circle the quadratic's leading term is negative and the
-    // positive root is the one below.
+    // Radial gradient with a focal point, in the gradient's own space scaled
+    // to a unit circle with the focal point at the origin. `paint` holds the
+    // rows of the map from a device position into that space, `paintMap` its
+    // offset and the focal-to-center vector, `misc` is (unused, opacity, ramp
+    // row). `t` is the scale of the circle through this pixel whose center
+    // slides from the focal point to the center as its radius grows to 1. With
+    // the focal point inside the circle the quadratic's leading term is
+    // negative and the positive root is the one below.
     let p = devicePos(in.pos.xy);
-    let d = p - params.paint.xy;
-    let e = params.paint.zw;
-    let r = params.misc.x;
-    let a = min(dot(e, e) - r * r, -1e-4);
+    let d = vec2<f32>(dot(p, params.paint.xy), dot(p, params.paint.zw)) + params.paintMap.xy;
+    let e = params.paintMap.zw;
+    let a = min(dot(e, e) - 1.0, -1e-4);
     let de = dot(d, e);
     let disc = max(de * de - a * dot(d, d), 0.0);
     let t = clamp((de - sqrt(disc)) / a, 0.0, 1.0);
@@ -166,7 +155,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     // silhouette has a true blurred coverage below one 8-bit level, and
     // `1 - 0` is exactly that.
     let p = devicePos(in.pos.xy);
-    let uv = (p - params.paint.xy) * params.paint.zw;
+    let uv = vec2<f32>(dot(p, params.paint.xy), dot(p, params.paint.zw)) + params.misc.xy;
     let uvInside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     let maskR = select(0.0, textureSample(u_mask, u_maskSamp, uv).r, uvInside);
     c = c * (1.0 - maskR);
@@ -174,7 +163,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
   if (params.flags.x > 0u) {
     c = c * textureSample(u_clipTex, u_clipSamp, in.uv).a;
   }
-  c *= clipCoverage(in.pos.xy);
+  c *= clipCoverageRec(devicePos(in.pos.xy), in.clip0, in.clip1, in.clip2, in.clip3);
   if (params.flags.w > 0u) {
     // Sub-LSB: this only changes which side of a quantization boundary a
     // pixel lands on. Clamped to `c.a` because adding a flat offset to the

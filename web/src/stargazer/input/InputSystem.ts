@@ -11,13 +11,23 @@ import type {
 } from './PointerState'
 import { findHitNode } from './hit'
 import { raycastWorld3D } from '../scene/raycast3d'
+import type { Node2D } from '../scene/Node2D'
+import { layerOf, viewFor } from '../scene/viewFor'
+import { setWorldToLocalCheck } from '../scene/worldSpaceGuard'
 
 /** Internal mutable pointer record. Structurally satisfies PointerStateSnapshot. */
 interface PointerRecord {
   id: number
   kind: 'touch' | 'mouse' | 'pen'
   screen: Vec2
+  /** The position in the stage camera's world, for stage-level events. */
   world: Vec2
+  /**
+   * The position in the world of the captured node's view, for that node's own
+   * events. Equal to `world` unless the node sits under a layer with a space of
+   * its own.
+   */
+  nodeWorld: Vec2
   startedAtMs: number
   capturedBy: PointerTarget | null
   /** Un-subscribes from `capturedBy.events.on('destroy', …)`. */
@@ -28,6 +38,32 @@ interface PointerRecord {
 
 /** Screen-space touch slop in CSS pixels. Recomputed to world units on demand. */
 const DEFAULT_TOUCH_SLOP_SCREEN_PX = 30
+
+/**
+ * The camera-space position the last stage-level pointer event carried, which
+ * the development check compares against.
+ */
+let lastStageWorldX = NaN
+let lastStageWorldY = NaN
+const warnedMisuse = new WeakSet<Node2D>()
+const LOCAL_SCRATCH: Vec2 = { x: 0, y: 0 }
+
+/**
+ * Development check for a footgun: a stage-level event's `pointer.world` is in
+ * the camera's space, so passing it to `worldToLocal` of a node under a layer
+ * with a space of its own puts the node in the wrong place. Warns once per
+ * node.
+ */
+function warnOnCameraWorldMisuse(node: Node2D, x: number, y: number): void {
+  if (x !== lastStageWorldX || y !== lastStageWorldY) return
+  if (warnedMisuse.has(node)) return
+  const layer = layerOf(node)
+  if (!layer) return
+  warnedMisuse.add(node)
+  console.warn(
+    `A stage event's pointer.world was passed to ${node.id}.worldToLocal, but ${node.id} is placed by layer ${layer.id}, not the camera. Use event.localTo(${node.id}) to get the position in its space.`,
+  )
+}
 
 /**
  * Multi-touch input for one interactive `Stage`, reached as `stage.input` (or
@@ -41,7 +77,9 @@ const DEFAULT_TOUCH_SLOP_SCREEN_PX = 30
  * bezel keeps producing events), hit-walks this stage's scene on `down` to
  * capture the topmost `hitEnabled` node, and re-projects every active pointer's
  * `world` at the start of each frame, emitting a synthetic `pointerMove` when a
- * camera animation has drifted the world coord under a still finger. It emits
+ * camera animation has drifted the world coord under a still finger. A node
+ * under a layer with a space of its own is hit-tested and receives positions in
+ * that layer's space, while stage-level events keep the camera's. It emits
  * `pointerDown/Move/Up/Cancel` on `stage.events`. The primary stage's events
  * are also forwarded to `engine.events` by the `Engine` constructor, but
  * secondaries stay isolated.
@@ -72,6 +110,7 @@ export class InputSystem {
       PointerStateSnapshot
     >
     this.#attachListeners()
+    if (import.meta.env.DEV) setWorldToLocalCheck(warnOnCameraWorldMisuse)
   }
 
   /** Screen-space slop in CSS px. Default 30 (roughly a fingertip). */
@@ -86,6 +125,20 @@ export class InputSystem {
   get touchSlopWorld(): number {
     const scale = this.#getActiveCamera()?.screenPxPerWorldUnit() ?? 0
     return scale > 0 ? this.#touchSlopScreenPx / scale : 0
+  }
+
+  /**
+   * Slop in the world units of the view that places `node`. Differs from
+   * {@link InputSystem.touchSlopWorld} for a node under a layer with a space of
+   * its own, whose scale is not the camera's.
+   */
+  touchSlopFor(node: Node2D): number {
+    const scale = viewFor(
+      node,
+      this.#stage,
+      this.#engine.debug,
+    )?.screenPxPerWorldUnit()
+    return scale && scale > 0 ? this.#touchSlopScreenPx / scale : 0
   }
 
   /**
@@ -142,25 +195,75 @@ export class InputSystem {
    * Called by `Engine.frame()` at the start of every render tick, AFTER any
    * `onBeforeFrame` handlers have updated the active camera. Re-projects every
    * pointer's world coord and emits a synthetic `pointerMove` for any pointer
-   * whose world coord drifted without a native event this frame.
+   * whose world coord drifted without a native event this frame. The stage's
+   * listeners and the captured node are told separately, because each sees its
+   * own space and only one of them may have moved. A pointer held on a node
+   * under a screen layer gets no synthetic move while the camera pans.
    */
   beforeFrame(): void {
     if (this.#disposed || this.#recordsMap.size === 0) return
-    const cam = this.#getActiveCamera()
-    if (!cam) return
-    const scratch = { x: 0, y: 0 }
     for (const record of this.#recordsMap.values()) {
-      cam.screenToWorld(record.screen.x, record.screen.y, scratch)
-      const dx = scratch.x - record.world.x
-      const dy = scratch.y - record.world.y
-      const drifted = Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4
-      record.world.x = scratch.x
-      record.world.y = scratch.y
-      if (drifted && !record.nativeMoveThisFrame) {
-        this.#dispatchMove(record, dx, dy, 'synthetic')
+      const moved = this.#project(record)
+      if (!record.nativeMoveThisFrame) {
+        const stageDrift =
+          Math.abs(moved.dx) > 1e-4 || Math.abs(moved.dy) > 1e-4
+        const nodeDrift =
+          Math.abs(moved.ndx) > 1e-4 || Math.abs(moved.ndy) > 1e-4
+        if (stageDrift || nodeDrift) {
+          this.#dispatchMove(record, moved, 'synthetic', stageDrift, nodeDrift)
+        }
       }
       record.nativeMoveThisFrame = false
     }
+  }
+
+  /** What `#project` moved a pointer by, in the camera's and the node's space. */
+  readonly #moved = { dx: 0, dy: 0, ndx: 0, ndy: 0 }
+
+  /**
+   * The view that places the node holding `record`, or `null` when the node is
+   * placed by the camera (or nothing holds the pointer), where its events carry
+   * the camera's world.
+   */
+  #nodeView(record: PointerRecord): CameraView2D | null {
+    const target = record.capturedBy
+    if (!target || target.kind !== '2d') return null
+    const node = target as Node2D
+    return layerOf(node) ? viewFor(node, this.#stage) : null
+  }
+
+  /**
+   * Re-project `record` from its screen position into the camera's world and
+   * the captured node's world, and report how far each moved.
+   */
+  #project(record: PointerRecord): {
+    dx: number
+    dy: number
+    ndx: number
+    ndy: number
+  } {
+    const out = this.#moved
+    const screen = record.screen
+    const cam = this.#getActiveCamera()
+    const prevX = record.world.x
+    const prevY = record.world.y
+    if (cam) cam.screenToWorld(screen.x, screen.y, record.world)
+    out.dx = record.world.x - prevX
+    out.dy = record.world.y - prevY
+    const view = this.#nodeView(record)
+    if (view) {
+      const nx = record.nodeWorld.x
+      const ny = record.nodeWorld.y
+      view.screenToWorld(screen.x, screen.y, record.nodeWorld)
+      out.ndx = record.nodeWorld.x - nx
+      out.ndy = record.nodeWorld.y - ny
+    } else {
+      record.nodeWorld.x = record.world.x
+      record.nodeWorld.y = record.world.y
+      out.ndx = out.dx
+      out.ndy = out.dy
+    }
+    return out
   }
 
   /** Force-release a pointer's node capture (does NOT dispatch cancel). */
@@ -245,6 +348,7 @@ export class InputSystem {
       kind: this.#pointerKind(e),
       screen: { ...screen },
       world: { ...world },
+      nodeWorld: { ...world },
       startedAtMs: performance.now(),
       capturedBy: null,
       destroyUnsub: null,
@@ -263,28 +367,41 @@ export class InputSystem {
       // works if the pointer stays over the canvas.
     }
 
-    // Node-level hit-test in world coords through the ACTIVE camera on the
-    // owning stage's scene. The 2D overlay wins over 3D (it composites on top),
-    // and only when nothing 2D is hit do we ray-pick the 3D world.
+    // Node-level hit-test from the canvas position, through the view that
+    // places each node: the ACTIVE camera, or the view of a layer with a space
+    // of its own. The 2D overlay wins over 3D (it composites on top), and only
+    // when nothing 2D is hit do we ray-pick the 3D world.
     const hit: PointerTarget | null =
       findHitNode(
         this.#stage.tree.root,
-        world.x,
-        world.y,
-        this.touchSlopWorld,
+        screen.x,
+        screen.y,
+        (node) => viewFor(node, this.#stage, this.#engine.debug),
+        this.#touchSlopScreenPx,
       ) ?? this.pick3D(screen.x, screen.y)
     if (hit) {
       record.capturedBy = hit
+      this.#project(record)
       // If the node dies while capturing, synthesise cancel + release.
       record.destroyUnsub = hit.events.on('destroy', () => {
         this.#dispatchCancel(record.id, 'synthetic')
       })
-      hit.onPointerDown?.(this.#makeEvent(record, 0, 0, 'down', 'native'))
+      hit.onPointerDown?.(this.#makeEvent(record, 0, 0, 'down', 'native', true))
     }
-    this.#stage.events.emit(
+    this.#emitStage(
       'pointerDown',
-      this.#makeEvent(record, 0, 0, 'down', 'native'),
+      this.#makeEvent(record, 0, 0, 'down', 'native', false),
     )
+  }
+
+  /** Emit a stage-level event, noting the camera position it carries. */
+  #emitStage(
+    name: 'pointerDown' | 'pointerMove' | 'pointerUp' | 'pointerCancel',
+    ev: PointerEvent2D,
+  ): void {
+    lastStageWorldX = ev.pointer.world.x
+    lastStageWorldY = ev.pointer.world.y
+    this.#stage.events.emit(name, ev)
   }
 
   #handleMove(e: PointerEvent): void {
@@ -294,29 +411,33 @@ export class InputSystem {
     const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.#getActiveCamera()?.screenToWorld(
-      screen.x,
-      screen.y,
-    ) ?? { x: 0, y: 0 }
-    const dx = world.x - record.world.x
-    const dy = world.y - record.world.y
-    record.world.x = world.x
-    record.world.y = world.y
+    const moved = this.#project(record)
     record.nativeMoveThisFrame = true
-    this.#dispatchMove(record, dx, dy, 'native')
+    this.#dispatchMove(record, moved, 'native', true, true)
   }
 
+  /**
+   * Dispatch a move to the captured node (`toNode`) and to the stage's
+   * listeners (`toStage`), each with the position and delta in its own space.
+   */
   #dispatchMove(
     record: PointerRecord,
-    dx: number,
-    dy: number,
+    moved: { dx: number; dy: number; ndx: number; ndy: number },
     source: 'native' | 'synthetic',
+    toStage: boolean,
+    toNode: boolean,
   ): void {
-    const ev = this.#makeEvent(record, dx, dy, 'move', source)
-    if (record.capturedBy && !record.capturedBy.isDestroyed) {
-      record.capturedBy.onPointerMove?.(ev)
+    if (toNode && record.capturedBy && !record.capturedBy.isDestroyed) {
+      record.capturedBy.onPointerMove?.(
+        this.#makeEvent(record, moved.ndx, moved.ndy, 'move', source, true),
+      )
     }
-    this.#stage.events.emit('pointerMove', ev)
+    if (toStage) {
+      this.#emitStage(
+        'pointerMove',
+        this.#makeEvent(record, moved.dx, moved.dy, 'move', source, false),
+      )
+    }
   }
 
   #handleUp(e: PointerEvent): void {
@@ -326,20 +447,17 @@ export class InputSystem {
     const screen = this.#toCanvasCss(e)
     record.screen.x = screen.x
     record.screen.y = screen.y
-    const world = this.#getActiveCamera()?.screenToWorld(
-      screen.x,
-      screen.y,
-    ) ?? { x: 0, y: 0 }
-    const dx = world.x - record.world.x
-    const dy = world.y - record.world.y
-    record.world.x = world.x
-    record.world.y = world.y
+    const moved = this.#project(record)
 
-    const ev = this.#makeEvent(record, dx, dy, 'up', 'native')
     if (record.capturedBy && !record.capturedBy.isDestroyed) {
-      record.capturedBy.onPointerUp?.(ev)
+      record.capturedBy.onPointerUp?.(
+        this.#makeEvent(record, moved.ndx, moved.ndy, 'up', 'native', true),
+      )
     }
-    this.#stage.events.emit('pointerUp', ev)
+    this.#emitStage(
+      'pointerUp',
+      this.#makeEvent(record, moved.dx, moved.dy, 'up', 'native', false),
+    )
 
     this.#cleanupRecord(e.pointerId)
   }
@@ -359,11 +477,15 @@ export class InputSystem {
   #dispatchCancel(pointerId: number, source: 'native' | 'synthetic'): void {
     const record = this.#recordsMap.get(pointerId)
     if (!record) return
-    const ev = this.#makeEvent(record, 0, 0, 'cancel', source)
     if (record.capturedBy && !record.capturedBy.isDestroyed) {
-      record.capturedBy.onPointerCancel?.(ev)
+      record.capturedBy.onPointerCancel?.(
+        this.#makeEvent(record, 0, 0, 'cancel', source, true),
+      )
     }
-    this.#stage.events.emit('pointerCancel', ev)
+    this.#emitStage(
+      'pointerCancel',
+      this.#makeEvent(record, 0, 0, 'cancel', source, false),
+    )
     this.#cleanupRecord(pointerId)
   }
 
@@ -381,21 +503,30 @@ export class InputSystem {
     this.#recordsMap.delete(pointerId)
   }
 
+  /**
+   * Build the event for `record`. A node's own event (`forNode`) carries the
+   * position in the world of the view that places the captured node, and a
+   * stage-level event carries it in the camera's world.
+   */
   #makeEvent(
     record: PointerRecord,
     dx: number,
     dy: number,
     phase: PointerPhase,
     source: 'native' | 'synthetic',
+    forNode: boolean,
   ): PointerEvent2D {
-    const wx = record.world.x
-    const wy = record.world.y
+    const at = forNode ? record.nodeWorld : record.world
+    const sx = record.screen.x
+    const sy = record.screen.y
+    const cameraX = record.world.x
+    const cameraY = record.world.y
     return {
       pointer: {
         id: record.id,
         kind: record.kind,
-        screen: { x: record.screen.x, y: record.screen.y },
-        world: { x: wx, y: wy },
+        screen: { x: sx, y: sy },
+        world: { x: at.x, y: at.y },
         startedAtMs: record.startedAtMs,
         capturedBy: record.capturedBy,
       },
@@ -403,7 +534,15 @@ export class InputSystem {
       phase,
       source,
       stage: this.#stage,
-      localTo: (node, out) => node.worldToLocal(wx, wy, out),
+      localTo: (node, out) => {
+        // The view that places `node`, which differs from the camera's for a
+        // node under a layer with a space of its own.
+        const view = viewFor(node, this.#stage, this.#engine.debug)
+        const w = view
+          ? view.screenToWorld(sx, sy, LOCAL_SCRATCH)
+          : { x: cameraX, y: cameraY }
+        return node.worldToLocal(w.x, w.y, out)
+      },
     }
   }
 }

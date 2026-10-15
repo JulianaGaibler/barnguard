@@ -5,7 +5,7 @@
  * well. All six are drawn from primitives rather than a font or an SVG, so they
  * batch with the cells they sit on and stay crisp at any board size.
  */
-import type { Gfx2D } from '@src/stargazer'
+import type { Canvas } from '@src/stargazer'
 import { GEOM, type GlyphKind } from '../tuning'
 
 /** Reused vertex scratch, so drawing a board of glyphs allocates nothing. */
@@ -17,7 +17,10 @@ const PTS = new Float32Array(8)
  * The caller sets the alpha, so a glyph can cross-fade with the cell under it.
  */
 export function drawGlyph(
-  gfx: Gfx2D,
+  gfx: Pick<
+    Canvas,
+    'fillCircle' | 'fillRoundRect' | 'fillConvexPoly' | 'strokePolyline'
+  >,
   kind: GlyphKind,
   cx: number,
   cy: number,

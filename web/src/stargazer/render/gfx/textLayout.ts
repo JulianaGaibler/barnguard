@@ -10,6 +10,7 @@
 // node redrawing static text every frame therefore pays nothing after the
 // first.
 
+import { evictOldest } from './evictOldest'
 import {
   fontMetrics,
   measureText,
@@ -17,7 +18,17 @@ import {
   type LabelMetrics,
 } from './rasterizeLabel'
 
-const metricCache = new Map<string, LabelMetrics>()
+/**
+ * A measured string, with the full measure built the first time it is asked
+ * for.
+ */
+interface MetricEntry {
+  metrics: LabelMetrics
+  measure: TextMeasure | null
+  /** Set by a hit and cleared by eviction, which spares a used entry once. */
+  used: boolean
+}
+const metricCache = new Map<string, MetricEntry>()
 const cache = new Map<string, { lines: string[]; truncated: boolean }>()
 const richCache = new Map<string, { lines: RichLine[]; truncated: boolean }>()
 /** Bounded so a long-running scene cannot grow a cache without limit. */
@@ -27,15 +38,9 @@ const ELLIPSIS = '\u2026'
 const BOX_KEY_SIGIL = '\u0001'
 const BOX_KEY_FIELD = '\u0002'
 
-/**
- * Drop the oldest entry once over budget. `Map` iterates in insertion order, so
- * with a delete-then-set on every hit this is a whole LRU and it allocates
- * nothing, which matters on a path called once per word.
- */
+/** Drop the oldest entry, in insertion order, once over budget. */
 function evict<T>(map: Map<string, T>): void {
-  if (map.size <= CACHE_MAX) return
-  const oldest = map.keys().next().value
-  if (oldest !== undefined) map.delete(oldest)
+  if (map.size > CACHE_MAX) evictOldest(map)
 }
 
 /**
@@ -64,22 +69,47 @@ export function textAdvance(text: string, font: string): number {
 }
 
 function metrics(text: string, font: string): LabelMetrics {
+  return metricEntry(text, font).metrics
+}
+
+function metricEntry(text: string, font: string): MetricEntry {
   const key = font + '\n' + text
   const hit = metricCache.get(key)
   if (hit) {
-    metricCache.delete(key)
-    metricCache.set(key, hit)
+    hit.used = true
     return hit
   }
-  const out = measureText(text, {
-    font,
-    align: 'left',
-    baseline: 'alphabetic',
-    color: '#000',
-  })
-  metricCache.set(key, out)
-  evict(metricCache)
-  return out
+  const entry: MetricEntry = {
+    metrics: measureText(text, {
+      font,
+      align: 'left',
+      baseline: 'alphabetic',
+      color: '#000',
+    }),
+    measure: null,
+    used: false,
+  }
+  metricCache.set(key, entry)
+  if (metricCache.size > CACHE_MAX) evictMetric()
+  return entry
+}
+
+/**
+ * Evict one measured string, oldest first, moving a used one to the back
+ * instead, once. A hit only sets a flag, so the map is not reordered on every
+ * call.
+ */
+function evictMetric(): void {
+  for (let tries = metricCache.size; tries > 0; tries--) {
+    const victim = evictOldest(metricCache)
+    if (!victim) return
+    if (tries > 1 && victim[1].used) {
+      victim[1].used = false
+      metricCache.set(victim[0], victim[1])
+      continue
+    }
+    return
+  }
 }
 
 /** Everything known about one string in one font, shaped once and cached. */
@@ -101,7 +131,8 @@ export interface TextMeasure {
 }
 
 /**
- * Measure `text` in `font`, shaping once and caching the result.
+ * Measure `text` in `font`, shaping once and caching the result. The returned
+ * object is shared by every call for the same string and font.
  *
  * @remarks
  *   The per-string `ascent` and `descent` bound this exact text, so they are what
@@ -125,16 +156,19 @@ export interface TextMeasure {
  *     baseline: 'alphabetic',
  *   })
  */
-export function textMetrics(text: string, font: string): TextMeasure {
-  const m = metrics(text, font)
+export function textMetrics(text: string, font: string): Readonly<TextMeasure> {
+  const entry = metricEntry(text, font)
+  if (entry.measure) return entry.measure
+  const m = entry.metrics
   const fm = fontMetrics(font)
-  return {
+  entry.measure = {
     advance: m.advance,
     ascent: m.ascent,
     descent: m.descent,
     capHeight: fm.capHeight,
     lineHeight: fm.lineHeight,
   }
+  return entry.measure
 }
 
 /**

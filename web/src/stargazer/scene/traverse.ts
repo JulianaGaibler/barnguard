@@ -24,18 +24,34 @@ export function walkTree<N extends Node>(
 }
 
 /**
+ * Bumped whenever any node's `visible` changes or any node is added or removed,
+ * which is when a cached answer from {@link isEffectivelyVisible} can go stale.
+ */
+let visibilityEpoch = 0
+
+/** Mark every cached visibility answer stale. */
+export function invalidateVisibility(): void {
+  visibilityEpoch++
+}
+
+/**
  * Whether a node draws, accounting for its ancestors.
  *
  * Hiding a node hides everything under it, so a group is a working switch for
  * its whole subtree. The render and hit walks read flattened per-layer lists
  * rather than descending the tree, so each one has to ask rather than infer it
  * from the walk.
+ *
+ * @remarks
+ *   The answer is cached on each node and on its ancestors, and reused until a
+ *   `visible` flag or the tree changes anywhere. A frame with neither answers
+ *   every node without walking its ancestors.
  */
 export function isEffectivelyVisible(node: Node): boolean {
-  let n: Node | null = node
-  while (n) {
-    if (!n.visible) return false
-    n = n.parent
-  }
-  return true
+  if (node._visibleEpoch === visibilityEpoch) return node._visibleCached
+  const parent = node.parent
+  const visible = node.visible && (parent ? isEffectivelyVisible(parent) : true)
+  node._visibleEpoch = visibilityEpoch
+  node._visibleCached = visible
+  return visible
 }

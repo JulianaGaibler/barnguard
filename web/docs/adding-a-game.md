@@ -43,8 +43,9 @@ conventions, and following them is what makes your game testable and reviewable.
 
 ## The engine: stargazer
 
-`src/stargazer/` is a 2D-first retained-mode scene graph with an immediate-mode
-drawing facade, plus an optional depth-tested 3D pass. Import from
+`src/stargazer/` is a 2D-first retained-mode scene graph. Nodes record what they
+look like into pictures that the engine replays, plus an optional depth-tested 3D
+pass. Import from
 `@src/stargazer` only. Internal subpaths are not public API.
 
 Two GPU backends sit behind one device seam, WebGPU and WebGL2, with no canvas-2D
@@ -57,8 +58,9 @@ arcade already handles selection and context-loss recovery, and `?gfx=` override
 `Stage` (canvas, renderer, scene tree, cameras). Per frame, in order:
 before-frame handlers, pointer reprojection, animation tick, the update walk
 (`node.onUpdate` then each behavior's), the layout pass for dirty roots, transform
-propagation, then rendering (3D passes, then the `static`, `above-static` and
-`dynamic` 2D layers, then post-processing), then a `frame` event.
+propagation, then rendering (3D passes, then the 2D tree in painter order, where
+dirty nodes record their pictures and every picture replays, then
+post-processing), then a `frame` event.
 
 There is a fixed timestep alongside that, default 120 Hz, with an accumulator and a
 per-frame cap. Physics worlds step first, then `onFixedStep` on nodes and behaviors.
@@ -66,8 +68,9 @@ Render `dt` is clamped and smoothed by default. Put anything that must be
 framerate-independent in `onFixedStep`, and read `ticker.fixedAlpha` if you need to
 interpolate between steps.
 
-The three render layers are draw order only, not caching. You can mutate any of
-them on any frame.
+2D draw order is tree order: a node draws before its children and siblings draw in
+the order they were added. You can mutate any node on any frame. A node that has to
+draw under nodes added before it goes in with `addAt` or `insertBefore`.
 
 ### The pieces you'll actually touch
 
@@ -80,18 +83,23 @@ returns a subtree.
 
 Drawable nodes: `ShapeNode` (circle or rect, with radii), `Path2DNode`,
 `PolylineNode`, `TextNode`, `ParticleEmitterNode`, `VectorParticleNode`, and the
-3D `MeshNode`. There is no sprite node. Images go through `gfx.drawImage` inside a
-custom `draw`.
+3D `MeshNode`. There is no sprite node. Images go through `canvas.drawImage`
+inside a custom `paint`.
 
-Immediate mode. Override `draw(gfx, camera, dt)` on a `Node2D` subclass. The layer
-walker installs the combined device, camera and world transform plus the node's
-alpha before calling you, so you draw in local coordinates. `Gfx2D` has fills
+Retained painting. Override `paint(canvas)` on a `Node2D` subclass. It records the
+node's drawing into a picture in local coordinates, and the engine replays the
+picture every frame under the node's transform and alpha. Moving, scaling, fading
+or rotating a node never runs `paint` again. The node repaints when a paint
+property declared with `definePaintProps` changes, when a versioned resource it
+read through `canvas.use` changes, when it calls `markNeedsPaint()`, or when the
+scale settles at a new value and the picture depends on scale. `Canvas` has fills
 (`fillRect`, `fillRoundRect`, `fillCircle`, `fillConvexPoly`, `fillPath2D`, several
 gradient fills), strokes (`strokeLine`, `strokeCircle`, `strokePolyline`,
-`strokeRoundRect`, `strokeQuadratic`, `strokePath2D`), `drawImage`, `fillText`,
-`warmText`, and state calls (`save`/`restore`, `translate`/`rotate`/`scale`,
-`setAlpha`, `setBlend`, `setClip`, `setClipMask`). Style is passed per call, so there
-is no sticky state.
+`strokeRoundRect`, `strokeQuadratic`, `strokePath2D`), `drawImage`, `fillText`, and
+state calls (`save`/`restore`, `translate`/`rotate`/`scale`, `setAlpha`,
+`setBlend`, `setClip`, `setClipMask`). Style is passed per call, so there is no
+sticky state. A stroke width of `{ screen: n }` is `n` CSS pixels at any zoom.
+`LottieNode` is the one engine node that still draws immediately.
 
 Transforms are decomposed affine: `x`, `y`, `scaleX`, `scaleY`, `rotation`,
 `originX`, `originY`, `alpha`. `transform.world` is filled by the propagation pass.
@@ -136,7 +144,7 @@ uploaded as a bitmap and drawn as a textured quad, which is why kerning,
 ligatures, complex scripts and color emoji all work. Color is baked into the
 bitmap, not tinted in a shader.
 
-Either `gfx.fillText(text, x, y, style)` in a `draw`, or a `TextNode` in the tree.
+Either `canvas.fillText(text, x, y, style)` in a `paint`, or a `TextNode` in the tree.
 Labels are cached by text, font, alignment, color and a scale bucket, shelf-packed
 into a 2048-square page under an LRU. Measurement and layout helpers are memoized:
 `measureText`, `textWidth`, `textAdvance`, `wrapText`, `ellipsize`, `fitFontSize`,
@@ -220,8 +228,8 @@ as an abstract base for heterogeneous per-piece shapes. Reach for the baked one
 first.
 
 3D: `Node3D`, `MeshNode`, `CameraNode3D` with a continuous ortho-to-perspective
-blend, a light family with shadows, glTF loading, fog, and `Viewport2DNode` for 2D
-on a quad in 3D. All 3D renders behind all 2D. No game uses it yet.
+blend, a light family with shadows, glTF loading and fog. All 3D renders behind
+all 2D. No game uses it yet.
 
 Ambient occlusion: `engine.ambientOcclusion.enabled = true` plus a preset. Screen
 space, from the 3D pass, so it is only relevant with 3D content.
@@ -267,8 +275,9 @@ accessibility, DOM sync, layout and physics all cost nothing until touched.
 
 What to watch:
 
-- Set `debugBounds` on anything expensive. Viewport culling skips a node whose
-  world AABB leaves the visible rect, but a node without bounds always draws.
+- A node's `bounds` comes from its picture, so culling works without any setup.
+  A picture whose extent is unknown, such as one that draws a `Path2D`, always
+  draws until the node sets `boundsOverride`.
 - Do not animate text color. It re-rasterizes and re-uploads the label every frame
   the value changes. Animate alpha instead, which rides the quad tint.
 - `mixColor` and `withAlpha` return strings, so they allocate. Fine for values you
@@ -282,9 +291,6 @@ What to watch:
   once at module load gives an opaque color that looks the same with nothing to
   double-blend. For the same reason, animate such a shape in by scaling it rather
   than fading it.
-- Warm text before the first paint of a text-heavy scene. `gfx.warmText` moves the
-  shape and upload cost off the first frame, but only after fonts have settled and
-  only under the transform the text will be drawn with.
 - Prefer screen-space labels for HUD. World-space labels re-rasterize a step at a
   time through zoom.
 - Register a tessellation for any `Path2D` you fill or stroke. Without one the call
@@ -300,8 +306,34 @@ What to watch:
   the HUD, alongside label cache statistics. Page wipes are the expensive failure
   mode: one wipe re-rasterizes every label in the scene in a single frame.
 
-`?debug=perf` wraps every node's update and draw in `performance` marks.
+`?debug=perf` wraps every node's update and paint in `performance` marks.
 `engine.lastFrameWorkSec` is CPU work per frame, not the vsync interval.
+
+Rules for `paint` code, which the engine checks in development by repainting a few
+clean nodes each frame and warning when the result differs from the picture it kept:
+
+- Make `paint` a function of declared state. Declare animated fields with
+  `definePaintProps(this, { ... })` in the constructor, with `declare` fields and no
+  initializers, so a tween or a write repaints the node. A class field with an
+  initializer hides the accessor.
+- Do not read the camera, the clock or the node's own `transform` in `paint`.
+  `canvas.screenScale()` and `canvas.visibleWorldRect()` are the exceptions, and each
+  makes the picture repaint when its value changes. Prefer `{ screen: n }` stroke
+  widths, which need neither. `ruleWidth()` in `buffer-overflow/game/nodes/tui.ts`
+  is the shared helper for rule widths that snap to device pixels.
+- Read shared mutable state through an owner with a `version` and a `touch()`
+  method, such as `VersionedRef`, and call `canvas.use(owner)` in `paint`.
+- Call `markNeedsPaint()` from `onUpdate` for content that changes every frame.
+  Put motion on a clock in a child node whose transform the update writes, because
+  a transform write never repaints.
+- Never dirty a node from inside `paint`. In development it throws.
+- Order draws by where nodes sit in the tree. Use `addAt` or `insertBefore` for a
+  node that must go under earlier ones.
+- Animate text with a transform scale, not with a font size that changes every
+  frame. Each font size is a separate raster. Draw the text at its largest size and
+  scale it down.
+- Test what a node draws with `paintCalls(node, { deviceScale })` from
+  `@src/stargazer`.
 
 ### Where to learn more
 
@@ -356,7 +388,8 @@ notice with a draining ring, which any touch cancels.
 Two pieces: `src/core/activity.ts` holds the time since the last input (window
 listeners at capture phase, since half of what a visitor touches is DOM overlays
 the engine never sees), and `src/displays/arcade/idle.ts` holds the arcade's
-timings. `ArcadeScreen` drives it and renders `IdleNotice.svelte`.
+timings. `ArcadeScreen` drives it and renders the shared
+`src/core/ui/IdleNotice.svelte`.
 
 A shorter clock runs on the launcher's own state. Its filters and carousel
 offset live in `launcher/browseState.svelte.ts` rather than in the component, so
@@ -526,7 +559,12 @@ Three global gestures your game must not fight:
   thirty-second notice first. Nothing to wire up, but see the exit barrier under
   [Lifecycle](#lifecycle).
 - Text entry never assumes a physical keyboard. Use
-  `src/core/ui/OnScreenKeyboardField.svelte`.
+  `src/core/ui/OnScreenKeyboardField.svelte`. Its `mode` prop sets what the
+  keyboard types: `letters` (the default) is a to z, `name` adds accents on
+  press and hold, space, `-`, `'` and `.`, and `full` adds a page of digits and
+  symbols. Keys type on release. The keyboard's logic lives in
+  `src/core/ui/keyboard/`: `layout.ts` builds the rows, `variants.ts` holds the
+  accents per locale, and `gesture.ts` handles pointers.
 
 ### Coordinate space and scaling
 
@@ -752,13 +790,15 @@ Under `src/core/ui/`: `Button.svelte` (five variants, 48 px minimum touch target
 forced-colors support), `IconButton.svelte`, `ConfirmButton.svelte` (two-tap
 destructive), `Surface.svelte` (the card, with an optional `blur` to separate it
 from a moving canvas), `Overlay.svelte`, `Score.svelte`, `NumberCounter.svelte`
-(tweened count-up), the three `OnScreenKeyboard*` files, `themeScope.ts`,
+(tweened count-up), the three `OnScreenKeyboard*` files and their `keyboard/`
+folder, `themeScope.ts`,
 `uiScale.ts`.
 
 Under `src/displays/arcade/`: `menu/MenuScreen.svelte`, `menu/PauseMenu.svelte`,
 `menu/MatchScore.svelte`, the three `tutorial/` components, the
 `leaderboard/` components, `RobotIcon.svelte`, and `ReturnToLauncherOverlay.svelte`
-and `IdleNotice.svelte` (both already mounted for you).
+(already mounted for you). The idle notice is `src/core/ui/IdleNotice.svelte`,
+which `ArcadeScreen` also mounts.
 
 Build against the token layer in `src/styles/scale.sass`: `--space-2` through
 `--space-80`, `--radius-*`, `--z-overlay`, the `--color-*` roles, the `--font-*`

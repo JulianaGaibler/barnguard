@@ -31,7 +31,6 @@ export function createFingerDot(radius: number, color: string): ShapeNode {
     geometry: { kind: 'circle', radius },
     fill: color,
   })
-  dot.renderLayer = 'dynamic'
   dot.transform.alpha = 0
   dot.transform.scaleX = 0
   dot.transform.scaleY = 0

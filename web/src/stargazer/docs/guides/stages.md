@@ -1,76 +1,84 @@
+---
+title: Stages
+group: Features
+order: 19
+---
+
 # Stages
 
-A `Stage` is one render surface: a canvas, its own scene tree, its own cameras,
-and the render target it draws into. `Engine` owns a `primaryStage` for its own
-canvas. Any number of secondary stages attach with
-`engine.attachStage(canvas, opts)` and render other scenes into other canvases
-while sharing the ticker and the animator.
+A {@link Stage} is one canvas with its own scene tree, cameras and render target. The engine creates a primary stage for its own canvas. [`engine.attachStage`](/module/engine/engine#attachstage) adds secondary stages, which draw other scenes into other canvases on the same page.
 
-## When to reach for one
+Use a secondary stage when you want a second render surface on the same clock as the first. Examples are a small animated card next to the main view, a tutorial view, or a preview panel. All stages share one frame loop and one tween animator, so animations on two canvases stay in step. A second {@link EngineHost} would bring its own loop and input instead.
 
-The motivating case is a second `<canvas>` somewhere in the page: a card that
-plays its own animation over the main game, a tutorial mini-view, a preview
-panel. The alternative, a second `EngineHost`, brings a second rAF loop, a second
-input pipeline, and two clocks that drift apart. A secondary stage avoids all of
-that.
+A stage is not the way to layer content inside one scene. Content that ignores the camera, such as a heads-up display, or content with its own post-processing, goes in a {@link Layer} in the same tree. A layer needs no second canvas or GPU context. See [Scene graph](/guides/scene) and [Post-processing](/guides/post-processing).
 
-Reach for one whenever you want a separate render surface on the same simulation
-clock.
+## Basic usage
 
-## Attach a stage
+This example attaches a stage to a second canvas and draws a circle on it. `engine` is `host.engine`.
 
 ```ts
 import { CameraNode2D, ShapeNode } from '@src/stargazer'
 
-const stage = engine.attachStage(canvasEl, { name: 'card' })
+const stage = engine.attachStage(cardCanvas, { name: 'card' })
 
 const cam = new CameraNode2D()
 cam.setViewport({ x: -120, y: -80, width: 240, height: 160 })
 stage.tree.root.add(cam)
-cam.makeCurrent()
 
 stage.tree.root.add(
   new ShapeNode({ geometry: { kind: 'circle', radius: 14 }, fill: '#c084fc' }),
 )
 ```
 
-A stage has its own tree at `stage.tree` and no camera until you add one, exactly
-like the primary. Until a camera is current the canvas shows only the clear
-color.
+The circle appears in the center of `cardCanvas`, over the page background. A secondary stage is transparent by default. Like the primary stage, it starts without a camera and draws nothing until a {@link CameraNode2D} is in its tree. `attachStage` throws when the canvas already has a stage, and this includes the primary canvas.
 
-`StageOptions`:
+### Detach a stage
 
-- `clearColor?: string`. Solid clear used when `transparent` is false.
-- `transparent?: boolean`. Default true for a secondary stage, so the parent
-  element's background shows through by default. Set it false and pass
-  `clearColor` for an opaque secondary.
-- `interactive?: boolean`. Default false for secondaries. Attaches an
-  `InputSystem` so nodes on this stage receive pointer events. The primary is
-  always interactive.
-- `msaaSamples?: number`. Defaults to the engine's count.
-- `physics?: boolean | PhysicsWorldConfig`. Gives this stage its own world. See
-  [Physics](/guides/physics).
-- `name?: string`. Label in the debug HUD's stage selector.
-- `onResize?: (info) => void`. Fires after the stage has resized its backing
-  store and re-fitted its cameras.
-- `renderScale?: number`. Default `1`, clamped to `[0.1, 2]`. Multiplies
-  `devicePixelRatio` before every resize, so the whole stage (scene, any 3D
-  pass, post-processing) renders at a fraction of its device pixels while the
-  CSS size, and so the on-screen size, stays put. A per-machine quality knob
-  for a stage whose cost scales with pixel count, cheaper than tuning any one
-  effect's own resolution.
-
-`attachStage` throws if the canvas is already attached, the primary canvas
-included. One stage per canvas.
-
-## Interactive secondaries
-
-Pass `interactive: true` and the stage's canvas gets its own multi-touch
-pipeline: pointer capture on press, a per-node hit walk of that stage's tree,
-world reprojection through that stage's active camera, and the same
-`onPointerDown` / `Move` / `Up` / `Cancel` hooks on nodes.
+Detach a stage when its canvas goes away:
 
 ```ts
+engine.detachStage(stage)
+```
+
+Detaching destroys the stage's tree. Every node's `abortSignal` fires, so node tweens reject with `AbortError`. It also removes the stage's input handling and resize observer, frees its GPU resources, and releases the canvas, so you can attach it again later. `engine.destroy()` detaches every secondary stage before it destroys the primary.
+
+### Mount a stage in Svelte
+
+The {@link mountStage} action attaches a stage when the canvas mounts and detaches it when the canvas unmounts.
+
+```svelte
+<script lang="ts">
+  import { mountStage, CameraNode2D } from '@src/stargazer'
+  import type { Engine, Stage } from '@src/stargazer'
+
+  const { engine }: { engine: Engine } = $props()
+
+  function buildScene(stage: Stage): void {
+    const cam = new CameraNode2D()
+    cam.setViewport({ x: -100, y: -100, width: 200, height: 200 })
+    stage.tree.root.add(cam)
+    // Add the rest of the scene under stage.tree.root.
+  }
+</script>
+
+<canvas
+  use:mountStage={{
+    engine,
+    options: { name: 'preview' },
+    onReady: buildScene,
+  }}
+></canvas>
+```
+
+`options` is passed to `attachStage`. `onDestroy`, if you pass it, runs before the stage is detached.
+
+### Take pointer input
+
+A secondary stage gets no pointer input by default. Pass `interactive: true` and the nodes on the stage receive pointer events, the same way nodes on the primary stage do.
+
+```ts
+import { ShapeNode } from '@src/stargazer'
+
 const stage = engine.attachStage(cardCanvas, { interactive: true })
 
 const marker = new ShapeNode({
@@ -87,120 +95,144 @@ marker.bindPointer({
 stage.tree.root.add(marker)
 ```
 
-`stage.events` fires `pointerDown` / `Move` / `Up` / `Cancel` for that stage
-only. Nothing from a secondary reaches `engine.events`, so a tap on a card canvas
-cannot trigger the main game's global handlers. The primary's events do forward
-to the engine bus. See [Input](/guides/input#per-stage-event-bus-vs-engineevents).
+The marker follows a finger or the mouse while it is pressed on the marker. The stage hit-tests its own tree and maps pointers through its own current camera.
 
-Browser pointer capture is per element and per pointer, so a finger dragging on
-the primary and another on a secondary work at the same time. A pointer that goes
-down on one canvas keeps its capture there even if it slides onto another.
-Cross-stage capture is not supported.
+The stage emits `pointerDown`, `pointerMove`, `pointerUp` and `pointerCancel` on `stage.events`. These events don't reach `engine.events`, so a tap on a secondary canvas can't trigger handlers for the main view. The primary stage's pointer events do reach `engine.events`. See [Input](/guides/input).
 
-## Parking a stage
+Each canvas captures its own pointers. A pointer that goes down on one canvas stays with that canvas when it moves onto another. A finger on the primary canvas and a finger on a secondary canvas work at the same time.
 
-`stage.setActive(false)` takes a stage out of the frame entirely: its tree is not
-walked, its transforms are not propagated, and it is not rendered. Flipping it
-back to true resumes instantly with no re-initialization and no context churn.
-That is what makes a pre-warmed stage cheap to keep around, such as a tutorial
-canvas that stands ready while a game plays.
+### Park a stage
 
-One catch. Physics worlds step from the engine's global registry, not per stage,
-so a parked stage's bodies keep simulating. Clear its scene, which unregisters
-the world, before parking it.
+[`stage.setActive(false)`](/module/render/stage#setactive) takes a stage out of the frame. The engine doesn't update its nodes, compute its transforms, or render it. `setActive(true)` brings it back at once, with no setup and no new GPU context. You can keep a stage prepared and parked until it is needed.
 
-## Detach a stage
+## Advanced usage
 
-```ts
-engine.detachStage(stage)
-```
+This section covers the stage options, what stages share, resizing, capturing a scene as an image, context loss, and how stages interact with physics and the backends.
 
-Detaching destroys the stage's tree (every node's `abortSignal` fires and
-in-flight tweens reject with `AbortError`), tears down its input system,
-disconnects its `ResizeObserver`, and frees the canvas so it can be reattached
-later. `engine.destroy()` disposes every secondary first, then the primary.
+### Stage options
 
-## The mountStage Svelte action
+[`attachStage`](/module/engine/engine#attachstage) takes {@link StageOptions}. Every field is optional.
 
-For overlay components, `mountStage` mirrors `mountEngine`: attach on mount,
-detach on unmount.
+| Option           | Default        | Meaning                                                                                              |
+| ---------------- | -------------- | ---------------------------------------------------------------------------------------------------- |
+| `clearColor`     | `'#0d1a2c'`    | Color the frame is cleared to when `transparent` is `false`.                                         |
+| `transparent`    | `true`         | Clear to zero alpha, so the page behind the canvas shows. Set it to `false` for an opaque stage.     |
+| `interactive`    | `false`        | Give the stage its own pointer input.                                                                |
+| `name`           | `Stage N`      | Label in the debug HUD's stage list.                                                                 |
+| `msaaSamples`    | engine's count | Multisample count. `1` turns it off.                                                                 |
+| `renderScale`    | `1`            | Factor on the device pixel ratio, from `0.1` to `2`.                                                 |
+| `onResize`       |                | Called after the stage resizes its backing store and its cameras.                                    |
+| `gpuDevice`      | WebGL2         | The device the stage draws with.                                                                     |
+| `directPresent`  | `true`         | Draw the frame in the canvas's own format. `false` draws into a target that is copied to the canvas. |
+| `physics`        |                | Give the stage a {@link PhysicsWorld}. `true` uses the defaults, or pass a config.                   |
+| `fixedPixelSize` |                | Render at exactly this width and height in pixels, whatever the CSS size and pixel ratio.            |
+| `exactText`      | `false`        | Rasterize text at its exact size on every frame, for a stage whose frames are separate stills.       |
 
-```svelte
-<script lang="ts">
-  import { mountStage, CameraNode2D } from '@src/stargazer'
-  import type { Engine, Stage } from '@src/stargazer'
+`renderScale` shrinks the backing store while the CSS size stays the same, and the browser scales the result up. Everything on the stage, including the 3D pass and post-processing, renders at the lower resolution. It's one setting for a stage whose cost grows with its pixel count. [`stage.renderScale`](/module/render/stage#renderscale) can also be set while the stage runs. The engine lowers it on the primary stage when the GPU can't keep up. See [Engine setup](/guides/setup).
 
-  const { engine }: { engine: Engine } = $props()
+### What stages share
 
-  function buildScene(stage: Stage): void {
-    const cam = new CameraNode2D()
-    cam.setViewport({ x: -100, y: -100, width: 200, height: 200 })
-    stage.tree.root.add(cam)
-    cam.makeCurrent()
-    // ...build the rest on stage.tree.root
-  }
-</script>
+These parts are shared by all stages:
 
-<canvas
-  use:mountStage={{
-    engine,
-    options: { transparent: true },
-    onReady: buildScene,
-  }}
-></canvas>
-```
+- the {@link Ticker}, so one animation frame drives every stage
+- the tween animator, so `engine.animation.cancelAll()` stops tweens on every stage
+- the pause flag, so `engine.setPaused(true)` freezes every stage
 
-When Svelte destroys the component the action calls `engine.detachStage(stage)`.
-No manual `onDestroy` boilerplate.
-
-## Sharing assets across stages
-
-A `Path2D`, a `BitmapMask`, and an image are plain data with no device handles,
-so the same instance backs nodes on any stage. Tessellation registrations are
-process-wide too. Assets are immutable data, and stages own nodes.
+A tween on a secondary stage advances in the same frame and by the same `dt` as one on the primary stage:
 
 ```ts
+engine.tween(mainNode.transform, { x: 700 }, { duration: 2 })
+engine.tween(cardNode.transform, { x: 100 }, { duration: 2 })
+// Both tweens end on the same frame.
+```
+
+`onUpdate` and `onFixedStep` run on every active stage. Keep fixed-step work small when you attach several stages, because it can run up to 8 times per frame.
+
+Each stage has its own scene tree, cameras, render target, GPU context, texture caches and input. Text that appears on two stages is rasterized once per stage.
+
+Asset data has no GPU handles, so one instance can back nodes on several stages. This includes a `Path2D`, a {@link BitmapMask} and an image. Path tessellations from {@link parseSvgPaths} are shared by every stage too.
+
+```ts
+import { Path2DNode, parseSvgPaths } from '@src/stargazer'
+
 const { paths } = parseSvgPaths(svgSource, { tessellate: true })
-const shape = paths.get('badge')!.path
+const badge = paths.get('badge')!.path
 
-engine.tree.root.add(new Path2DNode({ path: shape, fill: '#88c' }))
-stage.tree.root.add(new Path2DNode({ path: shape, fill: '#fff' }))
+engine.tree.root.add(new Path2DNode({ path: badge, fill: '#88c' }))
+stage.tree.root.add(new Path2DNode({ path: badge, fill: '#fff' }))
 ```
 
-Each stage keeps its own texture atlas and label page, though, so a label drawn
-on two stages is rasterized twice.
+### Resize and pixel ratio
 
-## What is shared and what is not
+Every stage watches its canvas with a `ResizeObserver` and listens for `window` resize. When the CSS size or the device pixel ratio changes, the stage sizes the backing store to the CSS size times the pixel ratio times `renderScale`. It then resizes its render target, refits every 2D camera, and calls `onResize`. The engine's `resize` event fires only for the primary canvas.
 
-Shared: the `Ticker` (one rAF loop drives every stage), the `Animator`, and the
-pause flag. A tween on a secondary node ticks in the same frame at the same `dt`
-as one on the primary, so two animations across two canvases stay in lockstep.
+A stage with `fixedPixelSize` skips all of this. It renders at exactly that many pixels, with a pixel ratio of 1, and doesn't watch its canvas, so the canvas doesn't need to be in the document. [`stage.setFixedPixelSize`](/module/render/stage#setfixedpixelsize) changes the size later.
+
+### Capture a scene as an image
+
+[`engine.capture`](/module/engine/engine#capture) renders a scene to an `ImageBitmap`, and [`engine.captureBlob`](/module/engine/engine#captureblob) encodes it as an image file such as a PNG or a JPEG. Use them for a thumbnail, a share image, or any still that should look like the rest of the app.
+
+In the following example, a 400 by 200 pixel card with a gradient and a title is encoded as a JPEG.
 
 ```ts
-engine.tween(primaryNode.transform, { x: 700 }, { duration: 2 })
-engine.tween(secondaryNode.transform, { x: 100 }, { duration: 2 })
-// Both land on the same frame.
+import { ShapeNode, TextNode, cssLinearGradient } from '@src/stargazer'
+
+const jpeg = await engine.captureBlob({
+  width: 400,
+  height: 200,
+  type: 'image/jpeg',
+  quality: 0.9,
+  build: (root) => {
+    root.add(
+      new ShapeNode({
+        geometry: { kind: 'rect', width: 400, height: 200, centered: false },
+        fill: cssLinearGradient(400, 200, 135, [
+          { offset: 0, color: '#ff6600' },
+          { offset: 1, color: '#fb2872' },
+        ]),
+      }),
+    )
+    root.add(
+      new TextNode({
+        text: 'Level 3',
+        x: 24,
+        y: 120,
+        fontSize: 48,
+        color: '#fff',
+      }),
+    )
+  },
+})
 ```
 
-`onFixedStep` runs on every active stage, so a behavior on a secondary integrates
-just like one on the primary. Keep that work cheap when several stages are
-attached.
+`build` adds the scene to `root`, where one unit is one pixel and the origin is the top left corner. The image is exactly 400 by 200 pixels, whatever the display's pixel ratio. Without a `clearColor`, the background is transparent, which a JPEG shows as black. `build` can be async, so it can load fonts and images before it adds nodes.
 
-Not shared: the scene tree, the cameras, the render target, the texture caches,
-and the input system. The engine's `resize` event fires for the primary canvas
-only. A secondary resizes its own backing store and re-fits its own cameras, and
-reports it through `StageOptions.onResize` if you want to know.
+A capture renders outside the frame loop, so it also works while the engine is stopped or paused. Captures run one at a time, in the order they were called.
 
-## DPR and resize
+All captures go through one inactive secondary stage, created on the first capture. It has a fixed pixel size and `exactText`. Each capture destroys the scene it built once the image is taken. The stage, and the GPU context it holds, is detached after {@link CAPTURE_IDLE_RELEASE_SEC} seconds without a capture, or when the engine is destroyed.
 
-Every stage runs the same pipeline. A `ResizeObserver` plus a `window.resize`
-listener detect changes. On a change the stage reads the canvas rect and
-`devicePixelRatio`, sizes the backing store to `cssSize * dpr`, resizes its
-render target, and re-fits every registered camera. The device-pixel baseline
-transform keeps rendering crisp at any DPR, so callers do none of this math.
+A capture renders two frames by default before it takes the image. The first frame of a new scene uploads its text, gradients, and path shadow masks, drawing stand-ins until they are ready. The second frame is the first that shows them all. `settleFrames` changes the count. A layer whose effects are still compiling draws without them, so the capture waits for the compile and renders its frames again.
 
-## Context loss
+Choose `capture` for an image to draw again, for example on another canvas, and `captureBlob` for a file to save, send, or show in an `<img>` element.
 
-Recovery is app-owned on the primary, where the host runs its retry ladder (see
-[Engine setup](/guides/setup#context-loss)). A secondary that loses its context
-recovers through `stage.reacquireContext()`, or by detaching and reattaching it.
+### Physics on a stage
+
+The engine steps every registered physics world, whether or not its stage is active. A world that a {@link PhysicsWorldBehavior} registered on a parked stage keeps simulating. To stop it, destroy that node, for example with [`stage.clearScene()`](/module/render/stage#clearscene), before you park the stage.
+
+### Backend and context loss
+
+A secondary stage creates its own WebGL2 context, also when the primary stage uses WebGPU. To use WebGPU on a secondary stage, pass a device from {@link selectGfxDevice} as `gpuDevice`.
+
+The host's recovery for a lost context covers only the primary canvas. See [Engine setup](/guides/setup). For a secondary stage, listen for `webglcontextrestored` on its canvas and call [`stage.reacquireContext()`](/module/render/stage#reacquirecontext), or detach the stage and attach it again.
+
+## See also
+
+- {@link Stage}: one canvas with its own tree
+- {@link StageOptions}: options for `attachStage`
+- {@link CaptureOptions}, {@link CaptureBlobOptions}: options for `capture` and `captureBlob`
+- {@link Engine}: owns the primary stage and attaches the others
+- {@link mountStage}: Svelte action that attaches a stage
+- [Engine setup](/guides/setup): mounting the engine and context loss
+- [Architecture](/guides/architecture): what a frame does on each stage
+- [Input](/guides/input): pointer events and capture
+- [Scene graph](/guides/scene): layers inside one scene

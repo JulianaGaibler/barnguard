@@ -1,21 +1,8 @@
 import type { Vec2 } from '../math/Vec2'
 import type { Rect } from '../math/Rect'
+import type { Affine2x3 } from '../math/Affine2D'
 
-/**
- * A 2D affine as the six live components of a `DOMMatrix` (row order `a c e / b
- * d f`). `DOMMatrix` satisfies this shape directly, so world matrices can be
- * read through it without copying.
- *
- * `screenX = a·x + c·y + e`, `screenY = b·x + d·y + f`.
- */
-export interface Affine2x3 {
-  a: number
-  b: number
-  c: number
-  d: number
-  e: number
-  f: number
-}
+export type { Affine2x3 }
 
 /**
  * The read-only view surface a 2D camera exposes to everything that isn't the

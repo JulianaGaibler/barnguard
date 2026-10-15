@@ -71,6 +71,8 @@ export class PacketBehavior extends Behavior {
   #targetSpeed: number
   /** True once the growth animation completes and we can start integrating. */
   #travelReady = false
+  /** Playing time spent growing, which `holdRemainingSec` counts down from. */
+  #growElapsedSec = 0
   #trail: PathTrailNode | null = null
   #motionTrail: PacketMotionTrailNode | null = null
   #hexParticles: ParticleEmitterNode | null = null
@@ -109,10 +111,10 @@ export class PacketBehavior extends Behavior {
   }
 
   /**
-   * Bind a shooting-star trail node, the session wires this on spawn. The
-   * behavior feeds the trail world-space samples in `onFixedStep` and the
-   * live-head position every render frame in `onUpdate` so the ribbon stays
-   * glued to the hex even when the distance filter drops samples.
+   * Bind a comet-tail node, the session wires this on spawn. The behavior feeds
+   * the trail world-space samples in `onFixedStep` and the live-head position
+   * every render frame in `onUpdate` so the ribbon stays glued to the hex even
+   * when the distance filter drops samples.
    */
   attachMotionTrail(trail: PacketMotionTrailNode): void {
     this.#motionTrail = trail
@@ -137,6 +139,22 @@ export class PacketBehavior extends Behavior {
     this.#trail = trail
   }
 
+  /** Velocity in world units per second. Unit length while growing. */
+  get velocity(): Readonly<Vec2> {
+    return this.#velocity
+  }
+
+  get targetSpeed(): number {
+    return this.#targetSpeed
+  }
+
+  /** Estimated seconds until the packet starts to travel. */
+  get holdRemainingSec(): number {
+    if (this.#travelReady) return 0
+    const hold = TUNING.packet.preGrowDelaySec + TUNING.packet.spawnGrowSec
+    return Math.max(0, hold - this.#growElapsedSec)
+  }
+
   /** Currently-bound trail, read by `PathDrawBehavior` on resume. */
   get boundTrail(): PathTrailNode | null {
     return this.#trail
@@ -152,7 +170,10 @@ export class PacketBehavior extends Behavior {
     // border after game-over so the escape reads as a slow silent exit.
     if (this.#mode === 'captured') return
     if (!this.#session.isPlaying() && this.#mode !== 'lost') return
-    if (!this.#travelReady) return
+    if (!this.#travelReady) {
+      this.#growElapsedSec += fdt
+      return
+    }
 
     const packet = this.node as PacketNode
     const t = packet.transform
@@ -385,7 +406,7 @@ export class PacketBehavior extends Behavior {
     // animations.
     if (this.#mode !== 'travelling' && this.#mode !== 'lost') return
     const t = this.node.transform
-    this.#motionTrail?.setLiveHead(t.x, t.y)
+    this.#motionTrail?.setLiveHead(t.x, t.y, t.rotation)
     this.#hexParticles?.emitter.setOrigin(t.x, t.y)
   }
 
@@ -393,7 +414,7 @@ export class PacketBehavior extends Behavior {
     this.#mode = 'captured'
     // Disable collision the moment we start homing in.
     packet.hitEnabled = false
-    // Clear the shooting-star ribbon so it doesn't flap around during the
+    // Clear the comet tail so it doesn't flap around during the
     // capture tween. The trail node itself is destroyed by the packet's
     // scene-graph destroy handler once the tween resolves. Do the same
     // for the wake emitter, otherwise it would keep spawning hexes at

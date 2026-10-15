@@ -6,7 +6,13 @@
   import { t, regionName, mapCopy } from '@src/displays/enterprise/i18n'
   import { goToScreen } from '@src/stores/appState'
   import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
-  import { mountEngine, ignoreAbort, type EngineHost } from '@src/stargazer'
+  import {
+    Layer,
+    Node2D,
+    mountEngine,
+    ignoreAbort,
+    type EngineHost,
+  } from '@src/stargazer'
   import {
     startGame,
     loadMap,
@@ -17,22 +23,30 @@
     type RegionId,
   } from '@src/displays/enterprise/game'
   import { activeMap } from '@src/displays/enterprise/activeMap'
+  import { enterpriseEngine } from '@src/displays/enterprise/engineHandle'
   import {
     debugHudVisible,
     setDebugHudVisible,
   } from '@src/core/attendant/boothMenuToggle'
   import { coverScreen } from '@src/displays/enterprise/attendant/coverState'
   import CoverScreen from '@src/displays/enterprise/attendant/CoverScreen.svelte'
-  import Backdrop from '@src/displays/enterprise/background/Backdrop.svelte'
-  import UiStage from '@src/displays/enterprise/ui/UiStage.svelte'
+  import {
+    BACKDROP_CLEAR_COLOR,
+    BACKDROP_FADE_SEC,
+    createBackdropLayer,
+  } from '@src/displays/enterprise/background/createBackdropLayer'
+  import type { GradientBackdropNode } from '@src/displays/enterprise/background/GradientBackdropNode'
+  import UiLayer from '@src/core/ui/UiLayer.svelte'
+  import { DESIGN_HEIGHT, DESIGN_WIDTH } from '@src/core/ui/designRegion'
   import SplashScreen from '@src/displays/enterprise/ui/SplashScreen.svelte'
   import SelectPrompt from '@src/displays/enterprise/ui/SelectPrompt.svelte'
   import SelectedScreen from '@src/displays/enterprise/ui/SelectedScreen.svelte'
   import PlayingHud from '@src/displays/enterprise/ui/PlayingHud.svelte'
   import FailEdges from '@src/displays/enterprise/ui/FailEdges.svelte'
   import GameOverScreen from '@src/displays/enterprise/ui/GameOverScreen.svelte'
-  import IdleNotice from '@src/displays/enterprise/ui/IdleNotice.svelte'
+  import IdleNotice from '@src/core/ui/IdleNotice.svelte'
   import {
+    IDLE_WARN_MS,
     ScreenFlow,
     type ScreenState,
   } from '@src/displays/enterprise/game/flow/screenFlow'
@@ -60,6 +74,13 @@
   }
 
   let host = $state<EngineHost | null>(null)
+  /**
+   * The layer the screen UI hangs on, in the game's own scene. It draws after
+   * the map and is placed by the design region, not the map camera.
+   */
+  let uiLayer = $state<Layer | null>(null)
+  /** The brand background's gradient, whose mix the picker fades in. */
+  let backdropNode = $state<GradientBackdropNode | null>(null)
   let offFontChange: (() => void) | null = null
   let session = $state<GameSession | null>(null)
   let activeRegionId = $state<RegionId | null>(null)
@@ -81,9 +102,10 @@
     if (next === 'splash' && (prev === 'select' || prev === 'selected')) {
       session?.cancelSelection().catch(ignoreAbort)
     }
-    // The result timed out. Close already reset the round on its own way out,
-    // which leaves the session idle by the time the flow moves, so this only
-    // runs for the timeout.
+    // The result closed or timed out. The flow moves first, so the result
+    // leaves and the splash comes in while the camera zooms out. The attendant's
+    // stop resets the round before the flow moves, which leaves the session
+    // idle here.
     if (
       next === 'splash' &&
       prev === 'gameOver' &&
@@ -94,6 +116,23 @@
   })
   let gameOverPayload = $state<GameOverPayload | null>(null)
   let loadError = $state<string | null>(null)
+  // The picker fades the background to its radial gradient, and the other
+  // screens fade it back.
+  $effect(() => {
+    const node = backdropNode
+    const h = host
+    if (!node || !h) return
+    const target = screen === 'select' || screen === 'selected' ? 1 : 0
+    if (node.radialMix === target) return
+    h.engine
+      .tween(
+        node,
+        { radialMix: target },
+        { duration: BACKDROP_FADE_SEC, key: 'backdrop-fade' },
+      )
+      .catch(ignoreAbort)
+  })
+
   /**
    * Live score for the corner backdrop. `session.score` is authoritative but a
    * plain getter, so we mirror it here and update on the round's events. Resets
@@ -133,6 +172,7 @@
   async function onEngineReady(h: EngineHost): Promise<void> {
     try {
       host = h
+      enterpriseEngine.set(h.engine)
       offFontChange = invalidateTextOnFontLoad(h.engine)
       // `?map=` picks the map, defaulting in code so a kiosk URL that
       // predates it still boots. An unknown value throws into the catch below
@@ -143,8 +183,31 @@
       const loaded = await loadMap(mapId)
       map = loaded
       activeMap.set({ id: loaded.id, i18nNamespace: loaded.i18nNamespace })
-      const s = await startGame(h, loaded)
+      // The scene is the brand background, then the map's content under
+      // `world`, then the UI layer, so each draws over the one before. All
+      // three outlive the scene wipe the session starts with.
+      const backdrop = createBackdropLayer()
+      h.engine.tree.root.add(backdrop.layer)
+      backdrop.layer.warm()
+      backdropNode = backdrop.node
+      const world = new Node2D('world')
+      world.persistent = true
+      h.engine.tree.root.add(world)
+      const ui = new Layer({
+        id: 'ui',
+        space: {
+          frame: { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT },
+        },
+        persistent: true,
+      })
+      h.engine.tree.root.add(ui)
+      uiLayer = ui
+      const s = await startGame(h, loaded, world)
       session = s
+      // A tap on the splash's map that no packet took starts the picker.
+      s.events.on('attractTapped', play)
+      // A tap off every region in the picker goes back to the splash.
+      s.events.on('outsideTapped', backToSplash)
       s.events.on('stateSelected', (payload) => {
         selectedStateId.set(payload.stateId)
         flow.send('pick')
@@ -168,6 +231,11 @@
         flow.send('ended')
         goToScreen('result')
       })
+      // A record that reached the server late, for the round on screen.
+      s.events.on('gameRecorded', (late) => {
+        if (gameOverPayload?.round !== late.round) return
+        gameOverPayload = { ...gameOverPayload, ...late }
+      })
       s.events.on('reset', () => {
         gameOverPayload = null
         activeRegionId = null
@@ -181,10 +249,13 @@
   }
 
   function onEngineDestroy(): void {
+    enterpriseEngine.set(null)
     offFontChange?.()
     offFontChange = null
     session?.destroy()
     session = null
+    uiLayer = null
+    backdropNode = null
     host = null
     map = null
     activeMap.set(null)
@@ -230,6 +301,10 @@
     if (!flow.send('again')) return
     gameOverPayload = null
     session?.returnToSelection()
+  }
+
+  function closeResult(): void {
+    flow.send('continue')
   }
 
   function reset(): void {
@@ -292,38 +367,27 @@
   onkeydowncapture={() => flow.touch()}
 >
   <!--
-    The brand backdrop canvas, the backdrop text, and the transparent game
-    canvas draw in that order, furthest back first. No z-index needed:
-    document order controls the stacking within `.game`. The text reads
-    through the transparent game canvas as a muted layer while the map +
-    packets composite over it, and both canvases sit together in one
-    `{#key}` block so a WebGPU device-loss remount rebuilds them as a pair.
+    One canvas draws the brand background, the map and the engine-drawn UI,
+    in that order, and the HTML of the screens sits over it. The canvas and
+    the HTML sit together in one `{#key}` block so a WebGPU device-loss
+    remount rebuilds them as a pair.
   -->
   {#key canvasKey}
-    {#if host}
-      <Backdrop
-        engine={host.engine}
-        variant={screen === 'select' || screen === 'selected'
-          ? 'radial'
-          : 'diagonal'}
-      />
-    {/if}
-
     <canvas
       class="game__canvas"
       use:mountEngine={{
         backend,
         onBackendLost,
         options: {
-          transparent: true,
+          clearColor: BACKDROP_CLEAR_COLOR,
         },
         onReady: onEngineReady,
         onDestroy: onEngineDestroy,
       }}
     ></canvas>
 
-    {#if host}
-      <UiStage engine={host.engine}>
+    {#if host && uiLayer}
+      <UiLayer engine={host.engine} layer={uiLayer}>
         {#snippet children(region)}
           <SplashScreen
             engine={host!.engine}
@@ -375,10 +439,10 @@
             payload={gameOverPayload}
             mapId={map?.id ?? DEFAULT_MAP_ID}
             onPlayAgain={playAgain}
-            onClose={reset}
+            onClose={closeResult}
           />
         {/snippet}
-      </UiStage>
+      </UiLayer>
     {/if}
   {/key}
 
@@ -394,7 +458,18 @@
     </div>
   {/if}
 
-  <IdleNotice visible={idleWarning} />
+  <IdleNotice
+    visible={idleWarning}
+    message={$t.game.idleReturning}
+    durationMs={IDLE_WARN_MS}
+    --idle-notice-top="var(--space-16)"
+    --idle-notice-padding-block="var(--space-8)"
+    --idle-notice-font="var(--font-mozilla-text)"
+    --idle-notice-font-size="1.25rem"
+    --idle-notice-color="#15141a"
+    --idle-notice-bg="#ffffff"
+    --idle-notice-track="rgba(21, 20, 26, 0.15)"
+  />
 
   {#if paused}
     <PauseOverlay onResume={togglePause} />

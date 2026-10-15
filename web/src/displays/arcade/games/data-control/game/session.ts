@@ -252,7 +252,6 @@ export async function startGame(
   // No `host.loadScene` / `host.start()` here: the arcade engine is already
   // running with its own camera + background. We attach a subtree instead.
   const mapGroup = new Node2D('map')
-  mapGroup.renderLayer = 'static'
   mapRoot.add(mapGroup)
 
   // Enclaves last so they paint on top of their surrounding state (stable sort
@@ -271,9 +270,8 @@ export async function startGame(
       stroke: COLOR_STATE_STROKE,
       lineWidth: 1,
       hitMode: 'fill',
-      debugBounds: entry.bounds,
+      bounds: entry.bounds,
     })
-    node.renderLayer = 'static'
     node.addBehavior(new StateSelectionBehavior(info.id, onStateTap))
     mapGroup.add(node)
     stateNodes.set(info.id, node)
@@ -281,10 +279,9 @@ export async function startGame(
 
   if (outlineNode) mapGroup.add(outlineNode)
 
-  // Country grid overlay sits above the static state fills but under the
-  // dynamic path / packet layers. Its own `renderLayer = 'above-static'`
-  // handles the compositing. This add order just controls scene-tree traversal
-  // for `onUpdate` (overlay ticks before packets, which is fine).
+  // Country grid overlay draws above the state fills and under the path and
+  // packet layers added after it. It also updates before the packets, which is
+  // fine.
   mapRoot.add(gridOverlay)
 
   // Dynamic-layer groups: paths draw under packets so trails don't occlude the
@@ -366,7 +363,6 @@ export async function startGame(
         // (smaller than the logo disc), which suits the minimal look.
       })
       epicenter.transform.alpha = 0
-      epicenter.renderLayer = 'dynamic'
       epicenter.addBehavior(new EpicenterBehavior())
       mapRoot.add(epicenter)
       // Fade the epicenter in as the camera zooms.
@@ -705,7 +701,6 @@ function buildOutlineNode(assets: GameAssets): Path2DNode | null {
       lineWidth: 1.5,
       hitMode: 'none',
     })
-    node.renderLayer = 'static'
     return node
   }
   return null

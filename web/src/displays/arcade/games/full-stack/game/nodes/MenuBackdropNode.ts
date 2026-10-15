@@ -7,9 +7,9 @@
 // The faces are drawn bare, with no disc under them and no crop: on the card a
 // portrait is a headshot on a badge, and here it is just the person.
 
-import { Behavior, Node2D, type Gfx2D, type Rect } from '@src/stargazer'
+import { Behavior, Node2D, type Canvas, type Rect } from '@src/stargazer'
 import { seededRandom, type Random } from '../../../common/rng'
-import { portraitRuns } from '../../art/portraits'
+import { PORTRAIT_SIZE, portraitImage } from '../../art/portraits'
 import { DECK } from '../rules/deck'
 import type { Card } from '../rules/deck'
 import { MENU_WALL } from '../tuning'
@@ -37,24 +37,31 @@ export interface Cell {
 class WallCycle extends Behavior {
   readonly #cells: Cell[]
   readonly #rng: Random
+  readonly #onChange: () => void
   #next: number = MENU_WALL.rest
   /** Seconds until the arrival that follows a departure, or null between swaps. */
   #arrival: number | null = null
 
-  constructor(cells: Cell[], rng: Random) {
+  constructor(cells: Cell[], rng: Random, onChange: () => void) {
     super()
     this.#cells = cells
     this.#rng = rng
+    this.#onChange = onChange
   }
 
   override onUpdate(dt: number): void {
     const step = dt / MENU_WALL.fade
+    let fading = false
     for (const cell of this.#cells) {
-      if (cell.target > cell.alpha) cell.alpha = Math.min(1, cell.alpha + step)
-      else if (cell.target < cell.alpha) {
+      if (cell.target > cell.alpha) {
+        cell.alpha = Math.min(1, cell.alpha + step)
+        fading = true
+      } else if (cell.target < cell.alpha) {
         cell.alpha = Math.max(0, cell.alpha - step)
+        fading = true
       }
     }
+    if (fading) this.#onChange()
     if (this.#cells.length === 0) return
 
     if (this.#arrival !== null) {
@@ -100,8 +107,9 @@ export class MenuBackdropNode extends Node2D {
 
   constructor(id: string) {
     super(id)
-    this.renderLayer = 'dynamic'
-    this.addBehavior(new WallCycle(this.#cells, this.#rng))
+    this.addBehavior(
+      new WallCycle(this.#cells, this.#rng, () => this.markNeedsPaint()),
+    )
   }
 
   /** The grid as it stands, for the tests. */
@@ -122,6 +130,7 @@ export class MenuBackdropNode extends Node2D {
    */
   setRect(rect: Rect): void {
     this.#cells.length = 0
+    this.markNeedsPaint()
     const left = rect.x + rect.width * MENU_WALL.railShare
     const width = rect.width - rect.width * MENU_WALL.railShare
     if (width <= 0 || rect.height <= 0) return
@@ -147,24 +156,23 @@ export class MenuBackdropNode extends Node2D {
     }
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     if (this.#cell <= 0) return
     // Snapped so all sixteen columns come out the same width. These faces never
     // move, so there is no crawl to trade against.
-    const cell = gfx.snapSize(this.#cell)
+    const cell = gfx.snap(this.#cell)
     for (const c of this.#cells) {
       if (c.alpha <= 0.001) continue
       gfx.save()
       if (c.alpha < 1) gfx.setAlpha(c.alpha)
-      for (const run of portraitRuns(c.card)) {
-        gfx.fillRect(
-          c.x + run.x * cell,
-          c.y + run.row * cell,
-          run.len * cell,
-          cell,
-          run.color,
-        )
-      }
+      gfx.drawImage(
+        portraitImage(c.card),
+        c.x,
+        c.y,
+        cell * PORTRAIT_SIZE,
+        cell * PORTRAIT_SIZE,
+        { smoothing: false },
+      )
       gfx.restore()
     }
   }

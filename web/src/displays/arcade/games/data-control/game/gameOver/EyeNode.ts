@@ -1,7 +1,7 @@
 import {
   Node2D,
-  type CameraView2D,
-  type Gfx2D,
+  definePaintProps,
+  type Canvas,
   type Rect,
 } from '@src/stargazer'
 
@@ -35,17 +35,17 @@ export interface EyeNodeOptions {
  * The eyes that stare at the escaping packet on the game-over card's loss
  * animation. Combines the two-path SVG (`top` + `bottom` lids) into one
  * pre-centred `Path2D` for the body, and draws a filled disc iris on top that
- * slides toward `(lookAtX, lookAtY)` in world coords.
+ * slides toward the look target, given as an offset from the eye.
  *
  * Two independent scalars drive the reveal:
  *
  * - `openAmount`, vertical scale on the outline (0 = closed, 1 = fully open).
  *   Tweened by the scene on spawn + blinks.
  * - `irisFocusAmount`, 0 = iris centred, 1 = iris pushed to `irisMaxOffset` along
- *   the vector from eye centre to the current `lookAt`. Split from `openAmount`
- *   so the iris can visibly _slide_ into focus AFTER the lid opens, rather than
+ *   the vector from eye centre to the look target. Split from `openAmount` so
+ *   the iris can visibly _slide_ into focus AFTER the lid opens, rather than
  *   hard-pinning on the first frame the eye is visible (the eye is rigidly
- *   anchored to the packet, so its `dx/dy` to the packet stay constant across
+ *   anchored to the packet, so its offset to the packet stays constant across
  *   frames).
  *
  * Not hit-enabled. Not driven by any behavior, the scene owns the tween
@@ -61,18 +61,27 @@ export class EyeNode extends Node2D {
   readonly #irisFill: string
 
   /** 0..1, vertical scale on the outline. Scene tweens this on spawn. */
-  openAmount = 0
+  declare openAmount: number
   /**
-   * 0..1, the iris slide toward `lookAt`. Scene tweens 0 -> 1 AFTER the lid
-   * finishes opening so the pupil visibly drifts to focus.
+   * 0..1, the iris slide toward the look target. Scene tweens 0 -> 1 AFTER the
+   * lid finishes opening so the pupil visibly drifts to focus.
    */
-  irisFocusAmount = 0
-  /** World coord the iris should point toward. Updated per-frame. */
-  lookAtX = 0
-  lookAtY = 0
+  declare irisFocusAmount: number
+  /**
+   * Offset from the eye centre to the point the iris should face, in world
+   * units.
+   */
+  declare lookDx: number
+  declare lookDy: number
 
   constructor(opts: EyeNodeOptions) {
     super('eye')
+    definePaintProps(this, {
+      openAmount: 0,
+      irisFocusAmount: 0,
+      lookDx: 0,
+      lookDy: 0,
+    })
     this.#outlinePath = opts.outlinePath
     this.#outlineHalfWidth = opts.outlineBounds.width / 2
     this.#outlineHalfHeight = opts.outlineBounds.height / 2
@@ -87,23 +96,23 @@ export class EyeNode extends Node2D {
     this.#irisFill = opts.irisFill
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(canvas: Canvas): void {
     if (this.openAmount <= 0.001) return
-    gfx.save()
+    canvas.save()
     // Squash the lid open along Y only, reads as a lid raising rather
     // than the whole eye scaling in. The outline path is pre-centred so
     // (0, 0) is the eye's visual centre, and the Y-scale keeps that
     // centre pinned.
-    gfx.scale(1, this.openAmount)
-    gfx.fillPath2D(this.#outlinePath, this.#outlineFill)
+    canvas.scale(1, this.openAmount)
+    canvas.fillPath2D(this.#outlinePath, this.#outlineFill)
 
-    // Iris offset, direction from eye centre (world) toward `lookAt`,
+    // Iris offset, direction from eye centre toward the look target,
     // multiplied by `irisMaxOffset` and by `irisFocusAmount` so the
     // pupil animates INTO focus. Un-scale Y so the iris sits round
     // inside the (currently squashed) eye rather than mirroring the
     // lid's stretch.
-    const dx = this.lookAtX - this.transform.x
-    const dy = this.lookAtY - this.transform.y
+    const dx = this.lookDx
+    const dy = this.lookDy
     const len = Math.hypot(dx, dy) || 1
     const focus = this.irisFocusAmount
     const ox = (dx / len) * this.#irisMaxOffset * focus
@@ -112,7 +121,7 @@ export class EyeNode extends Node2D {
     const oy =
       ((dy / len) * this.#irisMaxOffset * focus) /
       Math.max(this.openAmount, 0.001)
-    gfx.fillCircle(ox, oy, this.#irisRadius, this.#irisFill)
-    gfx.restore()
+    canvas.fillCircle(ox, oy, this.#irisRadius, this.#irisFill)
+    canvas.restore()
   }
 }

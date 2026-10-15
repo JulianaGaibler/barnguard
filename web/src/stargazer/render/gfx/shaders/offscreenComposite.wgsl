@@ -59,7 +59,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     if (mode > 2.5) {
       f = dot(m.rgb, vec3<f32>(0.2125, 0.7154, 0.0721));
     }
-    if (mode > 1.5 && mode < 2.5 || mode > 3.5) {
+    if ((mode > 1.5 && mode < 2.5) || mode > 3.5) {
       f = 1.0 - f;
     }
     c = c * f;

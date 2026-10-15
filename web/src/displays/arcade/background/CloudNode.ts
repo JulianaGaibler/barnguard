@@ -1,12 +1,7 @@
-import {
-  Node2D,
-  type CameraView2D,
-  type Gfx2D,
-  type Rect,
-} from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
 import { REGION_HEIGHT, REGION_WIDTH, layout } from '../world'
 import type { RadialDef, SkyPalette } from './palette'
-import { StopsCache, visibleWorldRect } from './util'
+import { StopsCache } from './util'
 import type { PaletteSource } from './BackgroundController'
 
 export interface CloudOptions {
@@ -31,37 +26,36 @@ export interface CloudOptions {
  * A cloud layer: the silhouette texture tiled across the visible width and
  * drifting horizontally, revealing a WORLD-FIXED radial gradient. The glow
  * stays put in the scene, and the clouds sweep through it, lighting up as they
- * cross and fading as they leave. Zero per-frame texture uploads.
+ * cross and fading as they leave. Zero per-frame texture uploads. The drift is
+ * the gradient's offset against the cloud, so the node paints again every
+ * frame, a handful of masked gradient fills.
  */
 export class CloudNode extends Node2D {
   readonly #source: PaletteSource
   readonly #opts: CloudOptions
   /** Accumulated drift, wrapped into `[0, period)`. */
-  #scroll = 0
+  declare scroll: number
   readonly #stops = new StopsCache()
-  readonly #vr: Rect = { x: 0, y: 0, width: 0, height: 0 }
 
   constructor(source: PaletteSource, opts: CloudOptions) {
     super('cloud')
     this.#source = source
     this.#opts = opts
-    // Part of the world's base layer. See `SkyGradientNode` for why `'static'`.
-    // `'static'` is draw-order only (redrawn every frame), so the drift in
-    // `onUpdate` still animates.
-    this.renderLayer = 'static'
+    definePaintProps(this, { scroll: 0 })
   }
 
   override onUpdate(dt: number): void {
     const period = this.#opts.period
-    this.#scroll += this.#opts.speed * this.#opts.dir * dt
-    this.#scroll = ((this.#scroll % period) + period) % period
+    const next = this.scroll + this.#opts.speed * this.#opts.dir * dt
+    this.scroll = ((next % period) + period) % period
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
+    gfx.use(this.#source)
     const { bitmap, drawW, drawH, bottomOffset, period } = this.#opts
     const def = this.#opts.pick(this.#source.palette)
     const stops = this.#stops.get(this.#source.version, def.stops)
-    const vr = visibleWorldRect(camera, this.#vr)
+    const vr = gfx.visibleWorldRect()
 
     // Bottom-aligned to the world (launcher region) bottom, read live so a
     // resize (which moves the launcher region) re-flows.
@@ -77,11 +71,11 @@ export class CloudNode extends Node2D {
     // always entering as another leaves).
     const left = vr.x - drawW
     const right = vr.x + vr.width + drawW
-    const kStart = Math.floor((left - this.#scroll) / period)
-    const kEnd = Math.ceil((right - this.#scroll) / period)
+    const kStart = Math.floor((left - this.scroll) / period)
+    const kEnd = Math.ceil((right - this.scroll) / period)
     const dstY = centerY - drawH / 2
     for (let k = kStart; k <= kEnd; k++) {
-      const cx = this.#scroll + k * period
+      const cx = this.scroll + k * period
       const dstX = cx - drawW / 2
       gfx.fillMaskedRadialGradient(
         bitmap,

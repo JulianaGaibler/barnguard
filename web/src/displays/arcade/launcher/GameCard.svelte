@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayName } from '@src/core/leaderboard/displayName'
   import { t } from '@src/displays/arcade/i18n'
   import { formatPlayerCounts } from './playerCounts'
   import {
@@ -52,7 +53,7 @@
           <div class="game-card__badge">
             <LeaderboardIcon size={14} gold />
             <span class="game-card__badge-name"
-              >{topEntry ? topEntry.name.toUpperCase() : ''}</span
+              >{topEntry ? displayName(topEntry.name) : ''}</span
             >
             <span class="game-card__badge-score"
               >{topEntry ? formatScore(topEntry.score) : ''}</span

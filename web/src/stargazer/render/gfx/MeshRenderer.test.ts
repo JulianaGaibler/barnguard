@@ -4,7 +4,11 @@ import { MockGfxDevice } from './webgl2/mockGfxDevice'
 import { Camera3D } from '../../camera/Camera3D'
 import { SceneTree } from '../../scene/SceneTree'
 import { Node3D } from '../../scene/Node3D'
-import { MeshNode, createBoxGeometry } from '../../nodes/MeshNode'
+import {
+  MeshNode,
+  createBoxGeometry,
+  type MeshMaterial,
+} from '../../nodes/MeshNode'
 import {
   DirectionalLight3D,
   PointLight3D,
@@ -87,6 +91,67 @@ describe('MeshRenderer', () => {
     expect(elementDraws[0].count).toBe(36)
     expect(device.depthTest).toBe(true)
     expect(device.cull).toBe('back')
+  })
+
+  it('leaves out a mesh the camera cannot see', async () => {
+    const { device, renderer, world, camera } = await setup()
+    const seen = new MeshNode(createBoxGeometry(1), {
+      lit: true,
+      color: [1, 0, 0, 1],
+    })
+    const away = new MeshNode(createBoxGeometry(1), {
+      lit: true,
+      color: [0, 1, 0, 1],
+    })
+    away.transform.setPosition(500, 0, 0)
+    world.add(seen, away)
+    world.updateTransforms()
+
+    renderer.render(camera, world.root)
+
+    expect(device.draws.filter((d) => d.kind === 'elements')).toHaveLength(1)
+    expect(renderer.stats.culled).toBe(1)
+  })
+
+  it('still casts a shadow from a mesh the camera cannot see', async () => {
+    const { device, renderer, world } = await setup()
+    const away = new MeshNode(createBoxGeometry(1), {
+      lit: true,
+      color: [1, 1, 1, 1],
+      pbr: true,
+    })
+    away.transform.setPosition(500, 0, 0)
+    world.add(away, new DirectionalLight3D({ shadowEnabled: true }))
+    world.updateTransforms()
+
+    renderer.renderShadows(world.root)
+
+    expect(device.draws.filter((d) => d.kind === 'elements')).toHaveLength(1)
+  })
+
+  it('leaves a caster out of a spot shadow it cannot reach', async () => {
+    const { device, renderer, world } = await setup()
+    const lit = (): MeshMaterial => ({
+      lit: true,
+      color: [1, 1, 1, 1],
+      pbr: true,
+    })
+    const ahead = new MeshNode(createBoxGeometry(1), lit())
+    ahead.transform.setPosition(0, 5, -5)
+    const behind = new MeshNode(createBoxGeometry(1), lit())
+    behind.transform.setPosition(0, 5, 5)
+    const spot = new SpotLight3D({
+      shadowEnabled: true,
+      range: 20,
+      outerConeAngle: 0.6,
+    })
+    spot.transform.setPosition(0, 5, 0)
+    world.add(ahead, behind, spot)
+    world.updateTransforms()
+
+    renderer.renderShadows(world.root)
+
+    expect(device.draws.filter((d) => d.kind === 'elements')).toHaveLength(1)
   })
 
   it('uploads a u16 index buffer for a small mesh', async () => {
@@ -495,8 +560,7 @@ describe('MeshRenderer', () => {
     // `destroy` walks the same upload set the node just released itself from.
     renderer.destroy()
 
-    const quadBuffers = 4
-    expect(device.deletedBuffers).toHaveLength(afterDestroy + quadBuffers)
+    expect(device.deletedBuffers).toHaveLength(afterDestroy)
   })
 
   it('re-uploads when a node is handed different geometry', async () => {
@@ -524,6 +588,96 @@ describe('MeshRenderer', () => {
     // The old buffers went back rather than leaking alongside the new ones.
     expect(device.deletedBuffers).toHaveLength(4)
     expect(device.deletedIndexBuffers).toHaveLength(1)
+  })
+
+  it('creates no bind groups on a repeat frame of an unchanged scene', async () => {
+    const { device, renderer, world, camera } = await setup()
+    for (let i = 0; i < 3; i++) {
+      world.add(
+        new MeshNode(createBoxGeometry(1), {
+          lit: true,
+          color: [1, 1, 1, 1],
+          pbr: i === 0,
+        }),
+      )
+    }
+    world.updateTransforms()
+    renderer.render(camera, world.root)
+    const groups = device.deviceStats.bindGroupsCreated
+    renderer.render(camera, world.root)
+    expect(device.deviceStats.bindGroupsCreated).toBe(groups)
+  })
+
+  it('draws every mesh past the size a ring starts with', async () => {
+    const { device, renderer, world, camera } = await setup()
+    const count = 1500
+    for (let i = 0; i < count; i++) {
+      world.add(
+        new MeshNode(createBoxGeometry(1), { lit: false, color: [1, 1, 1, 1] }),
+      )
+    }
+    world.updateTransforms()
+    renderer.render(camera, world.root)
+    expect(device.draws.filter((d) => d.kind === 'elements')).toHaveLength(
+      count,
+    )
+  })
+
+  it('reuses the shadow maps until a caster or a light moves', async () => {
+    const { device, renderer, world, camera } = await setup()
+    const caster = new MeshNode(createBoxGeometry(1), {
+      lit: true,
+      color: [1, 1, 1, 1],
+      pbr: true,
+    })
+    world.add(caster)
+    const sun = new DirectionalLight3D({ shadowEnabled: true })
+    world.add(sun)
+    world.updateTransforms()
+
+    const frame = () => {
+      renderer.renderShadows(world.root)
+      renderer.render(camera, world.root)
+      return renderer.stats.shadowPasses
+    }
+    expect(frame()).toBe(1)
+    expect(frame()).toBe(0)
+    expect(frame()).toBe(0)
+
+    caster.transform.setPosition(1, 0, 0)
+    world.updateTransforms()
+    expect(frame()).toBe(1)
+    expect(frame()).toBe(0)
+
+    sun.transform.setPosition(0, 5, 0)
+    world.updateTransforms()
+    expect(frame()).toBe(1)
+    expect(device.shadowPassEnds).toBe(3)
+  })
+
+  it('writes each caster once for every shadow layer and face', async () => {
+    const { device, renderer, world } = await setup()
+    for (let i = 0; i < 4; i++) {
+      world.add(
+        new MeshNode(createBoxGeometry(1), {
+          lit: true,
+          color: [1, 1, 1, 1],
+          pbr: true,
+        }),
+      )
+    }
+    world.add(new DirectionalLight3D({ shadowEnabled: true }))
+    const point = new PointLight3D({ shadowEnabled: true, range: 12 })
+    point.transform.setPosition(0, 4, 0)
+    world.add(point)
+    world.updateTransforms()
+
+    const before = device.deviceStats.uniformWrites
+    renderer.renderShadows(world.root)
+    // Seven passes drew the four casters, with one write per ring: the object
+    // matrices, the layer cameras and the face cameras.
+    expect(device.shadowPassEnds).toBe(7)
+    expect(device.deviceStats.uniformWrites - before).toBe(3)
   })
 
   it('keeps a castShadow:false mesh out of the shadow map but still draws it', async () => {

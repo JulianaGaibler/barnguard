@@ -99,7 +99,7 @@ export class Box extends LayoutNode {
   arrange(x: number, y: number, w: number, h: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
     const p = this.padding
     this.#child?.arrange(
       p.left,
@@ -189,7 +189,7 @@ export class Align extends LayoutNode {
   arrange(x: number, y: number, w: number, h: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
     const cw = this.alignX === 'stretch' ? w : this.#childW
     const ch = this.alignY === 'stretch' ? h : this.#childH
     const cx = this.alignX === 'stretch' ? 0 : alignOffset(this.alignX, w - cw)

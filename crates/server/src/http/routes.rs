@@ -3,8 +3,10 @@
 use super::AppState;
 use crate::config::Config;
 use crate::queue::{CancelOutcome, ReprintError};
+use crate::store::SetLabel;
 use crate::types::{
-    JobMeta, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus, ServerEvent, DISPLAY_ENTERPRISE,
+    JobMeta, LabelChoice, LabelChoiceError, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus,
+    ServerEvent, DISPLAY_ENTERPRISE,
 };
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -320,6 +322,42 @@ pub async fn games_delete(State(st): State<AppState>, Path(id): Path<String>) ->
     match st.games.delete(uuid) {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => (StatusCode::NOT_FOUND, Json(json!({"error": "not_found"}))).into_response(),
+        Err(e) => write_error(&st, "games", e),
+    }
+}
+
+/// `PUT /api/games/{id}/label`. Saves the label the player printed on an
+/// Enterprise record and emits `game.updated`. 400 for a bad id, a name over
+/// the cap, or another display's record, 422 for an unknown variant, 404 if
+/// unknown.
+pub async fn games_set_label(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<LabelChoice>,
+) -> Response {
+    let Ok(uuid) = Uuid::parse_str(&id) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "bad_id"}))).into_response();
+    };
+    let name = match body.normalized_name() {
+        Ok(name) => name,
+        Err(LabelChoiceError::NameTooLong) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "name_too_long"})),
+            )
+                .into_response();
+        }
+    };
+    match st.games.set_label(uuid, body.label_variant, name) {
+        Ok(SetLabel::Updated(record)) => Json(record).into_response(),
+        Ok(SetLabel::NotFound) => {
+            (StatusCode::NOT_FOUND, Json(json!({"error": "not_found"}))).into_response()
+        }
+        Ok(SetLabel::NotEnterprise) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "not_enterprise"})),
+        )
+            .into_response(),
         Err(e) => write_error(&st, "games", e),
     }
 }

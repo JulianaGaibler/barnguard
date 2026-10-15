@@ -1,6 +1,7 @@
 import { createEngineHost } from '../engine/EngineHost'
 import { addDemoCamera } from './demoCamera'
 import { ShapeNode } from '../nodes/ShapeNode'
+import { IOS_CORNER_SMOOTHING } from '../render/gfx/squircle'
 import { Path2DNode } from '../nodes/Path2DNode'
 import type { GfxShadowStyle } from '../render/gfx/Gfx2D'
 import { SHADOW_SIGMA_BUDGETS } from '../render/VectorQuality'
@@ -8,9 +9,9 @@ import { flattenSvgPath, tessellateContours } from '../assets/SvgPathContours'
 import { registerPathTessellation } from '../render/gfx/PathTessellationRegistry'
 import type { DemoFn } from './types'
 
-// Vector sandbox: gradients, border alignment/joins, and drop shadows (the
-// analytic kind on ShapeNode next to the cached-mask kind on Path2DNode, so
-// the two read the same under the same style). `?gfx=webgpu` forces the
+// Vector sandbox: gradients, border alignment/joins, smooth corners, ellipses,
+// and drop shadows (the analytic kind on ShapeNode next to the cached-mask
+// kind on Path2DNode, so the two read the same under the same style). `?gfx=webgpu` forces the
 // other backend; the HUD's "Path shadows" section is the way to watch the
 // mask cache and bake budget respond to the sliders below.
 
@@ -155,7 +156,6 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const host = createEngineHost({
     canvas,
     clearColor: '#11131a',
-    debug: 'hud',
   })
   attach?.(host)
 
@@ -163,7 +163,11 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   let borderBox: ShapeNode
   let shadowCircle: ShapeNode
   let shadowStar: Path2DNode
+  let smoothBox: ShapeNode
+  let ellipse: ShapeNode
   let cam: ReturnType<typeof addDemoCamera>
+  const smooth = { radius: 24, smoothing: IOS_CORNER_SMOOTHING }
+  const ellipseRadii = { x: 60, y: 30 }
 
   await host.loadScene((scene) => {
     cam = addDemoCamera(scene, { x: -240, y: -150, width: 480, height: 300 })
@@ -217,6 +221,36 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     shadowStar.transform.x = 160
     shadowStar.transform.y = 110
     scene.root.add(shadowStar)
+
+    smoothBox = new ShapeNode({
+      geometry: {
+        kind: 'rect',
+        width: 110,
+        height: 110,
+        radii: smooth.radius,
+        smoothing: smooth.smoothing,
+      },
+      fill: '#4a90d9',
+      stroke: '#fdf6e3',
+      lineWidth: 2,
+      shadow: { color: 'rgba(0,0,0,0.5)', offsetY: 8, blur: 24 },
+    })
+    smoothBox.transform.x = -160
+    smoothBox.transform.y = 90
+    scene.root.add(smoothBox)
+
+    ellipse = new ShapeNode({
+      geometry: {
+        kind: 'ellipse',
+        radiusX: ellipseRadii.x,
+        radiusY: ellipseRadii.y,
+      },
+      fill: '#d94a8c',
+      stroke: '#fdf6e3',
+      lineWidth: 3,
+    })
+    ellipse.transform.y = 90
+    scene.root.add(ellipse)
   })
 
   host.start()
@@ -260,6 +294,65 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     })
     slider(p, 'miterLimit', { min: 1, max: 10, step: 0.5, value: 4 }, (v) => {
       borderBox.miterLimit = v
+    })
+
+    heading(p, 'Smooth corners')
+    const applySmooth = (): void => {
+      smoothBox.geometry = {
+        kind: 'rect',
+        width: 110,
+        height: 110,
+        radii: smooth.radius,
+        smoothing: smooth.smoothing,
+      }
+    }
+    slider(
+      p,
+      'smoothing (%)',
+      { min: 0, max: 100, step: 1, value: 60 },
+      (v) => {
+        smooth.smoothing = v / 100
+        applySmooth()
+      },
+    )
+    slider(
+      p,
+      'radius',
+      { min: 0, max: 55, step: 1, value: smooth.radius },
+      (v) => {
+        smooth.radius = v
+        applySmooth()
+      },
+    )
+
+    heading(p, 'Ellipse')
+    const applyEllipse = (): void => {
+      ellipse.geometry = {
+        kind: 'ellipse',
+        radiusX: ellipseRadii.x,
+        radiusY: ellipseRadii.y,
+      }
+    }
+    slider(
+      p,
+      'radiusX',
+      { min: 2, max: 90, step: 1, value: ellipseRadii.x },
+      (v) => {
+        ellipseRadii.x = v
+        applyEllipse()
+      },
+    )
+    slider(
+      p,
+      'radiusY',
+      { min: 2, max: 90, step: 1, value: ellipseRadii.y },
+      (v) => {
+        ellipseRadii.y = v
+        applyEllipse()
+      },
+    )
+    select(p, 'stroke align', BORDER_ALIGNS, 'center', (v) => {
+      ellipse.lineAlign = v
     })
 
     heading(p, 'Shadow (circle = analytic, star = cached mask)')

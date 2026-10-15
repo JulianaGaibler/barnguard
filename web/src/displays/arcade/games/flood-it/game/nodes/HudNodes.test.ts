@@ -1,33 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type { Gfx2D } from '@src/stargazer'
+import { paintCalls } from '@src/stargazer'
 import { FAMILIES } from '@src/core/theme'
 import { counterLayout, NoticeNode } from './HudNodes'
 
-/** Captures the text runs a node draws, with the font each asked for. */
-function textRecorder(): {
-  gfx: Gfx2D
-  runs: { text: string; font: string }[]
-} {
-  const runs: { text: string; font: string }[] = []
-  const noop = (): void => {}
-  const gfx = {
-    setAlpha: noop,
-    fillRect: noop,
-    fillRoundRect: noop,
-    fillCircle: noop,
-    fillConvexPoly: noop,
-    strokeLine: noop,
-    strokeQuadratic: noop,
-    strokePolyline: noop,
-    strokeRoundRect: noop,
-    fillText: (
-      text: string,
-      _x: number,
-      _y: number,
-      style?: { font?: string },
-    ) => runs.push({ text, font: style?.font ?? '' }),
-  } as unknown as Gfx2D
-  return { gfx, runs }
+/** The text runs a node paints, with the font each asked for. */
+function textRuns(node: NoticeNode): { text: string; font: string }[] {
+  return paintCalls(node)
+    .filter((c) => c.name === 'fillText')
+    .map((c) => ({
+      text: c.args[0] as string,
+      font: (c.args[3] as { font?: string } | undefined)?.font ?? '',
+    }))
 }
 
 /**
@@ -95,28 +78,18 @@ describe('NoticeNode', () => {
   it('draws its status line in the body face, not the display one', () => {
     // A heading face set at this size shouts, and this is a status line.
     const node = shown('Waiting for the other player')
-    const rec = textRecorder()
-    node.draw(rec.gfx)
-    expect(rec.runs).toHaveLength(1)
-    expect(rec.runs[0]!.font).toContain('Mozilla Text')
-    expect(rec.runs[0]!.font).not.toContain('Sniglet')
+    const runs = textRuns(node)
+    expect(runs).toHaveLength(1)
+    expect(runs[0]!.font).toContain('Mozilla Text')
+    expect(runs[0]!.font).not.toContain('Sniglet')
   })
 
   it('sits the text on a baseline rather than the em box', () => {
     const node = shown('Waiting')
-    const calls: unknown[][] = []
-    const gfx = new Proxy(
-      {},
-      {
-        get:
-          () =>
-          (...args: unknown[]) =>
-            calls.push(args),
-      },
-    ) as unknown as Gfx2D
-    node.draw(gfx)
-    const text = calls.find((a) => typeof a[0] === 'string' && a.length === 4)
-    expect((text?.[3] as { baseline?: string })?.baseline).toBe('alphabetic')
+    const text = paintCalls(node).find((c) => c.name === 'fillText')
+    expect((text?.args[3] as { baseline?: string })?.baseline).toBe(
+      'alphabetic',
+    )
   })
 
   it('draws nothing once hidden', () => {
@@ -125,11 +98,22 @@ describe('NoticeNode', () => {
     expect(node.visible).toBe(false)
   })
 
+  it('repaints as it fades in, then rests', () => {
+    const node = new NoticeNode()
+    node.setSize(60)
+    node.show('Waiting')
+    node._paintDirty = false
+    node.onUpdate(0.1)
+    expect(node._paintDirty).toBe(true)
+    node.onUpdate(1)
+    node._paintDirty = false
+    node.onUpdate(0.1)
+    expect(node._paintDirty).toBe(false)
+  })
+
   it('names a real family, so nothing falls back silently', () => {
     const node = shown('Waiting')
-    const rec = textRecorder()
-    node.draw(rec.gfx)
-    expect(rec.runs[0]!.font).toContain(
+    expect(textRuns(node)[0]!.font).toContain(
       FAMILIES.mozillaText.split(',')[0]!.trim(),
     )
   })

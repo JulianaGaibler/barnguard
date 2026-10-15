@@ -1,6 +1,5 @@
 import { Node2D } from '../scene/Node2D'
-import type { Camera } from '../camera/Camera'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { Canvas } from '../render/picture/Canvas'
 import type { Vec2 } from '../math/Vec2'
 import { SlotPool } from '../particles/SlotPool'
 
@@ -18,7 +17,7 @@ export interface VectorParticleSpawnInit {
   angle: number
   /**
    * Launch speed magnitude. Populate from `Math.hypot(vx, vy)` if
-   * `shouldDespawn` or `drawParticle` needs a speed ratio, leave 0 if unused.
+   * `shouldDespawn` or `paintParticle` needs a speed ratio, leave 0 if unused.
    */
   speed0: number
 }
@@ -36,11 +35,11 @@ export interface VectorParticleNodeOptions {
 
 /**
  * Base class for custom-shaped, physics-driven particle bursts: per-particle
- * rotation, arbitrary vector draw shapes (triangles, line shards, anything
- * {@link Gfx2D} can draw), and opt-in despawn rules. These are the cases the
- * baked, sprite-based {@link ParticleEmitterNode} structurally can't cover
- * (mixed shapes within one burst, multi-stage spin, non-speed despawn rules).
- * Use `ParticleEmitterNode` for sprite-based bursts/trails, reach for this when
+ * rotation, arbitrary vector draw shapes (triangles, line shards, anything the
+ * canvas can paint), and opt-in despawn rules. These are the cases the baked,
+ * sprite-based {@link ParticleEmitterNode} structurally can't cover (mixed
+ * shapes within one burst, multi-stage spin, non-speed despawn rules). Use
+ * `ParticleEmitterNode` for sprite-based bursts/trails, reach for this when
  * particles need per-piece vector geometry.
  *
  * Owns `x, y, vx, vy, angle, speed0` typed arrays and integrates standard
@@ -50,7 +49,7 @@ export interface VectorParticleNodeOptions {
  * enough surrounding differences that a shared function would just add an
  * indirection). Subclasses add their own parallel typed arrays (spin, shape
  * kind, whatever a specific burst needs) sized to `capacity` and index them
- * with the SAME index the base class hands to `spawnParticle` / `drawParticle`
+ * with the SAME index the base class hands to `spawnParticle` / `paintParticle`
  * / `updateExtra` / `shouldDespawn`.
  *
  * Nothing auto-despawns unless a subclass's `shouldDespawn` opts in. A node
@@ -84,7 +83,7 @@ export interface VectorParticleNodeOptions {
  *       out.speed0 = speed
  *       this.#kind[i] = Math.random() < 0.6 ? 0 : 1
  *     }
- *     protected override drawParticle(gfx: Gfx2D, i: number): void {
+ *     protected override paintParticle(gfx: Canvas, i: number): void {
  *       if (this.#kind[i] === 0) gfx.fillConvexPoly(TRI, 3, '#fff')
  *       else
  *         gfx.strokeLine(-4, 0, 4, 0, {
@@ -98,7 +97,7 @@ export interface VectorParticleNodeOptions {
 export abstract class VectorParticleNode extends Node2D {
   // Structure-of-arrays particle state, all indexed by slot and all allocated
   // once at `capacity`. A slot is live when `alive[i] === 1`. A subclass reads
-  // these directly in its `drawParticle`, and adds its own parallel arrays for
+  // these directly in its `paintParticle`, and adds its own parallel arrays for
   // whatever else its shape needs.
   protected readonly capacity: number
   protected readonly x: Float32Array
@@ -245,10 +244,18 @@ export abstract class VectorParticleNode extends Node2D {
         this.kill(i)
       }
     }
+    // Every live particle moves each frame, so the picture is stale while any
+    // is alive. One more repaint after the last one dies clears them.
+    const alive = this.#slots.aliveCount > 0
+    if (alive || this.#paintedAlive) this.markNeedsPaint()
+    this.#paintedAlive = alive
     this.#drainEmptyResolvers()
   }
 
-  override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
+  /** Whether the node's last update left any particle alive. */
+  #paintedAlive = false
+
+  override paint(gfx: Canvas): void {
     const hi = this.#slots.highWaterIndex
     if (hi === 0) return
     for (let i = 0; i < hi; i++) {
@@ -256,7 +263,7 @@ export abstract class VectorParticleNode extends Node2D {
       gfx.save()
       gfx.translate(this.x[i], this.y[i])
       gfx.rotate(this.angle[i])
-      this.drawParticle(gfx, i, camera)
+      this.paintParticle(gfx, i)
       gfx.restore()
     }
   }
@@ -265,7 +272,7 @@ export abstract class VectorParticleNode extends Node2D {
 
   /**
    * Fill `out` with this particle's spawn state (position/velocity/angle in
-   * node-local space, plus `speed0` if a despawn predicate or draw hook needs
+   * node-local space, plus `speed0` if a despawn predicate or paint hook needs
    * it). Called once per particle from `burst`. `out` is pre-zeroed reused
    * scratch, do not retain a reference to it.
    */
@@ -275,15 +282,14 @@ export abstract class VectorParticleNode extends Node2D {
   ): void
 
   /**
-   * Draw particle `i` in LOCAL SPACE: the base class has already `save()`'d and
-   * positioned/rotated the origin at `(x[i], y[i], angle[i])`, so draw as if
-   * the particle were at `(0, 0)` facing angle 0 (e.g.
+   * Paint particle `i` in LOCAL SPACE: the base class has already `save()`'d
+   * and positioned/rotated the origin at `(x[i], y[i], angle[i])`, so paint as
+   * if the particle were at `(0, 0)` facing angle 0 (e.g.
    * `gfx.fillConvexPoly(triPts, 3, color)`, `gfx.strokeLine(-h, 0, h, 0,
-   * style)`). The base class calls `restore()` after this returns. `camera` is
-   * forwarded from `Node2D.draw` for anything that needs
-   * `camera.strokeSpaceScale()` (e.g. a screen-constant line width).
+   * style)`). The base class calls `restore()` after this returns. For a
+   * screen-constant line width pass `{ screen: n }`.
    */
-  protected abstract drawParticle(gfx: Gfx2D, i: number, camera: Camera): void
+  protected abstract paintParticle(gfx: Canvas, i: number): void
 
   /**
    * Extra per-particle integration beyond the base translational kinematics

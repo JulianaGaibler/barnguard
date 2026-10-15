@@ -1,17 +1,15 @@
-import {
-  PolylineNode,
-  type CameraView2D,
-  type Gfx2D,
-  type Vec2,
-} from '@src/stargazer'
+import { PolylineNode, type Canvas, type Vec2 } from '@src/stargazer'
 import { TUNING } from '../data/tuning'
 
 /**
  * Player-drawn routing line. Decouples the packet's guidance queue from the
  * visible stroke. `markConsumed` advances an index instead of `dropHead` so
  * faded points survive briefly. `onUpdate` drops them lazily once `age >
- * fadeSec`. `draw` walks segments, ahead-of-packet full alpha, behind-packet
+ * fadeSec`. `paint` walks segments, ahead-of-packet full alpha, behind-packet
  * fades by consume age.
+ *
+ * `paint` runs when the points change, and on every frame while any consumed
+ * point is still fading, since each segment's alpha follows the clock.
  */
 export class PathTrailNode extends PolylineNode {
   /**
@@ -25,6 +23,15 @@ export class PathTrailNode extends PolylineNode {
   /** Cached engine time, refreshed each `onUpdate`. */
   #nowSec = 0
 
+  /** The stroke style every segment shares, rewritten by each paint. */
+  readonly #style = {
+    color: '',
+    width: 1,
+    join: 'round' as CanvasLineJoin,
+    cap: 'round' as CanvasLineCap,
+    dash: [0, 0],
+  }
+
   readonly #_scratchA: Vec2 = { x: 0, y: 0 }
   readonly #_scratchB: Vec2 = { x: 0, y: 0 }
   readonly #_scratchC: Vec2 = { x: 0, y: 0 }
@@ -33,7 +40,7 @@ export class PathTrailNode extends PolylineNode {
     super({
       capacity: 256,
       // Base color is fully opaque, per-segment alpha is applied via
-      // `ctx.globalAlpha` in `draw`.
+      // `setAlpha` in `paint`.
       strokeStyle: '#fdf6e3',
       lineWidth: 1,
       lineJoin: 'round',
@@ -58,6 +65,7 @@ export class PathTrailNode extends PolylineNode {
     if (this.#consumedCount >= this.pointCount) return
     this.#pointConsumedAt[this.#consumedCount] = nowSec
     this.#consumedCount++
+    this.markNeedsPaint()
   }
 
   override push(x: number, y: number): this {
@@ -76,6 +84,7 @@ export class PathTrailNode extends PolylineNode {
     // settled interior corners don't keep drifting. Consumed points are
     // skipped so the packet never sees a waypoint move under it.
     this.#smoothTail()
+    this.markNeedsPaint()
     return this
   }
 
@@ -109,6 +118,7 @@ export class PathTrailNode extends PolylineNode {
     super.clear()
     this.#pointConsumedAt.fill(-1)
     this.#consumedCount = 0
+    this.markNeedsPaint()
     return this
   }
 
@@ -120,6 +130,7 @@ export class PathTrailNode extends PolylineNode {
       this.#pointConsumedAt.copyWithin(0, dropped)
       this.#pointConsumedAt.fill(-1, this.pointCount)
       this.#consumedCount = Math.max(0, this.#consumedCount - dropped)
+      this.markNeedsPaint()
     }
     return this
   }
@@ -141,24 +152,25 @@ export class PathTrailNode extends PolylineNode {
     ) {
       this.dropHead(1)
     }
+    if (this.#consumedCount > 0) this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D, _dt: number): void {
+  override paint(gfx: Canvas): void {
     const n = this.pointCount
     if (n < 2) return
     const fade = TUNING.path.fadeSec
     const now = this.#nowSec
-    // Stroke width + dash in CSS px, scaled by `strokeSpaceScale` to stay
+    // Stroke width + dash in CSS px, scaled by the screen scale to stay
     // visually constant across zoom. World-space stroking bypasses this.
-    const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
+    const s = this.strokeSpace === 'world' ? 1 : gfx.screenScale()
     // Dashed pattern shared across every sub-segment, only alpha varies.
-    const style = {
-      color: this.strokeStyle,
-      width: this.lineWidth * s,
-      join: this.lineJoin,
-      cap: this.lineCap,
-      dash: [6 * s, 4 * s],
-    }
+    const style = this.#style
+    style.color = this.strokeStyle
+    style.width = this.lineWidth * s
+    style.join = this.lineJoin
+    style.cap = this.lineCap
+    style.dash[0] = 6 * s
+    style.dash[1] = 4 * s
     gfx.save()
     const pA = this.#_scratchA
     const pB = this.#_scratchB

@@ -139,13 +139,6 @@ export const COLORS = {
   panelBorder: '#2b262033',
   pressed: '#00000014',
   disabledText: '#b3ada2',
-  /**
-   * Board color at 55%, laid over a whole card to fade it back. The effect it
-   * stands in for is the card drawn at 45% over the table, so the veil takes
-   * `board`, which sits between the two backdrop stops and so is within a level
-   * or two of the table wherever a card lands on it.
-   */
-  fadeVeil: '#f7f6f08c',
   /** Points earned, over the dark portrait disc that holds them. */
   scoreInk: '#ffffff',
   /** Board wash behind a single card being explained. */
@@ -205,6 +198,9 @@ export const LAYOUT = {
   /** Control stack below the shortlists. */
   controlFrac: 0.14,
 } as const
+
+/** How opaque a card on the floor is while it is not in play. */
+export const FADED_ALPHA = 0.55
 
 export const ANIM = {
   /** Pause before the computer commits, so its turn reads as a decision. */

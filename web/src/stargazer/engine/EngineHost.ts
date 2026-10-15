@@ -11,6 +11,14 @@ import { DebugController } from '../debug/DebugController'
 export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
   canvas: HTMLCanvasElement
   /**
+   * Keep the quality settings a person pins in the debug panel, per screen, in
+   * `localStorage`, and apply them when the page loads. Default `true`.
+   * `?quality=off` ignores and stops saving them, and `?quality=reset` clears
+   * them. A benchmark sets this to `false` so its own settings are the ones
+   * measured.
+   */
+  qualityProfile?: boolean
+  /**
    * Called when the canvas loses its WebGL2 context. Default is
    * `location.reload()`. Apps that don't want a page reload should override
    * this and manage the rebuild themselves.
@@ -19,9 +27,9 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
   /**
    * Boot-time HUD state override. If omitted, reads from `?debug` in
    * `window.location.search`: `?debug=hud` -> HUD visible on boot `?debug=perf`
-   * -> HUD visible on boot + per-node `performance.mark()` timing enabled on the
-   * engine (inspect via DevTools User Timing lane) (absent / anything else) ->
-   * HUD hidden on boot
+   * -> HUD visible on boot + per-node `performance.mark()` timing enabled on
+   * the engine (inspect via DevTools User Timing lane) (absent / anything else)
+   * -> HUD hidden on boot
    *
    * The DebugController is ALWAYS instantiated, the URL flag only controls its
    * initial visibility. External code (a menu or admin panel) toggles the HUD
@@ -119,6 +127,23 @@ interface ContextLostEvent extends Event {
   readonly canBeRestored?: boolean
 }
 
+/**
+ * Put back the quality settings saved for this screen, unless the host or the
+ * URL asked not to.
+ */
+function applyQualityProfile(engine: Engine, enabled: boolean): void {
+  const flag =
+    typeof window === 'undefined'
+      ? null
+      : new URLSearchParams(window.location.search).get('quality')
+  if (!enabled || flag === 'off') {
+    engine.qualityControl.disablePersistence()
+    return
+  }
+  if (flag === 'reset') engine.qualityControl.reset()
+  engine.qualityControl.restore()
+}
+
 function resolveDebugMode(
   explicit?: 'hidden' | 'hud' | 'perf',
 ): 'hidden' | 'hud' | 'perf' {
@@ -184,6 +209,8 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
     msaaSamples,
   })
 
+  applyQualityProfile(engine, opts.qualityProfile ?? true)
+
   const debugMode = resolveDebugMode(opts.debug)
   // Always instantiate, booth-side surfaces (menu, game-rules window)
   // rely on `host.debug` being non-null so they can toggle HUD state at
@@ -192,6 +219,11 @@ export function createEngineHost(opts: EngineHostOptions): EngineHost {
     showHud: debugMode === 'hud' || debugMode === 'perf',
   })
   engine.debug = debug
+  if (debugMode !== 'hidden' || import.meta.env.DEV) {
+    // Lets a test run read the counters without the HUD on screen.
+    ;(globalThis as { __stargazerDebug?: DebugController }).__stargazerDebug =
+      debug
+  }
   if (debugMode === 'perf') engine.perfMarks = true
 
   // Loss recovery differs by backend. WebGL2 can restore its context in place,

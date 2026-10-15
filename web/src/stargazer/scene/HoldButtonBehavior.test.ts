@@ -14,7 +14,7 @@ const ev = (x: number, y: number, id = 1): PointerEvent2D =>
 const setup = (opts: Partial<HoldButtonOptions> = {}) => {
   const onPress = vi.fn()
   const node = new Node2D('hold')
-  node.debugBounds = { x: 0, y: 0, width: 100, height: 100 }
+  node.boundsOverride = { x: 0, y: 0, width: 100, height: 100 }
   const behavior = new HoldButtonBehavior({ onPress, ...opts })
   node.addBehavior(behavior)
   return { node, behavior, onPress }

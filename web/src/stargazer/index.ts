@@ -16,6 +16,8 @@ export type {
   RegisteredPhysicsWorld,
   RegisterPhysicsWorldOptions,
 } from './engine/Engine'
+export { CAPTURE_IDLE_RELEASE_SEC } from './engine/SceneCapture'
+export type { CaptureBlobOptions, CaptureOptions } from './engine/SceneCapture'
 export { createTicker } from './engine/Ticker'
 export type { Ticker, TickerOptions } from './engine/Ticker'
 
@@ -35,7 +37,21 @@ export type { NodeOwner, NodeEvents, NodeKind } from './scene/Node'
 export { GroupNode } from './scene/GroupNode'
 export { Node3D } from './scene/Node3D'
 export type { Node3DTweenTo } from './scene/Node3D'
-export type { RenderLayer, PointerHandlers } from './scene/Node2D'
+export type { PointerHandlers } from './scene/Node2D'
+export type { Canvas } from './render/picture/Canvas'
+export type {
+  CanvasStrokeStyle,
+  ScreenWidth,
+  Versioned,
+} from './render/picture/Picture'
+export { Picture } from './render/picture/Picture'
+export { definePaintProps } from './render/picture/paintProps'
+export {
+  paintCalls,
+  paintPicture,
+  type PaintCall,
+} from './render/picture/paintCalls'
+export { VersionedRef } from './render/picture/VersionedRef'
 export { Behavior } from './scene/Behavior'
 export type { BehaviorCtor } from './scene/Behavior'
 export { PointerBehavior } from './scene/PointerBehavior'
@@ -85,9 +101,7 @@ export {
   rectMargins,
   clampRectToBounds,
 } from './math/Rect'
-// `MatrixPool` is an internal helper in `math/matrix.ts`, not part of the
-// public API. It has no consumers outside its own tests, which import it
-// directly.
+export { Affine2D } from './math/Affine2D'
 export {
   copyMatrix2D,
   multiplyMatrix2D,
@@ -168,6 +182,7 @@ export type {
 export { Stage } from './render/Stage'
 export type {
   StageOptions,
+  StagePixelSize,
   StageResizeInfo,
   StagePointerEvents,
 } from './render/Stage'
@@ -179,6 +194,20 @@ export {
   SHADOW_SOFTNESS_TAPS,
 } from './render/RenderQuality'
 export type { RenderQualityOptions } from './render/RenderQuality'
+export {
+  QualityControl,
+  QUALITY_PRESETS,
+  type ManualQuality,
+  type QualityHost,
+  type QualityMode,
+  type QualityPreset,
+  type QualityPresetId,
+} from './render/QualityControl'
+export {
+  QUALITY_GROUPS,
+  type QualityGroup,
+  type QualityValues,
+} from './render/qualityGroups'
 export { Fog } from './render/Fog'
 export type { FogOptions, FogMode } from './render/Fog'
 export type {
@@ -211,7 +240,8 @@ export type { DualKawaseBlurOptions } from './render/postfx/effects/DualKawaseBl
 export { FilmGrain } from './render/postfx/effects/FilmGrain'
 export type { FilmGrainOptions } from './render/postfx/effects/FilmGrain'
 export { AmbientOcclusion } from './render/gfx/ao/AmbientOcclusion'
-export type { AoPreset } from './render/gfx/ao/AmbientOcclusion'
+export type { AoPreset, AoResolution } from './render/gfx/ao/AmbientOcclusion'
+export type { QualityTier } from './render/AdaptiveQuality'
 export { DataTexture, ShaderQuad, quadShader } from './render/gfx/ShaderQuad'
 export { InsetViewNode } from './nodes/InsetViewNode'
 export type { InsetViewOptions } from './nodes/InsetViewNode'
@@ -232,14 +262,18 @@ export type {
   GfxMatteMode,
   GfxOffscreenHandle,
   GfxOffscreenOptions,
+  GfxSurfaceCache,
+  GfxSurfaceEffects,
   GfxRadialGradient,
   GfxPaint,
   GfxFill,
   GfxShadowStyle,
 } from './render/gfx/Gfx2D'
+export { cssLinearGradient } from './render/gfx/cssGradient'
 export { GfxPath } from './render/gfx/GfxPath'
-export { addOffscreenDemand } from './render/gfx/offscreenDemand'
 export type { FlatPath } from './render/gfx/GfxPath'
+export { RenderFailures } from './render/gfx/RenderFailures'
+export type { RenderFailure } from './render/gfx/RenderFailures'
 export type { FillRule } from './render/gfx/stencilRecipe'
 export {
   strokeOutline,
@@ -257,8 +291,19 @@ export type {
   PathShadowFallback,
 } from './render/VectorQuality'
 export { resolveRadii } from './render/gfx/roundRectRadii'
+export {
+  IOS_CORNER_SMOOTHING,
+  fitSquircleCorners,
+  squircleCorner,
+  squircleCorners,
+  squirclePath,
+  squirclePath2D,
+  squircleSvgPath,
+} from './render/gfx/squircle'
+export type { SquircleCorner } from './render/gfx/squircle'
 export type { RoundRectRadii, ResolvedRadii } from './render/gfx/roundRectRadii'
 export type { GeometryHandle } from './render/gfx/GeometryHandle'
+export type { RetainedCacheStats } from './render/gfx/RetainedCache'
 export { parseColor, mixColor, withAlpha } from './render/gfx/parseColor'
 export type { RGBA } from './render/gfx/parseColor'
 
@@ -279,9 +324,19 @@ export type { PhysicsOverlayFlags } from './debug/DebugPhysicsRenderer'
 export type { DebugRenderMode } from './render/gfx/GpuGfx'
 export { DebugCamera } from './debug/DebugCamera'
 export { FrameStats } from './debug/FrameStats'
+export { RingSeries, type SeriesSource } from './debug/RingSeries'
 
 // primitives
 export { Node2D } from './scene/Node2D'
+export { Layer } from './scene/Layer'
+export type {
+  LayerCache,
+  LayerOptions,
+  LayerRegion,
+  LayerSpace,
+} from './scene/Layer'
+export { layerOf, viewFor } from './scene/viewFor'
+export type { ViewDebug } from './scene/viewFor'
 export { ShapeNode } from './nodes/ShapeNode'
 export type { ShapeGeometry, ShapeNodeOptions } from './nodes/ShapeNode'
 export { PolylineNode } from './nodes/PolylineNode'
@@ -300,6 +355,8 @@ export type {
 } from './nodes/VectorParticleNode'
 export { TextNode } from './nodes/TextNode'
 export type { TextNodeOptions } from './nodes/TextNode'
+export { ImageNode } from './nodes/ImageNode'
+export type { ImageNodeOptions } from './nodes/ImageNode'
 export { MeshNode, createBoxGeometry } from './nodes/MeshNode'
 export {
   createQuadGeometry,
@@ -329,8 +386,6 @@ export {
   SpotLight3D,
 } from './nodes/Light3D'
 export type { Light3DOptions } from './nodes/Light3D'
-export { Viewport2DNode } from './nodes/Viewport2DNode'
-export type { Viewport2DOptions } from './nodes/Viewport2DNode'
 export {
   clearFontMetricsCache,
   fontMetrics,
@@ -487,6 +542,7 @@ export { loadGltf, parseGltf } from './assets/gltf'
 // input
 export { InputSystem } from './input/InputSystem'
 export { findHitNode } from './input/hit'
+export type { HitViewResolver } from './input/hit'
 export { bindRegionGesture } from './input/RegionGesture'
 export type { RegionGestureOptions } from './input/RegionGesture'
 export type {

@@ -20,10 +20,22 @@ export interface Grid {
   readonly rows: number
   /** `row * cols + col` -> {@link CellState}. */
   readonly cells: Uint8Array
+  /**
+   * Counts the changes made to `cells`, so a node painted from the grid knows
+   * to repaint. Every function here that writes a cell increments it. Code that
+   * writes `cells` directly increments it too.
+   */
+  version: number
 }
 
 export function createGrid(cols: number, rows: number): Grid {
-  return { cols, rows, cells: new Uint8Array(cols * rows) }
+  return { cols, rows, cells: new Uint8Array(cols * rows), version: 0 }
+}
+
+/** Open every cell. */
+export function clearGrid(g: Grid): void {
+  g.cells.fill(CELL_OPEN)
+  g.version++
 }
 
 export function inBounds(g: Grid, col: number, row: number): boolean {
@@ -41,11 +53,14 @@ export function setCell(
   state: CellState,
 ): void {
   g.cells[row * g.cols + col] = state
+  g.version++
 }
 
 /** Mark a cell as a solid wall (no-op if out of bounds). */
 export function markWall(g: Grid, col: number, row: number): void {
-  if (inBounds(g, col, row)) g.cells[row * g.cols + col] = CELL_WALL
+  if (!inBounds(g, col, row)) return
+  g.cells[row * g.cols + col] = CELL_WALL
+  g.version++
 }
 
 /**
@@ -65,6 +80,7 @@ export function markWallSpan(
     if (orientation === 'vertical') g.cells[i * g.cols + fixedIndex] = CELL_WALL
     else g.cells[fixedIndex * g.cols + i] = CELL_WALL
   }
+  g.version++
 }
 
 /** Count of flood-filled (captured-region) cells. Excludes the player's walls. */
@@ -207,5 +223,6 @@ export function captureEmptyRegions(g: Grid, ballCells: CellRef[]): CellRef[] {
     }
   }
 
+  if (filled.length > 0) g.version++
   return filled
 }

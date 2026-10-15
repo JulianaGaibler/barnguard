@@ -20,9 +20,8 @@ import {
   circleShape,
   lerp,
   polygonShape,
-  type CameraView2D,
+  type Canvas,
   type EngineHost,
-  type Gfx2D,
   type Rect,
   type Vec2,
 } from '@src/stargazer'
@@ -144,15 +143,14 @@ class DecorNode extends Node2D {
     clip: Rect,
   ) {
     super('jezzball-menu-decor')
-    this.renderLayer = 'dynamic'
     this.#square = square
     this.#circle = circle
     this.#spokes = spokes
     this.#clip = clip
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const width = LINE_WIDTH_PX * camera.strokeSpaceScale()
+  override paint(gfx: Canvas): void {
+    const width = LINE_WIDTH_PX * gfx.screenScale()
     const style = { color: COLORS.ink, width, cap: 'round' as const }
     const stroke = (a: Vec2, b: Vec2): void => {
       const seg = clipSegment(a, b, this.#clip)

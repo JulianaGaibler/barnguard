@@ -1,9 +1,9 @@
 /**
- * Fallback a path's drop shadow draws while its blurred mask is cold,
- * starved, or disabled: the path's own triangles, translated and tinted,
- * with no blur. `'hard'` is the only value. A `'none'` option was considered
- * and rejected: it makes a slow machine the one that shows missing shadows,
- * which is worse than a shadow that is merely sharper than it should be.
+ * Fallback a path's drop shadow draws while its blurred mask is cold, starved,
+ * or disabled: the path's own triangles, translated and tinted, with no blur.
+ * `'hard'` is the only value. A `'none'` option was considered and rejected: it
+ * makes a slow machine the one that shows missing shadows, which is worse than
+ * a shadow that is merely sharper than it should be.
  */
 export type PathShadowFallback = 'hard'
 
@@ -59,21 +59,21 @@ export class VectorQuality {
   shadowMaskBudgetBytes: number
   /**
    * Per-frame bake budget, in blur tap-work (mask texels times tap count, not
-   * texel count alone: cost scales with both). Consumed starting with the
-   * mask bake scheduler; the default is a placeholder order of magnitude
-   * until that scheduler's own measurements tune it.
+   * texel count alone: cost scales with both). Consumed starting with the mask
+   * bake scheduler; the default is a placeholder order of magnitude until that
+   * scheduler's own measurements tune it.
    */
   shadowBakeWorkPerFrame: number
   /**
-   * Draw an opaque outset shadow as a frame of four instances over the
-   * border region instead of a full quad. Default `true`.
+   * Draw an opaque outset shadow as a frame of four instances over the border
+   * region instead of a full quad. Default `true`.
    */
   analyticShadowFrame: boolean
   /**
    * Ordered dither on an 8-bit ramp: a gradient fill, an analytic shadow, and
    * the outset path-shadow composite. Never applied under `'lighter'` blend
-   * (the per-draw offset would sum instead of averaging out) or to a solid
-   * fill (nothing to band). Default `true`.
+   * (the per-draw offset would sum instead of averaging out) or to a solid fill
+   * (nothing to band). Default `true`.
    */
   dither: boolean
 
@@ -87,7 +87,10 @@ export class VectorQuality {
     this.dither = opts.dither ?? true
   }
 
-  /** Blur-kernel sigma budget in device px (snapped to {@link SHADOW_SIGMA_BUDGETS}). */
+  /**
+   * Blur-kernel sigma budget in device px (snapped to
+   * {@link SHADOW_SIGMA_BUDGETS}).
+   */
   get shadowSigmaBudget(): number {
     return this.#shadowSigmaBudget
   }

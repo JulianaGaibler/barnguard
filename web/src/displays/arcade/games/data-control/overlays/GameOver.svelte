@@ -117,7 +117,6 @@
       bind:open={entry.keyboardOpen}
       showTrigger={false}
       maxLength={NAME_MAX_LEN}
-      closeLabel={$t.arcade.leaderboard.closeKeyboard}
     />
   {/if}
 

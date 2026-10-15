@@ -4,7 +4,12 @@
  * accent dot and "of N%". Versus: both players' percentages flank a shared
  * vertical "of N%" pill, each growing its own vertical meter.
  */
-import { Node2D, textAdvance, type Gfx2D } from '@src/stargazer'
+import {
+  Node2D,
+  definePaintProps,
+  textAdvance,
+  type Canvas,
+} from '@src/stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
 import { font } from '../../fonts'
 
@@ -22,42 +27,46 @@ export interface ProgressOptions {
 export class ProgressNode extends Node2D {
   readonly #mode: ProgressMode
   readonly #target: number
-  #width: number
-  #pct = 0
-  #leftPct = 0
-  #rightPct = 0
+  declare width: number
+  declare pct: number
+  declare leftPct: number
+  declare rightPct: number
 
   constructor(opts: ProgressOptions) {
     super('jb-progress')
-    this.renderLayer = 'dynamic'
     this.#mode = opts.mode
     this.#target = opts.target
-    this.#width = opts.width
+    definePaintProps(this, {
+      width: opts.width,
+      pct: 0,
+      leftPct: 0,
+      rightPct: 0,
+    })
   }
 
   setWidth(width: number): void {
-    this.#width = width
+    this.width = width
   }
 
   setSolo(pct: number): void {
-    this.#pct = pct
+    this.pct = pct
   }
 
   setVersus(leftPct: number, rightPct: number): void {
-    this.#leftPct = leftPct
-    this.#rightPct = rightPct
+    this.leftPct = leftPct
+    this.rightPct = rightPct
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     if (this.#mode === 'solo') this.#drawSolo(gfx)
     else this.#drawVersus(gfx)
   }
 
-  #drawSolo(gfx: Gfx2D): void {
-    const w = this.#width
+  #drawSolo(gfx: Canvas): void {
+    const w = this.width
     const trackH = 27.2
     const trackY = -trackH / 2
-    const pct = Math.min(100, this.#pct)
+    const pct = Math.min(100, this.pct)
     gfx.fillRect(-w / 2, trackY, w, trackH, COLORS.white)
     gfx.fillRect(-w / 2, trackY, w * (pct / 100), trackH, TRACK_FILL)
     gfx.strokeRoundRect(-w / 2, trackY, w, trackH, 0, {
@@ -95,7 +104,7 @@ export class ProgressNode extends Node2D {
     })
   }
 
-  #drawVersus(gfx: Gfx2D): void {
+  #drawVersus(gfx: Canvas): void {
     const numFont = 57.6
     const barW = 8
     const barH = 80
@@ -109,16 +118,16 @@ export class ProgressNode extends Node2D {
       const fillH = barH * Math.min(1, fillFrac / 100)
       gfx.fillRect(x, barH / 2 - fillH, barW, fillH, PROGRESS_ACCENT)
     }
-    drawMeter(leftBarX, (this.#leftPct / this.#target) * 100)
-    drawMeter(rightBarX, (this.#rightPct / this.#target) * 100)
+    drawMeter(leftBarX, (this.leftPct / this.#target) * 100)
+    drawMeter(rightBarX, (this.rightPct / this.#target) * 100)
 
-    gfx.fillText(String(Math.round(this.#leftPct)), leftBarX - 12, 0, {
+    gfx.fillText(String(Math.round(this.leftPct)), leftBarX - 12, 0, {
       font: font(800, numFont),
       align: 'right',
       baseline: 'middle',
       color: COLORS.ink,
     })
-    gfx.fillText(String(Math.round(this.#rightPct)), rightBarX + barW + 12, 0, {
+    gfx.fillText(String(Math.round(this.rightPct)), rightBarX + barW + 12, 0, {
       font: font(800, numFont),
       align: 'left',
       baseline: 'middle',

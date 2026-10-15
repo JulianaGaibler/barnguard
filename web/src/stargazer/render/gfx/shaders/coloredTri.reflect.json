@@ -11,11 +11,7 @@
     },
     {
       "binding": 2,
-      "glslName": "DrawParams_block_2Fragment"
-    },
-    {
-      "binding": 8,
-      "glslName": "Clip_block_1Fragment"
+      "glslName": "DrawParams_block_1Fragment"
     }
   ],
   "samplers": [
@@ -30,6 +26,10 @@
     {
       "binding": 4,
       "glslName": "_group_1_binding_4_fs"
+    },
+    {
+      "binding": 10,
+      "glslName": "_group_0_binding_10_vs"
     }
   ]
 }

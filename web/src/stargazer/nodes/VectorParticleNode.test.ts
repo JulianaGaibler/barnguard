@@ -1,67 +1,15 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   VectorParticleNode,
   type VectorParticleSpawnInit,
 } from './VectorParticleNode'
-import type { Camera } from '../camera/Camera'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { Canvas } from '../render/picture/Canvas'
+import { paintCalls } from '../render/picture/paintCalls'
 
-type LoggedCall = readonly [string, ...unknown[]]
-
-/**
- * Minimal `Gfx2D` test double: logs the calls this suite cares about, no-ops
- * the rest.
- */
-function recordingGfx(): { gfx: Gfx2D; calls: LoggedCall[] } {
-  const calls: LoggedCall[] = []
-  const gfx: Gfx2D = {
-    setBaseTransform: () => {},
-    save: () => calls.push(['save']),
-    restore: () => calls.push(['restore']),
-    translate: (x, y) => calls.push(['translate', x, y]),
-    rotate: (rad) => calls.push(['rotate', rad]),
-    scale: (sx, sy) => calls.push(['scale', sx, sy]),
-    transform: () => {},
-    fillPath: () => {},
-    clipPath: () => {},
-    beginOffscreen: () => false,
-    endOffscreen: () => null,
-    drawOffscreen: () => {},
-    strokePath: () => {},
-    setAlpha: () => {},
-    setBlend: () => {},
-    setClipMask: () => {},
-    setClip: () => {},
-    deviceScale: () => 1,
-    snapSize: (v: number) => v,
-    fillRect: () => {},
-    fillRoundRect: () => {},
-    strokeRoundRect: () => {},
-    fillCircle: (cx, cy, r) => calls.push(['fillCircle', cx, cy, r]),
-    fillConvexPoly: () => {},
-    fillPath2D: () => {},
-    fillCircleRadialGradient: () => {},
-    drawShaderQuad: () => {},
-    fillMaskedRadialGradient: () => {},
-    fillPolyLinearGradient: () => {},
-    fillAndStrokeRoundRect: () => {},
-    fillAndStrokeCircle: () => {},
-    shadowRoundRect: () => {},
-    shadowCircle: () => {},
-    shadowPath2D: () => {},
-    strokeCircle: () => {},
-    strokeLine: () => {},
-    strokeQuadratic: () => {},
-    strokePolyline: () => {},
-    strokePath2D: () => {},
-    drawImage: () => {},
-    fillText: () => {},
-    warmText: () => {},
-  }
-  return { gfx, calls }
+/** The names of the calls a node paints, in order. */
+function paintNames(node: VectorParticleNode): string[] {
+  return paintCalls(node).map((c) => c.name)
 }
-
-const fakeCamera = {} as Camera
 
 /**
  * Trivial concrete subclass exposing hook call logs + protected fields for
@@ -69,7 +17,7 @@ const fakeCamera = {} as Camera
  */
 class TestParticleNode extends VectorParticleNode {
   readonly spawnLog: number[] = []
-  readonly drawLog: number[] = []
+  readonly paintLog: number[] = []
   /** Position read INSIDE `updateExtra`, to verify it runs after integration. */
   readonly xAtUpdateExtra: number[] = []
   despawnPredicate: (i: number) => boolean = () => false
@@ -103,8 +51,8 @@ class TestParticleNode extends VectorParticleNode {
     this.spawnLog.push(i)
   }
 
-  protected override drawParticle(gfx: Gfx2D): void {
-    this.drawLog.push(1)
+  protected override paintParticle(gfx: Canvas): void {
+    this.paintLog.push(1)
     gfx.fillCircle(0, 0, 1, '#fff')
   }
 
@@ -128,7 +76,7 @@ class PermanentTestNode extends VectorParticleNode {
   ): void {
     out.vx = 10
   }
-  protected override drawParticle(): void {}
+  protected override paintParticle(): void {}
 }
 
 describe('VectorParticleNode', () => {
@@ -157,7 +105,7 @@ describe('VectorParticleNode', () => {
         this.seen.push(this.pending)
         out.vx = 1
       }
-      protected override drawParticle(): void {}
+      protected override paintParticle(): void {}
     }
     const n = new StagedNode({ capacity: 3 })
     n.stageAndBurst(10)
@@ -257,16 +205,30 @@ describe('VectorParticleNode', () => {
     expect(n.particleCount).toBe(2)
   })
 
-  it('draw calls save/translate/rotate/drawParticle/restore per live particle, skips dead ones', () => {
+  it('paint calls save/translate/rotate/paintParticle/restore per live particle, skips dead ones', () => {
     const n = new TestParticleNode({ capacity: 2 })
     n.triggerBurst(2)
     n.triggerKill(0)
-    const { gfx, calls } = recordingGfx()
-    n.draw(gfx, fakeCamera, 0)
-    expect(calls.filter((c) => c[0] === 'save').length).toBe(1)
-    expect(calls.filter((c) => c[0] === 'restore').length).toBe(1)
-    expect(calls.filter((c) => c[0] === 'translate').length).toBe(1)
-    expect(calls.filter((c) => c[0] === 'rotate').length).toBe(1)
-    expect(n.drawLog.length).toBe(1)
+    const names = paintNames(n)
+    expect(names.filter((c) => c === 'save').length).toBe(1)
+    expect(names.filter((c) => c === 'restore').length).toBe(1)
+    expect(names.filter((c) => c === 'translate').length).toBe(1)
+    expect(names.filter((c) => c === 'rotate').length).toBe(1)
+    expect(n.paintLog.length).toBe(1)
+  })
+
+  it('repaints while a particle is alive and once after the last one dies', () => {
+    const n = new TestParticleNode({ capacity: 2 })
+    const dirty = vi.spyOn(n, 'markNeedsPaint')
+    n.onUpdate(0.1)
+    expect(dirty).not.toHaveBeenCalled()
+    n.triggerBurst(1)
+    n.onUpdate(0.1)
+    expect(dirty).toHaveBeenCalledTimes(1)
+    n.triggerKill(0)
+    n.onUpdate(0.1)
+    expect(dirty).toHaveBeenCalledTimes(2)
+    n.onUpdate(0.1)
+    expect(dirty).toHaveBeenCalledTimes(2)
   })
 })

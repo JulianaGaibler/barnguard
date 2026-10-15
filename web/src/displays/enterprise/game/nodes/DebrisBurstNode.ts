@@ -1,7 +1,6 @@
 import {
   VectorParticleNode,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Vec2,
   type VectorParticleSpawnInit,
 } from '@src/stargazer'
@@ -50,8 +49,8 @@ export interface DebrisBurstOptions {
   lineLengthWorld: number
   /** Line stroke width in CSS pixels, screen-space-scaled at draw. */
   lineWidthCssPx: number
-  /** Fill / stroke color. */
-  color: string
+  /** Fill / stroke colors. Each piece picks one at random. */
+  colors: readonly string[]
   /**
    * Evenly-spaced radial emission with small jitter, no clumps or gaps. Ignored
    * when `emitDirectionRad` is set. Default false.
@@ -75,12 +74,14 @@ export class DebrisBurstNode extends VectorParticleNode {
   readonly #angBase: Float32Array
   /** 0 = triangle, 1 = line. */
   readonly #kind: Uint8Array
+  /** Index into `#colors`. */
+  readonly #colorIndex: Uint8Array
 
   readonly #angDamping: number
   readonly #triangleSide: number
   readonly #lineHalf: number
   readonly #lineWidthCssPx: number
-  readonly #color: string
+  readonly #colors: readonly string[]
 
   // Options are read back from `spawnParticle`, called synchronously by
   // `burst()`. `#pendingTheta` is staged per-iteration ahead of each `burst(1)`
@@ -98,11 +99,12 @@ export class DebrisBurstNode extends VectorParticleNode {
     this.#angInitial = new Float32Array(n)
     this.#angBase = new Float32Array(n)
     this.#kind = new Uint8Array(n)
+    this.#colorIndex = new Uint8Array(n)
     this.#angDamping = opts.angInitialDampingPerSec
     this.#triangleSide = opts.triangleSideWorld
     this.#lineHalf = opts.lineLengthWorld * 0.5
     this.#lineWidthCssPx = opts.lineWidthCssPx
-    this.#color = opts.color
+    this.#colors = opts.colors
     this.transform.x = opts.center.x
     this.transform.y = opts.center.y
     this.#opts = opts
@@ -161,6 +163,7 @@ export class DebrisBurstNode extends VectorParticleNode {
       angBaseAbsMin + Math.random() * (angBaseAbsMax - angBaseAbsMin)
     this.#angBase[i] = baseSign * baseMag
     this.#kind[i] = Math.random() < opts.triangleFraction ? 0 : 1
+    this.#colorIndex[i] = Math.floor(Math.random() * this.#colors.length)
   }
 
   protected override updateExtra(i: number, dt: number): void {
@@ -173,11 +176,8 @@ export class DebrisBurstNode extends VectorParticleNode {
   // `shouldDespawn` intentionally NOT overridden, these pieces settle into a
   // permanent ring, cleaned up externally (see class doc comment).
 
-  protected override drawParticle(
-    gfx: Gfx2D,
-    i: number,
-    camera: CameraView2D,
-  ): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
+    const color = this.#colors[this.#colorIndex[i]]
     if (this.#kind[i] === 0) {
       const side = this.#triangleSide
       const height = side * (Math.sqrt(3) / 2)
@@ -188,11 +188,11 @@ export class DebrisBurstNode extends VectorParticleNode {
       tri[3] = height * (1 / 3)
       tri[4] = -side * 0.5
       tri[5] = height * (1 / 3)
-      gfx.fillConvexPoly(tri, 3, this.#color)
+      gfx.fillConvexPoly(tri, 3, color)
     } else {
       gfx.strokeLine(-this.#lineHalf, 0, this.#lineHalf, 0, {
-        color: this.#color,
-        width: this.#lineWidthCssPx * camera.strokeSpaceScale(),
+        color,
+        width: { screen: this.#lineWidthCssPx },
         cap: 'round',
       })
     }

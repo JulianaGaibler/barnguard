@@ -10,6 +10,14 @@ export const en: CoreMessages = {
     resumeAriaLabel: 'Resume the game',
     languageToggleAriaLabel: 'Switch language',
   },
+  keyboard: {
+    close: 'Close keyboard',
+    enter: 'Enter',
+    space: 'Space',
+    backspace: 'Delete',
+    symbols: '?123',
+    letters: 'ABC',
+  },
   print: {
     printButton: 'Print label',
     printing: 'Printing …',

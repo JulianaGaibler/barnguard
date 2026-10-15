@@ -79,6 +79,13 @@
       &::marker
         content: ''
 
+      // The one number a collapsed section is worth reading for.
+      .section-summary
+        margin-left: auto
+        font-size: 10px
+        font-weight: 400
+        opacity: 0.6
+
   .header
     padding: 6px 8px
     font-weight: 700
@@ -244,6 +251,19 @@
       background: rgba(248, 113, 113, 0.25)
       border-color: rgba(248, 113, 113, 0.6)
       color: #fecaca
+
+  // The always-visible block at the top of a panel, on the same dark ground as
+  // its sections so it reads over a bright scene.
+  .debug-summary
+    display: flex
+    flex-direction: column
+    gap: 6px
+    padding: 6px
+    box-sizing: border-box
+    width: 100%
+    background: rgba(0, 0, 0, 0.9)
+    border: 1px solid rgba(255, 255, 255, 0.2)
+    border-radius: 3px
 
   .empty-state
     padding: 8px

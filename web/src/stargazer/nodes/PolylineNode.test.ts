@@ -1,17 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { PolylineNode } from './PolylineNode'
-import { Camera } from '../camera/Camera'
+import { paintCalls, paintPicture } from '../render/picture/paintCalls'
 import type { GfxStrokeStyle } from '../render/gfx/Gfx2D'
-
-/**
- * Real camera with a known 1:1 world->screen scale, `strokeSpaceScale()` returns
- * 1, so tests can assert on the raw `lineWidth` without maths.
- */
-function unitCamera(): Camera {
-  const cam = new Camera({ x: 0, y: 0, width: 100, height: 100 })
-  cam.setPixelSize(100, 100)
-  return cam
-}
 
 describe('PolylineNode', () => {
   it('endPoint is null when empty', () => {
@@ -46,29 +36,27 @@ describe('PolylineNode', () => {
     expect(p.pointCount).toBe(2)
   })
 
-  it('clear resets pointCount and debugBounds', () => {
+  it('clear resets pointCount and the endpoint', () => {
     const p = new PolylineNode()
     p.push(1, 2)
     p.push(3, 4)
-    expect(p.debugBounds).not.toBeNull()
     p.clear()
     expect(p.pointCount).toBe(0)
-    expect(p.debugBounds).toBeNull()
     expect(p.endPoint).toBeNull()
   })
 
-  it('expands debug bounds to enclose all points', () => {
+  it('paints a picture whose bounds enclose all points', () => {
     const p = new PolylineNode()
     p.push(0, 0)
     p.push(10, 5)
     p.push(-3, 8)
-    const b = p.debugBounds
+    const b = paintPicture(p).bounds
     expect(b).not.toBeNull()
     if (!b) return
-    expect(b.x).toBe(-3)
-    expect(b.y).toBe(0)
-    expect(b.width).toBe(13)
-    expect(b.height).toBe(8)
+    expect(b.x).toBeLessThanOrEqual(-3)
+    expect(b.y).toBeLessThanOrEqual(0)
+    expect(b.x + b.width).toBeGreaterThanOrEqual(10)
+    expect(b.y + b.height).toBeGreaterThanOrEqual(8)
   })
 
   it('simplify keeps endpoints and drops near-collinear middle points', () => {
@@ -85,46 +73,43 @@ describe('PolylineNode', () => {
     expect(p.pointAt(1)).toEqual({ x: 40, y: 0 })
   })
 
-  /**
-   * Minimal `Gfx2D` stub recording `strokePolyline` calls. `PolylineNode.draw`
-   * only ever calls this one facade method, so a full backend isn't needed.
-   */
-  function recordingGfx(): {
-    gfx: import('../render/gfx/Gfx2D').Gfx2D
-    calls: { count: number; style: GfxStrokeStyle }[]
-  } {
-    const calls: { count: number; style: GfxStrokeStyle }[] = []
-    const gfx = {
-      strokePolyline(
-        _pts: ArrayLike<number>,
-        count: number,
-        style: GfxStrokeStyle,
-      ) {
-        calls.push({ count, style })
-      },
-    }
-    return { gfx: gfx as unknown as import('../render/gfx/Gfx2D').Gfx2D, calls }
+  /** The `strokePolyline` calls the node paints. */
+  function strokes(
+    p: PolylineNode,
+  ): { count: number; style: GfxStrokeStyle }[] {
+    return paintCalls(p)
+      .filter((c) => c.name === 'strokePolyline')
+      .map((c) => ({
+        count: c.args[1] as number,
+        style: c.args[2] as GfxStrokeStyle,
+      }))
   }
 
-  it('draw with fewer than 2 points is a no-op (does not throw)', () => {
+  it('paints nothing with fewer than 2 points', () => {
     const p = new PolylineNode()
-    const { gfx, calls } = recordingGfx()
-    // p.draw isn't declared on `Node2D` mandatorily, so access via optional call.
-    expect(() => p.draw?.(gfx, unitCamera(), 0)).not.toThrow()
-    expect(calls).toHaveLength(0)
+    expect(strokes(p)).toHaveLength(0)
     p.push(1, 1)
-    expect(() => p.draw?.(gfx, unitCamera(), 0)).not.toThrow()
-    expect(calls).toHaveLength(0)
+    expect(strokes(p)).toHaveLength(0)
   })
 
-  it('draw with quadratic smoothing forwards the smoothing style and point count', () => {
+  it('paints with quadratic smoothing forwarding the smoothing style and point count', () => {
     const p = new PolylineNode({ smoothing: 'quadratic' })
     for (let i = 0; i < 5; i++) p.push(i * 10, Math.sin(i) * 5)
-    const { gfx, calls } = recordingGfx()
-    p.draw?.(gfx, unitCamera(), 0)
+    const calls = strokes(p)
     expect(calls).toHaveLength(1)
     expect(calls[0].count).toBe(5)
     expect(calls[0].style.smoothing).toBe('quadratic')
+  })
+
+  it('repaints when a point is added, changed or dropped', () => {
+    const p = new PolylineNode()
+    const dirty = vi.spyOn(p, 'markNeedsPaint')
+    p.push(0, 0)
+    p.push(5, 5)
+    p.setPoint(0, 1, 1)
+    p.dropHead(1)
+    p.clear()
+    expect(dirty).toHaveBeenCalledTimes(5)
   })
 
   describe('dropHead', () => {

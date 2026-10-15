@@ -55,7 +55,7 @@ export function spawnCollisionDebris(parent: Node, center: Vec2): void {
       triangleSideWorld: c.triangleSideWorld,
       lineLengthWorld: c.lineLengthWorld,
       lineWidthCssPx: c.lineWidthCssPx,
-      color: c.color,
+      colors: c.colors,
       equidistantEmission: c.equidistantEmission,
     }),
   )
@@ -88,7 +88,7 @@ export function spawnBorderBreachDebris(
       triangleSideWorld: c.triangleSideWorld,
       lineLengthWorld: c.lineLengthWorld,
       lineWidthCssPx: c.lineWidthCssPx,
-      color: c.color,
+      colors: [c.color],
     }),
   )
 }

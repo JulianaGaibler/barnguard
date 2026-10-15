@@ -2,20 +2,22 @@
  * Companion node that draws ONLY an orb's white scoring ring. It lives in a
  * separate layer that renders BELOW every orb fill, so when two orbs touch, a
  * ring is painted over by the neighbouring orb's body instead of obstructing
- * it. It owns no state of its own, it mirrors its `OrbNode`'s placement
- * (position + bounce scale) and reads the animated ring width straight off it.
+ * it. It mirrors its `OrbNode`'s placement (position + bounce scale) and owns
+ * the animated ring width, which the orb tweens.
  */
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
 import type { OrbNode } from './OrbNode'
 import { RING } from '../tuning'
 
 export class RingNode extends Node2D {
   readonly #orb: OrbNode
+  /** Outline width in world units, 0 when hidden. */
+  declare width: number
 
   constructor(orb: OrbNode) {
     super(`ring-${orb.body.id}`)
     this.#orb = orb
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { width: 0 })
   }
 
   override onUpdate(): void {
@@ -30,8 +32,8 @@ export class RingNode extends Node2D {
     this.visible = this.#orb.visible && !this.#orb.isDestroyed
   }
 
-  override draw(gfx: Gfx2D): void {
-    const width = this.#orb.ringWidth
+  override paint(gfx: Canvas): void {
+    const width = this.width
     if (width <= 0.01) return
     // Inner edge pinned to the orb radius: a stroke of width `width` centered
     // at `r + width/2` spans exactly [r, r + width].

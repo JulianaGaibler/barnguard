@@ -10,6 +10,7 @@ import {
   rejectDetached,
 } from '../anim/abortSignal'
 import { AbortScope } from '../anim/AbortScope'
+import { invalidateVisibility } from './traverse'
 import { Timeline } from '../anim/Timeline'
 
 /** Whatever owns a node tree, giving its nodes a route to the engine. */
@@ -26,6 +27,18 @@ export interface NodeOwner {
    * missing from the index does not draw and cannot be hit.
    */
   invalidatePainterOrder(): void
+  /**
+   * The number of attached {@link Node3D}s changed. `all` counts every 3D node
+   * and `content` counts those that are not {@link Node.intrinsic}, so an owner
+   * can answer "is there any 3D" without searching the tree.
+   */
+  count3D(all: number, content: number): void
+  /**
+   * A node's update or fixed-step work changed: it gained or lost an
+   * `onUpdate`/`onFixedStep` or a behaviour with one. An owner that keeps the
+   * nodes with work in a list rebuilds it.
+   */
+  invalidateWork(): void
 }
 
 /**
@@ -116,7 +129,19 @@ export abstract class Node {
    * (see `isEffectivelyVisible`). Destroy a subtree you are done with rather
    * than leaving it hidden forever.
    */
-  visible = true
+  get visible(): boolean {
+    return this.#_visible
+  }
+  set visible(v: boolean) {
+    if (this.#_visible === v) return
+    this.#_visible = v
+    invalidateVisibility()
+  }
+  #_visible = true
+  /** @internal The epoch `isEffectivelyVisible` cached its answer at. */
+  _visibleEpoch = -1
+  /** @internal The answer `isEffectivelyVisible` cached. */
+  _visibleCached = true
   /**
    * When true, the node takes part in pointer hit-testing (2D bounds test for
    * `Node2D`, ray pick for `Node3D`). See {@link Node.bindPointer}.
@@ -130,7 +155,30 @@ export abstract class Node {
    * {@link Node.destroyChildren}, so a scene wipe leaves them intact. Set by the
    * engine, not app code.
    */
-  intrinsic = false
+  get intrinsic(): boolean {
+    return this.#_intrinsic
+  }
+  set intrinsic(value: boolean) {
+    if (value === this.#_intrinsic) return
+    this.#_intrinsic = value
+    if (this.#_owner && this.kind === '3d') {
+      this.#_owner.count3D(0, value ? -1 : 1)
+    }
+  }
+  #_intrinsic = false
+
+  /**
+   * Keep this node through {@link Node.destroyChildren} and a scene wipe, while
+   * still drawing it, hit-testing it and listing it with the rest of the
+   * content. For a node that outlives the scene built under its siblings, such
+   * as a layer that holds an app's chrome.
+   *
+   * @remarks
+   *   A persistent node keeps drawing and taking input across scene loads, which
+   *   is only right for content that does not depend on the scene. Its
+   *   descendants survive with it. Destroying the node directly still works.
+   */
+  persistent = false
 
   readonly events: Emitter<NodeEvents> = createEmitter<NodeEvents>()
 
@@ -172,8 +220,11 @@ export abstract class Node {
         if (update && fixed) break
       }
     }
+    if (this._hasUpdateWork === update && this._hasFixedStepWork === fixed)
+      return
     this._hasUpdateWork = update
     this._hasFixedStepWork = fixed
+    this.#_owner?.invalidateWork()
   }
 
   /** Direct children in add order, which is also painter order. */
@@ -225,6 +276,7 @@ export abstract class Node {
     if (child.#_destroyed) throw new Error('Cannot add a destroyed node')
     if (child.parent) child.parent.remove(child)
     child.parent = this
+    invalidateVisibility()
     this._children.push(child)
     child.#markSubtreeWorldDirty()
     this._onChildAttached(child)
@@ -232,6 +284,52 @@ export abstract class Node {
     // rebuilds it rather than reading one taken before this child existed.
     this.#_owner?.invalidatePainterOrder()
     if (this.#_owner) child.onAttachedToScene(this.#_owner)
+  }
+
+  /**
+   * Add `child` at position `index` among this node's children, and return
+   * `this`. Painter order is tree order, so a lower index draws earlier, under
+   * the siblings after it. An index past the end appends. A child already under
+   * this node moves to the new position.
+   *
+   * @example
+   *   // Slide a backdrop in under everything that was added before it.
+   *   root.addAt(backdrop, 0)
+   */
+  addAt(child: Node, index: number): this {
+    const children = this._children
+    if (child.parent === this) {
+      // A move within this node. Nothing attaches or detaches.
+      const from = children.indexOf(child)
+      children.splice(from, 1)
+      // Removing it shifts every later position down by one.
+      const at = Math.max(
+        0,
+        Math.min(from < index ? index - 1 : index, children.length),
+      )
+      children.splice(at, 0, child)
+      this.#_owner?.invalidatePainterOrder()
+      return this
+    }
+    this.add(child)
+    const last = children.length - 1
+    const at = Math.max(0, Math.min(index, last))
+    if (at !== last) {
+      children.splice(last, 1)
+      children.splice(at, 0, child)
+      this.#_owner?.invalidatePainterOrder()
+    }
+    return this
+  }
+
+  /**
+   * Add `child` immediately before `reference`, which must be a child of this
+   * node, and return `this`. See {@link Node.addAt}.
+   */
+  insertBefore(child: Node, reference: Node): this {
+    const index = this._children.indexOf(reference)
+    if (index < 0) throw new Error('insertBefore: reference is not a child')
+    return this.addAt(child, index)
   }
 
   /**
@@ -248,6 +346,7 @@ export abstract class Node {
     if (idx < 0) return
     this._children.splice(idx, 1)
     child.parent = null
+    invalidateVisibility()
     this._onChildDetached(child)
     this.#_owner?.invalidatePainterOrder()
     if (this.#_owner) child.onDetachedFromScene()
@@ -271,6 +370,9 @@ export abstract class Node {
 
   /** Internal: attach this subtree to `owner`, firing behaviors' `onSceneReady`. */
   onAttachedToScene(owner: NodeOwner): void {
+    if (this.kind === '3d' && this.#_owner === null) {
+      owner.count3D(1, this.#_intrinsic ? 0 : 1)
+    }
     this.#_owner = owner
     this._onAttach()
     const behaviors = this._behaviors
@@ -286,6 +388,9 @@ export abstract class Node {
 
   /** Internal: detach this subtree from its owner. */
   onDetachedFromScene(): void {
+    if (this.kind === '3d') {
+      this.#_owner?.count3D(-1, this.#_intrinsic ? 0 : -1)
+    }
     this.#_owner = null
     this._onDetach()
     for (const c of this._children) c.onDetachedFromScene()
@@ -346,9 +451,15 @@ export abstract class Node {
       throw new Error('Cannot add behavior to destroyed node')
     ;(behavior as unknown as { node: Node }).node = this
     this._behaviors.push(behavior)
-    if (typeof behavior.onUpdate === 'function') this._hasUpdateWork = true
-    if (typeof behavior.onFixedStep === 'function')
-      this._hasFixedStepWork = true
+    const update =
+      this._hasUpdateWork || typeof behavior.onUpdate === 'function'
+    const fixed =
+      this._hasFixedStepWork || typeof behavior.onFixedStep === 'function'
+    if (update !== this._hasUpdateWork || fixed !== this._hasFixedStepWork) {
+      this._hasUpdateWork = update
+      this._hasFixedStepWork = fixed
+      this.#_owner?.invalidateWork()
+    }
     behavior.onAttach?.()
     if (this.#_owner && !behavior._sceneReadyFired) {
       behavior._sceneReadyFired = true
@@ -496,16 +607,16 @@ export abstract class Node {
   }
 
   /**
-   * Destroy every non-intrinsic child (recursively), leaving this node alive
-   * and empty, and return `this`. {@link Node.intrinsic} children (e.g. a
-   * stage's default camera) are preserved, so a scene wipe keeps them. Iterates
-   * a snapshot so a child that re-enters and mutates the list is handled
-   * safely.
+   * Destroy every child except the {@link Node.intrinsic} and
+   * {@link Node.persistent} ones (recursively), leaving this node alive, and
+   * return `this`. Intrinsic children (e.g. a stage's default camera) and
+   * persistent ones survive, so a scene wipe keeps them. Iterates a snapshot so
+   * a child that re-enters and mutates the list is handled safely.
    */
   destroyChildren(): this {
     const snapshot = this._children.slice()
     for (const c of snapshot) {
-      if (c.intrinsic) continue
+      if (c.intrinsic || c.persistent) continue
       if (!c.isDestroyed) c.destroy()
     }
     return this

@@ -144,11 +144,11 @@ export class CameraNode2D extends Node2D implements CameraView2D {
   }
 
   /**
-   * Tween the framing viewport (pan-and-zoom). See {@link Camera.animateTo}.
+   * Tween the framing viewport, a combined pan and zoom. The promise resolves
+   * when the viewport arrives.
    *
-   * A destroyed camera rejects with `AbortError` rather than the bare
-   * {@link Camera}'s not-attached error: the caller is a cancelled animation,
-   * not a wiring mistake, and only this node knows the difference.
+   * A destroyed camera rejects with `AbortError`, not a not-attached error,
+   * because the caller is a cancelled animation and not a wiring mistake.
    */
   animateTo(rect: Rect, opts?: CameraAnimateOptions): Promise<void> {
     if (this.isDestroyed) return rejectDetached('CameraNode2D.animateTo', true)

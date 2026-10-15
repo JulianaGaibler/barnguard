@@ -6,7 +6,7 @@
  * Colored-tri vertex layout: pos.xy (f32) + color.rgba (u8×4) + uv.xy (f32) = 5
  * words = 20 B.
  */
-export const COLORED_TRI_STRIDE = 20
+export const COLORED_TRI_STRIDE = 24
 export const COLORED_TRI_WORDS = COLORED_TRI_STRIDE / 4
 /**
  * Stroke instance layout: p0.xy + p1.xy + color(u8×4) + width + dashStart +
@@ -56,15 +56,20 @@ export const TEXT_QUAD_INSTANCE_STRIDE = 44
  * Shape-program instance layout: one instanced program covering circles,
  * round-rects, and textured quads (text + atlas sprites). All shapes expand the
  * same unit quad. A per-instance `shapeType` selects the vertex positioning +
- * fragment SDF/texture math. Layout (112 B = 28 words):
+ * fragment SDF/texture math. Layout (116 B = 29 words):
  *
  * - MCol0.xy + mCol1.xy + mTranslate.xy, affine (f32×6, offset 0)
  * - Shape = (shapeType, feather, texIndex, pad) (f32×4, offset 24)
  * - Params = shape-specific (f32×4, offset 40): circle `(radius, strokeWidth,
- *   dashStart, dashPeriod)`, roundRect `(halfW, halfH, strokeWidth, _)`
- * - Radii = round-rect (tl, tr, br, bl) (f32×4, offset 56)
- * - SrcRect = textured (u0, v0, u1, v1) (f32×4, offset 72)
+ *   dashStart, dashPeriod)`, roundRect and shadow `(halfW, halfH, strokeWidth,
+ *   strokeOffset)`
+ * - Radii = round-rect and shadow (tl, tr, br, bl) (f32×4, offset 56)
+ * - SrcRect = shape-specific (f32×4, offset 72): textured `(u0, v0, u1, v1)`,
+ *   roundRect each corner's smoothing `(tl, tr, br, bl)`, shadow `(sigma,
+ *   spread, offsetX, offsetY)`
  * - ColorFill(u8×4, offset 88) + colorStroke(u8×4, offset 92)
+ * - Param = index of the primitive's param record (u32, offset 112), see
+ *   `ParamTable.ts`
  * - Paint = fill gradient (f32×4, offset 96): `(scaleDirX, scaleDirY,
  *   startOffset, rampRow + 1)`, zero meaning no gradient (a §2.2-zeroed slot is
  *   then safe). A dedicated attribute rather than reusing `a_srcRect`, which a
@@ -74,7 +79,7 @@ export const TEXT_QUAD_INSTANCE_STRIDE = 44
  *   slot: a gradient `strokeCircle`/`strokeRoundRect` flattens to its first
  *   stop (see `GpuGfx.#flattenStrokeColor`).
  */
-export const SHAPE_INSTANCE_STRIDE = 112
+export const SHAPE_INSTANCE_STRIDE = 116
 export const SHAPE_BUFFER_BYTES = 640 * 1024 // 640 KB -> ~5.8k instances
 /** Shape `shapeType` discriminants (must match `shape.{vert,frag}.glsl`). */
 export const SHAPE_KIND_TEXTURED = 0
@@ -87,6 +92,12 @@ export const SHAPE_KIND_ROUNDRECT = 2
  * circle as a special case of a rounded box.
  */
 export const SHAPE_KIND_SHADOW = 3
+/**
+ * Shape kind for an axis-aligned ellipse in local space, under the full affine
+ * like a round rect. Params are `(radiusX, radiusY, strokeWidth,
+ * strokeOffset)`.
+ */
+export const SHAPE_KIND_ELLIPSE = 4
 /**
  * Shape `texIndex` values: which fixed-unit texture a textured instance
  * samples.
@@ -163,10 +174,10 @@ export const FRAME_UBO_FLOATS = 16
 export const CLIP_UBO_BINDING = 8
 
 /**
- * `Clip` UBO size (std140): kind, cx, cy, r, halfW, halfH, rrRadius + pad = 8
- * floats = 32 B.
+ * `Clip` UBO size (std140): kind, cx, cy, r, halfW, halfH and two pad floats,
+ * then the rounded rect's corner radii as a vec4 = 12 floats = 48 B.
  */
-export const CLIP_UBO_BYTES = 32
+export const CLIP_UBO_BYTES = 48
 
 /**
  * Bind-group group indices. Group 0 is the shared per-frame block (`Frame` /
@@ -181,6 +192,7 @@ export const GROUP_MATERIAL = 1
 export const LOC_COLORED_POS = 0
 export const LOC_COLORED_COLOR = 1
 export const LOC_COLORED_UV = 2
+export const LOC_COLORED_PARAM = 3
 export const LOC_STROKE_UNIT = 0
 export const LOC_STROKE_P0 = 1
 export const LOC_STROKE_P1 = 2
@@ -226,6 +238,7 @@ export const LOC_SHAPE_SRCRECT = 7
 export const LOC_SHAPE_COLORFILL = 8
 export const LOC_SHAPE_COLORSTROKE = 9
 export const LOC_SHAPE_PAINT = 10
+export const LOC_SHAPE_PARAM = 11
 
 /**
  * Path-shadow composite instance layout: mCol0.xy + mCol1.xy + mTranslate.xy
@@ -270,6 +283,7 @@ export const CURVE_FLATTEN_MAX_POINTS = 256
 export type BatchKind =
   | 'none'
   | 'coloredTri'
+  | 'stencilFan'
   | 'stroke'
   | 'gradientRadial'
   | 'maskedGradient'

@@ -64,7 +64,6 @@ function card(
   decorate?: (root: Node2D, board: AutoBoard, rect: Bounds) => void,
 ): DemoHandle {
   const root = new Node2D('flood-demo')
-  root.renderLayer = 'dynamic'
   stage.tree.root.add(root)
 
   const rect = demoRect(stage)

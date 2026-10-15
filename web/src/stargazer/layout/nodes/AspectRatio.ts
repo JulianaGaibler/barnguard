@@ -71,7 +71,7 @@ export class AspectRatio extends LayoutNode {
   arrange(x: number, y: number, w: number, h: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
     const box = this.#ratioBox(w, h)
     const cx = alignOffset(this.alignX, w - box.w)
     const cy = alignOffset(this.alignY, h - box.h)

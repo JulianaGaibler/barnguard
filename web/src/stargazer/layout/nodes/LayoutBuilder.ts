@@ -95,7 +95,7 @@ export class LayoutBuilder extends LayoutNode {
   arrange(x: number, y: number, w: number, h: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
     // arrange coords are parent-local. localToWorld recomposes the ancestor
     // chain on demand, so the world rect is correct here even though transform
     // propagation runs later in the frame.

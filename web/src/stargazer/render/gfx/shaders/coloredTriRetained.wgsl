@@ -23,17 +23,7 @@ struct Frame {
 };
 @group(0) @binding(0) var<uniform> frame: Frame;
 
-struct Clip {
-  kind: f32,
-  cx: f32,
-  cy: f32,
-  r: f32,
-  halfW: f32,
-  halfH: f32,
-  rrRadius: f32,
-  clipPad: f32,
-};
-@group(0) @binding(8) var<uniform> clipShape: Clip;
+// #include "include/clipUniform.inc.wgsl"
 
 // Device-px fragment position, corrected for WebGL2's bottom-up
 // `gl_FragCoord.y`. Shared by the analytic clip and the gradient/mask
@@ -43,31 +33,15 @@ fn devicePos(fragPos: vec2<f32>) -> vec2<f32> {
   return vec2<f32>(fragPos.x, fy);
 }
 
-// Analytic clip coverage in device px. Multiply the premultiplied fragment
-// output by this.
-fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
-  let q = abs(p) - b + vec2<f32>(rad);
-  return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
-}
-fn clipCoverage(fragPos: vec2<f32>) -> f32 {
-  if (clipShape.kind < 0.5) { return 1.0; }
-  let p = devicePos(fragPos) - vec2<f32>(clipShape.cx, clipShape.cy);
-  var d: f32;
-  if (clipShape.kind < 1.5) {
-    d = length(p) - clipShape.r;
-  } else {
-    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
-  }
-  return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
-}
 
 // Per-draw model matrix, paint, and mode (std140: mat3 = 3×vec4 = 48 B, +
-// vec4 color + vec4 paint + vec4<u32> flags = 96 B, matches MODELCOLOR_BYTES).
-// `paint`'s meaning depends on `flags.x` (paintMode), the same two shapes
-// `coloredTri.wgsl`'s `DrawParams.paint` takes: gradient mode reads it as the
-// axis projection (scaleDirX, scaleDirY, startOffset, rampRow); inset-mask
-// mode reads it as the mask rect's device-px origin and reciprocal extent
-// (originX, originY, invW, invH). `color` is the flat fill in mode 0, the
+// vec4 color + vec4 paint + vec4<u32> flags + vec4 paintOffset = 112 B,
+// matches MODELCOLOR_BYTES). `paint`'s meaning depends on `flags.x`
+// (paintMode), the same two shapes `coloredTri.wgsl`'s `DrawParams.paint`
+// takes: gradient mode reads it as the axis projection (scaleDirX, scaleDirY,
+// startOffset, rampRow); inset-mask mode reads it as the rows of the
+// device-to-mask-uv map, with the offsets in `paintOffset.xy`. `color` is the
+// flat fill in mode 0, the
 // shadow tint in mode 2, and unused except for its alpha (the run's opacity
 // multiplier, the ramp's own stops are already premultiplied) in mode 1.
 struct ModelColor {
@@ -75,6 +49,7 @@ struct ModelColor {
   color: vec4<f32>,
   paint: vec4<f32>,
   flags: vec4<u32>, // (paintMode, reserved, reserved, reserved)
+  paintOffset: vec4<f32>, // mask: uv offsets in xy
 };
 @group(1) @binding(3) var<uniform> draw: ModelColor;
 
@@ -117,7 +92,7 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     // no clip and no extra pass is needed, only a sample of the cached mask
     // in the paint slot. Mirrors `coloredTri.wgsl`'s inset-mask branch.
     let p = devicePos(in.pos.xy);
-    let uv = (p - draw.paint.xy) * draw.paint.zw;
+    let uv = vec2<f32>(dot(p, draw.paint.xy), dot(p, draw.paint.zw)) + draw.paintOffset.xy;
     let uvInside = all(uv >= vec2<f32>(0.0)) && all(uv <= vec2<f32>(1.0));
     let maskR = select(0.0, textureSample(u_mask, u_maskSamp, uv).r, uvInside);
     c = c * (1.0 - maskR);

@@ -23,6 +23,9 @@ const prependStyleUtils = (source: string): string => {
 export default defineConfig({
   plugins: [svelte()],
   server: {
+    // Lets other machines on the tailnet load the dev server by name, for
+    // running benchmarks on other GPUs. Vite rejects unknown Host headers.
+    allowedHosts: ['bubblegum.local.yaina.dev'],
     // Proxy the printer-daemon so the web app uses same-origin relative URLs
     // in dev (no CORS). SSE (`/api/printer/events`) streams fine over this.
     // `/api/games` and `/api/leaderboard` share the same daemon, so each

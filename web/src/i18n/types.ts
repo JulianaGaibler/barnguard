@@ -29,6 +29,20 @@ export interface CoreMessages {
     resumeAriaLabel: string
     languageToggleAriaLabel: string
   }
+  keyboard: {
+    /** Accessible name of the key that closes the keyboard. */
+    close: string
+    /** Accessible name of the enter key. */
+    enter: string
+    /** Accessible name of the space bar. */
+    space: string
+    /** Accessible name of the backspace key. */
+    backspace: string
+    /** Key that opens the page of digits and symbols. */
+    symbols: string
+    /** Key that returns from that page to the letters. */
+    letters: string
+  }
   print: {
     printButton: string
     printing: string

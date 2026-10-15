@@ -6,7 +6,7 @@
  * anchored side is pinned at the seed center, giving the placed wall its
  * two-tone split there (primary on one half, variant on the other).
  */
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from '@src/stargazer'
 import type { Bounds, Orientation } from '../types'
 
 export class WallSegmentNode extends Node2D {
@@ -33,11 +33,19 @@ export class WallSegmentNode extends Node2D {
     this.#orientation = orientation
     this.#dir = dir
     this.#color = color
-    this.renderLayer = 'dynamic'
+    this.visible = false
   }
 
+  /** The segment is a unit square that the node's transform stretches. */
   setLength(len: number): void {
     this.#len = len
+    const r = this.currentRect()
+    const t = this.transform
+    t.x = r.x
+    t.y = r.y
+    t.scaleX = r.width
+    t.scaleY = r.height
+    this.visible = r.width > 0 && r.height > 0
   }
 
   currentRect(): Bounds {
@@ -51,9 +59,7 @@ export class WallSegmentNode extends Node2D {
     return { x, y: this.#anchorY - t, width: len, height: t * 2 }
   }
 
-  override draw(gfx: Gfx2D): void {
-    const r = this.currentRect()
-    if (r.width > 0 && r.height > 0)
-      gfx.fillRect(r.x, r.y, r.width, r.height, this.#color)
+  override paint(gfx: Canvas): void {
+    gfx.fillRect(0, 0, 1, 1, this.#color)
   }
 }

@@ -42,6 +42,16 @@ export interface GpuProgram {
   drawRun(ctx: GpuBatchContext, run: DrawRun): void
 
   /**
+   * Write the device-pixel box `[minX, minY, maxX, maxY]` that covers every
+   * pixel `run` can touch into `out`, or return `false` when the program can't
+   * say. The batch context moves a later draw ahead of runs it does not overlap
+   * to join an earlier run of the same kind, so an under-estimate puts draws in
+   * the wrong order. A program that doesn't implement it is never reordered
+   * past. Optional.
+   */
+  runBounds?(run: DrawRun, out: Float64Array): boolean
+
+  /**
    * Stage this run's per-draw uniform slice and store its offset on the run.
    * Called for every run, in order, before any run is drawn. Optional, since
    * only programs with per-draw uniforms in a staged ring need it.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LeaderboardEntry } from '@src/core/leaderboard/leaderboardClient'
-import { leaderboardRows, normalizeName } from './leaderboardRows'
+import { emptyHighScores } from '@src/displays/enterprise/game-log'
+import { leaderboardRows, mapBest, normalizeName } from './leaderboardRows'
 
 function board(...scores: number[]): LeaderboardEntry[] {
   return scores.map((score, i) => ({
@@ -162,5 +163,31 @@ describe('leaderboardRows unnamed best', () => {
       { score: 15, region: 'ITA' },
     )
     expect(rows.filter((r) => r.anonymous)).toHaveLength(1)
+  })
+
+  it('keeps the window size, pushing the last named row out', () => {
+    const rows = leaderboardRows(
+      board(10, 8, 6),
+      null,
+      { score: 15, region: 'ITA' },
+      3,
+    )
+    expect(rows.map((r) => r.score)).toEqual([15, 10, 8])
+    expect(rows.map((r) => r.rank)).toEqual([1, 2, 3])
+  })
+})
+
+describe('mapBest', () => {
+  it('pairs the map best with the region holding it', () => {
+    const scores = {
+      ...emptyHighScores(),
+      byMap: { eu: 15, de: 30 },
+      byState: { eu: { FRA: 9, ITA: 15 }, de: { BY: 30 } },
+    }
+    expect(mapBest(scores, 'eu')).toEqual({ score: 15, region: 'ITA' })
+  })
+
+  it('is null before any score on the map', () => {
+    expect(mapBest(emptyHighScores(), 'eu')).toBeNull()
   })
 })

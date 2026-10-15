@@ -33,7 +33,7 @@ import {
   warmupBlendPipelines,
 } from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
-import pathShadowCompositeWgsl from '../shaders/pathShadowComposite.wgsl?raw'
+import pathShadowCompositeWgsl from '../shaders/pathShadowComposite.gen.wgsl?raw'
 import pathShadowCompositeVertSrc from '../shaders/pathShadowComposite.gen.vert.glsl?raw'
 import pathShadowCompositeFragSrc from '../shaders/pathShadowComposite.gen.frag.glsl?raw'
 import pathShadowCompositeReflect from '../shaders/pathShadowComposite.reflect.json'

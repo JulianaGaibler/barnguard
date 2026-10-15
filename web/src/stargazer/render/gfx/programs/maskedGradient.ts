@@ -30,7 +30,7 @@ import {
   warmupBlendPipelines,
 } from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
-import maskedGradientWgsl from '../shaders/maskedRadialGradient.wgsl?raw'
+import maskedGradientWgsl from '../shaders/maskedRadialGradient.gen.wgsl?raw'
 import maskedGradientVertSrc from '../shaders/maskedRadialGradient.gen.vert.glsl?raw'
 import maskedGradientFragSrc from '../shaders/maskedRadialGradient.gen.frag.glsl?raw'
 import maskedGradientReflect from '../shaders/maskedRadialGradient.reflect.json'

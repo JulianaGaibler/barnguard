@@ -5,9 +5,8 @@ import {
   ignoreAbort,
   registerPathTessellation,
   tessellateContours,
-  type CameraView2D,
+  type Canvas,
   type EngineHost,
-  type Gfx2D,
   type Rect,
   type InsetViewNode,
   type Vec2,
@@ -255,15 +254,23 @@ export class GameOverScene {
     if (!left || !right) return
     left.transform.x += COLLIDE_SPEED_WU_PER_SEC * dt
     right.transform.x -= COLLIDE_SPEED_WU_PER_SEC * dt
-    // Feed the shooting-star trails. `setLiveHead` glues the ribbon
+    // Feed the comet tails. `setLiveHead` glues the ribbon
     // tip to the current position each frame, and `sample` pushes only if
     // the distance filter accepts it (dedupes near-stationary samples).
     if (this.#leftTrail) {
-      this.#leftTrail.setLiveHead(left.transform.x, left.transform.y)
+      this.#leftTrail.setLiveHead(
+        left.transform.x,
+        left.transform.y,
+        left.transform.rotation,
+      )
       this.#leftTrail.sample(left.transform.x, left.transform.y)
     }
     if (this.#rightTrail) {
-      this.#rightTrail.setLiveHead(right.transform.x, right.transform.y)
+      this.#rightTrail.setLiveHead(
+        right.transform.x,
+        right.transform.y,
+        right.transform.rotation,
+      )
       this.#rightTrail.sample(right.transform.x, right.transform.y)
     }
     // Overlap check, meet when centres are within the same collision
@@ -303,7 +310,11 @@ export class GameOverScene {
     // Feed the trail, same pattern the live game uses via
     // `PacketBehavior.onFixedStep` / `.onUpdate`.
     if (this.#escapeTrail) {
-      this.#escapeTrail.setLiveHead(packet.transform.x, packet.transform.y)
+      this.#escapeTrail.setLiveHead(
+        packet.transform.x,
+        packet.transform.y,
+        packet.transform.rotation,
+      )
       this.#escapeTrail.sample(packet.transform.x, packet.transform.y)
     }
     // Keep the packet centred.
@@ -336,8 +347,8 @@ export class GameOverScene {
       const eye = this.#eyes[i]
       eye.transform.x = packet.transform.x + off.x
       eye.transform.y = packet.transform.y + off.y
-      eye.lookAtX = packet.transform.x
-      eye.lookAtY = packet.transform.y
+      eye.lookDx = -off.x
+      eye.lookDy = -off.y
     }
   }
 
@@ -350,7 +361,7 @@ export class GameOverScene {
     // `pre-orient rotation = heading + π/2` matches the live game's
     // spawn-packet convention so the top vertex points along the
     // velocity vector. Motion trails ride behind each hex, same
-    // shooting-star ribbon the live packets use.
+    // comet tail the live packets use.
     const spawnX = (CAM_W / 2) * COLLIDE_SPAWN_X_FRAC
     this.#leftTrail = new PacketMotionTrailNode()
     this.#rightTrail = new PacketMotionTrailNode()
@@ -401,7 +412,7 @@ export class GameOverScene {
     this.#root.add(stars)
 
     // Motion trail behind the packet, added after stars so it renders
-    // above them but under the hex. Same shooting-star ribbon the live
+    // above them but under the hex. Same comet tail the live
     // packets use.
     this.#escapeTrail = new PacketMotionTrailNode()
     this.#root.add(this.#escapeTrail)
@@ -640,17 +651,13 @@ class BorderLineNode extends Node2D {
     this.#dashCssPx = dashCssPx
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const a = this.transform.alpha
-    if (a <= 0.001) return
-    const s = camera.strokeSpaceScale()
+  override paint(gfx: Canvas): void {
+    const s = gfx.screenScale()
     // Zero-length dashes = solid stroke.
     const dash =
       this.#dashCssPx[0] <= 0 && this.#dashCssPx[1] <= 0
         ? undefined
         : [this.#dashCssPx[0] * s, this.#dashCssPx[1] * s]
-    gfx.save()
-    gfx.setAlpha(a > 1 ? 1 : a)
     gfx.strokeLine(
       -this.#nx * this.#halfLength,
       -this.#ny * this.#halfLength,
@@ -658,7 +665,6 @@ class BorderLineNode extends Node2D {
       this.#ny * this.#halfLength,
       { color: this.#color, width: this.#widthCssPx * s, dash },
     )
-    gfx.restore()
   }
 }
 

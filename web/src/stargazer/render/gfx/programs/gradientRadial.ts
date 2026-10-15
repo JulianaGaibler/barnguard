@@ -30,7 +30,7 @@ import {
   warmupBlendPipelines,
 } from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
-import gradientRadialWgsl from '../shaders/gradientRadial.wgsl?raw'
+import gradientRadialWgsl from '../shaders/gradientRadial.gen.wgsl?raw'
 import gradientRadialVertSrc from '../shaders/gradientRadial.gen.vert.glsl?raw'
 import gradientRadialFragSrc from '../shaders/gradientRadial.gen.frag.glsl?raw'
 import gradientRadialReflect from '../shaders/gradientRadial.reflect.json'

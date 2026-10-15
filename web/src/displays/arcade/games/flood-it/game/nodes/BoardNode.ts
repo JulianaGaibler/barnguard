@@ -4,8 +4,11 @@
  * The rules resolve a move instantly. This node's job is to make that move
  * legible, so it keeps its own animation state in parallel typed arrays and
  * never touches the logical {@link Board}. `onUpdate` advances the arrays and
- * `draw` reads them, which is why a move allocates nothing and the rules stay
+ * `paint` reads them, which is why a move allocates nothing and the rules stay
  * testable on their own.
+ *
+ * The picture is recorded again only while something is moving: a wave, the
+ * glyph overlay, the loss dim or the win sweep. A settled board costs nothing.
  *
  * The wave is the whole point. Each touched cell starts late in proportion to
  * its breadth-first distance from the mover's corner, so a move reads as paint
@@ -15,7 +18,13 @@
  * in. That distinction is what makes it obvious which cells the move actually
  * won.
  */
-import { easings, Node2D, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  definePaintProps,
+  easings,
+  Node2D,
+  type Canvas,
+  type Rect,
+} from '@src/stargazer'
 import {
   cellCenter,
   cellOrigin,
@@ -79,7 +88,7 @@ export interface BoardLook {
 }
 
 export class BoardNode extends Node2D {
-  #geom: FieldGeom
+  declare geom: FieldGeom
   #board: Board
   readonly #players: readonly PlayerId[]
   readonly #styles: Record<number, RegionStyle>
@@ -93,19 +102,18 @@ export class BoardNode extends Node2D {
   #kind: Uint8Array
 
   /** Glyph overlay strength, tweened so a toggle mid-board is not a pop. */
-  #glyphT = 0
+  declare glyphT: number
   #glyphsOn = false
   /** Unowned cells fade toward the dim ink on a loss. */
-  #dimT = 0
+  declare dimT: number
   #dimOn = false
   /** Celebration sweep, run once on a win. */
-  #winT = 1
-  /** Uniform opacity over everything this node draws. */
-  #opacity = 1
-  #palette: readonly string[] = CELL_COLORS
-  #outline = true
-  #well: string | null = COLORS.well
-  #clip: Rect | null = null
+  declare winT: number
+  declare palette: readonly string[]
+  declare outline: boolean
+  declare well: string | null
+  /** The rect every draw is cropped to, or null for none. */
+  declare crop: Rect | null
 
   constructor(
     geom: FieldGeom,
@@ -115,7 +123,16 @@ export class BoardNode extends Node2D {
     onPickColor?: (color: Color) => void,
   ) {
     super('flood-board')
-    this.#geom = geom
+    definePaintProps(this, {
+      geom,
+      glyphT: 0,
+      dimT: 0,
+      winT: 1,
+      palette: CELL_COLORS,
+      outline: true,
+      well: COLORS.well,
+      crop: null,
+    })
     this.#board = board
     this.#players = players
     this.#styles = styles
@@ -124,10 +141,6 @@ export class BoardNode extends Node2D {
     this.#to = new Uint8Array(total)
     this.#waveT = new Float32Array(total)
     this.#kind = new Uint8Array(total)
-    // Paint over the arcade's shared sky. The board subtree is added after it,
-    // and within a layer paint order follows tree order.
-    this.renderLayer = 'dynamic'
-    this.#syncBounds()
     this.dealIn()
 
     // Tapping a tile is the same as pressing that color's button. On a board
@@ -135,10 +148,11 @@ export class BoardNode extends Node2D {
     // as the way to pick a color that is not on screen next to your region.
     if (onPickColor) {
       this.hitEnabled = true
+      this.#syncBounds()
       this.bindPointer({
         down: (e) => {
           const color = colorAtWorld(
-            this.#geom,
+            this.geom,
             this.#board.color,
             e.pointer.world.x,
             e.pointer.world.y,
@@ -151,13 +165,14 @@ export class BoardNode extends Node2D {
 
   /** Re-fit to a new board rect, on resize. */
   setGeom(geom: FieldGeom): void {
-    this.#geom = geom
-    this.#syncBounds()
+    this.geom = geom
+    if (this.hitEnabled) this.#syncBounds()
   }
 
   /** Point at a fresh board and sweep it in. */
   setBoard(board: Board): void {
     this.#board = board
+    this.markNeedsPaint()
     const total = board.color.length
     if (this.#waveT.length !== total) {
       this.#from = new Uint8Array(total)
@@ -170,14 +185,14 @@ export class BoardNode extends Node2D {
 
   /** Sweep the cells in diagonally, as a fresh deal arrives. */
   dealIn(): void {
-    const { cols, rows } = this.#geom
+    const { cols, rows } = this.geom
     const span = Math.max(1, cols + rows - 2)
     const stagger = (ANIM.dealDurationCap - ANIM.dealFlip) / span
     this.#from.set(this.#board.color)
     this.#to.set(this.#board.color)
-    this.#dimT = 0
+    this.dimT = 0
     this.#dimOn = false
-    this.#winT = 1
+    this.winT = 1
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
         const i = row * cols + col
@@ -185,6 +200,7 @@ export class BoardNode extends Node2D {
         this.#kind[i] = KIND_DEAL
       }
     }
+    this.markNeedsPaint()
   }
 
   /**
@@ -206,6 +222,7 @@ export class BoardNode extends Node2D {
       this.#waveT[i] = -depth[n]! * stagger
       this.#kind[i] = captured[n] === 1 ? KIND_CAPTURE : KIND_REPAINT
     }
+    this.markNeedsPaint()
   }
 
   /** Show or hide the shape overlay. */
@@ -220,27 +237,20 @@ export class BoardNode extends Node2D {
 
   /** Run the celebration sweep once. */
   celebrate(): void {
-    this.#winT = 0
+    this.winT = 0
   }
 
-  /**
-   * Fade the whole board uniformly, to sit it behind an overlay.
-   *
-   * Not `transform.alpha`: the layer walker installs that before `draw`, but
-   * `Gfx2D.setAlpha` is absolute, so the first internal alpha change here would
-   * discard it and everything after would render fully opaque. Folding the
-   * opacity into every alpha this node sets is what makes it uniform.
-   */
+  /** Fade the whole board uniformly, to sit it behind an overlay. */
   setOpacity(opacity: number): void {
-    this.#opacity = opacity
+    this.transform.alpha = opacity
   }
 
   /** Restyle the board, for a decorative one. See {@link BoardLook}. */
   setLook(look: BoardLook): void {
-    if (look.palette) this.#palette = look.palette
-    if (look.outline !== undefined) this.#outline = look.outline
-    if (look.well !== undefined) this.#well = look.well
-    if (look.clip !== undefined) this.#clip = look.clip ?? null
+    if (look.palette) this.palette = look.palette
+    if (look.outline !== undefined) this.outline = look.outline
+    if (look.well !== undefined) this.well = look.well
+    if (look.clip !== undefined) this.crop = look.clip ?? null
   }
 
   override onUpdate(dt: number): void {
@@ -248,9 +258,11 @@ export class BoardNode extends Node2D {
     const kind = this.#kind
     const dealRate = dt / ANIM.dealFlip
     const floodRate = dt / ANIM.floodFlip
+    let moving = false
     for (let i = 0; i < waveT.length; i++) {
       const t = waveT[i]!
       if (t >= 1) continue
+      moving = true
       const next = t + (kind[i] === KIND_DEAL ? dealRate : floodRate)
       if (next >= 1) {
         waveT[i] = 1
@@ -262,22 +274,25 @@ export class BoardNode extends Node2D {
 
     const glyphTarget = this.#glyphsOn ? 1 : 0
     const glyphStep = dt / ANIM.glyphFade
-    this.#glyphT = approach(this.#glyphT, glyphTarget, glyphStep)
+    this.glyphT = approach(this.glyphT, glyphTarget, glyphStep)
 
     const dimTarget = this.#dimOn ? 1 : 0
-    this.#dimT = approach(this.#dimT, dimTarget, dt / ANIM.lossDim)
+    this.dimT = approach(this.dimT, dimTarget, dt / ANIM.lossDim)
 
-    if (this.#winT < 1) {
-      this.#winT = Math.min(1, this.#winT + dt / ANIM.winPulse)
+    if (this.winT < 1) {
+      this.winT = Math.min(1, this.winT + dt / ANIM.winPulse)
     }
+
+    // The wave arrays are not declared inputs, so a moving cell repaints by hand.
+    if (moving) this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D): void {
-    if (this.#clip === null) {
-      this.#drawBoard(gfx)
+  override paint(gfx: Canvas): void {
+    if (this.crop === null) {
+      this.#paintBoard(gfx)
       return
     }
-    const c = this.#clip
+    const c = this.crop
     gfx.save()
     // Square corners: a radius here would round the crop itself, and the crop
     // is meant to fall on the view's own edge where it cannot be seen.
@@ -289,33 +304,35 @@ export class BoardNode extends Node2D {
       h: c.height,
       radius: 0,
     })
-    this.#drawBoard(gfx)
+    this.#paintBoard(gfx)
     gfx.restore()
   }
 
-  #drawBoard(gfx: Gfx2D): void {
-    const g = this.#geom
+  #paintBoard(gfx: Canvas): void {
+    const g = this.geom
     const { cols, rows, cell, pitch } = g
     const well = wellRect(g)
     const radius = cell * GEOM.cellRadiusFrac
-    const opacity = this.#opacity
-    gfx.setAlpha(opacity)
+    const palette = this.palette
+    const glyphT = this.glyphT
+    const dimT = this.dimT
+    const winT = this.winT
 
-    if (this.#well !== null) {
+    if (this.well !== null) {
       gfx.fillRoundRect(
         well.x,
         well.y,
         well.width,
         well.height,
         pitch * GEOM.wellRadiusFrac,
-        this.#well,
+        this.well,
       )
     }
 
     const owner = this.#board.owner
     const glyphSize = cell * GEOM.glyphFrac
     const winSpan = cols + rows
-    const drawGlyphs = this.#glyphT > 0.01
+    const drawGlyphs = glyphT > 0.01
 
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < cols; col++) {
@@ -344,17 +361,17 @@ export class BoardNode extends Node2D {
         const y = o.y + inset
         const r = radius * grow
 
-        const fromColor = this.#palette[this.#from[i]!]!
-        const toColor = this.#palette[this.#to[i]!]!
+        const fromColor = palette[this.#from[i]!]!
+        const toColor = palette[this.#to[i]!]!
 
         // Base then overlay, rather than mixing the two colors into a new
         // string: a mix would allocate once per cell per frame, and alpha rides
         // the instance data for free.
         gfx.fillRoundRect(x, y, size, size, r, fromColor)
         if (fade > 0 && toColor !== fromColor) {
-          gfx.setAlpha(fade * opacity)
+          gfx.setAlpha(fade)
           gfx.fillRoundRect(x, y, size, size, r, toColor)
-          gfx.setAlpha(opacity)
+          gfx.setAlpha(1)
         }
 
         if (drawGlyphs) {
@@ -365,7 +382,7 @@ export class BoardNode extends Node2D {
           // scales it in instead of fading it.
           const c = cellCenter(g, col, row)
           const shown = fade < 0.5 ? this.#from[i]! : this.#to[i]!
-          const gs = glyphSize * grow * easings.outBack(this.#glyphT)
+          const gs = glyphSize * grow * easings.outBack(glyphT)
           if (gs > 0) {
             drawGlyph(
               gfx,
@@ -378,29 +395,26 @@ export class BoardNode extends Node2D {
           }
         }
 
-        if (this.#dimT > 0 && owner[i] === UNOWNED) {
-          gfx.setAlpha(this.#dimT * opacity)
+        if (dimT > 0 && owner[i] === UNOWNED) {
+          gfx.setAlpha(dimT)
           gfx.fillRoundRect(x, y, size, size, r, COLORS.dim)
-          gfx.setAlpha(opacity)
+          gfx.setAlpha(1)
         }
 
-        if (this.#winT < 1) {
+        if (winT < 1) {
           // A bright crest riding out from the corner, one pass, then done.
           const phase = (col + row) / winSpan
-          const pulse = crest(this.#winT * 1.6 - phase)
+          const pulse = crest(winT * 1.6 - phase)
           if (pulse > 0) {
-            gfx.setAlpha(pulse * 0.55 * opacity)
+            gfx.setAlpha(pulse * 0.55)
             gfx.fillRoundRect(x, y, size, size, r, COLORS.paper)
-            gfx.setAlpha(opacity)
+            gfx.setAlpha(1)
           }
         }
       }
     }
 
-    if (this.#outline) {
-      gfx.setAlpha(opacity)
-      this.#drawRegionOutline(gfx)
-    }
+    if (this.outline) this.#paintRegionOutline(gfx)
   }
 
   /**
@@ -416,8 +430,8 @@ export class BoardNode extends Node2D {
    *
    * Opaque, and each edge is drawn once, so nothing double-blends.
    */
-  #drawRegionOutline(gfx: Gfx2D): void {
-    const g = this.#geom
+  #paintRegionOutline(gfx: Canvas): void {
+    const g = this.geom
     const { cols, rows, cell, pitch } = g
     const owner = this.#board.owner
     // Concentric with the tile: the tile's own radius plus the distance from its
@@ -515,9 +529,10 @@ export class BoardNode extends Node2D {
     }
   }
 
+  /** Taps land on the recess, which is the board's hit region. */
   #syncBounds(): void {
-    const well = wellRect(this.#geom)
-    this.debugBounds = {
+    const well = wellRect(this.geom)
+    this.boundsOverride = {
       x: well.x,
       y: well.y,
       width: well.width,

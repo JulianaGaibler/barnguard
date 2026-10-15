@@ -1,117 +1,161 @@
+---
+title: Camera
+group: Features
+order: 5
+---
+
 # Camera
 
-Cameras are scene-tree nodes. A `CameraNode2D` is a `Node2D`, so it has a `transform` and can be positioned, zoomed, rotated, and parented like any other node. It also frames a world-space rect that the renderer fits into the canvas at a uniform scale (aspect-preserving `contain`, no distortion, no letterbox bars, extra canvas area shows the clear color).
+A camera decides which part of the 2D world appears on the canvas. A {@link CameraNode2D} is a node in the scene tree. It frames a rect of world space, and the stage fits that rect into the canvas at a uniform scale.
 
-Each `Stage` tracks one **current** 2D camera and renders through it. Cameras are never auto-created: add a `CameraNode2D` to the tree and call `makeCurrent()`. Until then `engine.currentCamera2D` is `null` and the stage renders only the clear color (the first camera attached becomes current automatically).
+Each {@link Stage} renders through one current 2D camera. The engine never creates a camera for you. Until you add one, `engine.currentCamera2D` is `null` and the stage draws only its clear color. The [Scene graph](/guides/scene) guide explains the tree the camera lives in.
+
+## Basic usage
+
+Add a camera to the tree and give it the world rect to show:
 
 ```ts
+import { CameraNode2D } from '@src/stargazer'
+
 const cam = new CameraNode2D()
 cam.setViewport({ x: 0, y: 0, width: 1920, height: 1080 })
 engine.tree.root.add(cam)
-cam.makeCurrent()
 ```
 
-## Transform camera + rect framing
+The stage shows the world from (0, 0) to (1920, 1080), scaled to fit the canvas. The first camera added to a stage becomes current on its own. A scene builder passed to `host.loadScene` adds its camera the same way, because loading a scene destroys the previous camera with the rest of the content.
 
-The two models compose. The framing rect sets the base fit, and the node's world transform is an additional view offset on top (identity by default, so a plain framed camera behaves like a fixed window). The effective CSS-pixel world-to-screen affine is `containFit(framing) ∘ inverse(node.world)`.
+### The uniform fit
+
+For a viewport of `W × H` world units and a canvas of `Cw × Ch` CSS pixels, the scale is `min(Cw / W, Ch / H)`. The viewport is centered on the canvas. The extra space on the longer axis shows more of the world, or the clear color where nothing is drawn. Nothing is stretched, so circles stay round.
+
+The stage resizes the fit when the canvas changes size, so you don't set the canvas size on the camera. `cam.visibleWorldRect()` returns the world rect the whole canvas shows, which is larger than the viewport when the canvas shape differs from the viewport's.
+
+### Converting between screen and world
+
+`worldToScreen(x, y)` maps a world point to CSS pixels relative to the canvas's top left corner. `screenToWorld(x, y)` maps the other way:
 
 ```ts
-class CameraNode2D extends Node2D {
-  // rect framing (responsive fit)
-  setViewport(rect: Rect): void
-  animateTo(rect: Rect, opts?): Promise<void>
-  clearFraming(): void // become a pure transform camera
-  readonly viewport: Rect
-
-  // transform camera
-  zoom: number // sugar over transform.scale, larger is closer
-  // position / rotation via this.transform
-
-  // current-camera
-  enabled: boolean
-  priority: number // tie-break when the current camera goes away
-  makeCurrent(): void
-  clearCurrent(enableNext?): void
-  readonly isCurrent: boolean
-
-  // view queries (the CameraView2D surface)
-  worldToScreen(x, y, out?): Vec2
-  screenToWorld(x, y, out?): Vec2
-  visibleWorldRect(out?): Rect
-  screenPxPerWorldUnit(): number
-  strokeSpaceScale(): number
-}
+const p = cam.worldToScreen(ball.transform.x, ball.transform.y)
+label.style.left = `${p.x}px` // an HTML label over the ball
 ```
 
-The stage keeps every registered camera's pixel size in sync with the canvas on every `ResizeObserver` fire and on `window.resize`. Game code doesn't set it.
+Both take an optional `out` object to fill, so a call in a hot loop does not allocate. Pointer events already carry world positions, see [Input](/guides/input). For HTML that follows a node, use [HTML overlays](/guides/html-overlays) instead of converting by hand.
 
-Parent a camera under a moving node to make the view follow it. Scale the camera node (or set `zoom`) to zoom, and rotate it to rotate the view. For most game code you only need `setViewport` / `animateTo` and the `worldToScreen` / `screenToWorld` queries.
+### Animating the view
 
-## The uniform fit
-
-For a framing viewport of `W × H` world units in a canvas of `Cw × Ch` CSS px, the fit scale is `min(Cw / W, Ch / H)`. The viewport renders centered, and the leftover space on the wider axis shows the clear color. Change the canvas size, or `setViewport` to a smaller world rect, and the scale grows to match. Circles stay circular, and touch slop stays the same physical size on screen.
-
-## Multiple cameras & the current camera
-
-A stage can hold several camera nodes, but only the current one renders. The first camera attached becomes current (the stage default is first). Switch with `makeCurrent()`, gate with `enabled` (disabling the current one promotes the next), and detaching the current camera promotes the next by `priority` then attachment order.
-
-```ts
-const cutscene = new CameraNode2D()
-cutscene.setViewport({ x: 200, y: 100, width: 400, height: 300 })
-scene.root.add(cutscene)
-cutscene.makeCurrent() // stage now renders through this one
-```
-
-## animateTo
-
-Tween the framing rect from its current value to a target:
+[`animateTo`](/module/camera/cameranode2d#animateto) moves and resizes the viewport over time, a combined pan and zoom:
 
 ```ts
 import { easings } from '@src/stargazer'
 
-await engine.currentCamera2D.animateTo(
+await cam.animateTo(
   { x: 0, y: 380, width: 661, height: 520 },
   { duration: 0.5, easing: easings.inOutQuad },
 )
 ```
 
-`opts` accepts `duration` (default 0.5 s), `delay`, `easing`, and `signal`. The promise resolves when the tween settles, or rejects with `AbortError` on abort. It tweens the framing rect through the engine's `Animator`, so it runs on engine time and freezes with the ticker.
+The options are `duration` in seconds (default 0.5), `delay`, `easing` and `signal`. The promise resolves when the viewport arrives, or rejects with an `AbortError` when the signal aborts. The animation runs on engine time, so it stops while the engine is paused.
 
-Aborting one `animateTo` doesn't cancel another you start right after. Hold your own `AbortController`, abort it before starting a new tween, and pass the new signal:
+### Switching cameras
+
+A stage can hold several cameras, but only the current one renders. Call [`makeCurrent`](/module/camera/cameranode2d#makecurrent) to switch:
 
 ```ts
+const closeUp = new CameraNode2D()
+closeUp.setViewport({ x: 200, y: 100, width: 400, height: 300 })
+scene.root.add(closeUp)
+closeUp.makeCurrent() // the stage renders through this camera
+```
+
+`cam.isCurrent` tells whether a camera is the current one. `makeCurrent()` called before the camera is in a tree takes effect when it is added.
+
+## Advanced usage
+
+This section covers the transform camera, how the current camera is picked, canceling animations, stroke scale, layers, and the debug camera.
+
+### Moving, zooming and rotating the camera node
+
+A camera is a {@link Node2D}, so its `transform` works on the view. Moving the camera node pans the view, rotating it rotates the view, and [`zoom`](/module/camera/cameranode2d#zoom) zooms. A larger `zoom` is closer. `zoom` sets `transform.scaleX` and `transform.scaleY` to `1 / zoom`, because scaling the camera up shows more of the world.
+
+The framing rect and the transform combine. The framing sets the base fit, and the node's world transform is an extra view offset on top. The transform is the identity by default, so a camera with only a viewport is a fixed window. The world-to-screen mapping in CSS pixels is `containFit(viewport) ∘ inverse(camera.world)`.
+
+To make the view follow something, add the camera as a child of the node to follow. A camera cannot have children of its own: `cam.add(...)` throws.
+
+[`clearFraming`](/module/camera/cameranode2d#clearframing) turns off the viewport fit. One world unit is then one CSS pixel, with the canvas centered on the camera's position, and the transform does all panning, zooming and rotating. `setViewport` or `animateTo` turns framing back on. `cam.framingEnabled` tells which mode is active.
+
+### How the current camera is picked
+
+The stage keeps a list of its cameras in the order they were added. These rules decide which one is current:
+
+- The first camera added becomes current, unless another is current already.
+- A camera added after `makeCurrent()` was called on it becomes current.
+- `makeCurrent()` on a camera in the tree makes it current at once.
+- Setting `enabled = false` on the current camera hands over to the next one.
+- Removing or destroying the current camera hands over to the next one.
+- `clearCurrent(false)` cancels a pending `makeCurrent()`.
+
+The next camera is the enabled one with the highest `priority`, and the earliest added among equals. With no enabled camera left, `currentCamera2D` is `null`.
+
+### Canceling a camera animation
+
+Starting a second `animateTo` does not cancel the first, so two animations would fight over the viewport. Keep an `AbortController`, abort it before starting a new animation, and pass the new signal:
+
+```ts
+import { ignoreAbort, type Rect } from '@src/stargazer'
+
 let controller: AbortController | null = null
 
 async function zoomTo(rect: Rect): Promise<void> {
   controller?.abort()
   controller = new AbortController()
-  await engine.currentCamera2D
+  await cam
     .animateTo(rect, { duration: 0.5, signal: controller.signal })
     .catch(ignoreAbort)
 }
 ```
 
-## Stroke space scale
+`animateTo` on a destroyed camera rejects with an `AbortError`.
 
-`camera.strokeSpaceScale()` returns the multiplier a node's `draw` applies to a CSS-pixel `lineWidth` so the stroke stays visually constant across camera zoom. It's `1 / (the composed screen scale)`, so it accounts for both the framing fit and any camera `zoom`, and it's `1` while the pixel size is still `0` (fresh construction, before the first resize).
+### Stroke space scale
 
-The engine primitives (`ShapeNode`, `Path2DNode`, `PolylineNode`) apply it automatically whenever `strokeSpace: 'screen'` (the default). A custom node does it by hand, because `Gfx2D` takes stroke widths already resolved to the current transform space. The `camera` passed to `draw` is a `CameraView2D`:
+[`strokeSpaceScale`](/module/camera/cameranode2d#strokespacescale) returns the number of world units in one CSS pixel. Multiply a length in CSS pixels by it to get a world length that looks the same at any zoom. It accounts for the viewport fit and the camera's `zoom`. It returns 1 before the camera knows the canvas size. [`screenPxPerWorldUnit`](/module/camera/cameranode2d#screenpxperworldunit) is the inverse, CSS pixels per world unit.
+
+The stroked nodes ({@link ShapeNode}, {@link Path2DNode}, {@link PolylineNode}) apply this scale for you while `strokeSpace` is `'screen'`, the default. A custom node writes a stroke width as `{ screen: n }` inside `paint` and never reads the camera, so a zoom does not repaint it:
 
 ```ts
-override draw(gfx: Gfx2D, camera: CameraView2D): void {
-  const s = camera.strokeSpaceScale()
-  gfx.strokePolyline(this.points, this.count, {
+override paint(canvas: Canvas): void {
+  canvas.strokePolyline(this.points, this.count, {
     color: '#ffd34d',
-    width: 1.5 * s,
-    dash: [6 * s, 4 * s], // dashes are in transform space too
+    width: { screen: 1.5 },
   })
 }
 ```
 
-See [Scene graph](/guides/scene#stroke-widths-and-camera-zoom) for the per-primitive `strokeSpace` opt-in, and [Drawing](/guides/drawing) for the rest of the facade.
+For other lengths, such as dash lengths, `canvas.screenScale()` returns the same value. Reading it makes the node repaint when the value changes, so prefer `{ screen: n }` where it applies. `canvas.visibleWorldRect()` is the other camera value `paint` can read. It makes the node repaint whenever the view changes, so use it only for content that fills the visible area. See [Scene graph](/guides/scene) for `strokeSpace` and [Drawing](/guides/drawing) for the rest of `Canvas`.
 
-## Active vs current camera
+### Layers and the camera
 
-`engine.currentCamera2D` is the game camera the stage renders. `engine.activeCamera` is whatever is on screen right now: the current camera unless a dev debug camera has taken over. The renderer and the input system both use the active camera, so touching a shape still works while the debug camera is panning around it.
+The camera places everything in the tree, which a heads-up display does not want. A {@link Layer} with a `space` of `'screen'` or a frame places its subtree by a view of its own, and the camera does not move it. See [Layers](/guides/scene#layers).
 
-DOM anchors (`engine.dom`) and debug overlays project through the camera's full screen affine, so they track a translated, scaled, rotated, or parented camera too.
+{@link viewFor} returns the view that places a node: the layer's view under such a layer, and the stage's camera otherwise. Use it, not the camera, to find a node's position on screen. A frame layer fits its frame into the canvas the same way a camera fits its viewport.
+
+### The debug camera and the active camera
+
+`engine.currentCamera2D` is the primary stage's current camera, the one the game controls. `engine.activeCamera` is the view on screen right now. It is the current camera unless the debug camera is engaged. See [Debugging](/guides/debugging).
+
+The renderer and the input system both use the active camera. A tap on a shape still works while the debug camera pans around it. The debug camera replaces only the stage's camera, never a layer's view. HTML overlays and the debug overlays project through the view that places each node, so they follow a moved, zoomed, rotated or parented camera.
+
+### Canvas size
+
+The stage tells every camera in its tree the canvas size in CSS pixels whenever the canvas resizes, through `ResizeObserver` and the window's `resize` event. A camera that becomes current later already has the right fit. The renderer applies the device pixel ratio separately, so every camera value is in CSS pixels.
+
+## See also
+
+- {@link CameraNode2D}: the 2D camera node
+- {@link CameraView2D}: the view queries every 2D view answers
+- {@link CameraAnimateOptions}: options for `animateTo`
+- {@link CameraNode3D}: the 3D camera, see [3D](/guides/3d)
+- {@link viewFor}: the view that places a node
+- [Scene graph](/guides/scene): nodes, layers and stroke space
+- [Input](/guides/input): pointer positions in world space
+- [Stages](/guides/stages): one camera per stage

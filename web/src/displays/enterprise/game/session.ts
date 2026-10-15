@@ -45,13 +45,12 @@ import type { PacketMask } from './behaviors/PacketBehavior'
 import { SpawnController } from './spawn/SpawnController'
 import {
   emptyHighScores,
-  fetchEnterpriseHighScores,
-  recordEnterpriseGame,
   type GameEndReason as WireGameEndReason,
   type EnterpriseGameRecord as GameRecord,
   type EnterpriseHighScores as HighScores,
 } from '../game-log'
 import { TUNING } from './data/tuning'
+import { persistFinishedGame, type Persisted } from './persistGame'
 
 // -----------------------------------------------------------------------------
 // Public API
@@ -70,6 +69,13 @@ export interface GameEvents {
    * player may pick, so drawn-only geometry is absent.
    */
   ready: { stateIds: readonly RegionId[] }
+  /**
+   * A tap on the map while the attract round plays, one no packet took for
+   * drawing.
+   */
+  attractTapped: void
+  /** A tap on the picker's map that missed every region on offer. */
+  outsideTapped: void
   /** User tapped a state, awaiting `startRound()` or `cancelSelection()`. */
   stateSelected: { stateId: RegionId }
   /** `cancelSelection` was called before the round started. */
@@ -80,6 +86,8 @@ export interface GameEvents {
   packetScored: { total: number }
   /** The round ended. */
   gameOver: {
+    /** Counts the rounds this session has ended, to match `gameRecorded`. */
+    round: number
     reason: GameOverReason
     stateId: RegionId
     score: number
@@ -101,6 +109,18 @@ export interface GameEvents {
      * reprint / delete affordances tied to a record id are disabled.
      */
     record: GameRecord | null
+  }
+  /**
+   * The server recorded a round whose `gameOver` went out without a record,
+   * because the server was unreachable then. Fires only while that round's
+   * game-over screen is still up, so the card can catch up.
+   */
+  gameRecorded: {
+    round: number
+    isOverallHigh: boolean
+    isStateHigh: boolean
+    highScores: HighScores
+    record: GameRecord
   }
   /** Reset back to the idle map. */
   reset: void
@@ -194,7 +214,7 @@ const FILL_STOPS: GfxLinearGradient['stops'] = [
   { offset: 1, color: 'rgba(255, 255, 255, 0.8)' },
 ]
 // Selected-state fill: every state stays at the same muted node alpha
-// (`tweenStaticAlpha` below dims every state uniformly), so the selected one
+// (`tweenAlpha` below dims every state uniformly), so the selected one
 // distinguishes itself by a brighter gradient, not a different opacity
 // multiplier.
 const FILL_STOPS_SELECTED: GfxLinearGradient['stops'] = [
@@ -300,6 +320,12 @@ function canvasAspect(host: EngineHost): number {
   return size.h > 0 ? size.w / size.h : 16 / 9
 }
 
+function sameRect(a: Rect, b: Rect): boolean {
+  return (
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  )
+}
+
 /** Camera scale, in px per map unit, that fitting `view` to the canvas lands on. */
 function fitScale(host: EngineHost, view: Rect): number {
   const size = host.engine.primaryStage.renderer.cssSize
@@ -333,44 +359,21 @@ function playZoomFactors(host: EngineHost, map: MapDescriptor): number[] {
 // -----------------------------------------------------------------------------
 
 /**
- * Post the finished game to the server and refetch the current high-scores. A
- * single fetch failure returns `{record: null, highScores: empty}` so the
- * game-over overlay can still render. The kiosk shouldn't hard-fail on a
- * momentary daemon hiccup.
+ * How long past the end-screen grace the game-over card waits on the server
+ * before it shows without the record.
  */
-async function persistFinishedGame(input: {
-  mapId: string
-  stateId: RegionId
-  reason: WireGameEndReason
-  score: number
-  durationMs: number
-  escapeHeadingRad?: number
-}): Promise<{ record: GameRecord | null; highScores: HighScores }> {
-  try {
-    const record = await recordEnterpriseGame({
-      score: input.score,
-      durationMs: input.durationMs,
-      mapId: input.mapId,
-      stateId: input.stateId,
-      reason: input.reason,
-      escapeHeadingRad: input.escapeHeadingRad,
-    })
-    // High-scores AFTER this record landed. The overlay uses this to render
-    // "current best" copy next to the freshly-posted score.
-    const highScores = await fetchEnterpriseHighScores()
-    return { record, highScores }
-  } catch (e) {
-    console.warn('[session] failed to persist game to server', e)
-    return {
-      record: null,
-      highScores: emptyHighScores(),
-    }
-  }
-}
+const PERSIST_WAIT_MS = 1000
 
+/**
+ * Build the map, packets and overlays for `map` and return the session that
+ * drives them. The content goes under `world` when one is given, which keeps it
+ * between nodes the caller placed around it, such as a layer drawn over it.
+ * Without one it goes straight on the scene's root.
+ */
 export async function startGame(
   host: EngineHost,
   map: MapDescriptor,
+  world?: Node2D,
 ): Promise<GameSession> {
   const events = createEmitter<GameEvents>()
   const assets = await loadGameAssets()
@@ -458,8 +461,9 @@ export async function startGame(
   function discAt(x: number, y: number): RegionId | null {
     let best: SmallRegionDiscNode | null = null
     let bestDistSq = Infinity
+    const worldPerCssPx = camera?.strokeSpaceScale() ?? 1
     for (const disc of discs) {
-      if (!disc.visible || !disc.contains(x, y)) continue
+      if (!disc.visible || !disc.contains(x, y, worldPerCssPx)) continue
       const dx = x - disc.transform.x
       const dy = y - disc.transform.y
       const d = dx * dx + dy * dy
@@ -485,6 +489,8 @@ export async function startGame(
   let camera: CameraNode2D | null = null
   // Re-abortable scope for the camera tween: each `animateTo` cancels the prior.
   const cameraScope = new AbortScope()
+  /** The framing the camera tween is heading to, and its completion. */
+  let cameraHeading: { target: Rect; done: Promise<void> } | null = null
   let packetIdSeq = 0
   // Re-abortable scope for the deferred game-over timers (ripple settle + the
   // gameOver-event grace). `reset()`/`destroy()` cancel them.
@@ -492,6 +498,8 @@ export async function startGame(
   // Round-start wall clock (`performance.now()`), used to compute the game's
   // `durationMs` when the round ends. 0 means "no active round".
   let roundStartedAtMs = 0
+  /** Rounds ended so far, see `GameEvents['gameOver'].round`. */
+  let roundsEnded = 0
 
   const spawnController = new SpawnController(
     {
@@ -499,6 +507,7 @@ export async function startGame(
       mask: () => map.geometry.landMask,
       epicenter: () => epicenter,
       activePackets: () => activePackets,
+      score: () => score,
       // Spawn only inside the current game-camera viewport so packets never
       // grow off-screen: sampling the whole 661×888 country regardless of
       // which half the camera frames would let packets grow outside the
@@ -543,6 +552,9 @@ export async function startGame(
 
   // --- Scene build ---------------------------------------------------------
   await host.loadScene((scene) => {
+    // Everything but the camera hangs here, in the order it is added.
+    const content = world ?? scene.root
+    world?.destroyChildren()
     // The game's 2D camera, framing the full 661×888 country.
     const cam = new CameraNode2D('enterprise-camera')
     // The display opens on the splash.
@@ -552,8 +564,7 @@ export async function startGame(
     camera = cam
 
     const mapGroup = new Node2D('map')
-    mapGroup.renderLayer = 'static'
-    scene.root.add(mapGroup)
+    content.add(mapGroup)
 
     for (const info of map.regions) {
       const entry = info.shape
@@ -595,9 +606,8 @@ export async function startGame(
         // A region the map draws but does not offer takes no taps at all, so
         // it reads as part of the landmass rather than a dead target.
         hitMode: info.selectable ? 'fill' : 'none',
-        debugBounds: entry.bounds,
+        bounds: entry.bounds,
       })
-      node.renderLayer = 'static'
       if (info.selectable) {
         node.addBehavior(
           new StateSelectionBehavior(info.id, onStateTap, discAt),
@@ -613,13 +623,10 @@ export async function startGame(
     if (inertBorderNode) mapGroup.add(inertBorderNode)
     if (stateBorderNode) mapGroup.add(stateBorderNode)
 
-    // Country grid overlay sits above the static state fills but under
-    // the dynamic path / packet layers. Its own `renderLayer =
-    // 'above-static'` handles the compositing, this add order just
-    // controls scene-tree traversal for `onUpdate` (overlay ticks
-    // before packets, which is fine, the warn sampler reads live
-    // packet positions each frame).
-    scene.root.add(gridOverlay)
+    // Country grid overlay draws above the state fills and under the path and
+    // packet layers added after it. It also updates before the packets, which
+    // is fine, the warn sampler reads live packet positions each frame.
+    content.add(gridOverlay)
 
     // A disc for each region too small to tap, shown while the player picks.
     const small = new Set(smallRegionIdsNow())
@@ -632,15 +639,15 @@ export async function startGame(
       )
       disc.visible = false
       discs.push(disc)
-      scene.root.add(disc)
+      content.add(disc)
     }
 
     // Dynamic-layer groups, paths draw under packets so trails don't
     // occlude the finger's target. Endpoint handles draw on top so the
     // player can grab them.
-    scene.root.add(pathLayer)
-    scene.root.add(packetLayer)
-    scene.root.add(handleLayer)
+    content.add(pathLayer)
+    content.add(packetLayer)
+    content.add(handleLayer)
   })
 
   host.start()
@@ -671,18 +678,26 @@ export async function startGame(
   sessionState = 'idle'
   events.emit('ready', { stateIds: selectableIds() })
 
-  // Dismiss-on-outside-tap for the pre-game screen: any pointerdown that
-  // doesn't get captured by a state fill (background water, off-country
-  // area, etc.) cancels the selection. Runs only during `'preGame'` so an
-  // in-flight zoom or an accidental extra tap right after `confirmState`
-  // doesn't drop the round.
+  // Dismiss-on-outside-tap: any pointerdown that no state fill captures
+  // (water, or a region the map draws but does not offer) leaves the picker
+  // from idle and cancels the selection from `'preGame'`. Mid-zoom taps do
+  // neither, so an extra tap right after `confirmState` doesn't drop the
+  // round.
   const offBackgroundTap = host.engine.primaryStage.events.on(
     'pointerDown',
     (e) => {
       if (e.pointer.capturedBy !== null) return
+      if (!tapsEnabled) {
+        onTapWhileUntappable()
+        return
+      }
       const disc = discAt(e.pointer.world.x, e.pointer.world.y)
       if (disc !== null) {
         onStateTap(disc)
+        return
+      }
+      if (sessionState === 'idle') {
+        events.emit('outsideTapped', undefined)
         return
       }
       if (sessionState !== 'preGame') return
@@ -692,7 +707,10 @@ export async function startGame(
 
   // --- Tap handler --------------------------------------------------------
   function onStateTap(id: RegionId): void {
-    if (!tapsEnabled) return
+    if (!tapsEnabled) {
+      onTapWhileUntappable()
+      return
+    }
     // From idle, always start a fresh selection.
     if (sessionState === 'idle') {
       void selectState(id)
@@ -706,6 +724,11 @@ export async function startGame(
       return
     }
     // Round is live or ending, ignore state taps entirely.
+  }
+
+  /** A tap the map ignores, which the splash takes as a request to play. */
+  function onTapWhileUntappable(): void {
+    if (attractWanted) events.emit('attractTapped', undefined)
   }
 
   // --- CameraView2D framing -----------------------------------------------------
@@ -750,52 +773,56 @@ export async function startGame(
       apexIcon: assets.firefoxLogo,
     })
     epicenter.transform.alpha = 0
-    epicenter.renderLayer = 'dynamic'
     epicenter.addBehavior(new EpicenterBehavior())
-    host.engine.tree.root.add(epicenter)
+    ;(world ?? host.engine.tree.root).add(epicenter)
     // Fade the epicenter in as the camera zooms.
     void epicenter
       .tween({ alpha: 1 }, { duration: 0.5, easing: easings.outCubic })
       .catch(ignoreAbort)
   }
 
-  async function animateCameraTo(target: Rect): Promise<void> {
-    if (!camera) return
-    const signal = cameraScope.reset()
-    try {
-      await camera.animateTo(target, {
-        duration: CAMERA_TWEEN_SEC,
-        easing: easings.inOutCubic,
-        signal,
-      })
-    } catch (err) {
-      ignoreAbort(err)
+  /**
+   * Tween the camera to `target`. A call for the framing already being tweened
+   * to joins that tween rather than restarting it, so a second caller neither
+   * resets the easing nor cuts the first caller's wait short.
+   */
+  function animateCameraTo(target: Rect): Promise<void> {
+    if (!camera) return Promise.resolve()
+    if (cameraHeading && sameRect(cameraHeading.target, target)) {
+      return cameraHeading.done
     }
+    const signal = cameraScope.reset()
+    const heading = {
+      target,
+      done: camera
+        .animateTo(target, {
+          duration: CAMERA_TWEEN_SEC,
+          easing: easings.inOutCubic,
+          signal,
+        })
+        .catch(ignoreAbort)
+        .finally(() => {
+          if (cameraHeading === heading) cameraHeading = null
+        }),
+    }
+    cameraHeading = heading
+    return heading.done
   }
 
   // --- Highlight bookkeeping ---------------------------------------------
   //
-  // State fills live on `renderLayer: 'static'`, drawn in one pass in list
-  // order alongside the border path and every other state. A state tweening
-  // its own alpha promotes to `'above-static'` for the tween's duration, a
-  // separate pass drawn after `'static'`, so the transition reads on top of
-  // its siblings instead of interleaved among them in whatever order the
-  // static list happens to hold. It demotes back to `'static'` on completion.
-  //
-  // Nodes whose alpha is already at target skip the promote-tween-demote
-  // dance entirely since there is nothing to keep clear of the backdrop.
+  // State fills draw in tree order under the map group, alongside the border
+  // paths. Nodes whose alpha is already at target skip the tween.
 
-  function tweenStaticAlpha(
+  function tweenAlpha(
     node: Path2DNode,
     targetAlpha: number,
     durationSec: number,
   ): void {
     if (Math.abs(node.transform.alpha - targetAlpha) < 1e-3) return
-    // `node.tweenStatic` handles the promote-to-above-static / demote-back
-    // dance internally, including on abort, so we just need to swallow
-    // AbortError on the returned promise.
+    // Swallow the AbortError a destroyed node rejects with.
     node
-      .tweenStatic(
+      .tween(
         { alpha: targetAlpha },
         { duration: durationSec, easing: easings.inOutQuad },
       )
@@ -810,7 +837,7 @@ export async function startGame(
       const gradients = stateFillGradients.get(otherId)
       if (gradients)
         node.fill = otherId === id ? gradients.selected : gradients.normal
-      tweenStaticAlpha(node, HIGHLIGHT_ALPHA * mapAlpha(), 0.4)
+      tweenAlpha(node, HIGHLIGHT_ALPHA * mapAlpha(), 0.4)
     }
   }
 
@@ -819,7 +846,7 @@ export async function startGame(
     for (const [id, node] of stateNodes) {
       const gradients = stateFillGradients.get(id)
       if (gradients) node.fill = gradients.normal
-      tweenStaticAlpha(node, mapAlpha(), 0.35)
+      tweenAlpha(node, mapAlpha(), 0.35)
     }
   }
 
@@ -837,10 +864,10 @@ export async function startGame(
     mapDimmed = dimmed
     const fill = (highlighted ? HIGHLIGHT_ALPHA : 1) * mapAlpha()
     for (const node of stateNodes.values()) {
-      tweenStaticAlpha(node, fill, MAP_DIM_SEC)
+      tweenAlpha(node, fill, MAP_DIM_SEC)
     }
     for (const border of [stateBorderNode, inertBorderNode]) {
-      if (border) tweenStaticAlpha(border, mapAlpha(), MAP_DIM_SEC)
+      if (border) tweenAlpha(border, mapAlpha(), MAP_DIM_SEC)
     }
   }
 
@@ -1130,9 +1157,9 @@ export async function startGame(
     }
 
     // Persist to the server as soon as the round ends, in parallel with the
-    // grace animation. The overlay awaits the same promise, so the record id
-    // is guaranteed to be present when the card renders (or explicitly null
-    // if the server was unreachable, which the card degrades gracefully on).
+    // grace animation. The card waits on it a moment past the grace and shows
+    // without it if the server is slow or down. A record that lands later
+    // goes out as `gameRecorded` while this round's card is still up.
     const durationMs = Math.max(
       0,
       Math.round(performance.now() - roundStartedAtMs),
@@ -1140,13 +1167,19 @@ export async function startGame(
     roundStartedAtMs = 0
     const wireReason: WireGameEndReason = WIRE_REASON[reason]
     const finalScore = score
-    const persistPromise = persistFinishedGame({
-      mapId: map.id,
-      stateId,
-      reason: wireReason,
-      score: finalScore,
-      durationMs,
-      escapeHeadingRad,
+    const round = ++roundsEnded
+    const persisted = new Promise<Persisted>((resolve) => {
+      persistFinishedGame(
+        {
+          mapId: map.id,
+          stateId,
+          reason: wireReason,
+          score: finalScore,
+          durationMs,
+          escapeHeadingRad,
+        },
+        resolve,
+      )
     })
 
     // Defer the outbound `gameOver` event. Svelte listens for it to slide
@@ -1169,19 +1202,38 @@ export async function startGame(
     // shockwave to be visible for a moment before the UI takes over.
     host.engine
       .wait(TUNING.lossAnim.endScreenGraceSec, graceSignal)
-      .then(() => persistPromise)
-      .then(({ record, highScores }) => {
+      .then(() =>
+        Promise.race([
+          persisted,
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), PERSIST_WAIT_MS),
+          ),
+        ]),
+      )
+      .then((result) => {
         // The scope may have been reset while persistence was in flight.
         if (graceSignal.aborted || sessionState !== 'gameOver') return
         events.emit('gameOver', {
+          round,
           reason,
           stateId,
           score: finalScore,
-          isOverallHigh: record?.wasOverallHigh ?? false,
-          isStateHigh: record?.wasStateHigh ?? false,
-          highScores,
+          isOverallHigh: result?.record.wasOverallHigh ?? false,
+          isStateHigh: result?.record.wasStateHigh ?? false,
+          highScores: result?.highScores ?? emptyHighScores(),
           escapeHeadingRad,
-          record,
+          record: result?.record ?? null,
+        })
+        if (result) return
+        void persisted.then(({ record, highScores }) => {
+          if (roundsEnded !== round || sessionState !== 'gameOver') return
+          events.emit('gameRecorded', {
+            round,
+            isOverallHigh: record.wasOverallHigh,
+            isStateHigh: record.wasStateHigh,
+            highScores,
+            record,
+          })
         })
       })
       .catch(ignoreAbort)
@@ -1215,6 +1267,12 @@ export async function startGame(
 
   async function reset(): Promise<void> {
     if (sessionState === 'idle') return
+    // A round, live or over, ends on the splash, so the camera goes straight
+    // to the splash's framing rather than through the picker's.
+    const target =
+      sessionState === 'playing' || sessionState === 'gameOver'
+        ? splashView()
+        : overview()
     sessionState = 'zoomingOut'
     spawnController.stop()
     offCollision?.()
@@ -1228,7 +1286,7 @@ export async function startGame(
     // round. `warnAlpha` is an integrated state array, must be cleared
     // explicitly, `clearGameplayNodes` only walks layers.
     gridOverlay.reset()
-    await animateCameraTo(overview())
+    await animateCameraTo(target)
     if (sessionState === 'zoomingOut') sessionState = 'idle'
     selectedStateId = null
     syncDiscs()
@@ -1356,6 +1414,5 @@ function buildStateBorderNode(
     lineWidth: BORDER_WIDTH,
     hitMode: 'none',
   })
-  node.renderLayer = 'static'
   return node
 }

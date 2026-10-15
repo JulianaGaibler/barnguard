@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { BitmapMask, CameraView2D, Gfx2D } from '@src/stargazer'
+import { paintCalls, type BitmapMask } from '@src/stargazer'
 import { GridOverlayNode } from './GridOverlayNode'
 import { TUNING } from '../data/tuning'
 
@@ -12,12 +12,12 @@ import { TUNING } from '../data/tuning'
  * overlay ends up with exactly three kept cells in the order `[near, mid,
  * far]`.
  *
- * The outline `Path2D` is never invoked (no `draw` call in the tests) so a
- * plain `new Path2D()` stands in.
+ * The outline `Path2D` is never invoked (no paint of the outline in the tests)
+ * so a plain `new Path2D()` stands in.
  */
 function makeMask(): BitmapMask {
   // `imageData` is required by the interface (used by the GPU clip path)
-  // but never touched here, the tests don't call `draw()`. A 1×1
+  // but never touched here, the tests don't paint the outline. A 1×1
   // transparent stub satisfies the type.
   const stubImageData = {
     data: new Uint8ClampedArray(4),
@@ -51,16 +51,6 @@ function buildNode(): GridOverlayNode {
 /** Read pulse value i through the node's internal test seam. */
 function readPulseValue(node: GridOverlayNode, i: number): number {
   return node._pulseValueAt(i)
-}
-
-/** A recording stand-in for the `Gfx2D` surface the node draws through. */
-function recordingGfx(): { gfx: Gfx2D; quads: number[][] } {
-  const quads: number[][] = []
-  const gfx = {
-    drawShaderQuad: (_q: unknown, x: number, y: number, w: number, h: number) =>
-      quads.push([x, y, w, h]),
-  } as unknown as Gfx2D
-  return { gfx, quads }
 }
 
 describe('GridOverlayNode.pulseFrom', () => {
@@ -128,24 +118,25 @@ describe('GridOverlayNode grid layout', () => {
   })
 })
 
-describe('GridOverlayNode drawing', () => {
-  const camera = {} as CameraView2D
+/** The quads the node's picture draws, as `[x, y, w, h]`. */
+function quads(node: GridOverlayNode): number[][] {
+  return paintCalls(node)
+    .filter((c) => c.name === 'drawShaderQuad')
+    .map((c) => c.args.slice(1, 5) as number[])
+}
 
+describe('GridOverlayNode drawing', () => {
   it('draws nothing while every cell is dark', () => {
     const node = buildNode()
-    const { gfx, quads } = recordingGfx()
     node.onUpdate(0.016)
-    node.draw(gfx, camera)
-    expect(quads.length).toBe(0)
+    expect(quads(node).length).toBe(0)
   })
 
   it('draws one quad over the whole grid while any cell is lit', () => {
     const node = buildNode()
-    const { gfx, quads } = recordingGfx()
     node.pulseFrom({ x: 0, y: 0 })
     node.onUpdate(0.05)
-    node.draw(gfx, camera)
-    expect(quads).toEqual([[-50, -50, 400, 100]])
+    expect(quads(node)).toEqual([[-50, -50, 400, 100]])
   })
 
   it('packs the pulse into the second channel of the cell texel', () => {
@@ -160,12 +151,27 @@ describe('GridOverlayNode drawing', () => {
 
   it('goes quiet again once the pulse has passed, and after reset', () => {
     const node = buildNode()
-    const { gfx, quads } = recordingGfx()
     node.pulseFrom({ x: 0, y: 0 })
     node.onUpdate(0.05)
     node.reset()
-    node.draw(gfx, camera)
-    expect(quads.length).toBe(0)
+    expect(quads(node).length).toBe(0)
     expect(node._texelAt(0)).toEqual([0, 0])
+  })
+})
+
+describe('GridOverlayNode repaint', () => {
+  it('stays resting while the grid is dark and while it stays lit', () => {
+    const node = buildNode()
+    node.onUpdate(0.016)
+    node._paintDirty = false
+    node.onUpdate(0.016)
+    expect(node._paintDirty).toBe(false)
+
+    node.pulseFrom({ x: 0, y: 0 })
+    node.onUpdate(0.05)
+    expect(node._paintDirty).toBe(true)
+    node._paintDirty = false
+    node.onUpdate(0.05)
+    expect(node._paintDirty).toBe(false)
   })
 })

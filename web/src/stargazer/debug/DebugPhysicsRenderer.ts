@@ -12,6 +12,7 @@
 import type { CameraView2D } from '../camera/CameraView2D'
 import type { Gfx2D, GfxStrokeStyle } from '../render/gfx/Gfx2D'
 import type { Vec2 } from '../math/Vec2'
+import type { Affine2x3 } from '../math/Affine2D'
 import { lerp, lerpAngle } from '../math/scalar'
 import { BodyType } from '../physics/types'
 import type { Body } from '../physics/Body'
@@ -52,7 +53,7 @@ const polyPts = new Float32Array(64)
 interface Ctx {
   cam: CameraView2D
   /** Physics-space -> world affine, or null when physics is in world space. */
-  space: DOMMatrix | null
+  space: Affine2x3 | null
   /** Linear scale of `space` (1 when null), for radii and vector lengths. */
   spaceScale: number
   /** Interpolation fraction between each body's prev and current state. */
@@ -104,7 +105,7 @@ export function drawPhysicsOverlay(
   world: PhysicsWorld,
   cam: CameraView2D,
   flags: PhysicsOverlayFlags,
-  space: DOMMatrix | null = null,
+  space: Affine2x3 | null = null,
   alpha = 1,
   accent?: string,
   label?: string,

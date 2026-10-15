@@ -1,5 +1,6 @@
 import { Transform2D } from '../math/Transform2D'
 import type { Rect } from '../math/Rect'
+import type { Affine2x3 } from '../math/Affine2D'
 import type { Vec2 } from '../math/Vec2'
 import {
   Node,
@@ -9,37 +10,22 @@ import {
 } from './Node'
 import type { SceneTree } from './SceneTree'
 import type { CameraView2D } from '../camera/CameraView2D'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { Gfx2D, GfxBlend, GfxMatteMode } from '../render/gfx/Gfx2D'
 import type { GfxPath } from '../render/gfx/GfxPath'
+import type { Canvas } from '../render/picture/Canvas'
+import type { Picture } from '../render/picture/Picture'
+import { paintingNode } from '../render/picture/paintState'
+import { checkWorldToLocal } from './worldSpaceGuard'
 import type { TweenOptions } from '../anim/Animator'
 import { ignoreAbort } from '../anim/abortSignal'
 import type { Semantics, SemanticsHandle } from '../a11y/types'
 
 export type { NodeEvents, PointerHandlers }
 
-/** Number of live nodes with a clip, so the walker can skip the work when 0. */
-let clipNodeCount = 0
-
-/**
- * Whether any node currently has a {@link Node2D.clip}. The renderer checks it
- * to skip clip bookkeeping in scenes that use none.
- *
- * @internal
- */
-export function hasClipNodes(): boolean {
-  return clipNodeCount > 0
-}
-
 // Reused across calls, hit-testing is synchronous, so there's no reentrancy.
 const HIT_TEST_SCRATCH: Vec2 = { x: 0, y: 0 }
-
-/**
- * Which of the three 2D passes a node draws in. Every pass redraws every frame,
- * so the layer is draw order only, not a cache: `'static'` paints first,
- * `'above-static'` over it, `'dynamic'` on top. Painter order within a layer
- * follows the tree.
- */
-export type RenderLayer = 'static' | 'above-static' | 'dynamic'
+/** Nodes `ensureWorldTransform` composes, shared so no call allocates one. */
+const WORLD_CHAIN: Node2D[] = []
 
 /**
  * A node in the 2D scene tree: a {@link Transform2D}, a parent, a list of
@@ -78,17 +64,96 @@ export class Node2D extends Node {
   readonly transform = new Transform2D()
 
   /**
-   * Snapshot of `transform` at the start of each fixed step when render
-   * interpolation is on. `null` when off (default), no work done.
+   * Replaces the bounds taken from the picture, for hit testing and the debug
+   * outline. A container that has no picture of its own sets it to take taps as
+   * a region. Culling uses it together with the picture's bounds, so a node
+   * never disappears while some of what it paints is still in view.
    */
-  prevTransform: Transform2D | null = null
+  boundsOverride: Rect | null = null
 
   /**
-   * Local-space AABB used for viewport culling, hit-testing, and the debug
-   * outline overlay. `null` means "never cull, always draw". The primitive
-   * nodes set this from their geometry.
+   * Local-space bounds of what the node paints, or `null` when it has no
+   * picture or drew something whose extent is unknown.
+   * {@link Node2D.boundsOverride} wins when set. Screen-space strokes and
+   * shadows reach a little past them.
    */
-  debugBounds: Rect | null = null
+  get bounds(): Rect | null {
+    return this.boundsOverride ?? this._picture?.bounds ?? null
+  }
+
+  /**
+   * Draw this node and everything under it into an offscreen surface and
+   * composite that once with the node's cascaded `alpha`, so a translucent
+   * group looks like one flat image and its parts do not show through each
+   * other. Without it, `alpha` multiplies into every drawing separately.
+   *
+   * @remarks
+   *   A group costs a surface for the frame, rendered in a pass of its own before
+   *   the main pass, so turn it on only for content that overlaps itself while
+   *   translucent. A group that contains an `InsetViewNode` falls back to
+   *   per-drawing alpha. It never changes what a picture records, so toggling
+   *   it does not repaint anything.
+   */
+  compositeGroup = false
+
+  /**
+   * How the node composites into what is under it. Anything but `'source-over'`
+   * makes the node a group, drawn into a surface and composited once with this
+   * blend, so every drawing in it blends as one image. The modes a composite
+   * supports are `'source-over'`, `'lighter'`, `'screen'`, `'multiply'`,
+   * `'destination-out'`, `'destination-in'` and `'xor'`.
+   */
+  compositeBlend: GfxBlend = 'source-over'
+
+  /**
+   * A node whose drawing scales this node's, as a track matte. The node and its
+   * subtree are drawn into a surface, the matte node and its subtree into
+   * another over the same area, and the first is composited through the second
+   * according to `matteMode`. The matte node is not drawn on its own. It can
+   * sit anywhere in the tree, usually next to this node so the two share a
+   * parent's transform.
+   *
+   * @remarks
+   *   A node serves as the matte of one node. A matte node that is hidden is an
+   *   empty matte, which hides this node, or shows it all for an inverted mode.
+   *   A group that contains an `InsetViewNode` is drawn without the matte.
+   */
+  get matte(): Node2D | null {
+    return this.#matte
+  }
+  set matte(node: Node2D | null) {
+    if (node === this.#matte) return
+    if (this.#matte && this.#matte._matteOf === this)
+      this.#matte._matteOf = null
+    this.#matte = node
+    if (node) node._matteOf = this
+  }
+  #matte: Node2D | null = null
+
+  /**
+   * How the matte scales the node: by its alpha or its luminance, or the
+   * inverse.
+   */
+  matteMode: GfxMatteMode = 'alpha'
+
+  /** @internal The node this one is the matte of, which keeps it out of the normal walk. */
+  _matteOf: Node2D | null = null
+
+  /**
+   * Round the node's origin to a whole device pixel when it is drawn, so sharp
+   * edges and nearest-filtered images land on pixel boundaries at rest. It only
+   * moves the node by under half a pixel at compose time and never repaints.
+   */
+  pixelSnap = false
+
+  /** @internal The recorded picture, `null` before the first paint. */
+  _picture: Picture | null = null
+  /** @internal The node needs to paint before it is next drawn. */
+  _paintDirty = true
+  /** @internal The compose walk's frame in which the picture was last checked. */
+  _walkStamp = -1
+  /** @internal The device scale it was drawn at last frame. */
+  _lastScale = NaN
   /** Whether the debug outline overlay draws this node. Cosmetic only. */
   debugVisible = true
 
@@ -100,15 +165,11 @@ export class Node2D extends Node {
    * `null` (the default) clips nothing. Clips on nested nodes narrow each
    * other, up to 7 deep.
    *
-   * Descendants are clipped even when they draw in another render layer than
-   * the clipping node.
-   *
    * @remarks
-   *   Engine developers: the layer walker keeps the clip ancestors of the node it
-   *   is drawing on a stack and pushes or pops stencil clips as the stack
-   *   changes between consecutive nodes, so a run of siblings under one clip
-   *   pays for it once. A clip costs two stencil draws plus one to undo it, and
-   *   a rect is built into a cached path.
+   *   Engine developers: the compose walk pushes the stencil clip on entering the
+   *   node and pops it on leaving its subtree, so everything under it pays for
+   *   the clip once. A clip costs two stencil draws plus one to undo it, and a
+   *   rect is built into a cached path.
    * @example
    *   // A scroll panel: content below this node never paints outside it.
    *   panel.clip = { x: 0, y: 0, width: 320, height: 200 }
@@ -117,18 +178,9 @@ export class Node2D extends Node {
     return this.#_clip
   }
   set clip(v: GfxPath | Rect | null) {
-    if ((this.#_clip === null) !== (v === null)) {
-      clipNodeCount += v === null ? -1 : 1
-    }
     this.#_clip = v
   }
 
-  #_renderLayer: RenderLayer = 'dynamic'
-  /**
-   * Static descendants (excluding self), maintained incrementally so
-   * `subtreeHasStaticLayer` stays O(1). Cross-checked by `_verifyStaticCount`.
-   */
-  #_staticDescendantCount = 0
   /**
    * Semantics accumulated before the node joins a scene, see
    * {@link Node2D.a11y}.
@@ -159,122 +211,10 @@ export class Node2D extends Node {
     return p as Node2D | null
   }
 
-  /**
-   * Which render pass this node draws in, `'dynamic'` by default. See
-   * {@link RenderLayer}. Set `'static'` to put a backdrop under everything else
-   * without reordering the tree.
-   */
-  get renderLayer(): RenderLayer {
-    return this.#_renderLayer
-  }
-  set renderLayer(v: RenderLayer) {
-    if (this.#_renderLayer === v) return
-    const prev = this.#_renderLayer
-    this.#_renderLayer = v
-    // Propagate the static/non-static delta up the ancestor chain. This node's
-    // own `_staticDescendantCount` counts descendants, so it doesn't change.
-    // Only ancestors do.
-    const delta = (v === 'static' ? 1 : 0) - (prev === 'static' ? 1 : 0)
-    if (delta !== 0) this.#_bumpAncestorsStaticCount(delta)
-    const scene = this.scene
-    if (scene) {
-      // Painter order across layers changes when a node's layer flips.
-      // Invalidate the layer index so the next drawLayer / hit-test walk sees
-      // the new placement.
-      scene.invalidatePainterOrder()
-      if (prev === 'static' || v === 'static') scene.invalidateStatic()
-    }
-  }
-
-  #_bumpAncestorsStaticCount(delta: number): void {
-    let p: Node2D | null = this.spatialParent
-    while (p) {
-      p.#_staticDescendantCount += delta
-      p = p.spatialParent
-    }
-  }
-
-  /**
-   * Whether this node or any descendant draws on the `'static'` layer, read
-   * from a descendant count kept up to date on attach and detach, so it stays
-   * O(1) on a deep tree.
-   *
-   * Its only caller is `LayoutRoot`, which forwards it to
-   * {@link SceneTree.invalidateStatic}. Nothing reads that flag back, so the
-   * count currently costs attach and detach work for no observable effect.
-   * Removing the pair is safe as long as both go together.
-   */
-  get subtreeHasStaticLayer(): boolean {
-    return this.#_renderLayer === 'static' || this.#_staticDescendantCount > 0
-  }
-
-  /**
-   * Keep the static-descendant count in step. Painter order is invalidated by
-   * `Node.add` for every parent kind, so it is not this hook's business.
-   */
-  protected override _onChildAttached(child: Node): void {
-    // Only 2D children carry static-layer state. A 3D or group child adds no
-    // static contribution and must not touch the count (it has no such field).
-    if (child.kind === '2d') {
-      const c = child as Node2D
-      // Total static contribution of the incoming subtree: child's own
-      // static-ness plus its descendants' static count.
-      const childStaticTotal =
-        (c.#_renderLayer === 'static' ? 1 : 0) + c.#_staticDescendantCount
-      if (childStaticTotal > 0) {
-        this.#_staticDescendantCount += childStaticTotal
-        this.#_bumpAncestorsStaticCount(childStaticTotal)
-        this.scene?.invalidateStatic()
-      }
-    }
-  }
-
-  protected override _onChildDetached(child: Node): void {
-    if (child.kind === '2d') {
-      const c = child as Node2D
-      const childStaticTotal =
-        (c.#_renderLayer === 'static' ? 1 : 0) + c.#_staticDescendantCount
-      if (childStaticTotal > 0) {
-        this.#_staticDescendantCount -= childStaticTotal
-        // `child.parent` is already null here, so walk ancestors from `this`. The
-        // subtract on `this` above already accounts for this node.
-        this.#_bumpAncestorsStaticCount(-childStaticTotal)
-        this.scene?.invalidateStatic()
-      }
-    }
-  }
-
   protected override _onAttach(): void {
     // A node configured with `.a11y(...)` before it joined a scene registers now
     // that an engine is reachable.
     this.#tryRegisterA11y()
-  }
-
-  /**
-   * Dev assertion: verify `_staticDescendantCount` matches a fresh DFS. Returns
-   * subtree total including self, throws on drift.
-   */
-  _verifyStaticCount(): number {
-    let actualDescendants = 0
-    for (const c of this.children) {
-      if (c.kind === '2d')
-        actualDescendants += (c as Node2D)._verifyStaticCount()
-    }
-    if (actualDescendants !== this.#_staticDescendantCount) {
-      throw new Error(
-        `[stargazer] Node2D '${this.id}' _staticDescendantCount drift: ` +
-          `expected ${actualDescendants}, got ${this.#_staticDescendantCount}`,
-      )
-    }
-    return actualDescendants + (this.#_renderLayer === 'static' ? 1 : 0)
-  }
-
-  /**
-   * Test/dev only: force the cached static-descendant count, used to simulate
-   * drift so `_verifyStaticCount`'s regression detector can be exercised.
-   */
-  _forceStaticDescendantCount(n: number): void {
-    this.#_staticDescendantCount = n
   }
 
   /**
@@ -285,8 +225,11 @@ export class Node2D extends Node {
    */
   ensureWorldTransform(): void {
     if (!this.worldDirty) return
-    // Build the chain from this node up to the highest dirty ancestor.
-    const chain: Node2D[] = [this]
+    // Collect this node and its dirty ancestors on a shared stack, from `base`
+    // so a call made while another is composing keeps its entries apart.
+    const chain = WORLD_CHAIN
+    const base = chain.length
+    chain.push(this)
     let cur: Node2D | null = this.spatialParent
     while (cur && cur.worldDirty) {
       chain.push(cur)
@@ -294,8 +237,8 @@ export class Node2D extends Node {
     }
     // `cur` is either null (a root-ish detached node) or the first clean
     // ancestor. Compose down the chain from the ancestor.
-    let parentWorld: DOMMatrix | null = cur?.transform.world ?? null
-    for (let i = chain.length - 1; i >= 0; i--) {
+    let parentWorld: Affine2x3 | null = cur?.transform.world ?? null
+    for (let i = chain.length - 1; i >= base; i--) {
       const n = chain[i]
       n.transform.updateLocal()
       const l = n.transform.local
@@ -325,6 +268,7 @@ export class Node2D extends Node {
       n.markWorldClean()
       parentWorld = w
     }
+    chain.length = base
   }
 
   /**
@@ -334,6 +278,7 @@ export class Node2D extends Node {
    * mutations. Returns `{x, y}` unchanged if the matrix is degenerate.
    */
   worldToLocal(worldX: number, worldY: number, out?: Vec2): Vec2 {
+    if (import.meta.env.DEV) checkWorldToLocal(this, worldX, worldY)
     this.ensureWorldTransform()
     const w = this.transform.world
     const det = w.a * w.d - w.b * w.c
@@ -402,22 +347,16 @@ export class Node2D extends Node {
     }
   }
 
-  /** Set {@link Node2D.renderLayer} and return `this` for chaining. */
-  setRenderLayer(layer: RenderLayer): this {
-    this.renderLayer = layer
-    return this
-  }
-
   /**
    * Hit-test in world coords. Default: rectangular AABB test against
-   * `debugBounds` (inflated by `touchSlopWorld`), which is LOCAL-space. The
-   * world point is mapped through {@link Node2D.worldToLocal} first, so this
+   * {@link Node2D.bounds} (inflated by `touchSlopWorld`), which is LOCAL-space.
+   * The world point is mapped through {@link Node2D.worldToLocal} first, so this
    * works for a node anywhere in the tree, not just one at world origin with an
    * identity transform. Subclasses override for exact shapes (Path2DNode uses
    * `isPointInPath`, ShapeNode uses circle, etc.).
    */
   hitTest(worldX: number, worldY: number, touchSlopWorld: number): boolean {
-    const b = this.debugBounds
+    const b = this.bounds
     if (!b) return false
     const p = this.worldToLocal(worldX, worldY, HIT_TEST_SCRATCH)
     return (
@@ -437,6 +376,31 @@ export class Node2D extends Node {
   draw?(gfx: Gfx2D, camera: CameraView2D, dt: number): void
 
   /**
+   * Record what this node looks like into `canvas`, in local space. It runs
+   * when the node is first drawn and then only after the node is marked for
+   * repaint, and the recorded calls are replayed every frame in between. It has
+   * to depend only on the node's own state: declared paint properties,
+   * versioned resources it declared with `canvas.use`, and what
+   * `markNeedsPaint` was called for. It must not read the camera, the clock or
+   * the node's transform, and must not mark any node for repaint.
+   */
+  paint?(canvas: Canvas): void
+
+  /**
+   * Mark the node's picture stale, so it paints again before it is next drawn.
+   * Paint properties and versioned resources do this on their own. Call it for
+   * state the node owns and changes without them.
+   */
+  markNeedsPaint(): void {
+    if (import.meta.env.DEV && paintingNode() !== null) {
+      throw new Error(
+        `markNeedsPaint() on ${this.id} while ${(paintingNode() as Node2D).id} paints. paint must not dirty a node.`,
+      )
+    }
+    this._paintDirty = true
+  }
+
+  /**
    * Tween properties on this node's transform. Auto-scoped to
    * `this.abortSignal`, destroying the node rejects with AbortError.
    * `opts.signal` (if provided) is combined with the node signal. Requires the
@@ -444,29 +408,6 @@ export class Node2D extends Node {
    */
   tween(to: Partial<Transform2D>, opts: TweenOptions): Promise<void> {
     return this.tweenTo(this.transform, to, opts)
-  }
-
-  /**
-   * Tween a `'static'` node while lifting it to `'above-static'`, so it
-   * animates clear of the backdrop it normally sits inside, then drops back
-   * when the tween settles or aborts.
-   *
-   * @remarks
-   *   On a node that is not on the `'static'` layer this is a plain
-   *   {@link Node2D.tween}.
-   * @example
-   *   // The tile fades above the rest of the board, not behind it.
-   *   await tile.tweenStatic({ alpha: 0 }, { duration: 0.3 })
-   */
-  tweenStatic(to: Partial<Transform2D>, opts: TweenOptions): Promise<void> {
-    const prevLayer = this.#_renderLayer
-    if (prevLayer === 'static') this.renderLayer = 'above-static'
-    return this.tween(to, opts).finally(() => {
-      // Restore on abort too, so a teardown mid-fade cannot strand the node on
-      // the wrong layer.
-      if (this.isDestroyed) return
-      if (this.#_renderLayer !== prevLayer) this.renderLayer = prevLayer
-    })
   }
 
   /**

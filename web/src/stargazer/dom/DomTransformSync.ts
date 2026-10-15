@@ -11,9 +11,10 @@
  */
 
 import type { Engine } from '../engine/Engine'
-import type { Node } from '../scene/Node'
 import type { Node2D } from '../scene/Node2D'
 import type { Node3D } from '../scene/Node3D'
+import { isEffectivelyVisible } from '../scene/traverse'
+import { viewFor } from '../scene/viewFor'
 import type { ScreenProjection } from '../camera/Camera3D'
 import type { Affine2x3 } from '../camera/CameraView2D'
 import type { CameraView3D } from '../camera/CameraView3D'
@@ -288,12 +289,12 @@ class Attachment implements DomAttachment {
     const node = this.node
     // Fall back to the primary stage so there's always a camera and canvas size.
     const stage = engine.stageForScene(node.scene) ?? engine.primaryStage
-    const cam = engine.debug?.activeCameraFor(stage) ?? stage.currentCamera2D
+    const cam = viewFor(node, stage, engine.debug)
 
     const visible =
       (this.#opts.syncVisibility ?? true) === false
         ? true
-        : effectiveVisible(node)
+        : isEffectivelyVisible(node)
     // No current camera, or a singular affine (canvas mid-resize / degenerate
     // camera), means no valid mapping. Hide rather than place the element wrongly.
     let show = visible && cam !== null
@@ -478,7 +479,7 @@ class Attachment3D implements Dom3DAttachment {
     const visible =
       (this.#opts.syncVisibility ?? true) === false
         ? true
-        : effectiveVisible3d(node)
+        : isEffectivelyVisible(node)
     node.ensureWorldTransform()
     const w = node.transform.world
     // Behind test: camera-space z of the node origin (camera looks down -z).
@@ -553,7 +554,7 @@ class Attachment3D implements Dom3DAttachment {
     const visible =
       (this.#opts.syncVisibility ?? true) === false
         ? true
-        : effectiveVisible3d(node)
+        : isEffectivelyVisible(node)
     let show = visible && cssW > 0 && cssH > 0
     let x = 0
     let y = 0
@@ -717,27 +718,6 @@ export class DomTransformSync {
     s.height = `${rect.height}px`
     return layer
   }
-}
-
-// Visibility inherits across the whole generic parent chain (a 2D element
-// parented under a hidden 3D node disappears, and vice versa), so both walk the
-// base `parent`, not the same-kind spatial chain.
-function effectiveVisible(node: Node2D): boolean {
-  let n: Node | null = node
-  while (n) {
-    if (!n.visible) return false
-    n = n.parent
-  }
-  return true
-}
-
-function effectiveVisible3d(node: Node3D): boolean {
-  let n: Node | null = node
-  while (n) {
-    if (!n.visible) return false
-    n = n.parent
-  }
-  return true
 }
 
 /**

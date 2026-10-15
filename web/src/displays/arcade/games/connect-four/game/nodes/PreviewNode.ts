@@ -1,4 +1,4 @@
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
 
 /**
  * A translucent disc hovering above a column while the player is choosing where
@@ -7,21 +7,21 @@ import { Node2D, type Gfx2D } from '@src/stargazer'
  */
 export class PreviewNode extends Node2D {
   readonly #radius: number
-  #color = '#ffffff'
+  declare color: string
 
   constructor(radius: number) {
     super('cf-preview')
+    definePaintProps(this, { color: '#ffffff' })
     this.#radius = radius
-    this.renderLayer = 'dynamic'
     this.visible = false
   }
 
   setColor(color: string): void {
-    this.#color = color
+    this.color = color
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.setAlpha(0.5)
-    gfx.fillCircle(0, 0, this.#radius, this.#color)
+    gfx.fillCircle(0, 0, this.#radius, this.color)
   }
 }

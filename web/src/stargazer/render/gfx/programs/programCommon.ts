@@ -25,9 +25,9 @@ import { CLIP_DEPTH_SHIFT, STENCIL_ROWS } from '../stencilRecipe'
 
 /**
  * Build {@link ShaderReflection} from name->number maps, mirroring the old
- * `ProgramOpts` shape: attribute name -> location, uniform-block name -> binding,
- * sampler name -> binding. WebGL2 uses these to wire the linked program, and
- * WebGPU ignores them.
+ * `ProgramOpts` shape: attribute name -> location, uniform-block name ->
+ * binding, sampler name -> binding. WebGL2 uses these to wire the linked
+ * program, and WebGPU ignores them.
  */
 export function reflection(spec: {
   attribs: Record<string, number>
@@ -250,11 +250,42 @@ export const UBO_RING_DECAY_FRAMES = 60
 /** The blend variants a 2D program needs (source-over fills, lighter additive). */
 export const BLEND_VARIANTS: GfxBlendMode[] = ['source-over', 'lighter']
 
+/** What {@link warmupBlendPipelines} builds a program's pipelines from. */
+export type BlendPipelineOptions = Parameters<typeof warmupBlendPipelines>[2]
+
+/**
+ * A program's pipelines, with a single-sample set beside the target's own. A
+ * lookup returns the set that matches the pass being drawn into, so a program
+ * picks its pipeline by key alone.
+ */
+export class SampledPipelines extends Map<string, Pipeline> {
+  /** The same keys, built for a single-sample pass. */
+  readonly single = new Map<string, Pipeline>()
+  readonly #ctx: GpuBatchContext
+
+  constructor(ctx: GpuBatchContext) {
+    super()
+    this.#ctx = ctx
+  }
+
+  override get(key: string): Pipeline | undefined {
+    const ctx = this.#ctx
+    if (ctx.passSamples === 1 && ctx.targetFormat.samples > 1) {
+      return this.single.get(key)
+    }
+    return super.get(key)
+  }
+}
+
 /**
  * Create a program's pipelines, one per blend variant, keyed by blend for
- * per-run selection. Color format + samples come from the batch context's
- * current target. All variants share vertex layout, bind-group layouts, and
+ * per-run selection. The color format comes from the batch context's current
+ * target. All variants share vertex layout, bind-group layouts, and
  * depth/cull/winding/primitive.
+ *
+ * With `samples` left out the pipelines match the target's sample count, and
+ * the set is recorded on `ctx`, so {@link GpuBatchContext.warmSingleSample} can
+ * add the single-sample set later.
  */
 export async function warmupBlendPipelines(
   device: GfxDevice,
@@ -278,8 +309,28 @@ export async function warmupBlendPipelines(
       colorWrite?: boolean
     }>
   },
-): Promise<Map<string, Pipeline>> {
-  const map = new Map<string, Pipeline>()
+  samples?: number,
+): Promise<SampledPipelines> {
+  const map = new SampledPipelines(ctx)
+  if (samples === undefined) ctx.pipelineSets.push({ options: opts, map })
+  await buildBlendPipelines(
+    device,
+    ctx,
+    opts,
+    samples ?? ctx.targetFormat.samples,
+    map,
+  )
+  return map
+}
+
+/** Fill `into` with a program's pipelines, built for `samples`. */
+export async function buildBlendPipelines(
+  device: GfxDevice,
+  ctx: GpuBatchContext,
+  opts: BlendPipelineOptions,
+  samples: number,
+  into: Map<string, Pipeline>,
+): Promise<void> {
   const target = ctx.targetFormat
   const variants = [
     { suffix: '', stencil: null as StencilState | null, colorWrite: true },
@@ -317,12 +368,11 @@ export async function warmupBlendPipelines(
         cull: opts.cull ?? 'none',
         frontFace: opts.frontFace ?? 'ccw',
         primitive: opts.primitive ?? 'triangle-list',
-        samples: target.samples,
+        samples,
       })
-      map.set(v.suffix ? `${blend}|${v.suffix}` : blend, pipeline)
+      into.set(v.suffix ? `${blend}|${v.suffix}` : blend, pipeline)
     }
   }
-  return map
 }
 
 /** One vertex-buffer layout slot for a unit-quad attribute at `location`. */
@@ -374,7 +424,10 @@ export function drawInstancedRun(
     pipeline,
     vertexBuffers: [
       { buffer: unitQuad, offset: 0 },
-      { buffer: stream.buffers[ctx.curSlot], offset: run.startWord * 4 },
+      {
+        buffer: run.instances?.buffer ?? stream.buffers[ctx.curSlot],
+        offset: run.startWord * 4,
+      },
     ],
     bindGroups,
     vertexCount: 6,

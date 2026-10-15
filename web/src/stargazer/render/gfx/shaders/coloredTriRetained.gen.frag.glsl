@@ -15,14 +15,16 @@ struct Clip {
     float r;
     float halfW;
     float halfH;
-    float rrRadius;
-    float clipPad;
+    float pad0_;
+    float pad1_;
+    vec4 radii;
 };
 struct ModelColor {
     mat3x3 model;
     vec4 color;
     vec4 paint;
     uvec4 flags;
+    vec4 paintOffset;
 };
 struct VOut {
     vec4 pos;
@@ -39,43 +41,70 @@ uniform highp sampler2D _group_1_binding_5_fs;
 
 layout(location = 0) out vec4 _fs2p_location0;
 
-vec2 devicePos(vec2 fragPos) {
-    float _e4 = _group_0_binding_0_fs.targetH;
-    float _e9 = _group_0_binding_0_fs.fragYFlip;
-    float fy = ((_e9 > 0.5) ? (_e4 - fragPos.y) : fragPos.y);
-    return vec2(fragPos.x, fy);
+vec3 circleDistance(vec2 point, float radius) {
+    float fromCenter = length(point);
+    vec2 direction = ((fromCenter > 1e-6) ? (point / vec2(fromCenter)) : vec2(1.0, 0.0));
+    return vec3((fromCenter - radius), direction);
 }
 
-float clipRoundBox(vec2 p, vec2 b, float rad) {
-    vec2 q = ((abs(p) - b) + vec2(rad));
-    return ((min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0)))) - rad);
+vec3 roundBoxDistance(vec2 point_1, vec2 halfSize, vec4 cornerRadii) {
+    vec2 column = ((point_1.x > 0.0) ? cornerRadii.yz : cornerRadii.xw);
+    float cornerRadius = ((point_1.y > 0.0) ? column.y : column.x);
+    vec2 fromInnerBox = ((abs(point_1) - halfSize) + vec2(cornerRadius));
+    vec2 beyondInnerBox = max(fromInnerBox, vec2(0.0));
+    float gapToInnerBox = length(beyondInnerBox);
+    bool outsideInnerBox = (max(fromInnerBox.x, fromInnerBox.y) > 0.0);
+    vec2 nearestSide = ((fromInnerBox.x > fromInnerBox.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+    vec2 foldedDirection = (outsideInnerBox ? (beyondInnerBox / vec2(max(gapToInnerBox, 1e-6))) : nearestSide);
+    float distance_1 = ((outsideInnerBox ? gapToInnerBox : max(fromInnerBox.x, fromInnerBox.y)) - cornerRadius);
+    vec2 quadrantSign = mix(vec2(-1.0), vec2(1.0), greaterThanEqual(point_1, vec2(0.0)));
+    return vec3(distance_1, (quadrantSign * foldedDirection));
 }
 
-float clipCoverage(vec2 fragPos_1) {
-    float d = 0.0;
+float distanceChangePerPixel(vec2 gradient, vec4 pixelStep) {
+    return (abs(dot(gradient, pixelStep.xy)) + abs(dot(gradient, pixelStep.zw)));
+}
+
+float coverage(float distance_, float changePerPixel) {
+    return clamp((0.5 - (distance_ / max(changePerPixel, 0.0001))), 0.0, 1.0);
+}
+
+float clipCoverage(vec2 fragPos) {
+    vec3 distanceAndGradient = vec3(0.0);
     float _e3 = _group_0_binding_8_fs.kind;
     if ((_e3 < 0.5)) {
         return 1.0;
     }
-    vec2 _e7 = devicePos(fragPos_1);
-    float _e10 = _group_0_binding_8_fs.cx;
-    float _e13 = _group_0_binding_8_fs.cy;
-    vec2 p_1 = (_e7 - vec2(_e10, _e13));
-    float _e19 = _group_0_binding_8_fs.kind;
-    if ((_e19 < 1.5)) {
-        float _e25 = _group_0_binding_8_fs.r;
-        d = (length(p_1) - _e25);
+    float _e10 = _group_0_binding_0_fs.targetH;
+    float _e15 = _group_0_binding_0_fs.fragYFlip;
+    float deviceY = ((_e15 > 0.5) ? (_e10 - fragPos.y) : fragPos.y);
+    float _e23 = _group_0_binding_8_fs.cx;
+    float _e26 = _group_0_binding_8_fs.cy;
+    vec2 point_2 = (vec2(fragPos.x, deviceY) - vec2(_e23, _e26));
+    float _e32 = _group_0_binding_8_fs.kind;
+    if ((_e32 < 1.5)) {
+        float _e37 = _group_0_binding_8_fs.r;
+        vec3 _e38 = circleDistance(point_2, _e37);
+        distanceAndGradient = _e38;
     } else {
-        float _e29 = _group_0_binding_8_fs.halfW;
-        float _e32 = _group_0_binding_8_fs.halfH;
-        float _e36 = _group_0_binding_8_fs.rrRadius;
-        float _e37 = clipRoundBox(p_1, vec2(_e29, _e32), _e36);
-        d = _e37;
+        float _e41 = _group_0_binding_8_fs.halfW;
+        float _e44 = _group_0_binding_8_fs.halfH;
+        vec4 _e48 = _group_0_binding_8_fs.radii;
+        vec3 _e49 = roundBoxDistance(point_2, vec2(_e41, _e44), _e48);
+        distanceAndGradient = _e49;
     }
-    float _e38 = d;
-    float _e39 = d;
-    float _e40 = fwidth(_e39);
-    return clamp((0.5 - (_e38 / max(_e40, 0.0001))), 0.0, 1.0);
+    vec3 _e50 = distanceAndGradient;
+    float _e57 = distanceChangePerPixel(_e50.yz, vec4(1.0, 0.0, 0.0, 1.0));
+    float _e59 = distanceAndGradient.x;
+    float _e60 = coverage(_e59, _e57);
+    return _e60;
+}
+
+vec2 devicePos(vec2 fragPos_1) {
+    float _e4 = _group_0_binding_0_fs.targetH;
+    float _e9 = _group_0_binding_0_fs.fragYFlip;
+    float fy = ((_e9 > 0.5) ? (_e4 - fragPos_1.y) : fragPos_1.y);
+    return vec2(fragPos_1.x, fy);
 }
 
 void main() {
@@ -102,21 +131,22 @@ void main() {
         vec2 _e52 = devicePos(in_.pos.xy);
         vec4 _e55 = _group_1_binding_3_fs.paint;
         vec4 _e60 = _group_1_binding_3_fs.paint;
-        vec2 uv = ((_e52 - _e55.xy) * _e60.zw);
+        vec4 _e66 = _group_1_binding_3_fs.paintOffset;
+        vec2 uv = (vec2(dot(_e52, _e55.xy), dot(_e52, _e60.zw)) + _e66.xy);
         if (all(greaterThanEqual(uv, vec2(0.0)))) {
             local = all(lessThanEqual(uv, vec2(1.0)));
         } else {
             local = false;
         }
         bool uvInside = local;
-        vec4 _e77 = texture(_group_1_binding_5_fs, vec2(uv));
-        float maskR = (uvInside ? _e77.x : 0.0);
-        vec4 _e81 = c;
-        c = (_e81 * (1.0 - maskR));
+        vec4 _e83 = texture(_group_1_binding_5_fs, vec2(uv));
+        float maskR = (uvInside ? _e83.x : 0.0);
+        vec4 _e87 = c;
+        c = (_e87 * (1.0 - maskR));
     }
-    vec4 _e85 = c;
-    float _e88 = clipCoverage(in_.pos.xy);
-    _fs2p_location0 = (_e85 * _e88);
+    vec4 _e91 = c;
+    float _e94 = clipCoverage(in_.pos.xy);
+    _fs2p_location0 = (_e91 * _e94);
     return;
 }
 

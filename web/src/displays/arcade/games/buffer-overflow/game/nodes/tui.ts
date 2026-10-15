@@ -14,14 +14,14 @@
  *
  * Rules are an integer number of device pixels. A hairline that scales with the
  * board stops being a hairline, and one that lands on a fractional device pixel
- * blurs, so widths arrive in CSS pixels and go through `snapSize`.
+ * blurs, so widths arrive in CSS pixels and go through `snap`.
  *
  * Nothing overlaps. `COLORS.rule` is translucent, and two translucent strokes
  * crossing double-blend into a visibly darker notch, so a frame's horizontals
  * span the full width and its verticals stop short of them rather than meeting
  * corner to corner.
  */
-import { clamp, textAdvance, textMetrics, type Gfx2D } from '@src/stargazer'
+import { clamp, textAdvance, textMetrics, type Canvas } from '@src/stargazer'
 import { ANIM, FRAME } from '../tuning'
 import type { Bounds } from '../types'
 
@@ -47,11 +47,12 @@ export interface FrameStyle {
 /**
  * A rule width in world units, rounded to a whole device pixel and never below
  * one.
- *
- * `scale` is `camera.strokeSpaceScale()`, the world units in one CSS pixel.
  */
-export function ruleWidth(gfx: Gfx2D, cssPx: number, scale: number): number {
-  return gfx.snapSize(cssPx * scale)
+export function ruleWidth(
+  gfx: Pick<Canvas, 'snap' | 'screenScale'>,
+  cssPx: number,
+): number {
+  return gfx.snap(cssPx * gfx.screenScale())
 }
 
 /** The baseline that centres `font`'s capitals on `centreY`. */
@@ -72,7 +73,7 @@ export function capBaseline(centreY: number, font: string): number {
  *   glyph's stroke weight is whatever the font says and these rules are exactly
  *   one device pixel, so the two would never line up.
  */
-export function drawFrame(gfx: Gfx2D, r: Bounds, s: FrameStyle): void {
+export function drawFrame(gfx: Canvas, r: Bounds, s: FrameStyle): void {
   if (r.width <= 0 || r.height <= 0) return
   if (s.fill) gfx.fillRoundRect(r.x, r.y, r.width, r.height, 0, s.fill)
 
@@ -153,6 +154,13 @@ function titleSpans(r: Bounds, s: FrameStyle): TitleSpan[] {
   return out
 }
 
+/** Whether two rects cover the same area. */
+export function sameBounds(a: Bounds, b: Bounds): boolean {
+  return (
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  )
+}
+
 /** The rect inside a frame, inset by its rule and by `pad`. */
 export function frameBody(r: Bounds, rule: number, pad: number): Bounds {
   const inset = rule + pad
@@ -171,7 +179,7 @@ export function frameBody(r: Bounds, rule: number, pad: number): Bounds {
  * for the same non-overlap reason the frame's own verticals do.
  */
 export function drawDivider(
-  gfx: Gfx2D,
+  gfx: Canvas,
   r: Bounds,
   y: number,
   color: string,
@@ -211,7 +219,7 @@ export function meterCells(value: number, max: number, cells: number): number {
 }
 
 /** An `htop` meter: a bracket pair around a run of block cells. */
-export function drawMeter(gfx: Gfx2D, r: Bounds, o: MeterOptions): void {
+export function drawMeter(gfx: Canvas, r: Bounds, o: MeterOptions): void {
   if (r.width <= 0 || r.height <= 0 || o.cells <= 0) return
   let x = r.x
   let w = r.width
@@ -236,7 +244,7 @@ export function drawMeter(gfx: Gfx2D, r: Bounds, o: MeterOptions): void {
 
 /** One square bracket: an upright with a serif top and bottom. */
 function drawBracket(
-  gfx: Gfx2D,
+  gfx: Canvas,
   x: number,
   y: number,
   arm: number,
@@ -263,7 +271,7 @@ export interface InverseOptions {
 
 /** Inverse video: a solid bar with the text knocked out of it. */
 export function drawInverse(
-  gfx: Gfx2D,
+  gfx: Canvas,
   r: Bounds,
   text: string,
   o: InverseOptions,
@@ -310,7 +318,7 @@ export interface CapOptions {
  * idiom, and at arm's length a solid block appearing is a far faster read than
  * a face travelling two pixels.
  */
-export function drawCap(gfx: Gfx2D, r: Bounds, o: CapOptions): string {
+export function drawCap(gfx: Canvas, r: Bounds, o: CapOptions): string {
   if (r.width <= 0 || r.height <= 0) return o.ink
   if (o.pressed) {
     gfx.fillRoundRect(r.x, r.y, r.width, r.height, 0, o.rule)
@@ -380,7 +388,7 @@ export function runLayout(
  * monospace: each glyph is centred in its own cell, so the digits sit on a grid
  * rather than on an advance chain.
  */
-export function drawRun(gfx: Gfx2D, text: string, o: RunOptions): void {
+export function drawRun(gfx: Canvas, text: string, o: RunOptions): void {
   const start = o.x + runLayout(text.length, o.advance, o.align)
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
@@ -417,7 +425,7 @@ export interface GlowPass {
  *   around it and where something is genuinely asking to be looked at.
  */
 export function withGlow(
-  gfx: Gfx2D,
+  gfx: Canvas,
   rule: number,
   body: (pass: GlowPass) => void,
 ): void {

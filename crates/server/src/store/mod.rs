@@ -15,8 +15,8 @@
 use crate::events::EventHub;
 use crate::log::LogHub;
 use crate::types::{
-    now_ms, DisplayHighScores, GameRecord, LeaderboardEntry, NewGame, NewLeaderboardEntry,
-    ServerEvent, DISPLAY_ARCADE, DISPLAY_ENTERPRISE,
+    now_ms, DisplayHighScores, GameDetails, GameRecord, LabelVariant, LeaderboardEntry, NewGame,
+    NewLeaderboardEntry, ServerEvent, DISPLAY_ARCADE, DISPLAY_ENTERPRISE,
 };
 use serde_json::Value as JsonValue;
 use std::fs::{self, File};
@@ -132,6 +132,32 @@ impl GameLogController {
         self.events
             .publish(ServerEvent::GameCreated(record.clone()));
         Ok(record)
+    }
+
+    /// Save the label the player printed on an Enterprise record. Returns the
+    /// updated record, [`SetLabel::NotFound`] for an unknown id, and
+    /// [`SetLabel::NotEnterprise`] for another display's record.
+    pub fn set_label(
+        &self,
+        id: Uuid,
+        variant: LabelVariant,
+        name: Option<String>,
+    ) -> io::Result<SetLabel> {
+        let mut guard = self.inner.lock().unwrap();
+        let Some(record) = guard.iter_mut().find(|g| g.id == id) else {
+            return Ok(SetLabel::NotFound);
+        };
+        let GameDetails::Enterprise(details) = &mut record.details else {
+            return Ok(SetLabel::NotEnterprise);
+        };
+        details.label_variant = Some(variant);
+        details.label_name = name;
+        let updated = record.clone();
+        atomic_write_json(&self.path, &*guard)?;
+        drop(guard);
+        self.events
+            .publish(ServerEvent::GameUpdated(updated.clone()));
+        Ok(SetLabel::Updated(updated))
     }
 
     /// Remove a record by id. Returns `true` if something was removed.
@@ -420,6 +446,14 @@ fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> io::Result<
 // Tests
 // ---------------------------------------------------------------------------
 
+/// The outcome of [`GameLogController::set_label`].
+#[derive(Debug)]
+pub enum SetLabel {
+    Updated(GameRecord),
+    NotFound,
+    NotEnterprise,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -582,6 +616,58 @@ mod tests {
 
         let reopened = GameLogController::load(dir.path(), &log, events);
         assert!(reopened.snapshot().is_empty());
+    }
+
+    #[test]
+    fn game_log_set_label_survives_reload_and_publishes() {
+        let dir = TempDir::new().unwrap();
+        let (log, events) = hub();
+        let store = GameLogController::load(dir.path(), &log, events.clone());
+        let rec = store
+            .push(enterprise_new("berlin", GameEndReason::Collision, 42, 1000))
+            .unwrap();
+        let mut rx = events.subscribe();
+        let SetLabel::Updated(updated) = store
+            .set_label(rec.id, LabelVariant::Orange, Some("Juliana".into()))
+            .unwrap()
+        else {
+            panic!("expected the record to update")
+        };
+        let ServerEvent::GameUpdated(sent) = rx.try_recv().unwrap() else {
+            panic!("expected game.updated")
+        };
+        assert_eq!(sent.id, rec.id);
+
+        let reopened = GameLogController::load(dir.path(), &log, events);
+        let GameDetails::Enterprise(d) = &reopened.snapshot()[0].details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(d.label_variant, Some(LabelVariant::Orange));
+        assert_eq!(d.label_name.as_deref(), Some("Juliana"));
+        let GameDetails::Enterprise(u) = &updated.details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(u.label_variant, Some(LabelVariant::Orange));
+    }
+
+    #[test]
+    fn game_log_set_label_refuses_unknown_and_arcade_records() {
+        let dir = TempDir::new().unwrap();
+        let (log, events) = hub();
+        let store = GameLogController::load(dir.path(), &log, events);
+        assert!(matches!(
+            store
+                .set_label(Uuid::new_v4(), LabelVariant::Pink, None)
+                .unwrap(),
+            SetLabel::NotFound
+        ));
+        let arcade = store.push(arcade_new("orbo", 3)).unwrap();
+        assert!(matches!(
+            store
+                .set_label(arcade.id, LabelVariant::Pink, None)
+                .unwrap(),
+            SetLabel::NotEnterprise
+        ));
     }
 
     #[test]

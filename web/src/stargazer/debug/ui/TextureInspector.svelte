@@ -6,8 +6,11 @@
     TextureSource,
   } from '../../render/gfx/TextureManager'
   import DebugSection from './DebugSection.svelte'
-  import DebugRow from './DebugRow.svelte'
-  import ProgressBar from './ProgressBar.svelte'
+  import Gauge from './Gauge.svelte'
+  import MetricRow from './MetricRow.svelte'
+  import { THRESHOLDS, toneFor, type MetricId } from '../thresholds'
+  import { thresholdTip } from '../tips'
+  import { fmtPct } from '../panels/format'
   import DebugSelect, { type DebugSelectOption } from './DebugSelect.svelte'
 
   interface Props {
@@ -33,8 +36,8 @@
   let selectedLabel = $state<string | null>(null)
   let lastPoll = 0
 
-  // Each render target (the screen, plus every Viewport2DNode) keeps its own
-  // texture caches, and the active stage lists them via `textureSources`. The
+  // The screen and the loaded 3D models keep their own texture caches, and the
+  // active stage lists them via `textureSources`. The
   // dropdown picks which one to inspect. `'screen'` is always present.
   let sources = $state<TextureSource[]>([])
   let selectedSourceId = $state<string>('screen')
@@ -81,8 +84,12 @@
       : null,
   )
 
-  function pct(used: number, cap: number): number {
-    return cap > 0 ? (used / cap) * 100 : 0
+  function ratio(used: number, cap: number): number {
+    return cap > 0 ? used / cap : 0
+  }
+
+  function toneOf(id: MetricId, value: number) {
+    return toneFor(THRESHOLDS[id], value)
   }
 
   // A 3D-model source is a plain image list with no atlas and no label cache.
@@ -148,56 +155,117 @@
   {#if snap}
     {#if !imageOnly}
       <DebugSection title="Summary" open={true}>
-        <DebugRow
-          label="Atlas tiles"
-          value={`${snap.atlas.used} / ${snap.atlas.capacity}`}
-          tone={snap.atlas.full ? 'warning' : 'default'}
+        <div class="gauges">
+          <Gauge
+            label="Atlas tiles"
+            reading="{snap.atlas.used} / {snap.atlas.capacity}"
+            value={ratio(snap.atlas.used, snap.atlas.capacity)}
+            max={1}
+            good={THRESHOLDS.atlasPressure.good}
+            warn={THRESHOLDS.atlasPressure.warn}
+            tone={snap.atlas.full
+              ? 'bad'
+              : toneOf(
+                  'atlasPressure',
+                  ratio(snap.atlas.used, snap.atlas.capacity),
+                )}
+            tip={thresholdTip(
+              'atlasPressure',
+              ratio(snap.atlas.used, snap.atlas.capacity),
+              fmtPct,
+            )}
+          />
+          <Gauge
+            label="Labels"
+            reading="{snap.labelCount} / {snap.labelCap}"
+            value={ratio(snap.labelCount, snap.labelCap)}
+            max={1}
+            good={THRESHOLDS.labelPressure.good}
+            warn={THRESHOLDS.labelPressure.warn}
+            tone={toneOf(
+              'labelPressure',
+              ratio(snap.labelCount, snap.labelCap),
+            )}
+            tip={thresholdTip(
+              'labelPressure',
+              ratio(snap.labelCount, snap.labelCap),
+              fmtPct,
+            )}
+          />
+          <Gauge
+            label="Label page rows"
+            reading="{snap.labelPage.usedHeight} / {snap.labelPage.size}"
+            value={ratio(snap.labelPage.usedHeight, snap.labelPage.size)}
+            max={1}
+            good={THRESHOLDS.labelPageRows.good}
+            warn={THRESHOLDS.labelPageRows.warn}
+            tone={toneOf(
+              'labelPageRows',
+              ratio(snap.labelPage.usedHeight, snap.labelPage.size),
+            )}
+            tip={thresholdTip(
+              'labelPageRows',
+              ratio(snap.labelPage.usedHeight, snap.labelPage.size),
+              fmtPct,
+            )}
+          />
+          <Gauge
+            label="Gradient ramp rows"
+            reading="{snap.rampAtlas.used} / {snap.rampAtlas.rows}"
+            value={ratio(snap.rampAtlas.used, snap.rampAtlas.rows)}
+            max={1}
+            good={THRESHOLDS.rampPressure.good}
+            warn={THRESHOLDS.rampPressure.warn}
+            tone={toneOf(
+              'rampPressure',
+              ratio(snap.rampAtlas.used, snap.rampAtlas.rows),
+            )}
+            tip={thresholdTip(
+              'rampPressure',
+              ratio(snap.rampAtlas.used, snap.rampAtlas.rows),
+              fmtPct,
+            )}
+          />
+        </div>
+        <MetricRow
+          label="Images in the label page"
+          value={snap.labelImages}
+          tip="Small images drawn through the label page, so they batch with text instead of binding a texture each."
         />
-        <ProgressBar percentage={pct(snap.atlas.used, snap.atlas.capacity)} />
-        <DebugRow
-          label="Labels"
-          value={`${snap.labelCount} / ${snap.labelCap}`}
-        />
-        <ProgressBar percentage={pct(snap.labelCount, snap.labelCap)} />
-        <DebugRow
+        <MetricRow
           label="Label regens / frame"
           value={`${snap.labelRegensThisFrame} / ${snap.labelMaxRegensPerFrame}`}
           tone={snap.labelRegensThisFrame >= snap.labelMaxRegensPerFrame
-            ? 'warning'
-            : 'default'}
+            ? 'warn'
+            : 'neutral'}
+          tip="Labels and images drawn again this frame against the per-frame budget. At the budget, the rest keep their previous raster until the next frame."
         />
-        <DebugRow
-          label="Label page rows"
-          value={`${snap.labelPage.usedHeight} / ${snap.labelPage.size}`}
-          tone={snap.labelPage.usedHeight >= snap.labelPage.size * 0.9
-            ? 'warning'
-            : 'default'}
-        />
-        <ProgressBar
-          percentage={pct(snap.labelPage.usedHeight, snap.labelPage.size)}
-        />
-        <DebugRow
+        <MetricRow
           label="Label shelves / free spans"
           value={`${snap.labelPage.shelfCount} / ${snap.labelPage.freeSpanCount}`}
+          tip="Rows the page is divided into, and gaps between entries that new ones can take. Many free spans mean the page is fragmented."
         />
-        <DebugRow label="Label evictions" value={snap.labelEvictions} />
-        <DebugRow
+        <MetricRow
+          label="Label evictions"
+          value={snap.labelEvictions}
+          tip="Entries dropped to make room. They are drawn again if used."
+        />
+        <MetricRow
           label="Label page wipes"
           value={snap.labelPageWipes}
-          tone={snap.labelPageWipes > 0 ? 'warning' : 'default'}
+          tone={snap.labelPageWipes > 0 ? 'bad' : 'neutral'}
+          tip={thresholdTip('labelPageResets', snap.labelPageWipes)}
         />
-        <DebugRow
+        <MetricRow
           label="Labels clamped for size"
           value={snap.labelScaleClamps}
-          tone={snap.labelScaleClamps > 0 ? 'warning' : 'default'}
+          tone={snap.labelScaleClamps > 0 ? 'warn' : 'neutral'}
+          tip="Labels too large for the page that were drawn smaller and scaled up, so they look soft."
         />
-        <DebugRow label="Per-source images" value={snap.perSource.length} />
-        <DebugRow
-          label="Gradient ramp rows"
-          value={`${snap.rampAtlas.used} / ${snap.rampAtlas.rows}`}
-        />
-        <ProgressBar
-          percentage={pct(snap.rampAtlas.used, snap.rampAtlas.rows)}
+        <MetricRow
+          label="Per-source images"
+          value={snap.perSource.length}
+          tip="Images with a texture of their own, each costing a draw call when it is used."
         />
       </DebugSection>
 
@@ -331,6 +399,12 @@
 {/if}
 
 <style lang="sass">
+  .gauges
+    display: flex
+    flex-direction: column
+    gap: 3px
+    padding: 0 2px
+
   .hint
     margin: 2px 0
     font-size: 10px

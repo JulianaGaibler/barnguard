@@ -20,6 +20,7 @@ import type { StrokeAlign } from './strokeOutline'
 import type { ShaderQuad } from './ShaderQuad'
 import type { GfxPath } from './GfxPath'
 import type { FillRule } from './stencilRecipe'
+import type { PostEffect } from '../postfx/PostEffect'
 
 /**
  * Compositing mode. Maps to `ctx.globalCompositeOperation`. The GPU backend
@@ -29,8 +30,8 @@ export type GfxBlend = GlobalCompositeOperation
 
 /**
  * An analytic clip region for {@link Gfx2D.setClip}, in the current transform's
- * local coords. A circle is rotation-safe, a rounded-rect assumes an
- * axis-aligned transform (rotation/skew is unsupported and warns in dev).
+ * local coords. A rounded rect's corners are `radii`, in the CSS shorthand of
+ * {@link Gfx2D.fillRoundRect}, or one `radius` for all four.
  */
 export type GfxClipShape =
   | { kind: 'circle'; cx: number; cy: number; r: number }
@@ -40,7 +41,8 @@ export type GfxClipShape =
       y: number
       w: number
       h: number
-      radius: number
+      radius?: number
+      radii?: RoundRectRadii
     }
 
 /** How a matte surface scales the content it is composited with. */
@@ -49,6 +51,61 @@ export type GfxMatteMode = 'alpha' | 'inverted-alpha' | 'luma' | 'inverted-luma'
 /** A finished offscreen surface, valid until the end of the frame. */
 export interface GfxOffscreenHandle {
   readonly __gfxOffscreen: unique symbol
+}
+
+/**
+ * What a layer hands the renderer to decide whether its last processed render
+ * still stands.
+ *
+ * @remarks
+ *   Engine developers: the caller builds `signature` each frame, a list of every
+ *   value the subtree's output depends on. The renderer keeps the last render
+ *   and the signature it was made from. When the next frame's signature is
+ *   equal, the region is the same, and the effects write the same parameters,
+ *   it composites the kept render and sets `hit`, and the caller skips drawing
+ *   the subtree.
+ */
+export interface GfxSurfaceCache {
+  /** The values describing what the subtree would draw. */
+  signature: Float64Array
+  /** How many values of `signature` are in use. */
+  length: number
+  /** Set to drop the kept render, which the renderer clears after using it. */
+  invalidated: boolean
+  /**
+   * Output. True when the kept render stands and was composited, so the subtree
+   * must not be drawn.
+   */
+  hit: boolean
+}
+
+/**
+ * Post-processing effects to run over an offscreen surface before it is
+ * composited, and where to report whether they ran.
+ *
+ * @remarks
+ *   Engine developers: `owner` keys the state that has to outlive a frame (the
+ *   effects' params buffers and accumulated time), so pass the same object
+ *   every frame. `effects` is read each frame, so the list and the effects can
+ *   change freely. The renderer sets `applied` when it opens the surface.
+ */
+export interface GfxSurfaceEffects {
+  /** What the per-owner state is kept under. */
+  readonly owner: object
+  /**
+   * Keep the processed result between frames, and draw it again without drawing
+   * the subtree while it still stands.
+   */
+  cache?: GfxSurfaceCache
+  /** The effects to run, in order. Disabled ones are skipped. */
+  effects: readonly PostEffect[]
+  /** Seconds since the last frame, for effects that animate. */
+  dt: number
+  /**
+   * Output. True when the surface will have the effects applied, false while a
+   * pass is still compiling and the surface composites unprocessed.
+   */
+  applied: boolean
 }
 
 /** Options for {@link Gfx2D.beginOffscreen}. */
@@ -71,6 +128,18 @@ export interface GfxOffscreenOptions {
   matteMode?: GfxMatteMode
   /** Keep the surface instead of compositing it. */
   retain?: boolean
+  /**
+   * Run these effects over the surface before it composites. The surface is
+   * allocated at exactly the captured size, so the effects measure the region
+   * itself, and the effects run in a pass of their own before the main pass.
+   * Ignored with `retain`.
+   */
+  effects?: GfxSurfaceEffects
+  /**
+   * The color the surface is cleared to, as CSS. Default transparent. A surface
+   * with effects sees this color too, so it takes part in a blur.
+   */
+  clearColor?: string
 }
 
 /** A single radial/linear gradient stop. `offset` in `[0, 1]`. */
@@ -293,13 +362,37 @@ export interface GfxShadowStyle {
  * `setBaseTransform` before calling `draw`, and nodes may push nested local
  * transforms with `save`/`translate`/`rotate`/`scale`/`restore`.
  */
+/** Options for {@link Gfx2D.drawImage}. */
+export interface GfxImageOptions {
+  /** Filter when scaling. Defaults to `true`. */
+  smoothing?: boolean
+}
+
 export interface Gfx2D {
   // --- transform + state ---------------------------------------------------
 
   /**
+   * Name the recorded call about to be replayed, or `null` once it is done. The
+   * token stays the same object while the recording is unchanged, so the
+   * renderer can keep what it builds for the call between frames.
+   *
+   * @internal
+   */
+  replaySource?(token: object | null): void
+
+  /**
+   * Vertex and instance bytes streamed to the GPU so far this frame.
+   *
+   * @internal
+   */
+  streamedBytes?(): number
+
+  /**
    * Install the absolute base transform for the node about to draw (the
    * 6-element 2D affine `a,b,c,d,e,f`). Replaces the current transform, like
-   * `ctx.setTransform`. Called by the Stage once per node.
+   * `ctx.setTransform`. Called by the Stage once per node. Inside an offscreen
+   * surface the matrix is still in target pixels, and the surface's origin is
+   * taken off.
    */
   setBaseTransform(
     a: number,
@@ -338,6 +431,12 @@ export interface Gfx2D {
 
   /** Set the absolute draw alpha in `[0, 1]` (like `ctx.globalAlpha`). */
   setAlpha(alpha: number): void
+  /**
+   * The draw alpha in effect now. The compose walk sets it to the node's own
+   * alpha times its ancestors' before each `draw`, so a draw that sets an
+   * opacity of its own multiplies this in instead of replacing it.
+   */
+  getAlpha(): number
   /**
    * Set the compositing mode for subsequent draws. `'source-over'` and
    * `'lighter'` (additive) are supported. Any other value draws as
@@ -424,10 +523,16 @@ export interface Gfx2D {
    * proportionally, matching `CanvasRenderingContext2D.roundRect`. `fill` is a
    * CSS color or a gradient paint.
    *
+   * `smoothing` is Figma's corner smoothing, from 0 for circular corners (the
+   * default) to 1. {@link IOS_CORNER_SMOOTHING} matches the iOS app icon shape.
+   * With smoothing, radii that don't fit are fitted the way Figma does (see
+   * {@link fitSquircleCorners}) instead of by the CSS rule.
+   *
    * @example
    *   gfx.fillRoundRect(0, 0, 480, 320, 24, '#1c1c22') // uniform corners
    *   gfx.fillRoundRect(0, 0, 200, 40, 20, '#8f74e7') // radius ≥ h/2 -> capsule
    *   gfx.fillRoundRect(0, 0, w, h, [0, 32, 0, 0], fill) // only top-right rounded
+   *   gfx.fillRoundRect(0, 0, 120, 120, 27, '#fff', 0.6) // an iOS icon shape
    */
   fillRoundRect(
     x: number,
@@ -436,12 +541,13 @@ export interface Gfx2D {
     h: number,
     radii: RoundRectRadii,
     fill: GfxFill,
+    smoothing?: number,
   ): void
 
   /**
    * Stroked axis-aligned rounded rectangle. The stroke straddles the edge (half
-   * inside, half out), like `CanvasRenderingContext2D.stroke`. `radii` follows
-   * the same shorthand as {@link Gfx2D.fillRoundRect}.
+   * inside, half out), like `CanvasRenderingContext2D.stroke`. `radii` and
+   * `smoothing` are as for {@link Gfx2D.fillRoundRect}.
    */
   strokeRoundRect(
     x: number,
@@ -450,6 +556,7 @@ export interface Gfx2D {
     h: number,
     radii: RoundRectRadii,
     style: GfxStrokeStyle,
+    smoothing?: number,
   ): void
   /**
    * `fillRoundRect` + `strokeRoundRect` in one call: both paint into the same
@@ -466,6 +573,7 @@ export interface Gfx2D {
     radii: RoundRectRadii,
     fill: GfxFill,
     style: GfxStrokeStyle,
+    smoothing?: number,
   ): void
   /** Filled circle. `fill` is a CSS color or a gradient paint. */
   fillCircle(cx: number, cy: number, r: number, fill: GfxFill): void
@@ -477,6 +585,44 @@ export interface Gfx2D {
     cx: number,
     cy: number,
     r: number,
+    fill: GfxFill,
+    style: GfxStrokeStyle,
+  ): void
+  /**
+   * Filled axis-aligned ellipse centered on `cx`, `cy` with radii `rx`, `ry`.
+   * `fill` is a CSS color or a gradient paint. A rotated ellipse is drawn under
+   * a rotated transform.
+   *
+   * @example
+   *   gfx.fillEllipse(100, 60, 80, 40, '#8f74e7')
+   */
+  fillEllipse(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    fill: GfxFill,
+  ): void
+  /**
+   * Stroked ellipse. `style.align` places the stroke inside, centered on, or
+   * outside the outline, as for {@link Gfx2D.strokeRoundRect}.
+   */
+  strokeEllipse(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
+    style: GfxStrokeStyle,
+  ): void
+  /**
+   * `fillEllipse` + `strokeEllipse` in one call. See
+   * {@link Gfx2D.fillAndStrokeRoundRect}.
+   */
+  fillAndStrokeEllipse(
+    cx: number,
+    cy: number,
+    rx: number,
+    ry: number,
     fill: GfxFill,
     style: GfxStrokeStyle,
   ): void
@@ -516,14 +662,13 @@ export interface Gfx2D {
    * the caller should skip the content or draw it directly.
    *
    * @remarks
-   *   Surfaces are only available in frames where something has declared it needs
-   *   them (see `addOffscreenDemand`), because the main pass has to keep its
-   *   samples. The surface has the main target's format and starts from a clean
-   *   state: alpha 1, normal blend, no clip. Clips set inside do not leak out.
+   *   The surface has the main target's format and starts from a clean state:
+   *   alpha 1, normal blend, no clip. Clips set inside do not leak out.
    *
-   *   Engine developers: surfaces are pooled and claimed for one frame.
-   *   Composites replay in painter order, and the passes of nested surfaces run
-   *   before the surface that contains them is sampled.
+   *   Engine developers: surfaces are pooled and claimed for one frame. Every
+   *   surface renders in a pass of its own before the main pass, nested
+   *   surfaces before the surface that contains them, and composites replay in
+   *   painter order.
    */
   beginOffscreen(opts?: GfxOffscreenOptions): boolean
   /**
@@ -532,6 +677,12 @@ export interface Gfx2D {
    * handle without compositing. A handle works until the end of the frame.
    */
   endOffscreen(): GfxOffscreenHandle | null
+  /**
+   * Compile the pipelines `fx` needs ahead of time, so the first frame that
+   * uses them is not composited unprocessed. Call it while a stall is masked.
+   * Idempotent, an already compiled pass is skipped.
+   */
+  warmEffects(fx: GfxSurfaceEffects): void
   /**
    * Composite a retained surface into the current target, with an opacity, a
    * blend, and optionally a matte captured over the same bounds.
@@ -642,8 +793,15 @@ export interface Gfx2D {
 
   /**
    * A drop shadow for a rounded rect's border box, drawn analytically (no
-   * render target). `radii` follows the same shorthand as
+   * render target). `radii` and `smoothing` are as for
    * {@link Gfx2D.fillRoundRect}.
+   *
+   * The shadow's corners are circular. A smoothed corner's shadow uses the
+   * circular radius that cuts the same area off the corner. That stays within
+   * about 2/255 of a blurred smooth corner once the blur is at least 0.2 of the
+   * radius at smoothing 0.3, 0.6 of it at the iOS smoothing, and the whole
+   * radius at full smoothing. Below that, the shadow's corners read rounder
+   * than the shape.
    */
   shadowRoundRect(
     x: number,
@@ -652,6 +810,7 @@ export interface Gfx2D {
     h: number,
     radii: RoundRectRadii,
     style: GfxShadowStyle,
+    smoothing?: number,
   ): void
   /** A drop shadow for a circle, drawn analytically (no render target). */
   shadowCircle(cx: number, cy: number, r: number, style: GfxShadowStyle): void
@@ -712,13 +871,19 @@ export interface Gfx2D {
 
   // --- images --------------------------------------------------------------
 
-  /** Draw an image (particle sprite / baked bitmap) at `dst` rect. */
+  /**
+   * Draw an image (particle sprite / baked bitmap) at `dst` rect. A small image
+   * is scaled to its on-screen size once and shares a texture with text, so it
+   * costs no extra draw. Pass `{ smoothing: false }` for pixel art, which then
+   * scales with nearest filtering.
+   */
   drawImage(
     img: CanvasImageSource,
     dx: number,
     dy: number,
     dw: number,
     dh: number,
+    opts?: GfxImageOptions,
   ): void
 
   // --- text ----------------------------------------------------------------

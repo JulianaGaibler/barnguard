@@ -9,12 +9,13 @@
 <script lang="ts">
   import { cubicOut } from 'svelte/easing'
   import OnScreenKeyboard from './OnScreenKeyboard.svelte'
+  import type { KeyboardMode } from './keyboard/layout'
+  import { displayName } from '@src/core/leaderboard/displayName'
 
   interface Props {
     value: string
     maxLength: number
     placeholder?: string
-    closeLabel?: string
     onSubmit?: () => void
     /**
      * Externally controllable, so a caller can open the sheet from its own
@@ -37,8 +38,7 @@
      */
     showTrigger?: boolean
     /** Passed to the keyboard, see `OnScreenKeyboard`. */
-    extraKeys?: string
-    spaceLabel?: string
+    mode?: KeyboardMode
     suggestions?: readonly string[]
     onSuggestion?: (word: string) => void
   }
@@ -46,14 +46,12 @@
     value = $bindable(),
     maxLength,
     placeholder = '',
-    closeLabel = 'Close keyboard',
     onSubmit,
     open = $bindable(false),
     onOpenChange,
     caption,
     showTrigger = true,
-    extraKeys,
-    spaceLabel,
+    mode,
     suggestions,
     onSuggestion,
   }: Props = $props()
@@ -91,7 +89,7 @@
     onclick={() => setOpen(true)}
   >
     <span class="kbfield__value"
-      >{value ? value.toUpperCase() : placeholder}</span
+      >{value ? displayName(value) : placeholder}</span
     >
   </button>
 {/if}
@@ -104,9 +102,7 @@
       onSubmit={submit}
       onClose={() => setOpen(false)}
       {caption}
-      {closeLabel}
-      {extraKeys}
-      {spaceLabel}
+      {mode}
       {suggestions}
       {onSuggestion}
     />

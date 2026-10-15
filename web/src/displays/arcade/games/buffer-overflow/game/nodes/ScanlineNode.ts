@@ -28,10 +28,10 @@
  * batch that holds the rest of the screen together, and two comparisons do the
  * same job.
  */
-import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from '@src/stargazer'
 import { COLORS } from '../tuning'
 import type { Bounds } from '../types'
-import { ruleWidth } from './tui'
+import { ruleWidth, sameBounds } from './tui'
 
 const ZERO: Bounds = { x: 0, y: 0, width: 0, height: 0 }
 
@@ -54,26 +54,26 @@ export class ScanlineNode extends Node2D {
   constructor() {
     super('bo-scanlines')
     // Added last, so it lies over everything the canvas draws.
-    this.renderLayer = 'dynamic'
   }
 
   /** The game's own region. Nothing is drawn outside it. */
   setRegion(region: Bounds): void {
-    this.#region = region
+    if (sameBounds(region, this.#region)) return
+    this.#region = { ...region }
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const view = camera.visibleWorldRect()
+  override paint(gfx: Canvas): void {
+    const view = gfx.visibleWorldRect()
     if (view.height <= 0) return
-    const scale = camera.strokeSpaceScale()
 
     // Whole device pixels, so every bar is the same and the period never
     // drifts. Apparent size stays a constant one row in three at any ratio.
-    const thick = ruleWidth(gfx, THICK_CSS_PX, scale)
+    const thick = ruleWidth(gfx, THICK_CSS_PX)
     // Twice the thickness is the floor rather than a comfortable gap, because
     // it is the point at which the bars would merge into a solid fill. It only
     // binds if a ratio ever snaps the period down onto the thickness.
-    const period = Math.max(thick * 2, ruleWidth(gfx, PERIOD_CSS_PX, scale))
+    const period = Math.max(thick * 2, ruleWidth(gfx, PERIOD_CSS_PX))
 
     const r = this.#region
     const left = Math.max(view.x, r.x)

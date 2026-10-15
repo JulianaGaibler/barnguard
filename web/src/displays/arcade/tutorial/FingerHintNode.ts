@@ -1,4 +1,4 @@
-import { Node2D, parseSvgPaths, type Gfx2D } from '@src/stargazer'
+import { Node2D, parseSvgPaths, type Canvas } from '@src/stargazer'
 import handSvgRaw from './hand.svg?raw'
 
 /**
@@ -32,12 +32,11 @@ const HAND_PATHS = Array.from(
 export class FingerHintNode extends Node2D {
   constructor() {
     super('finger-hint')
-    this.renderLayer = 'dynamic'
     this.visible = false
     this.transform.alpha = 0
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     if (HAND_PATHS.length < 2) return
     gfx.save()
     gfx.scale(HAND_SCALE, HAND_SCALE)

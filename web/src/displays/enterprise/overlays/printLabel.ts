@@ -8,6 +8,7 @@ import { squarePxFrom } from '@src/core/print/canvas'
 import { enqueuePrint, printerLive } from '@src/core/print/printerClient'
 import { t } from '@src/displays/enterprise/i18n'
 import { renderLabel, type LabelInput } from '@src/displays/enterprise/label'
+import { whenEngine } from '@src/displays/enterprise/engineHandle'
 
 /** Whether the printer daemon and the printer behind it can take a job. */
 export function printerReady(): boolean {
@@ -23,6 +24,7 @@ export async function printLabel(
     // mismatch.
     const tapeWidthMm = get(printerLive).printer?.tapeWidthMm
     const blob = await renderLabel(
+      await whenEngine(),
       { ...input, printedAt: new Date() },
       { messages: get(t), size: squarePxFrom(tapeWidthMm) },
     )

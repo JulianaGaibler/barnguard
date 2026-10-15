@@ -23,8 +23,10 @@ struct Clip {
   r: f32,
   halfW: f32,
   halfH: f32,
-  rrRadius: f32,
-  clipPad: f32,
+  pad0: f32,
+  pad1: f32,
+  // Corner radii: top left, top right, bottom right, bottom left.
+  radii: vec4<f32>,
 };
 @group(0) @binding(8) var<uniform> clipShape: Clip;
 
@@ -39,7 +41,10 @@ struct Params {
 @group(1) @binding(10) var<uniform> params: Params;
 @group(1) @binding(0) var u_cells: texture_2d<f32>;
 
-fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, rad: f32) -> f32 {
+fn clipRoundBox(p: vec2<f32>, b: vec2<f32>, radii: vec4<f32>) -> f32 {
+  // The radius of the corner in the point's quadrant.
+  let column = select(radii.xw, radii.yz, p.x > 0.0);
+  let rad = select(column.x, column.y, p.y > 0.0);
   let q = abs(p) - b + vec2<f32>(rad);
   return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - rad;
 }
@@ -51,7 +56,7 @@ fn clipCoverage(fragPos: vec2<f32>) -> f32 {
   if (clipShape.kind < 1.5) {
     d = length(p) - clipShape.r;
   } else {
-    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.rrRadius);
+    d = clipRoundBox(p, vec2<f32>(clipShape.halfW, clipShape.halfH), clipShape.radii);
   }
   return clamp(0.5 - d / max(fwidth(d), 1e-4), 0.0, 1.0);
 }

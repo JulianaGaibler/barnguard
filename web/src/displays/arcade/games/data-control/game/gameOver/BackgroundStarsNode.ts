@@ -1,4 +1,4 @@
-import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from '@src/stargazer'
 
 export interface BackgroundStarsOptions {
   /** Star count. ~500 is a comfortable ceiling for a 4K kiosk canvas. */
@@ -20,8 +20,8 @@ export interface BackgroundStarsOptions {
 
 /**
  * A one-shot, allocation-free starfield. Populates a `Float32Array` of `(x, y,
- * size, alpha)` at construction and draws each star as a tiny filled circle
- * every frame. Doesn't move, the camera moves past them.
+ * size, alpha)` at construction and paints each star as a tiny filled circle
+ * once. Doesn't move, the camera moves past them.
  *
  * Uniform-random distribution inside a fixed extent. The escape scene's camera
  * drift over ~10 s never reaches the edge at 30 wu/s. If we ever make the
@@ -52,19 +52,16 @@ export class BackgroundStarsNode extends Node2D {
     }
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(canvas: Canvas): void {
     const n = this.#count
     const d = this.#data
     const color = this.#color
-    gfx.save()
-    // One filled circle per star. At n = 400 this is ~400 fills/frame which
-    // the Canvas backend handles comfortably. The stars are tiny (< 1 wu) so
-    // the fill cost is close to zero.
+    canvas.save()
     for (let i = 0; i < n; i++) {
       const j = i * 4
-      gfx.setAlpha(d[j + 3])
-      gfx.fillCircle(d[j], d[j + 1], d[j + 2], color)
+      canvas.setAlpha(d[j + 3])
+      canvas.fillCircle(d[j], d[j + 1], d[j + 2], color)
     }
-    gfx.restore()
+    canvas.restore()
   }
 }

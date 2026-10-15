@@ -1,0 +1,67 @@
+[
+  {
+    "id": "59c65f5a-2f33-4239-880b-9afce955b2b7",
+    "tsMs": 1792289784898,
+    "score": 1,
+    "durationMs": 12971,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "UKR",
+    "reason": "exited_germany",
+    "escapeHeadingRad": -0.78175807,
+    "wasOverallHigh": true,
+    "wasStateHigh": true
+  },
+  {
+    "id": "4349c0d5-f3c7-43e0-a00c-0308ca259d5c",
+    "tsMs": 1792290003379,
+    "score": 1,
+    "durationMs": 12995,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "MDA",
+    "reason": "exited_germany",
+    "escapeHeadingRad": -2.9216158,
+    "wasOverallHigh": false,
+    "wasStateHigh": true
+  },
+  {
+    "id": "bcc75bec-10b3-4b77-a8c2-9c32bbb76d6b",
+    "tsMs": 1792292475360,
+    "score": 1,
+    "durationMs": 10870,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "FIN",
+    "reason": "exited_germany",
+    "escapeHeadingRad": -0.2054258,
+    "wasOverallHigh": false,
+    "wasStateHigh": true
+  },
+  {
+    "id": "01c57d14-1676-47af-89fd-5b8bea26a662",
+    "tsMs": 1792292500363,
+    "score": 3,
+    "durationMs": 16409,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "FIN",
+    "reason": "exited_germany",
+    "escapeHeadingRad": -0.21242028,
+    "wasOverallHigh": true,
+    "wasStateHigh": true
+  },
+  {
+    "id": "1afefc1b-2f4d-4ca4-803e-9dcbe2b0d0b3",
+    "tsMs": 1792332175593,
+    "score": 3,
+    "durationMs": 21216,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "ESP",
+    "reason": "exited_germany",
+    "escapeHeadingRad": -1.019265,
+    "wasOverallHigh": false,
+    "wasStateHigh": true
+  }
+]

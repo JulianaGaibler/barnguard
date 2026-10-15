@@ -91,137 +91,6 @@ describe('Node2D', () => {
     expect(found).toEqual([a1, a2])
   })
 
-  it('changing renderLayer to/from static invalidates the scene static cache', () => {
-    const scene = new SceneTree(new Node2D('scene-root'))
-    const node = new Node2D()
-    scene.root.add(node)
-    scene.markStaticClean()
-    expect(scene.staticInvalid).toBe(false)
-    node.renderLayer = 'static'
-    expect(scene.staticInvalid).toBe(true)
-    scene.markStaticClean()
-    node.renderLayer = 'dynamic'
-    expect(scene.staticInvalid).toBe(true)
-  })
-
-  it('changing renderLayer between non-static values does NOT invalidate', () => {
-    const scene = new SceneTree(new Node2D('scene-root'))
-    const node = new Node2D()
-    node.renderLayer = 'dynamic'
-    scene.root.add(node)
-    scene.markStaticClean()
-    node.renderLayer = 'above-static'
-    expect(scene.staticInvalid).toBe(false)
-  })
-
-  it('adding a static-layer subtree invalidates static cache', () => {
-    const scene = new SceneTree(new Node2D('scene-root'))
-    scene.markStaticClean()
-    const node = new Node2D()
-    node.renderLayer = 'static'
-    scene.root.add(node)
-    expect(scene.staticInvalid).toBe(true)
-  })
-
-  describe('_staticDescendantCount (P8)', () => {
-    it('root count reflects a static grandchild added via a dynamic parent', () => {
-      const root = new Node2D('root')
-      const mid = new Node2D('mid')
-      const leaf = new Node2D('leaf')
-      leaf.renderLayer = 'static'
-      mid.add(leaf)
-      // leaf is static -> mid._staticDescendantCount === 1
-      root.add(mid)
-      // root sees mid's whole subtree total (1 static) -> root._staticDescendantCount === 1
-      root._verifyStaticCount()
-    })
-
-    it('changing a leaf to static propagates the count up to the root', () => {
-      const root = new Node2D('root')
-      const mid = new Node2D('mid')
-      const leaf = new Node2D('leaf')
-      root.add(mid)
-      mid.add(leaf)
-      // No static nodes yet.
-      root._verifyStaticCount()
-      leaf.renderLayer = 'static'
-      // Every ancestor sees leaf as a static descendant.
-      root._verifyStaticCount()
-    })
-
-    it('changing a leaf back to dynamic decrements every ancestor', () => {
-      const root = new Node2D('root')
-      const mid = new Node2D('mid')
-      const leaf = new Node2D('leaf')
-      root.add(mid)
-      mid.add(leaf)
-      leaf.renderLayer = 'static'
-      root._verifyStaticCount()
-      leaf.renderLayer = 'dynamic'
-      root._verifyStaticCount()
-    })
-
-    it('removing a static-heavy subtree drops the ancestors count to zero', () => {
-      const root = new Node2D('root')
-      const mid = new Node2D('mid')
-      const a = new Node2D('a')
-      const b = new Node2D('b')
-      a.renderLayer = 'static'
-      b.renderLayer = 'static'
-      mid.add(a)
-      mid.add(b)
-      root.add(mid)
-      root._verifyStaticCount()
-      root.remove(mid)
-      root._verifyStaticCount()
-      // Detached subtree itself is still internally consistent.
-      mid._verifyStaticCount()
-    })
-
-    it('reparenting a static-heavy subtree moves the count between ancestors', () => {
-      const root = new Node2D('root')
-      const leftBranch = new Node2D('left')
-      const rightBranch = new Node2D('right')
-      const staticSubtreeRoot = new Node2D('staticRoot')
-      const c1 = new Node2D('c1')
-      const c2 = new Node2D('c2')
-      c1.renderLayer = 'static'
-      c2.renderLayer = 'static'
-      staticSubtreeRoot.add(c1)
-      staticSubtreeRoot.add(c2)
-      root.add(leftBranch)
-      root.add(rightBranch)
-      leftBranch.add(staticSubtreeRoot)
-      root._verifyStaticCount()
-      // Reparent from left branch to right branch, no explicit remove
-      // needed, because add() detects the existing parent and detaches first.
-      rightBranch.add(staticSubtreeRoot)
-      root._verifyStaticCount()
-    })
-
-    it('destroy cascade leaves parents with a zero count', () => {
-      const root = new Node2D('root')
-      const mid = new Node2D('mid')
-      const leaf = new Node2D('leaf')
-      leaf.renderLayer = 'static'
-      mid.add(leaf)
-      root.add(mid)
-      mid.destroy()
-      // After destroying mid, root has no static descendants.
-      root._verifyStaticCount()
-    })
-
-    it('_verifyStaticCount throws on a drifted count (regression detector)', () => {
-      const root = new Node2D('root')
-      const leaf = new Node2D('leaf')
-      leaf.renderLayer = 'static'
-      root.add(leaf)
-      // Manually corrupt the count to simulate drift.
-      root._forceStaticDescendantCount(42)
-      expect(() => root._verifyStaticCount()).toThrow(/drift/i)
-    })
-  })
-
   describe('Behavior.onSceneReady (C4)', () => {
     it('fires synchronously when the node is already scene-attached at addBehavior', () => {
       const scene = new SceneTree(new Node2D('scene-root'))
@@ -445,121 +314,6 @@ describe('Node2D', () => {
     })
   })
 
-  describe('Node2D.tweenStatic (C3)', () => {
-    it('promotes a static-layer node to above-static for the tween and restores it', async () => {
-      const { scene, animator } = makeSceneWithAnimator()
-      const node = new Node2D('n')
-      node.renderLayer = 'static'
-      scene.root.add(node)
-      const p = node.tweenStatic({ alpha: 0.5 }, { duration: 1 })
-      // Immediately after starting the tween, the node is on above-static.
-      expect(node.renderLayer).toBe('above-static')
-      animator.tick(1)
-      await p
-      // Settled, restored to static.
-      expect(node.renderLayer).toBe('static')
-      expect(node.transform.alpha).toBe(0.5)
-    })
-
-    it('no-ops on non-static nodes (acts as a plain tween)', async () => {
-      const { scene, animator } = makeSceneWithAnimator()
-      const node = new Node2D('n')
-      // dynamic by default
-      scene.root.add(node)
-      const p = node.tweenStatic({ alpha: 0.3 }, { duration: 1 })
-      expect(node.renderLayer).toBe('dynamic')
-      animator.tick(1)
-      await p
-      expect(node.renderLayer).toBe('dynamic')
-      expect(node.transform.alpha).toBeCloseTo(0.3, 5)
-    })
-  })
-
-  describe('Node2D.loop (C1)', () => {
-    it('runs iterations until the node is destroyed', async () => {
-      const { scene, animator } = makeSceneWithAnimator()
-      const node = new Node2D('n')
-      scene.root.add(node)
-      const seen: number[] = []
-      node.loop(
-        async (ctx) => {
-          seen.push(ctx.iteration)
-          await ctx.nextFrame()
-        },
-        { deferAttach: false },
-      )
-      // Give the first iteration a chance to start.
-      await Promise.resolve()
-      // nextFrame is scheduled via animator.wait(0). Ticking the animator
-      // resolves the wait, the loop advances to the next iteration.
-      animator.tick(0)
-      await Promise.resolve()
-      animator.tick(0)
-      await Promise.resolve()
-      animator.tick(0)
-      await Promise.resolve()
-      expect(seen.length).toBeGreaterThanOrEqual(2)
-      node.destroy()
-      const countAtDestroy = seen.length
-      // Further ticks should not advance the loop.
-      animator.tick(0)
-      await Promise.resolve()
-      animator.tick(0)
-      await Promise.resolve()
-      expect(seen.length).toBe(countAtDestroy)
-    })
-
-    it('swallows AbortError silently when node is destroyed mid-await', async () => {
-      const { scene, animator } = makeSceneWithAnimator()
-      const node = new Node2D('n')
-      scene.root.add(node)
-      const errors: string[] = []
-      const origErr = console.error
-      console.error = (...args: unknown[]): void => {
-        errors.push(args.join(' '))
-      }
-      try {
-        node.loop(
-          async (ctx) => {
-            await ctx.nextFrame()
-          },
-          { deferAttach: false, name: 'test-loop' },
-        )
-        await Promise.resolve()
-        // Destroy mid-await. The nextFrame() wait rejects with AbortError.
-        node.destroy()
-        animator.tick(0)
-        await Promise.resolve()
-      } finally {
-        console.error = origErr
-      }
-      // No `test-loop` error should have surfaced, abort is silent.
-      expect(errors.some((e) => /test-loop/.test(e))).toBe(false)
-    })
-
-    it('logs non-abort errors from body but never crashes the engine', async () => {
-      const { scene } = makeSceneWithAnimator()
-      const node = new Node2D('n')
-      scene.root.add(node)
-      const errors: string[] = []
-      const origErr = console.error
-      console.error = (...args: unknown[]): void => {
-        errors.push(args.join(' '))
-      }
-      try {
-        node.loop(() => Promise.reject(new Error('boom')), {
-          deferAttach: false,
-          name: 'boom-loop',
-        })
-        await Promise.resolve()
-        await Promise.resolve()
-      } finally {
-        console.error = origErr
-      }
-      expect(errors.some((e) => /boom-loop/.test(e))).toBe(true)
-    })
-  })
-
   describe('bindPointer + PointerEvent2D types line up', () => {
     it('accepts PointerEvent2D-typed handlers', () => {
       const node = new Node2D('n')
@@ -664,16 +418,12 @@ describe('Node2D', () => {
       expect(c.parent).toBeNull()
     })
 
-    it('setVisible / setHitEnabled / setRenderLayer mutate and chain', () => {
+    it('setVisible / setHitEnabled mutate and chain', () => {
       const node = new Node2D('n')
-      const ret = node
-        .setVisible(false)
-        .setHitEnabled(true)
-        .setRenderLayer('static')
+      const ret = node.setVisible(false).setHitEnabled(true)
       expect(ret).toBe(node)
       expect(node.visible).toBe(false)
       expect(node.hitEnabled).toBe(true)
-      expect(node.renderLayer).toBe('static')
     })
 
     it('removeBehavior and destroyChildren return this', () => {
@@ -694,6 +444,42 @@ describe('Node2D', () => {
       // No scene/engine yet: semantics are held, nothing throws.
       const ret = node.a11y({ role: 'button', label: 'Go' })
       expect(ret).toBe(node)
+    })
+
+    it('addAt places a child at a position, and a move within a parent keeps it attached', () => {
+      const scene = new SceneTree(new Node2D('scene-root'))
+      const parent = new Node2D('p')
+      const a = new Node2D('a')
+      const b = new Node2D('b')
+      const c = new Node2D('c')
+      scene.root.add(parent)
+      parent.add(a, b)
+      parent.addAt(c, 0)
+      expect(parent.children).toEqual([c, a, b])
+      parent.addAt(c, 3)
+      expect(parent.children).toEqual([a, b, c])
+      parent.addAt(c, 1)
+      expect(parent.children).toEqual([a, c, b])
+      expect(scene.getPainterOrder().map((n) => n.id)).toEqual([
+        'scene-root',
+        'p',
+        'a',
+        'c',
+        'b',
+      ])
+      expect(c.parent).toBe(parent)
+    })
+
+    it('insertBefore adds ahead of a reference child and rejects a stranger', () => {
+      const parent = new Node2D('p')
+      const a = new Node2D('a')
+      const b = new Node2D('b')
+      parent.add(a)
+      parent.insertBefore(b, a)
+      expect(parent.children).toEqual([b, a])
+      expect(() =>
+        parent.insertBefore(new Node2D('x'), new Node2D('y')),
+      ).toThrow()
     })
   })
 })

@@ -1,9 +1,4 @@
-import {
-  Node2D,
-  type CameraView2D,
-  type Gfx2D,
-  type Rect,
-} from '@src/stargazer'
+import { Node2D, type Canvas } from '@src/stargazer'
 import foxTailUrl from '../assets/fox-tail.svg?url'
 
 /** The SVG's own intrinsic size (`viewBox="0 0 1161 1515"`). */
@@ -49,14 +44,9 @@ export class FoxTailNode extends Node2D {
   constructor(image: HTMLImageElement | ImageBitmap) {
     super('fox-tail')
     this.#image = image
-    this.debugBounds = boundsFromImage()
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     gfx.drawImage(this.#image, 0, 0, FOX_TAIL_WIDTH, FOX_TAIL_HEIGHT)
   }
-}
-
-function boundsFromImage(): Rect {
-  return { x: 0, y: 0, width: FOX_TAIL_WIDTH, height: FOX_TAIL_HEIGHT }
 }

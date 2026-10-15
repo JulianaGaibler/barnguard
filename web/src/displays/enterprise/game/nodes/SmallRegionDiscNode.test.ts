@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { paintCalls } from '@src/stargazer'
 import {
   DISC_DIAMETER_CSS_PX,
   DISC_MIN_DIAMETER_CSS_PX,
@@ -29,16 +30,31 @@ describe('discDiameter', () => {
 })
 
 describe('SmallRegionDiscNode.contains', () => {
-  it('is empty until the first draw gives it a radius', () => {
+  it('covers the points within its radius at the given view scale', () => {
     const disc = new SmallRegionDiscNode('LUX', 100, 100)
-    expect(disc.contains(100, 100)).toBe(true)
-    expect(disc.contains(101, 100)).toBe(false)
+    disc.diameterCssPx = 20
+    expect(disc.contains(105, 105, 1)).toBe(true)
+    expect(disc.contains(111, 100, 1)).toBe(false)
+    expect(disc.contains(111, 100, 2)).toBe(true)
+  })
+})
+
+describe('SmallRegionDiscNode paint', () => {
+  it('sizes the disc from the screen scale and leaves the node untouched', () => {
+    const disc = new SmallRegionDiscNode('LUX', 100, 100)
+    disc.diameterCssPx = 20
+    const calls = paintCalls(disc, { screenScale: 3 })
+    const circle = calls.find((c) => c.name === 'fillCircle')
+    expect(circle?.args.slice(0, 3)).toEqual([0, 0, 30])
   })
 
-  it('covers the points within its radius', () => {
+  it('repaints when selected or resized', () => {
     const disc = new SmallRegionDiscNode('LUX', 100, 100)
-    disc.radiusWorld = 10
-    expect(disc.contains(105, 105)).toBe(true)
-    expect(disc.contains(111, 100)).toBe(false)
+    paintCalls(disc)
+    const fills = (selected: boolean): unknown => {
+      disc.selected = selected
+      return paintCalls(disc).find((c) => c.name === 'fillCircle')?.args[3]
+    }
+    expect(fills(true)).not.toEqual(fills(false))
   })
 })

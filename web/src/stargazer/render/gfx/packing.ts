@@ -8,9 +8,9 @@ import type { GfxFill, GfxPaint } from './Gfx2D'
 /**
  * Pack an already-parsed color into a little-endian premultiplied `unorm8×4`
  * (byte 0 = R … byte 3 = A), folding `alpha` (the current draw alpha, times
- * anything else the caller wants to fold in, e.g. a fringe vertex's
- * coverage) into the result. WebGL's `UNSIGNED_BYTE` reader consumes the
- * bytes in memory order.
+ * anything else the caller wants to fold in, e.g. a fringe vertex's coverage)
+ * into the result. WebGL's `UNSIGNED_BYTE` reader consumes the bytes in memory
+ * order.
  */
 export function packRgba(rgba: RGBA, alpha: number): number {
   const a01 = alpha * rgba.a
@@ -32,8 +32,7 @@ export function rgbaTuple(c: RGBA): readonly [number, number, number, number] {
 
 /** A fill resolved to what it actually is. The one place that discriminates. */
 export type ResolvedPaint =
-  | { kind: 'solid'; packedColor: number }
-  | { kind: 'gradient'; paint: GfxPaint }
+  { kind: 'solid'; packedColor: number } | { kind: 'gradient'; paint: GfxPaint }
 
 /**
  * Tell a flat color from a gradient paint. `alpha` (the current draw alpha)
@@ -50,11 +49,11 @@ export function resolvePaint(fill: GfxFill, alpha: number): ResolvedPaint {
 }
 
 /**
- * Device-space axis projection for a linear gradient (WebRender's
- * formulation): `t` at device-px fragment position `p` is
- * `clamp(dot(p, scaleDir) - startOffset, 0, 1)`. `x0,y0,x1,y1` must already
- * be in device px (the caller transforms the gradient's local endpoints the
- * same way it transforms the geometry).
+ * Device-space axis projection for a linear gradient (WebRender's formulation):
+ * `t` at device-px fragment position `p` is `clamp(dot(p, scaleDir) -
+ * startOffset, 0, 1)`. `x0,y0,x1,y1` must already be in device px (the caller
+ * transforms the gradient's local endpoints the same way it transforms the
+ * geometry).
  */
 export function gradientAxis(
   x0: number,
@@ -72,26 +71,35 @@ export function gradientAxis(
   return { scaleDirX, scaleDirY, startOffset }
 }
 
+/** The resolved dash of a solid stroke, shared by every caller. */
+const NO_DASH = Object.freeze({ dashStart: 0, dashPeriod: 0, dashOnLen: 0 })
+
 /**
- * Canvas `[on, off, ...]` dash -> `(dashStart, dashPeriod, dashOnLen)` in device
- * px. Only the first `[on, off]` pair is honored (matches the game's 2-element
- * usage). `dashPeriod === 0` disables dashing in the shader.
+ * Canvas `[on, off, ...]` dash -> `(dashStart, dashPeriod, dashOnLen)` in
+ * device px. Only the first `[on, off]` pair is honored (matches the game's
+ * 2-element usage). `dashPeriod === 0` disables dashing in the shader.
  */
 export function resolveDash(
   dash: readonly number[] | undefined,
   scale = 1,
-): { dashStart: number; dashPeriod: number; dashOnLen: number } {
-  if (!dash || dash.length < 2) {
-    return { dashStart: 0, dashPeriod: 0, dashOnLen: 0 }
-  }
+): Readonly<{ dashStart: number; dashPeriod: number; dashOnLen: number }> {
+  if (!dash || dash.length < 2) return NO_DASH
   const on = dash[0] * scale
   const off = dash[1] * scale
   return { dashStart: 0, dashPeriod: on + off, dashOnLen: on }
 }
 
 /**
+ * The param record index written into every colored-tri vertex. A writer sets
+ * it from the batch context after opening its batch, and a primitive's vertices
+ * all carry the same value.
+ */
+export const coloredVertexParam = { index: 0 }
+
+/**
  * Write one colored-tri vertex. Pos and UV via float view, packed color via
- * uint view. Both views alias the same ArrayBuffer.
+ * uint view, and the param record index through the same buffer. Both views
+ * alias the same ArrayBuffer.
  */
 export function writeColoredVert(
   fv: Float32Array,
@@ -108,6 +116,7 @@ export function writeColoredVert(
   uv[off + 2] = packedColor >>> 0
   fv[off + 3] = u
   fv[off + 4] = v
+  uv[off + 5] = coloredVertexParam.index
 }
 
 /** HSV -> RGB. Hue in `[0, 6)` sector space. `'batch-color'` debug helper. */

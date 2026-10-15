@@ -1,7 +1,7 @@
 import {
   Node2D,
-  type CameraView2D,
-  type Gfx2D,
+  definePaintProps,
+  type Canvas,
   type GfxGradientStop,
   type GfxLinearGradient,
 } from '@src/stargazer'
@@ -59,10 +59,11 @@ export class GradientBackdropNode extends Node2D {
   readonly #radialStops: GfxGradientStop[]
 
   /** How much of the radial gradient shows, from 0 to 1. */
-  radialMix = 0
+  declare radialMix: number
 
   constructor(width: number, height: number) {
     super('gradient-backdrop')
+    definePaintProps(this, { radialMix: 0 })
     this.#width = width
     this.#height = height
     const reach = RADIAL_DESIGN_REACH / RADIAL_RADIUS
@@ -94,7 +95,7 @@ export class GradientBackdropNode extends Node2D {
     }
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     gfx.fillRect(
       -this.#width * OVERSCAN,
       -this.#height * OVERSCAN,

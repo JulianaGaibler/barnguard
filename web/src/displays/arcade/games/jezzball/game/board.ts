@@ -25,6 +25,7 @@ import {
 } from '@src/stargazer'
 import {
   captureEmptyRegions,
+  clearGrid,
   createGrid,
   markWallSpan,
   takenPct,
@@ -193,7 +194,7 @@ export class BoardController {
   /** Reset the grid, clear walls, and (re)spawn `ballCount` balls. */
   startLevel(ballCount: number): void {
     this.#clearWalls()
-    this.#grid.cells.fill(CELL_OPEN)
+    clearGrid(this.#grid)
     this.#field.snapRevealed()
     this.#clearBalls()
     for (let i = 0; i < ballCount; i++) this.#spawnBall()

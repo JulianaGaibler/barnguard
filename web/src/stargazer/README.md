@@ -1,42 +1,19 @@
 # Stargazer
 
-A 2D-first game engine with an optional 3D pass. Scene graph, camera, input,
-animation, layout, text, particles, opt-in physics, and a GPU renderer with two
-backends. TypeScript, with a Svelte 5 host. It is game-agnostic: it knows nodes,
-transforms, and pixels, and your game owns the rest.
+Stargazer is a 2D game engine with an optional 3D pass, written in TypeScript.
+It has a scene graph, cameras, input, animation, layout, text, particles,
+physics, and a GPU renderer with a WebGPU and a WebGL2 backend. A Svelte 5
+action mounts it on a canvas.
 
-## Design
-
-- **You build a node tree.** Everything on screen is a `Node2D`: a transform,
-  children, and optional behaviors. A drawable node implements a `draw(gfx)`
-  hook and paints through the immediate-mode `Gfx2D` facade, so a custom node is
-  a class that knows how to draw itself. Reuse is a plain builder function that
-  returns a subtree.
-- **One command list per frame.** Draws append into per-program ring buffers,
-  batches break only on program, texture, blend, or clip changes, and the whole
-  list replays in painter order at frame end. Alpha, color, and transform fold
-  into per-instance data and never break a batch. A typical frame is a handful
-  of draw calls.
-- **Shapes are analytic, text is a bitmap.** Circles and rounded rects are
-  signed distance fields evaluated in local space, so they stay crisp under any
-  transform. Text is shaped and rasterized by the platform Canvas 2D engine and
-  drawn as a cached textured quad, which is why kerning, ligatures, complex
-  scripts, and color emoji all work.
-- **Two backends, one seam.** WebGPU and WebGL2 both implement `GfxDevice`,
-  which is modelled on WebGPU semantics: immutable pipelines, render passes with
-  load and store ops, bind groups, and fully explicit draws. Node code never
-  sees either one.
-- **Past the canvas.** Pin HTML elements to nodes and they track the camera's
-  pan and zoom. Opt into an accessibility layer that mirrors chosen nodes into a
-  hidden ARIA tree for screen readers and keyboard navigation.
-
-Everything optional costs nothing until touched. Layout, physics,
-post-processing, ambient occlusion, accessibility, and DOM overlays each
-allocate on first use.
+The engine knows nodes, transforms and pixels. Your game owns the rules and the
+state.
 
 ## Getting started
 
-Import from `@src/stargazer`. Internal subpaths are not part of the public API.
+Import everything from `@src/stargazer`. Internal subpaths are not part of the
+public API.
+
+This example creates a host on a canvas, adds a camera and draws one circle:
 
 ```ts
 import { createEngineHost, CameraNode2D, ShapeNode } from '@src/stargazer'
@@ -60,12 +37,18 @@ await host.loadScene((scene) => {
 host.start()
 ```
 
-A stage has no camera until you add one, and it renders only the clear color
-until a camera is current. That is the one piece of setup with no default.
+[`createEngineHost`](/module/engine/createenginehost) returns an [`EngineHost`](/module/engine/enginehost). The camera frames a
+1920 × 1080 world rect and fits it into the canvas. The circle sits at the world
+origin.
 
-In a Svelte component use the `mountEngine` action instead of building the host
-by hand. It picks a rendering backend, wires resize and context loss, and
-destroys the host on unmount:
+A stage has no camera until you add one. Without a current camera it draws
+only the clear color.
+
+### In a Svelte component
+
+The [`mountEngine`](/module/svelte/mountengine) action builds the host for you. It picks a backend,
+handles resizing and context loss, and destroys the host when the component
+unmounts:
 
 ```svelte
 <script lang="ts">
@@ -84,35 +67,117 @@ destroys the host on unmount:
 ></canvas>
 ```
 
-The Svelte host is the only part that touches the DOM. Everything else runs on
-the canvas.
+The Svelte layer is the only part of the engine that touches the DOM.
 
-## Where to go next
+## How it works
 
-Read the first four in order. The rest are reference for when you need them.
+These are the ideas the guides build on.
 
-- [Engine setup](/guides/setup), host versus engine, options, lifecycle, context loss
-- [Architecture](/guides/architecture), how the pieces fit and what a frame does
-- [Scene graph](/guides/scene), `Node2D`, `Behavior`, transforms, render layers
-- [Drawing](/guides/drawing), the `Gfx2D` facade, custom `draw`, batching, clips
-- [Camera](/guides/camera), viewport framing, transform cameras, `animateTo`
-- [Input](/guides/input), pointer capture, hit testing, world reprojection
-- [Animation](/guides/animation), `tween`, `Timeline`, the abort contract
-- [Text](/guides/text), `fillText`, `TextNode`, measurement, label caching
-- [Layout](/guides/layout), constraints-based boxes, `Row` and `Column`, resize
-- [Assets](/guides/assets), SVG paths, bitmap masks, keyed async loading
-- [Lottie](/guides/lottie), parsing, playback, markers, diagnostics
-- [Stages](/guides/stages), a second canvas on the same clock
-- [Particles](/guides/particles) and [vector particles](/guides/vector-particles)
-- [Physics](/guides/physics), the opt-in 2D rigid-body world
-- [HTML overlays](/guides/html-overlays), pinning elements to nodes
-- [Accessibility](/guides/accessibility), the hidden ARIA mirror
-- [Post-processing](/guides/post-processing), screen-space effects
-- [3D](/guides/3d), meshes, glTF, lights, 2D on a quad in 3D
-- [Ambient occlusion](/guides/ambient-occlusion), screen-space AO for the 3D pass
-- [Adversarial search](/guides/ai), negamax for a turn-based opponent
-- [Debugging](/guides/debugging), the HUD, the free camera, reading frame cost
+### A tree of nodes
 
-Runnable demos live in `dev/`, registered in `dev/demos.ts` and reachable as
-`?demo=<name>`. `dev/demo-scene.ts` is the shortest end-to-end read. The
-colocated `*.test.ts` files serve as specs for anything the guides leave out.
+Everything on screen is a [`Node2D`](/module/scene/node2d). A node has a transform, children and
+optional [`Behavior`](/module/scene/behavior) objects that run every frame.
+
+A node draws in one of two ways. A `paint(canvas)` hook records its drawing
+once, and the engine replays it every frame until the node changes. A
+`draw(gfx)` hook draws through the immediate-mode [`Gfx2D`](/module/render/gfx2d) facade every
+frame. To reuse a piece of scene, write a function that returns a subtree.
+
+### One command list per frame
+
+Draws go into a command list that the renderer replays in painter order at the
+end of the frame. Alpha, color and transform are per-instance data, so they
+don't split a batch. A typical 2D frame takes a few draw calls.
+
+Offscreen groups, such as a [`Layer`](/module/scene/layer) with a blur, render into their own
+surfaces before the main pass. The main pass then draws everything else.
+
+### Shapes and text
+
+Circles and rounded rects are signed distance fields, evaluated per pixel in
+local space. They stay sharp under any scale or rotation.
+
+Text is shaped and rasterized by the browser's Canvas 2D API, then drawn as a
+cached textured quad. Kerning, ligatures, complex scripts and color emoji work
+because the browser does the shaping.
+
+### Two backends
+
+WebGPU and WebGL2 implement the same device interface. It follows WebGPU's
+model: immutable pipelines, render passes with load and store operations, bind
+groups and explicit draws. Node code never sees the backend.
+
+### Beyond the canvas
+
+You can pin HTML elements to nodes so they follow the camera's pan and zoom. An
+opt-in accessibility layer mirrors chosen nodes into a hidden ARIA tree for
+screen readers and keyboard navigation.
+
+Optional systems allocate on first use. Layout, physics, post-processing,
+ambient occlusion, accessibility and DOM overlays cost nothing until you use
+them.
+
+## Guides
+
+The sidebar lists the guides in the order below.
+
+### Getting started
+
+Read these four in order.
+
+- [Engine setup](/guides/setup): the host and the engine, options, lifecycle,
+  context loss
+- [Architecture](/guides/architecture): how the parts fit and what a frame does
+- [Scene graph](/guides/scene): `Node2D`, `Behavior`, transforms, draw order
+- [Drawing](/guides/drawing): `paint` and `draw`, fills, strokes, clips,
+  groups and layers
+
+### Features
+
+Each of these covers one feature. The first six are the ones most games use.
+
+- [Camera](/guides/camera): framing a viewport, moving and zooming,
+  `animateTo`
+- [Input](/guides/input): pointer capture, hit testing, mapping to world
+  coordinates
+- [Animation](/guides/animation): `tween`, `Timeline`, canceling with an abort
+  signal
+- [Text](/guides/text): `fillText`, `TextNode`, measuring, the label cache
+- [Layout](/guides/layout): constraint-based boxes, `Row` and `Column`, resizing
+- [Debugging](/guides/debugging): the HUD, the free camera, reading frame cost
+- [Assets](/guides/assets): SVG paths, bitmap masks, keyed async loading
+- [Lottie](/guides/lottie): loading, playback, markers, diagnostics
+- [Particles](/guides/particles): pooled sprite emitters
+- [Vector particles](/guides/vector-particles): bursts with your own
+  per-piece paint code
+- [Physics](/guides/physics): the opt-in 2D rigid-body world
+- [Post-processing](/guides/post-processing): screen-space effects
+- [HTML overlays](/guides/html-overlays): pinning elements to nodes
+- [Accessibility](/guides/accessibility): the hidden ARIA mirror
+- [Stages](/guides/stages): a second canvas on the same clock, capturing a
+  scene as an image
+- [Adversarial search](/guides/ai): negamax for a turn-based opponent
+
+### 3D
+
+- [3D](/guides/3d): meshes, glTF, lights, 2D content on a quad in 3D
+- [Ambient occlusion](/guides/ambient-occlusion): screen-space AO for the 3D
+  pass
+
+### Internals
+
+These pages describe how parts of the renderer work, for people changing the
+engine.
+
+- [Combined depth and stencil](/combined-depth-stencil): one depth and stencil
+  target shared by the 2D and 3D passes
+- [Path shadows](/path-shadows): how drop shadows on paths are baked and cached
+- [Running the benchmarks](/bench-runbook): the steps to measure one machine
+
+## Demos and tests
+
+Runnable demos live in `dev/`. Each is registered in `dev/demos.ts` and opens
+at `?demo=<name>`. `dev/demo-scene.ts` is the shortest complete example.
+
+The `*.test.ts` file next to each source file specifies the behavior that the
+guides don't cover.

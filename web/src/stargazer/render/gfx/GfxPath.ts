@@ -87,23 +87,12 @@ export class GfxPath {
   #coordCount = 0
   #released = false
 
-  #pts = new Float32Array(128)
-  #starts = new Uint32Array(8)
-  #closed = new Uint8Array(8)
-  #flat: MutableFlat = {
-    points: this.#pts,
-    pointCount: 0,
-    starts: this.#starts,
-    contourCount: 0,
-    closed: this.#closed,
-    convex: false,
-    minX: 0,
-    minY: 0,
-    maxX: 0,
-    maxY: 0,
-  }
-  #flatVersion = -1
-  #flatBucket = -1
+  /**
+   * Flattened copies of the path, one per (version, tolerance bucket) drawn
+   * lately. A path drawn at two scales in a frame flattens once for each.
+   */
+  #slots: FlatSlot[] = []
+  #tick = 0
 
   /** Start a new contour at `(x, y)`. */
   moveTo(x: number, y: number): this {
@@ -181,8 +170,7 @@ export class GfxPath {
     this.#coords = new Float32Array(0)
     this.#verbCount = 0
     this.#coordCount = 0
-    this.#pts = new Float32Array(0)
-    this.#flatVersion = -1
+    this.#slots = []
     this.version++
   }
 
@@ -194,20 +182,38 @@ export class GfxPath {
   /**
    * Flatten into polylines with a curve error of at most `tolerance` (in the
    * path's own units). The result is cached for the path's current `version`
-   * and the tolerance bucket. Engine-internal, `Gfx2D` calls it.
+   * and the tolerance bucket, and stays valid until its entry is recycled by a
+   * later flatten of the same path. Engine-internal, `Gfx2D` calls it.
    *
    * @internal
    */
   flatten(tolerance: number): FlatPath {
     const bucket = toleranceBucket(tolerance)
-    if (this.#flatVersion === this.version && this.#flatBucket === bucket) {
-      return this.#flat
+    const stamp = ++this.#tick
+    let victim: FlatSlot | null = null
+    let victimScore = Infinity
+    for (const slot of this.#slots) {
+      if (slot.version === this.version && slot.bucket === bucket) {
+        slot.stamp = stamp
+        return slot.flat
+      }
+      // A copy of an older version is never used again, so it goes first.
+      const score = slot.version === this.version ? slot.stamp : -1
+      if (score < victimScore) {
+        victim = slot
+        victimScore = score
+      }
+    }
+    if (!victim || this.#slots.length < MAX_FLAT_SLOTS) {
+      victim = newFlatSlot()
+      this.#slots.push(victim)
     }
     const tol = Math.pow(2, -bucket / 2)
-    this.#flattenInto(tol)
-    this.#flatVersion = this.version
-    this.#flatBucket = bucket
-    return this.#flat
+    this.#flattenInto(victim, tol)
+    victim.version = this.version
+    victim.bucket = bucket
+    victim.stamp = stamp
+    return victim.flat
   }
 
   #push(verb: number, coordCount: number): void {
@@ -228,19 +234,18 @@ export class GfxPath {
     this.version++
   }
 
-  #flattenInto(tol: number): void {
+  #flattenInto(slot: FlatSlot, tol: number): void {
     for (;;) {
-      if (this.#tryFlatten(tol)) return
-      const next = new Float32Array(this.#pts.length * 2)
-      this.#pts = next
+      if (this.#tryFlatten(slot, tol)) return
+      slot.pts = new Float32Array(slot.pts.length * 2)
     }
   }
 
   /** One flatten pass. False when the point buffer was too small. */
-  #tryFlatten(tol: number): boolean {
+  #tryFlatten(slot: FlatSlot, tol: number): boolean {
     const verbs = this.#verbs
     const coords = this.#coords
-    const pts = this.#pts
+    const pts = slot.pts
     let cursor = 0
     let ci = 0
     let contours = 0
@@ -249,8 +254,8 @@ export class GfxPath {
     let curX = 0
     let curY = 0
     let open = false
-    let starts = this.#starts
-    let closed = this.#closed
+    let starts = slot.starts
+    let closed = slot.closed
 
     const beginContour = (x: number, y: number): void => {
       if (contours + 2 > starts.length) {
@@ -332,11 +337,11 @@ export class GfxPath {
     }
     if (cursor + FLATTEN_HEADROOM > pts.length) return false
 
-    this.#starts = starts
-    this.#closed = closed
+    slot.starts = starts
+    slot.closed = closed
     starts[contours] = cursor / 2
     cursor = compactContours(pts, starts, closed, contours) * 2
-    const flat = this.#flat
+    const flat = slot.flat
     flat.points = pts
     flat.pointCount = cursor / 2
     flat.starts = starts
@@ -408,6 +413,45 @@ function compactContours(
   }
   starts[contours] = w
   return w
+}
+
+/** The most flattened copies one path keeps. */
+const MAX_FLAT_SLOTS = 4
+
+interface FlatSlot {
+  pts: Float32Array
+  starts: Uint32Array
+  closed: Uint8Array
+  flat: MutableFlat
+  version: number
+  bucket: number
+  stamp: number
+}
+
+function newFlatSlot(): FlatSlot {
+  const pts = new Float32Array(128)
+  const starts = new Uint32Array(8)
+  const closed = new Uint8Array(8)
+  return {
+    pts,
+    starts,
+    closed,
+    flat: {
+      points: pts,
+      pointCount: 0,
+      starts,
+      contourCount: 0,
+      closed,
+      convex: false,
+      minX: 0,
+      minY: 0,
+      maxX: 0,
+      maxY: 0,
+    },
+    version: -1,
+    bucket: -1,
+    stamp: 0,
+  }
 }
 
 interface MutableFlat {

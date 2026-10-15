@@ -1,3 +1,5 @@
+import { evictOldest } from './evictOldest'
+
 /** A color with each channel in `0..1`. Not premultiplied. */
 
 export interface RGBA {
@@ -9,9 +11,10 @@ export interface RGBA {
 
 const BLACK: RGBA = { r: 0, g: 0, b: 0, a: 1 }
 
-// Small string -> RGBA cache. Bounded so a pathological caller can't blow up
-// the working set. The game realistically visits <100 distinct strings.
-const CACHE_MAX = 256
+// String to RGBA cache, bounded so generated color strings can't grow it
+// without limit. A scene whose live colors outnumber the bound misses on every
+// draw, so the bound sits well above typical scenes at a few tens of KB.
+const CACHE_MAX = 1024
 const cache = new Map<string, RGBA>()
 
 const warned = new Set<string>()
@@ -40,11 +43,7 @@ export function parseColor(css: string): RGBA {
   const hit = cache.get(css)
   if (hit) return hit
   const parsed = parseSlow(css) ?? warnFallback(css)
-  if (cache.size >= CACHE_MAX) {
-    // Cheap eviction: drop the oldest inserted key.
-    const oldest = cache.keys().next().value
-    if (oldest !== undefined) cache.delete(oldest)
-  }
+  if (cache.size >= CACHE_MAX) evictOldest(cache)
   cache.set(css, parsed)
   return parsed
 }

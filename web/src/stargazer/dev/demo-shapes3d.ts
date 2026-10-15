@@ -10,7 +10,7 @@ import {
 } from '../nodes/geometry'
 import { Node2D } from '../scene/Node2D'
 import { Node3D } from '../scene/Node3D'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { Canvas } from '../render/picture/Canvas'
 import { createTexture } from '../assets/createTexture'
 import { rasterizeSvg } from '../assets/rasterizeSvg'
 import { quat, quatFromAxisAngle } from '../math/Quat'
@@ -53,14 +53,13 @@ class StrokeOverlayNode extends Node2D {
 
   constructor() {
     super('stencil-probe')
-    this.renderLayer = 'dynamic'
     for (let i = 0; i < 7; i++) {
       this.#pts[i * 2] = 60 + i * 90
       this.#pts[i * 2 + 1] = i % 2 === 0 ? 70 : 130
     }
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.strokePolyline(this.#pts, 7, {
       color: 'rgba(255,255,255,0.45)',
       width: 26,
@@ -87,8 +86,11 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     gpuDevice,
     clearColor: '#141018',
     msaaSamples: 4,
-    debug: 'hud',
-    quality: { meshShadowsEnabled: true, shadowMapSize: 2048, shadowSoftness: 1 },
+    quality: {
+      meshShadowsEnabled: true,
+      shadowMapSize: 2048,
+      shadowSoftness: 1,
+    },
   })
   attach?.(host)
 

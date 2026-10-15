@@ -1,5 +1,6 @@
-import { Node2D, type BitmapMask, type Gfx2D } from '@src/stargazer'
+import { Node2D, type BitmapMask, type Canvas } from '@src/stargazer'
 import { PANEL } from '../tuning'
+import type { RevealRef } from './RevealRef'
 
 /**
  * The light, rounded play-field panel. At rest it's a single rounded-rect SDF
@@ -8,11 +9,6 @@ import { PANEL } from '../tuning'
  * window, so the rounded corners appear as the curtain reaches them (no
  * squash).
  */
-
-/** Shared, mutable reveal fraction (0 = hidden, 1 = fully open). */
-interface RevealRef {
-  frac: number
-}
 
 export class PanelNode extends Node2D {
   readonly #px: number
@@ -37,10 +33,10 @@ export class PanelNode extends Node2D {
     this.#ph = ph
     this.#reveal = reveal
     this.#mask = mask
-    this.renderLayer = 'dynamic'
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
+    gfx.use(this.#reveal)
     const frac = this.#reveal.frac
     if (frac <= 0) return
     if (frac >= 1) {

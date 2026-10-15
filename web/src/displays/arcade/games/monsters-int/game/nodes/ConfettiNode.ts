@@ -19,7 +19,7 @@
  */
 import {
   VectorParticleNode,
-  type Gfx2D,
+  type Canvas,
   type VectorParticleSpawnInit,
 } from '@src/stargazer'
 import type { BurstSpec } from '../flourish'
@@ -50,7 +50,7 @@ function pick<T>(from: readonly T[]): T {
 }
 
 export class ConfettiNode extends VectorParticleNode {
-  /** Written once per piece at spawn, so drawing allocates nothing. */
+  /** Written once per piece at spawn, so painting allocates nothing. */
   readonly #color: string[] = new Array<string>(CAPACITY).fill('#000000')
   readonly #size = new Float32Array(CAPACITY)
   readonly #life = new Float32Array(CAPACITY)
@@ -66,7 +66,6 @@ export class ConfettiNode extends VectorParticleNode {
     super({ id: 'monsters-int-confetti', capacity: CAPACITY })
     // Over the 3D pass, and added to the tree ahead of the HUD so the lip draws
     // over anything that falls to the bottom of the frame.
-    this.renderLayer = 'dynamic'
   }
 
   /** Fire one burst. Silently drops pieces once the pool is full. */
@@ -146,7 +145,7 @@ export class ConfettiNode extends VectorParticleNode {
     return this.#life[i]! <= 0
   }
 
-  protected override drawParticle(gfx: Gfx2D, i: number): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
     const left = this.#life[i]! / this.#maxLife[i]!
     gfx.setAlpha(Math.min(1, left / FADE))
     // Every piece is a disc, so nothing here reads a rotation and none is

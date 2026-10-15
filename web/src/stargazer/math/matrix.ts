@@ -1,51 +1,17 @@
 /**
- * DOMMatrix pool + 2D affine helpers.
- *
- * Every matrix in this engine is a 2D affine (m11..m22 + m41/m42, i.e.
- * a/b/c/d/e/f). We never touch the 3D fields, so pooled matrices stay in their
- * 2D subspace and native DOMMatrix ops (`translateSelf`, `rotateSelf`,
- * `multiplySelf`) preserve that.
+ * Allocation-free helpers for 2D affines, on any {@link Affine2x3} such as
+ * `Transform2D.world`.
  */
 
 import type { Vec2 } from './Vec2'
-
-export class MatrixPool {
-  readonly #free: DOMMatrix[] = []
-  #_allocated = 0
-
-  acquire(): DOMMatrix {
-    const m = this.#free.pop()
-    if (m) {
-      m.a = 1
-      m.b = 0
-      m.c = 0
-      m.d = 1
-      m.e = 0
-      m.f = 0
-      return m
-    }
-    this.#_allocated++
-    return new DOMMatrix()
-  }
-
-  release(m: DOMMatrix): void {
-    this.#free.push(m)
-  }
-
-  get allocated(): number {
-    return this.#_allocated
-  }
-  get freeCount(): number {
-    return this.#free.length
-  }
-}
+import type { Affine2x3 } from './Affine2D'
 
 /**
  * Copy the six 2D affine components from `src` to `dst` in place.
  *
  * @internal Test-only helper. Not part of the public API.
  */
-export function copyMatrix2D(dst: DOMMatrix, src: DOMMatrix): void {
+export function copyMatrix2D(dst: Affine2x3, src: Affine2x3): void {
   dst.a = src.a
   dst.b = src.b
   dst.c = src.c
@@ -59,9 +25,9 @@ export function copyMatrix2D(dst: DOMMatrix, src: DOMMatrix): void {
  * `dst` aliases `a` or `b` (uses locals).
  */
 export function multiplyMatrix2D(
-  dst: DOMMatrix,
-  a: DOMMatrix,
-  b: DOMMatrix,
+  dst: Affine2x3,
+  a: Affine2x3,
+  b: Affine2x3,
 ): void {
   const aa = a.a
   const ab = a.b
@@ -88,7 +54,7 @@ export function multiplyMatrix2D(
  * (reads into locals). Returns `false` and leaves `dst` an identity matrix when
  * `src` is singular (zero determinant).
  */
-export function invertMatrix2D(dst: DOMMatrix, src: DOMMatrix): boolean {
+export function invertMatrix2D(dst: Affine2x3, src: Affine2x3): boolean {
   const a = src.a
   const b = src.b
   const c = src.c
@@ -118,7 +84,7 @@ export function invertMatrix2D(dst: DOMMatrix, src: DOMMatrix): boolean {
 /** Apply a 2D affine to the point `(x, y)`: `dst = m · (x, y)`, into `dst`. */
 export function transformPoint2D(
   dst: Vec2,
-  m: DOMMatrix,
+  m: Affine2x3,
   x: number,
   y: number,
 ): Vec2 {

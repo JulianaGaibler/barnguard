@@ -18,6 +18,30 @@ describe('isEffectivelyVisible', () => {
     expect(isEffectivelyVisible(node)).toBe(false)
   })
 
+  it('follows an ancestor that is hidden and shown again after being asked', () => {
+    const root = new Node2D('root')
+    const group = new Node2D('group')
+    const child = new Node2D('child')
+    root.add(group)
+    group.add(child)
+    expect(isEffectivelyVisible(child)).toBe(true)
+    root.visible = false
+    expect(isEffectivelyVisible(child)).toBe(false)
+    root.visible = true
+    expect(isEffectivelyVisible(child)).toBe(true)
+  })
+
+  it('follows a node moved from under a hidden parent to a visible one', () => {
+    const hidden = new Node2D('hidden')
+    hidden.visible = false
+    const shown = new Node2D('shown')
+    const child = new Node2D('child')
+    hidden.add(child)
+    expect(isEffectivelyVisible(child)).toBe(false)
+    shown.add(child)
+    expect(isEffectivelyVisible(child)).toBe(true)
+  })
+
   it('is false for a visible child of a hidden parent', () => {
     const group = new Node2D('group')
     const child = new Node2D('child')

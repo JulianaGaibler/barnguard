@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { GpuGfx } from './GpuGfx'
+import { GfxPath } from './GfxPath'
 import { MockGfxDevice } from './webgl2/mockGfxDevice'
 import { DataTexture, ShaderQuad, quadShader } from './ShaderQuad'
 
-function makeGpuGfx(): { gfx: GpuGfx; device: MockGfxDevice } {
+function makeGpuGfx(stencil = false): { gfx: GpuGfx; device: MockGfxDevice } {
   const canvas = document.createElement('canvas')
   canvas.width = 400
   canvas.height = 300
   const device = new MockGfxDevice()
-  return { gfx: new GpuGfx(canvas, device), device }
+  return { gfx: new GpuGfx(canvas, device, { stencil }), device }
 }
 
 async function frame(gfx: GpuGfx, device: MockGfxDevice): Promise<void> {
@@ -84,6 +85,37 @@ describe('GpuGfx.drawShaderQuad', () => {
     expect(offsets[0]).toBeDefined()
     expect(offsets[1]).toBeDefined()
     expect(offsets[0]).not.toBe(offsets[1])
+  })
+
+  it('keeps every draw when a frame needs more params slices than the ring starts with', async () => {
+    const { gfx, device } = makeGpuGfx()
+    const quad = makeQuad()
+    await primed(gfx, device, quad)
+
+    await frame(gfx, device)
+    for (let i = 0; i < 1500; i++) gfx.drawShaderQuad(quad, i % 300, 0, 4, 4)
+    gfx.endFrame()
+    expect(device.draws.reduce((n, d) => n + (d.instanceCount ?? 0), 0)).toBe(
+      1500,
+    )
+  })
+
+  it('tests the clip depth inside a path clip', async () => {
+    const { gfx, device } = makeGpuGfx(true)
+    const quad = makeQuad()
+    await primed(gfx, device, quad)
+
+    await frame(gfx, device)
+    const clip = new GfxPath().moveTo(0, 0).lineTo(50, 0).lineTo(0, 50).close()
+    gfx.save()
+    gfx.clipPath(clip)
+    gfx.drawShaderQuad(quad, 0, 0, 10, 10)
+    gfx.restore()
+    gfx.endFrame()
+    const quadDraw = device.draws.find(
+      (d) => d.stencilReference === 0x20 && d.stencil?.writeMask === 0,
+    )
+    expect(quadDraw?.stencil?.front.compare).toBe('equal')
   })
 
   it('keeps painter order against the streamed programs', async () => {

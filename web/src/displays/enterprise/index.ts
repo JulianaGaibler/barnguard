@@ -14,7 +14,8 @@ import { enterpriseTheme } from './theme'
 import GameScreen from './overlays/GameScreen.svelte'
 import SelectedStatePreview from './attendant/SelectedStatePreview.svelte'
 import { enterpriseLocales, ENTERPRISE_DEFAULT_LANGUAGE } from './i18n'
-import { renderLabel, type LabelInput } from './label'
+import { labelPicksOf, renderLabel, type LabelInput } from './label'
+import { whenEngine } from './engineHandle'
 import type { EnterpriseMessages } from './i18n/types'
 import { squarePxFrom } from '@src/core/print/canvas'
 import { LEGACY_MAP_ID } from './game'
@@ -38,6 +39,7 @@ async function recordToLabelInput(record: GameRecord): Promise<LabelInput> {
     highScores,
     escapeHeadingRad: narrow.escapeHeadingRad,
     printedAt: new Date(),
+    ...labelPicksOf(narrow),
   }
 }
 
@@ -75,7 +77,7 @@ export const enterprise: DisplayManifest = {
     ctx: LabelRenderContext,
   ): Promise<Blob> {
     const input = await recordToLabelInput(record)
-    return renderLabel(input, {
+    return renderLabel(await whenEngine(), input, {
       // The manifest boundary types `messages` as the core shape. Internally
       // this display renders its own message keys and narrows here (the
       // active-display invariant guarantees the extra sections are present).
@@ -98,7 +100,7 @@ export const enterprise: DisplayManifest = {
         byState: { [LEGACY_MAP_ID]: { BE: 42 } },
       },
     }
-    return renderLabel(input, {
+    return renderLabel(await whenEngine(), input, {
       // The manifest boundary types `messages` as the core shape. Internally
       // this display renders its own message keys and narrows here (the
       // active-display invariant guarantees the extra sections are present).

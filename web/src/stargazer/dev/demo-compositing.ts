@@ -3,11 +3,12 @@ import { addDemoCamera } from './demoCamera'
 import { Node2D } from '../scene/Node2D'
 import { ShapeNode } from '../nodes/ShapeNode'
 import { GfxPath } from '../render/gfx/GfxPath'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { Canvas } from '../render/picture/Canvas'
 import type { DemoFn } from './types'
 
 // Engine compositing sandbox: nonzero and even-odd fills, nested path clips
-// under rotation, and a clipped scroll panel built with `Node2D.clip`. Run it
+// under rotation, a clipped scroll panel built with `Node2D.clip`, and a
+// translucent group beside the same shapes with per-drawing alpha. Run it
 // on `?gfx=webgl2` and `?gfx=webgpu`, with `?msaa=1` and `?msaa=4`. Each
 // column should look the same on both backends.
 
@@ -30,7 +31,7 @@ function star(cx: number, cy: number, r: number): GfxPath {
 class FillRules extends Node2D {
   readonly #a = star(100, 100, 90)
   readonly #b = star(300, 100, 90)
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.fillPath(this.#a, '#f5c542', 'nonzero')
     gfx.fillPath(this.#b, '#7cc4ff', 'evenodd')
     gfx.strokePath(this.#a, { color: '#ffffff', width: 2 })
@@ -50,8 +51,9 @@ class NestedClips extends Node2D {
     .close()
   override onUpdate(dt: number): void {
     this.#t += dt
+    this.markNeedsPaint()
   }
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.save()
     gfx.translate(160, 160)
     gfx.rotate(this.#t * 0.5)
@@ -66,6 +68,28 @@ class NestedClips extends Node2D {
     gfx.fillRect(-300, 90, 600, 12, '#2d2d44')
     gfx.restore()
   }
+}
+
+/**
+ * Three overlapping discs under a node at half opacity. With `grouped` set the
+ * node is composited as one image, and without it each disc is translucent on
+ * its own so the overlaps show through.
+ */
+function overlappingDiscs(grouped: boolean): Node2D {
+  const node = new Node2D()
+  node.transform.alpha = 0.5
+  node.compositeGroup = grouped
+  const colors = ['#ff6b6b', '#4dd0e1', '#ffd93d']
+  for (let i = 0; i < colors.length; i++) {
+    const disc = new ShapeNode({
+      geometry: { kind: 'circle', radius: 60 },
+      fill: colors[i],
+    })
+    disc.transform.x = 70 + i * 55
+    disc.transform.y = 70 + (i % 2) * 40
+    node.add(disc)
+  }
+  return node
 }
 
 const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
@@ -117,6 +141,16 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     }
     rows._recomputeHasWork()
     scene.root.add(panel)
+
+    const plain = overlappingDiscs(false)
+    plain.transform.x = 640
+    plain.transform.y = 480
+    scene.root.add(plain)
+
+    const grouped = overlappingDiscs(true)
+    grouped.transform.x = 980
+    grouped.transform.y = 480
+    scene.root.add(grouped)
   })
   host.start()
   const stop = (): void => host.destroy()

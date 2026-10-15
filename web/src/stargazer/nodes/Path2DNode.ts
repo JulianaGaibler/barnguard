@@ -1,12 +1,9 @@
 import { Node2D } from '../scene/Node2D'
-import type { Camera } from '../camera/Camera'
+import { definePaintProps } from '../render/picture/paintProps'
+import type { Canvas } from '../render/picture/Canvas'
+import type { CanvasStrokeStyle } from '../render/picture/Picture'
 import type { Rect } from '../math/Rect'
-import type {
-  Gfx2D,
-  GfxFill,
-  GfxShadowStyle,
-  GfxStrokeStyle,
-} from '../render/gfx/Gfx2D'
+import type { GfxFill, GfxShadowStyle } from '../render/gfx/Gfx2D'
 import type { StrokeAlign } from '../render/gfx/strokeOutline'
 
 /**
@@ -28,8 +25,8 @@ export interface Path2DNodeOptions {
   lineWidth?: number
   /**
    * Border position relative to the path. Default `'center'`. Needs a closed
-   * path with a well-defined winding, see
-   * {@link import('../render/gfx/Gfx2D').GfxStrokeStyle.align}.
+   * path with a well-defined winding, see the `align` field of
+   * `GfxStrokeStyle`.
    */
   lineAlign?: StrokeAlign
   /**
@@ -82,9 +79,11 @@ export interface Path2DNodeOptions {
   hitRadiusWorld?: number
   /**
    * Precomputed AABB in _local_ coords (i.e. the path's own coord frame). Used
-   * both for the debug overlay AABB and for coarse hit-test rejection.
+   * for coarse hit-test rejection, for the debug overlay AABB, and to cull the
+   * node when it is off screen. A path has no bounds of its own, so without
+   * this the node is never culled.
    */
-  debugBounds?: Rect
+  bounds?: Rect
 }
 
 const EMPTY_SHADOWS: readonly GfxShadowStyle[] = []
@@ -113,68 +112,63 @@ const EMPTY_SHADOWS: readonly GfxShadowStyle[] = []
  *       stroke: '#fdf6e3',
  *       lineAlign: 'inside',
  *       hitMode: 'fill',
- *       debugBounds: entry.bounds,
+ *       bounds: entry.bounds,
  *     })
  *     scene.root.add(region)
  *   }
  */
 export class Path2DNode extends Node2D {
-  // Live mirrors of Path2DNodeOptions, documented there.
-  path: Path2D
-  fill: GfxFill | null
-  stroke: GfxFill | null
-  lineWidth: number
-  lineAlign: StrokeAlign
-  lineJoin?: CanvasLineJoin
-  lineCap?: CanvasLineCap
-  miterLimit?: number
-  exactJoins: boolean
-  strokeSpace: 'screen' | 'world'
-  shadow: GfxShadowStyle | readonly GfxShadowStyle[] | null
+  // Live mirrors of Path2DNodeOptions, documented there. The drawing fields
+  // are paint properties: writing a new value repaints the node, and a tween
+  // can drive the numeric ones. Replace `path` or `shadow` with a new object to
+  // change them, because changing one in place is not seen.
+  declare path: Path2D
+  declare fill: GfxFill | null
+  declare stroke: GfxFill | null
+  declare lineWidth: number
+  declare lineAlign: StrokeAlign
+  declare lineJoin: CanvasLineJoin | undefined
+  declare lineCap: CanvasLineCap | undefined
+  declare miterLimit: number | undefined
+  declare exactJoins: boolean
+  declare strokeSpace: 'screen' | 'world'
+  declare shadow: GfxShadowStyle | readonly GfxShadowStyle[] | null
   hitMode: Path2DHitMode
   hitRadiusWorld: number
+  readonly #geometryBounds: Rect | null
 
   constructor(opts: Path2DNodeOptions) {
     super(opts.id)
-    this.path = opts.path
-    this.fill = opts.fill ?? null
-    this.stroke = opts.stroke ?? null
-    this.lineWidth = opts.lineWidth ?? 1
-    this.lineAlign = opts.lineAlign ?? 'center'
-    this.lineJoin = opts.lineJoin
-    this.lineCap = opts.lineCap
-    this.miterLimit = opts.miterLimit
-    this.exactJoins = opts.exactJoins ?? false
-    this.strokeSpace = opts.strokeSpace ?? 'screen'
-    this.shadow = opts.shadow ?? null
+    definePaintProps(this, {
+      path: opts.path,
+      fill: (opts.fill ?? null) as GfxFill | null,
+      stroke: (opts.stroke ?? null) as GfxFill | null,
+      lineWidth: opts.lineWidth ?? 1,
+      lineAlign: opts.lineAlign ?? ('center' as StrokeAlign),
+      lineJoin: opts.lineJoin as CanvasLineJoin | undefined,
+      lineCap: opts.lineCap as CanvasLineCap | undefined,
+      miterLimit: opts.miterLimit as number | undefined,
+      exactJoins: opts.exactJoins ?? false,
+      strokeSpace: opts.strokeSpace ?? ('screen' as 'screen' | 'world'),
+      shadow: (opts.shadow ?? null) as
+        GfxShadowStyle | readonly GfxShadowStyle[] | null,
+    })
     this.hitMode = opts.hitMode ?? 'none'
     this.hitRadiusWorld = opts.hitRadiusWorld ?? 0
-    this.debugBounds = opts.debugBounds ?? null
+    this.#geometryBounds = opts.bounds ?? null
     if (this.hitMode !== 'none') this.hitEnabled = true
   }
 
-  /**
-   * How far outside `debugBounds` this node can paint: an outside-aligned
-   * border, or an outset shadow's own offset/blur/spread. Inset shadows never
-   * extend past the shape, so they don't contribute.
-   */
-  get cullMargin(): number {
-    let m = this.lineAlign === 'outside' ? this.lineWidth : 0
-    for (const sh of this.#shadowList()) {
-      if (sh.inset) continue
-      const offset = Math.hypot(sh.offsetX ?? 0, sh.offsetY ?? 0)
-      const sigma = (sh.blur ?? 0) * 0.5
-      const extent = offset + 3 * sigma + Math.max(0, sh.spread ?? 0)
-      if (extent > m) m = extent
-    }
-    return m
-  }
+  /** Holds a single shadow so `#shadowList` can return it without allocating. */
+  #oneShadow: GfxShadowStyle[] | null = null
 
   #shadowList(): readonly GfxShadowStyle[] {
     const shadow = this.shadow
     if (!shadow) return EMPTY_SHADOWS
     if (Array.isArray(shadow)) return shadow as readonly GfxShadowStyle[]
-    return [shadow as GfxShadowStyle]
+    const one = (this.#oneShadow ??= [shadow as GfxShadowStyle])
+    one[0] = shadow as GfxShadowStyle
+    return one
   }
 
   /** `style`'s `strokeSpace`-relative lengths, scaled to local units by `s`. */
@@ -189,10 +183,14 @@ export class Path2DNode extends Node2D {
     }
   }
 
-  #strokeStyle(s: number): GfxStrokeStyle {
+  /** A screen-space width resolves at replay, so it needs no camera read. */
+  #strokeStyle(): CanvasStrokeStyle {
     return {
       color: this.stroke as GfxFill,
-      width: this.lineWidth * s,
+      width:
+        this.strokeSpace === 'world'
+          ? this.lineWidth
+          : { screen: this.lineWidth },
       align: this.lineAlign,
       join: this.lineJoin,
       cap: this.lineCap,
@@ -201,9 +199,16 @@ export class Path2DNode extends Node2D {
     }
   }
 
-  override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
-    const s = this.strokeSpace === 'world' ? 1 : camera.strokeSpaceScale()
+  override paint(gfx: Canvas): void {
     const shadows = this.#shadowList()
+    // Shadow lengths are not screen-aware, so a node with a shadow in screen
+    // space reads the screen scale, and repaints when it changes. So does one
+    // with an outside-aligned border, whose culling box grows by its width.
+    const s =
+      (shadows.length > 0 || this.lineAlign === 'outside') &&
+      this.strokeSpace !== 'world'
+        ? gfx.screenScale()
+        : 1
     // CSS paint order: outset shadows, fill, inset shadows, border.
     for (const sh of shadows) {
       if (!sh.inset) gfx.shadowPath2D(this.path, this.#scaleShadow(sh, s))
@@ -212,7 +217,35 @@ export class Path2DNode extends Node2D {
     for (const sh of shadows) {
       if (sh.inset) gfx.shadowPath2D(this.path, this.#scaleShadow(sh, s))
     }
-    if (this.stroke) gfx.strokePath2D(this.path, this.#strokeStyle(s))
+    if (this.stroke) gfx.strokePath2D(this.path, this.#strokeStyle())
+    this.#cullBounds(shadows, s)
+  }
+
+  /**
+   * A path reports no bounds, so the node's culling box is the `bounds` option
+   * grown by how far the node can paint past it: an outside-aligned border, or
+   * an outset shadow's offset, blur and spread. Inset shadows stay inside.
+   */
+  #cullBounds(shadows: readonly GfxShadowStyle[], s: number): void {
+    const b = this.#geometryBounds
+    if (!b) {
+      this.boundsOverride = null
+      return
+    }
+    let m = this.lineAlign === 'outside' ? this.lineWidth : 0
+    for (const sh of shadows) {
+      if (sh.inset) continue
+      const offset = Math.hypot(sh.offsetX ?? 0, sh.offsetY ?? 0)
+      const extent = offset + 1.5 * (sh.blur ?? 0) + Math.max(0, sh.spread ?? 0)
+      if (extent > m) m = extent
+    }
+    if (this.strokeSpace !== 'world') m *= s
+    this.boundsOverride = {
+      x: b.x - m,
+      y: b.y - m,
+      width: b.width + 2 * m,
+      height: b.height + 2 * m,
+    }
   }
 
   override hitTest(
@@ -239,8 +272,8 @@ export class Path2DNode extends Node2D {
     }
 
     // Coarse AABB reject before the (relatively expensive) path test.
-    if (this.debugBounds) {
-      const b = this.debugBounds
+    if (this.#geometryBounds) {
+      const b = this.#geometryBounds
       const slop = touchSlopWorld
       if (
         localX < b.x - slop ||

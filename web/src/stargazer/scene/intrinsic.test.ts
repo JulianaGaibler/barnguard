@@ -27,6 +27,30 @@ describe('intrinsic nodes are skipped by content scans', () => {
     expect(tree.has3D).toBe(true)
   })
 
+  it('has3D follows 3D nodes through nesting, removal and intrinsic changes', () => {
+    const tree = new SceneTree(new GroupNode('root'))
+    const group = new GroupNode('group')
+    const mesh = new Node3D('mesh')
+    group.add(mesh)
+    // A subtree built before it joins the tree counts once it joins.
+    expect(tree.has3D).toBe(false)
+    tree.root.add(group)
+    expect(tree.has3D).toBe(true)
+
+    mesh.intrinsic = true
+    expect(tree.has3D).toBe(false)
+    mesh.intrinsic = false
+    expect(tree.has3D).toBe(true)
+
+    tree.root.remove(group)
+    expect(tree.has3D).toBe(false)
+    // Re-adding a removed subtree counts it again, once.
+    tree.root.add(group)
+    expect(tree.has3D).toBe(true)
+    mesh.destroy()
+    expect(tree.has3D).toBe(false)
+  })
+
   it('destroyChildren preserves intrinsic children, destroys the rest', () => {
     const tree = new SceneTree(new GroupNode('root'))
     const content = new Node2D('content')

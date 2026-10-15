@@ -14,6 +14,14 @@ export const de: CoreMessages = {
     resumeAriaLabel: 'Spiel fortsetzen',
     languageToggleAriaLabel: 'Sprache wechseln',
   },
+  keyboard: {
+    close: 'Tastatur schließen',
+    enter: 'Eingabe',
+    space: 'Leertaste',
+    backspace: 'Löschen',
+    symbols: '?123',
+    letters: 'ABC',
+  },
   print: {
     printButton: 'Etikett drucken',
     printing: 'Wird gedruckt …',

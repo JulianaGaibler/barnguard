@@ -13,6 +13,7 @@ import type {
 import type { SolidStrokeStyle } from '../Gfx2D'
 import { flattenQuadratic } from '../../../assets/SvgPathContours'
 import { RingStream } from '../RingStream'
+import { RetainedCache, type RetainedEntry } from '../RetainedCache'
 import { packColor, resolveDash } from '../packing'
 import {
   CURVE_FLATTEN_MAX_POINTS,
@@ -34,13 +35,22 @@ import {
   warmupBlendPipelines,
 } from './programCommon'
 import type { ShaderReflection } from '../GfxDevice'
-import strokeWgsl from '../shaders/stroke.wgsl?raw'
+import strokeWgsl from '../shaders/stroke.gen.wgsl?raw'
 import strokeVertSrc from '../shaders/stroke.gen.vert.glsl?raw'
 import strokeFragSrc from '../shaders/stroke.gen.frag.glsl?raw'
 import strokeReflect from '../shaders/stroke.reflect.json'
 
 /** One `f32` plus padding to the 16-byte uniform block alignment. */
 const STROKE_UBO_BYTES = 16
+
+/** A stroke's packed instances, kept in a buffer of their own. */
+interface StrokeEntry extends RetainedEntry {
+  buffer: import('../GfxDevice').VBuffer
+  /** Words of instance data in `buffer`. */
+  words: number
+  /** Device-pixel box the instances can touch. */
+  bounds: Float64Array
+}
 
 export class StrokeProgram implements GpuProgram {
   readonly kind = 'stroke' as const
@@ -54,6 +64,10 @@ export class StrokeProgram implements GpuProgram {
   #fringeBind!: BindGroup
   /** `coreOnly = 1`: only near-full coverage, for the first of the two passes. */
   #coreBind!: BindGroup
+
+  /** Large strokes that repeat from frame to frame, packed once. */
+  cache!: RetainedCache<StrokeEntry>
+  #device!: GfxDevice
 
   get stream(): RingStream {
     return this.#stream
@@ -72,6 +86,14 @@ export class StrokeProgram implements GpuProgram {
       },
       reflection: strokeReflect as ShaderReflection,
       label: 'stroke',
+    })
+    this.#device = device
+    // A rebuilt device has already lost the old buffers.
+    this.cache?.clear(false)
+    this.cache = new RetainedCache<StrokeEntry>({
+      name: 'Strokes',
+      idleFrames: 120,
+      budgetBytes: 16 * 1024 * 1024,
     })
     this.#stream = new RingStream(
       device,
@@ -131,6 +153,54 @@ export class StrokeProgram implements GpuProgram {
           ]
         : [],
     })
+  }
+
+  /**
+   * Upload `data`, instances just packed into the stream, to a buffer of their
+   * own and keep it in the cache under `key`.
+   */
+  keep(key: string, data: Float32Array, bounds: Float64Array): StrokeEntry {
+    const device = this.#device
+    const buffer = device.createVertexBuffer(data.byteLength)
+    device.updateBufferSubData(buffer, 0, data)
+    return this.cache.add(key, {
+      buffer,
+      words: data.length,
+      bounds,
+      bytes: data.byteLength,
+      release: () => device.deleteBuffer(buffer),
+    })
+  }
+
+  runBounds(run: DrawRun, out: Float64Array): boolean {
+    if (run.instances) {
+      out.set(run.instances.bounds)
+      return true
+    }
+    const f = this.#stream.floatView
+    const words = STROKE_INSTANCE_STRIDE / 4
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let w = run.startWord; w < run.endWord; w += words) {
+      // The vertex stage reaches half the width and a pixel past each end.
+      const ext = f[w + 5] * 0.5 + 1
+      const x0 = Math.min(f[w], f[w + 2]) - ext
+      const x1 = Math.max(f[w], f[w + 2]) + ext
+      const y0 = Math.min(f[w + 1], f[w + 3]) - ext
+      const y1 = Math.max(f[w + 1], f[w + 3]) + ext
+      if (x0 < minX) minX = x0
+      if (x1 > maxX) maxX = x1
+      if (y0 < minY) minY = y0
+      if (y1 > maxY) maxY = y1
+    }
+    if (!(minX <= maxX && minY <= maxY)) return false
+    out[0] = minX
+    out[1] = minY
+    out[2] = maxX
+    out[3] = maxY
+    return true
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {

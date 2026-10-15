@@ -1,0 +1,10 @@
+{
+  "attributes": [],
+  "uniformBlocks": [],
+  "samplers": [
+    {
+      "binding": 0,
+      "glslName": "_group_0_binding_0_fs"
+    }
+  ]
+}

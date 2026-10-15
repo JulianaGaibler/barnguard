@@ -16,6 +16,7 @@ import type {
   StencilFaceState,
   StencilOp,
   TargetPixelFormat,
+  TexturePixelFormat,
   VertexFormat,
 } from '../GfxDevice'
 import {
@@ -39,21 +40,28 @@ export function vertexFormatToGPU(f: VertexFormat): GPUVertexFormat {
       return 'unorm8x4'
     case 'uint8x4':
       return 'uint8x4'
+    case 'uint32':
+      return 'uint32'
   }
 }
 
 /**
- * Color-target format -> WebGPU texture format. The swapchain uses the browser's
- * preferred canvas format instead, so present-time targets pass that through.
+ * Color-target format -> WebGPU texture format. `'canvas'` is the format the
+ * canvas context was configured with, which the caller passes in.
  */
-export function colorFormatToGPU(f: ColorFormat): GPUTextureFormat {
+export function colorFormatToGPU(
+  f: ColorFormat,
+  canvasFormat: GPUTextureFormat = 'rgba8unorm',
+): GPUTextureFormat {
+  if (f === 'canvas') return canvasFormat
   return f === 'srgb' ? 'rgba8unorm-srgb' : 'rgba8unorm'
 }
 
 /**
- * Pixel-layout override -> WebGPU texture format, for a non-color-managed target
- * (a coverage mask). `'rgba8'` defers to {@link colorFormatToGPU}'s `'linear'`
- * case rather than being a case of its own, so the two stay in sync.
+ * Pixel-layout override -> WebGPU texture format, for a non-color-managed
+ * target (a coverage mask). `'rgba8'` defers to {@link colorFormatToGPU}'s
+ * `'linear'` case rather than being a case of its own, so the two stay in
+ * sync.
  */
 export function targetPixelFormatToGPU(f: TargetPixelFormat): GPUTextureFormat {
   switch (f) {
@@ -63,6 +71,33 @@ export function targetPixelFormatToGPU(f: TargetPixelFormat): GPUTextureFormat {
       return 'r8unorm'
     case 'rg8':
       return 'rg8unorm'
+  }
+}
+
+/**
+ * A sampled texture's pixel layout -> WebGPU texture format. `srgb` applies to
+ * `'rgba8'` only.
+ */
+export function texturePixelFormatToGPU(
+  f: TexturePixelFormat,
+  srgb: boolean,
+): GPUTextureFormat {
+  if (f === 'rgba16f') return 'rgba16float'
+  if (f === 'rgba8' && srgb) return 'rgba8unorm-srgb'
+  return targetPixelFormatToGPU(f)
+}
+
+/** Bytes per texel of a sampled texture's pixel layout. */
+export function texturePixelBytes(f: TexturePixelFormat): number {
+  switch (f) {
+    case 'rgba8':
+      return 4
+    case 'r8':
+      return 1
+    case 'rg8':
+      return 2
+    case 'rgba16f':
+      return 8
   }
 }
 
@@ -126,15 +161,18 @@ export function blendToGPU(mode: GfxBlendMode): GPUBlendState | undefined {
 const COLOR_WRITE_ALL = 0xf
 
 /**
- * Color-target state -> WebGPU color target. A `write` of `false` becomes a zero
- * write mask, which keeps the fragment stage and its depth/stencil side effects
- * while leaving the color attachment untouched.
+ * Color-target state -> WebGPU color target. A `write` of `false` becomes a
+ * zero write mask, which keeps the fragment stage and its depth/stencil side
+ * effects while leaving the color attachment untouched.
  */
-export function colorTargetToGPU(color: ColorState): GPUColorTargetState {
+export function colorTargetToGPU(
+  color: ColorState,
+  canvasFormat: GPUTextureFormat = 'rgba8unorm',
+): GPUColorTargetState {
   return {
     format: color.pixelFormat
       ? targetPixelFormatToGPU(color.pixelFormat)
-      : colorFormatToGPU(color.format),
+      : colorFormatToGPU(color.format, canvasFormat),
     blend: blendToGPU(color.blend),
     writeMask: color.write === false ? 0 : COLOR_WRITE_ALL,
   }
@@ -261,6 +299,15 @@ export function topologyToGPU(p: PrimitiveTopology): GPUPrimitiveTopology {
 /** Index element width -> WebGPU index format. */
 export function indexTypeToGPU(t: IndexType): GPUIndexFormat {
   return t === 'u32' ? 'uint32' : 'uint16'
+}
+
+/**
+ * A sample count WebGPU accepts. A render target takes 1 or 4 samples and
+ * rejects every other count, so 2 and 3 become 4 and anything above 4 is
+ * capped.
+ */
+export function sampleCountToGPU(samples: number): 1 | 4 {
+  return samples >= 2 ? 4 : 1
 }
 
 /** Round a byte size up to a multiple of 4 (WebGPU buffer size requirement). */

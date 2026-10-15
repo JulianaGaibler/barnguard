@@ -1,11 +1,16 @@
+import {
+  AdaptiveQuality,
+  type QualitySnapshot,
+  type QualityTier,
+} from '../render/AdaptiveQuality'
+import { QualityControl } from '../render/QualityControl'
+import { tierGroup } from '../render/qualityGroups'
 import { createTicker, type Ticker } from './Ticker'
 import type { Renderer } from '../render/Renderer'
 import { createEmitter, type Emitter } from '../events/Emitter'
 import type { EngineEvents } from '../events/EngineEvents'
-import type { Node } from '../scene/Node'
 import type { SceneTree } from '../scene/SceneTree'
 import type { Node2D } from '../scene/Node2D'
-import { walkTree } from '../scene/traverse'
 import type { CameraNode2D } from '../camera/CameraNode2D'
 import type { CameraNode3D } from '../camera/CameraNode3D'
 import type { CameraView2D } from '../camera/CameraView2D'
@@ -28,6 +33,11 @@ import type { PostProcessPipeline } from '../render/postfx/PostProcessPipeline'
 import type { AmbientOcclusion } from '../render/gfx/ao/AmbientOcclusion'
 import type { GfxDevice } from '../render/gfx/GfxDevice'
 import { EngineStageManager } from './EngineStageManager'
+import {
+  SceneCapture,
+  type CaptureBlobOptions,
+  type CaptureOptions,
+} from './SceneCapture'
 import type { PhysicsWorld, PhysicsWorldConfig } from '../physics/PhysicsWorld'
 import { DomTransformSync } from '../dom/DomTransformSync'
 import { AccessibilityTree } from '../a11y/AccessibilityTree'
@@ -59,6 +69,13 @@ export interface EngineOptions {
    * renderbuffer resolved on present. Default 4. Secondary stages inherit.
    */
   msaaSamples?: number
+  /**
+   * Draw the primary stage's frame in the canvas's own format, so its last pass
+   * writes the canvas with no copy afterwards. Default true. `false` keeps the
+   * frame in a target of its own that is copied to the canvas, which lets the
+   * two be compared on a given GPU.
+   */
+  directPresent?: boolean
   /** Initial 3D rendering-quality settings (shadow resolution, anisotropy, …). */
   quality?: RenderQualityOptions
   /** Initial 3D distance-fog settings. Off unless `enabled` is set. */
@@ -150,6 +167,13 @@ export class Engine {
    * 60 Hz reads 1-10 ms here despite the 16.67 ms rAF interval.
    */
   lastFrameWorkSec = 0
+  readonly #adaptiveQuality = new AdaptiveQuality()
+  /**
+   * Per-setting control of the quality the engine lowers on its own: each
+   * setting is auto or held at a value, and the held ones can be saved for the
+   * screen. See {@link QualityControl}.
+   */
+  readonly qualityControl: QualityControl
 
   /**
    * The debug controller, set by `createEngineHost` right after construction.
@@ -165,7 +189,18 @@ export class Engine {
 
   readonly #stageManager: EngineStageManager
   readonly #physicsWorlds = new Set<RegisteredPhysicsWorld>()
+  /**
+   * The registered worlds as an array, replaced on every change, so the fixed
+   * step iterates without copying and a world unregistered mid-step does not
+   * shift the ones after it.
+   */
+  #worldList: readonly RegisteredPhysicsWorld[] = []
   readonly #layoutRoots = new Set<LayoutRoot>()
+  readonly #capture = new SceneCapture({
+    attachStage: (canvas, opts) => this.attachStage(canvas, opts),
+    detachStage: (stage) => this.detachStage(stage),
+    runLayout: (tree) => this.#runLayout(tree),
+  })
   #dom: DomTransformSync | null = null
   #a11y: AccessibilityTree | null = null
   readonly #disposeCallbacks: Array<() => void> = []
@@ -192,6 +227,7 @@ export class Engine {
       transparent: opts.transparent ?? false,
       interactive: true,
       msaaSamples: this.msaaSamples,
+      directPresent: opts.directPresent,
       physics: opts.physics,
       gpuDevice: opts.gpuDevice,
       renderScale: opts.renderScale,
@@ -205,6 +241,7 @@ export class Engine {
         })
       },
     })
+    this.qualityControl = new QualityControl(this)
     this.#stageManager = new EngineStageManager(opts.canvas)
     this.animation = new Animator()
 
@@ -274,14 +311,16 @@ export class Engine {
       label: opts.label ?? 'world',
     }
     this.#physicsWorlds.add(entry)
+    this.#worldList = [...this.#physicsWorlds]
     return () => {
       this.#physicsWorlds.delete(entry)
+      this.#worldList = [...this.#physicsWorlds]
     }
   }
 
   /** Every physics world the engine currently steps. */
   get physicsWorlds(): readonly RegisteredPhysicsWorld[] {
-    return [...this.#physicsWorlds]
+    return this.#worldList
   }
 
   /**
@@ -300,6 +339,60 @@ export class Engine {
   /** Every {@link LayoutRoot} the engine currently drives. */
   get layoutRoots(): readonly LayoutRoot[] {
     return [...this.#layoutRoots]
+  }
+
+  /** Run the dirty layout roots, all of them or only those in `tree`. */
+  #runLayout(tree?: SceneTree): void {
+    for (const root of this.#layoutRoots) {
+      if (!tree || root.scene === tree) root._runIfDirty()
+    }
+  }
+
+  /**
+   * Render a scene to an image. `build` adds the scene to a root where one unit
+   * is one pixel, and the result is `width` × `height` pixels whatever the
+   * display's pixel ratio. Captures render outside the frame loop, so they also
+   * work while the engine is stopped. They run one at a time in call order.
+   *
+   * @remarks
+   *   Every capture shares one inactive secondary stage, created on first use and
+   *   detached after 30 seconds without a capture. See
+   *   {@link CaptureOptions.settleFrames} for how many frames a capture
+   *   renders.
+   * @example
+   *   const bitmap = await engine.capture({
+   *     width: 256,
+   *     height: 128,
+   *     clearColor: '#ffffff',
+   *     build: (root) => {
+   *       root.add(new TextNode({ text: 'Hello', y: 80, fontSize: 48 }))
+   *     },
+   *   })
+   */
+  capture(opts: CaptureOptions): Promise<ImageBitmap> {
+    return this.#capture.capture(opts)
+  }
+
+  /**
+   * {@link capture}, encoded as an image file such as a PNG or a JPEG.
+   *
+   * @example
+   *   const jpeg = await engine.captureBlob({
+   *     width: 400,
+   *     height: 400,
+   *     type: 'image/jpeg',
+   *     quality: 0.9,
+   *     clearColor: '#ffffff',
+   *     build: (root) => root.add(card),
+   *   })
+   */
+  captureBlob(opts: CaptureBlobOptions): Promise<Blob> {
+    return this.#capture.captureBlob(opts)
+  }
+
+  /** The stage captures render through while it is alive, else null. */
+  get captureStage(): Stage | null {
+    return this.#capture.stage
   }
 
   // Convenience getters onto the primary stage: `engine.renderer`,
@@ -478,6 +571,7 @@ export class Engine {
     this.#a11y = null
     this.debug?.destroy()
     this.debug = null
+    this.#capture.dispose()
     // Dispose secondaries first so cascade order is deterministic. Each
     // Stage.dispose() tears down its own InputSystem (if any).
     this.#stageManager.disposeAll()
@@ -527,7 +621,7 @@ export class Engine {
     //      propagation so arranged positions land this frame. Runs even while
     //      paused (a resize during a debug freeze still reflows). Each root is a
     //      no-op unless dirty, and the set is empty when no layout is in use.
-    for (const root of this.#layoutRoots) root._runIfDirty()
+    this.#runLayout()
 
     // 5. Transform propagation, every active stage, always. Idempotent when
     //    nothing changed. Needed even while paused so debug-camera pans reflect
@@ -552,6 +646,9 @@ export class Engine {
     // listener (DebugController.frameStats.push) reads a current value.
     this.lastFrameWorkSec = (performance.now() - workT0) / 1000
 
+    this.qualityControl.enforce()
+    if (this.quality.adaptive) this.#adaptQuality()
+
     // 7. Emit frame.
     this.events.emit('frame', {
       time: this.ticker.time,
@@ -560,13 +657,96 @@ export class Engine {
     })
   }
 
+  /**
+   * Lower the primary stage's quality a tier at a time when the GPU is the
+   * bottleneck, following the adaptive quality ladder.
+   */
+  #adaptQuality(): void {
+    const stage = this.primaryStage
+    const tiers = this.#adaptiveQuality.update(
+      this.ticker.rawDt,
+      this.lastFrameWorkSec,
+      this.#qualitySnapshot(stage),
+    )
+    if (tiers === null) return
+    for (const tier of tiers) {
+      this.qualityControl.noteLowered(tierGroup(tier.kind))
+    }
+    const frameMs = Math.round(this.ticker.rawDt * 1000)
+    const what = tiers.map((tier) => this.#applyTier(stage, tier))
+    console.info(
+      `Stargazer: the GPU is the bottleneck (${frameMs} ms frames), ${what.join(', ')}`,
+    )
+    const q = this.quality
+    const ao = stage.peekAmbientOcclusion()
+    this.events.emit('qualitychange', {
+      msaa: stage.getMsaaSamples(),
+      renderScale: stage.renderScale,
+      shadows: q.meshShadowsEnabled ? q.shadowSoftness : 0,
+      ao: ao?.enabled ? ao.preset : 'off',
+      aoResolution: ao?.resolution ?? 'full',
+      steps: tiers.map((tier) => tier.kind),
+      frameMs,
+    })
+  }
+
+  #qualitySnapshot(stage: Stage): QualitySnapshot {
+    const q = this.quality
+    const ao = stage.peekAmbientOcclusion()
+    return {
+      samples: stage.getMsaaSamples(),
+      scale: stage.renderScale,
+      webgpu: stage.backend === 'webgpu',
+      has3D: stage.tree.has3D,
+      shadows: q.meshShadowsEnabled,
+      shadowSoftness: q.shadowSoftness,
+      ao: ao?.enabled ?? false,
+      aoPreset: ao?.preset ?? 'medium',
+      aoResolution: ao?.resolution ?? 'full',
+      maxFps: this.ticker.maxFps,
+      pinned: this.qualityControl.pinned(),
+    }
+  }
+
+  /** Apply one tier and describe it for the log. */
+  #applyTier(stage: Stage, tier: QualityTier): string {
+    const q = this.quality
+    const ao = stage.peekAmbientOcclusion()
+    switch (tier.kind) {
+      case 'msaa':
+        stage.setMsaaSamples(tier.samples)
+        return `MSAA lowered to ${tier.samples}x`
+      case 'scale':
+        stage.renderScale = tier.scale
+        return `render scale lowered to ${tier.scale}`
+      case 'aoResolution':
+        if (ao) ao.resolution = tier.resolution
+        return `ambient occlusion at ${tier.resolution} resolution`
+      case 'aoPreset':
+        if (ao) ao.preset = tier.preset
+        return `ambient occlusion set to ${tier.preset}`
+      case 'ao':
+        if (ao) ao.enabled = false
+        return 'ambient occlusion turned off'
+      case 'shadowSoftness':
+        q.shadowSoftness = tier.taps
+        return `shadow softness lowered to ${tier.taps} taps`
+      case 'shadows':
+        q.meshShadowsEnabled = false
+        return 'shadows turned off'
+    }
+  }
+
   #walkUpdate(stage: Stage, dt: number): void {
     const marks = this.perfMarks
-    // One walk over the unified tree. Every field read (`_hasUpdateWork`,
-    // `onUpdate`, `behaviors`) is on the common `Node` base, so 2D and 3D nodes
-    // update through the same visitor.
-    const visit = (node: Node): void => {
-      if (!node._hasUpdateWork) return
+    const tree = stage.tree
+    // Only the nodes with update work, in tree order. A node destroyed, moved
+    // to another tree or stripped of its work earlier in this pass is skipped.
+    // One added during the pass first updates next frame.
+    const nodes = tree.getUpdateNodes()
+    for (let n = 0; n < nodes.length; n++) {
+      const node = nodes[n]
+      if (!node._hasUpdateWork || node.owner !== tree) continue
       const id = marks ? node.id : ''
       const startMark = marks ? `update-${id}:start` : ''
       if (marks) performance.mark(startMark)
@@ -581,7 +761,6 @@ export class Engine {
         performance.measure(`update ${id}`, startMark, endMark)
       }
     }
-    walkTree(stage.tree.root, visit)
   }
 
   /**
@@ -620,11 +799,11 @@ export class Engine {
   #fixedStep(fdt: number): void {
     if (this.#_paused) return
     // Step every registered world before any scene walk so game `onFixedStep`
-    // hooks and behaviors observe post-step body state this tick. Iterate a
-    // snapshot. A collision callback may destroy a node, which unregisters its
-    // world mid-step, and mutating the live Set while iterating would skip
-    // entries.
-    for (const entry of [...this.#physicsWorlds]) entry.world.step(fdt)
+    // hooks and behaviors observe post-step body state this tick. A collision
+    // callback may destroy a node, which unregisters its world mid-step. That
+    // replaces the list rather than changing the one iterated here.
+    const worlds = this.#worldList
+    for (let i = 0; i < worlds.length; i++) worlds[i].world.step(fdt)
 
     // Every stage (primary + secondaries) walks its own scene tree for
     // `onFixedStep`. Behaviors on secondary stages, e.g. the tutorial
@@ -638,14 +817,16 @@ export class Engine {
   }
 
   #stepScene(stage: Stage, fdt: number): void {
-    const visit = (node: Node): void => {
-      if (!node._hasFixedStepWork) return
+    const tree = stage.tree
+    const nodes = tree.getFixedStepNodes()
+    for (let n = 0; n < nodes.length; n++) {
+      const node = nodes[n]
+      if (!node._hasFixedStepWork || node.owner !== tree) continue
       node.onFixedStep?.(fdt)
       const behaviors = node.behaviors
       for (let i = 0; i < behaviors.length; i++) {
         behaviors[i].onFixedStep?.(fdt)
       }
     }
-    walkTree(stage.tree.root, visit)
   }
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayName } from '@src/core/leaderboard/displayName'
   import { activeDisplay } from '@src/core/display'
   import {
     deleteLeaderboardEntry,
@@ -84,7 +85,7 @@
             {#if showGameLabel}
               <span class="lb-game">{row.entry.display}</span>
             {/if}
-            <span class="lb-name">{row.entry.name.toUpperCase()}</span>
+            <span class="lb-name">{displayName(row.entry.name)}</span>
             <span class="lb-score">{row.entry.score}</span>
           </span>
           <ConfirmButton

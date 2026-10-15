@@ -16,7 +16,30 @@ export type { NodeOwner, NodeEvents, NodeKind } from '../scene/Node'
 export { GroupNode } from '../scene/GroupNode'
 export { SceneTree } from '../scene/SceneTree'
 export { Node2D } from '../scene/Node2D'
-export type { RenderLayer, PointerHandlers } from '../scene/Node2D'
+export { Layer } from '../scene/Layer'
+export type {
+  LayerCache,
+  LayerOptions,
+  LayerRegion,
+  LayerSpace,
+} from '../scene/Layer'
+export { layerOf, viewFor } from '../scene/viewFor'
+export type { ViewDebug } from '../scene/viewFor'
+export type { PointerHandlers } from '../scene/Node2D'
+export type { Canvas } from '../render/picture/Canvas'
+export type {
+  CanvasStrokeStyle,
+  ScreenWidth,
+  Versioned,
+} from '../render/picture/Picture'
+export { Picture } from '../render/picture/Picture'
+export { definePaintProps } from '../render/picture/paintProps'
+export {
+  paintCalls,
+  paintPicture,
+  type PaintCall,
+} from '../render/picture/paintCalls'
+export { VersionedRef } from '../render/picture/VersionedRef'
 export { Node3D } from '../scene/Node3D'
 export type { Node3DTweenTo } from '../scene/Node3D'
 export { Behavior } from '../scene/Behavior'

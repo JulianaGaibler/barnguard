@@ -27,7 +27,6 @@ export class IndicatorNode extends Node2D {
     this.#color = color
     this.#cx = cx
     this.#cy = cy
-    this.renderLayer = 'dynamic'
   }
 
   #radiusFor(size: OrbSize): number {

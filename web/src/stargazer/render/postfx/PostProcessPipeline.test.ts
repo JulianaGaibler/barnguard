@@ -499,40 +499,50 @@ describe('DualKawaseBlur', () => {
 })
 
 describe('Stage post-process wiring', () => {
-  /** Render frames (draining microtasks) until the stage presents once. */
-  async function renderUntilPresent(
+  /** Render frames (draining microtasks) until `done` holds for a frame. */
+  async function renderUntil(
     engine: Engine,
     device: MockGfxDevice,
+    done: () => boolean,
   ): Promise<void> {
     for (let i = 0; i < 100; i++) {
       device.reset()
       engine.primaryStage.render(0.016)
-      if (device.presents.length > 0) return
+      if (done()) return
       await Promise.resolve()
     }
   }
 
-  it('uses the direct present path when no effect is active', async () => {
+  it('resolves the frame straight into the canvas when no effect is active', async () => {
     const device = new MockGfxDevice()
     const canvas = document.createElement('canvas')
     const engine = new Engine({ canvas, gpuDevice: device })
-    await renderUntilPresent(engine, device)
-    // GpuGfx self-presents the resolved screen target.
-    expect(device.presents).toHaveLength(1)
-    expect(device.presents[0].source.samples).toBe(1)
+    const canvasTarget = device.canvasTarget()
+    await renderUntil(engine, device, () =>
+      device.passes.some((p) => p.desc.color?.resolveTarget === canvasTarget),
+    )
+    expect(
+      device.passes.some((p) => p.desc.color?.resolveTarget === canvasTarget),
+    ).toBe(true)
+    expect(device.presents).toHaveLength(0)
     engine.destroy()
   })
 
-  it('routes through the pipeline once an effect is added', async () => {
+  it('has the last effect pass write the canvas once an effect is added', async () => {
     const device = new MockGfxDevice()
     const canvas = document.createElement('canvas')
     const engine = new Engine({ canvas, gpuDevice: device })
     engine.postProcess.add(new Vignette())
-    await renderUntilPresent(engine, device)
-    // The pipeline (or its warming fallback) presents a single-sample target.
-    // GpuGfx did not self-present.
-    expect(device.presents).toHaveLength(1)
-    expect(device.presents[0].source.samples).toBe(1)
+    const canvasTarget = device.canvasTarget()
+    await renderUntil(engine, device, () =>
+      device.passes.some((p) => p.desc.color?.target === canvasTarget),
+    )
+    // The scene went to its own target for the pipeline to read, and the
+    // pipeline's last pass drew the canvas, so nothing was copied there.
+    expect(
+      device.passes.some((p) => p.desc.color?.target === canvasTarget),
+    ).toBe(true)
+    expect(device.presents).toHaveLength(0)
     engine.destroy()
   })
 })

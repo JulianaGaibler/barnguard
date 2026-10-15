@@ -76,6 +76,18 @@ export interface VBuffer {
   readonly __gfxBuffer: unique symbol
 }
 
+/**
+ * A persistent array of `vec4<f32>` that a shader reads by index, the
+ * backend-neutral form of a read-only storage buffer. WebGPU stores it in a
+ * storage buffer, WebGL2 in an `RGBA32F` texture (see `dataTable.ts`). A shader
+ * reads element `i` through the generated helper for its backend.
+ */
+export interface DataTable {
+  readonly __gfxDataTable: unique symbol
+  /** Capacity in `vec4` elements. */
+  readonly capacity: number
+}
+
 export interface Texture {
   readonly __gfxTexture: unique symbol
   readonly width: number
@@ -173,8 +185,8 @@ export interface RenderTarget {
 
 /**
  * Reflection metadata pairing the backend-neutral binding numbers used in
- * {@link VertexBufferLayout} / {@link BindGroupLayoutEntry} with the concrete
- * names a backend needs. WebGL2 reads this to `bindAttribLocation`, resolve
+ * `VertexBufferLayout` / `BindGroupLayoutEntry` with the concrete names a
+ * backend needs. WebGL2 reads this to `bindAttribLocation`, resolve
  * `getUniformBlockIndex`, and set sampler units by name, so naga's mangled GLSL
  * identifiers never leak into calling code. WebGPU ignores it (WGSL
  * `@location`/`@group`/`@binding` are authoritative). Std140 member offsets
@@ -223,7 +235,14 @@ export interface VertexAttribute {
 }
 
 export type VertexFormat =
-  'float32' | 'float32x2' | 'float32x3' | 'float32x4' | 'unorm8x4' | 'uint8x4'
+  | 'float32'
+  | 'float32x2'
+  | 'float32x3'
+  | 'float32x4'
+  | 'unorm8x4'
+  | 'uint8x4'
+  /** One unsigned integer, read as `u32` by the shader. */
+  | 'uint32'
 
 /**
  * Layout of one vertex buffer feeding a pipeline. `stepMode: 'instance'`
@@ -251,6 +270,12 @@ export type BindingType =
    * The texture comes from {@link GfxDevice.depthTexture}.
    */
   | 'texture-2d-depth'
+  /**
+   * A {@link DataTable} read by the vertex or fragment stage. WebGPU binds a
+   * read-only storage buffer, WebGL2 an `RGBA32F` texture sampled with
+   * `texelFetch` (nearest filtering, no companion sampler).
+   */
+  | 'data-table'
   /**
    * A storage texture a compute shader writes (and optionally reads). No
    * companion sampler. WebGPU only. Never appears on a WebGL2 bind group.
@@ -286,6 +311,7 @@ export interface BindGroupLayoutEntry {
 export type BindingResource =
   | { uniformBuffer: UBuffer; offset?: number; size?: number }
   | { texture: Texture }
+  | { dataTable: DataTable }
   | { shadowArray: ShadowArray }
   | { shadowCube: ShadowCube }
 
@@ -347,8 +373,14 @@ export type GfxBackend = 'webgpu' | 'webgl2'
 
 export type PrimitiveTopology = 'triangle-list' | 'line-list'
 
-/** Color-target format: `'linear'` -> `RGBA8`, `'srgb'` -> sRGB-encoded RGBA8. */
-export type ColorFormat = 'linear' | 'srgb'
+/**
+ * Color-target format: `'linear'` -> `RGBA8`, `'srgb'` -> sRGB-encoded RGBA8.
+ * `'canvas'` is the canvas's own 8-bit format, linear like `'linear'`. WebGPU
+ * canvases prefer BGRA on some platforms, and a pass can only resolve straight
+ * into a target of the same format, so the frame a stage presents is drawn in
+ * this one.
+ */
+export type ColorFormat = 'linear' | 'srgb' | 'canvas'
 
 /**
  * Color-attachment pixel layout, orthogonal to {@link ColorFormat} (a color
@@ -359,6 +391,13 @@ export type ColorFormat = 'linear' | 'srgb'
  * R8/RG8 target.
  */
 export type TargetPixelFormat = 'rgba8' | 'r8' | 'rg8'
+
+/**
+ * Pixel layout of a sampled texture: a {@link TargetPixelFormat}, or `'rgba16f'`
+ * for data with more precision than 8 bits per channel, filled through
+ * {@link GfxDevice.updateTexture2DData}.
+ */
+export type TexturePixelFormat = TargetPixelFormat | 'rgba16f'
 
 /**
  * Which aspects a depth-stencil attachment carries. A pipeline bakes this and a
@@ -541,11 +580,10 @@ export interface Texture2DOpts {
    */
   storage?: boolean
   /**
-   * Internal pixel layout for a non-color-managed texture (a render target's
-   * own color attachment). Default `'rgba8'`. `srgb` is meaningless for
-   * `'r8'`/`'rg8'` and is ignored alongside them.
+   * Internal pixel layout for a non-color-managed texture. Default `'rgba8'`.
+   * `srgb` applies to `'rgba8'` only and is ignored for the others.
    */
-  pixelFormat?: TargetPixelFormat
+  pixelFormat?: TexturePixelFormat
 }
 
 export interface TextureUploadOpts {
@@ -760,14 +798,25 @@ export interface ScissorRect {
 // --- stats & limits ---------------------------------------------------------
 
 /**
- * Per-frame counts of real GPU state changes, incremented after the backend's
- * redundant-call elision, so the HUD reflects work actually done. Reset in
- * `beginFrame`.
+ * Counts of real GPU work, incremented after the backend's redundant-call
+ * elision, so the HUD reflects work actually done. `pipelineSwitches` and
+ * `textureBinds` are per frame and reset in `beginFrame`. The rest are
+ * cumulative, because shadow and AO passes run before `beginFrame`. A reader
+ * takes the difference between two frames.
  */
 export interface DeviceStats {
   pipelineSwitches: number
-  bindGroupSwitches: number
   textureBinds: number
+  /** Cumulative bind group changes on an open pass. */
+  bindGroupSwitches: number
+  /** Cumulative render and compute passes begun. */
+  passes: number
+  /** Cumulative queue submits. WebGL2 has none and counts its present. */
+  submits: number
+  /** Cumulative bind groups created. */
+  bindGroupsCreated: number
+  /** Cumulative uniform buffer writes. */
+  uniformWrites: number
 }
 
 export interface DeviceLimits {
@@ -777,6 +826,8 @@ export interface DeviceLimits {
    * pads each slice up to this.
    */
   minUniformBufferOffsetAlignment: number
+  /** Largest {@link DataTable} this device can hold, in `vec4` elements. */
+  maxDataTableVec4: number
 }
 
 // --- device interface -------------------------------------------------------
@@ -786,6 +837,12 @@ export interface GfxDevice {
   readonly limits: DeviceLimits
   /** Which backend this device is, for the debug HUD readout. */
   readonly backend: GfxBackend
+  /**
+   * Report the GPU time of each submitted frame to `listener`, in milliseconds,
+   * until the returned function is called. Absent where the device cannot
+   * measure it. Results arrive a few frames late.
+   */
+  onGpuFrameTime?(listener: (ms: number) => void): (() => void) | null
   /** The backend's coordinate conventions (clip-depth, winding, texture rows). */
   readonly ndc: NdcConventions
   /**
@@ -847,6 +904,21 @@ export interface GfxDevice {
   ): void
   deleteUniformBuffer(buf: UBuffer): void
 
+  // Data tables -------------------------------------------------------------
+  /**
+   * Create a {@link DataTable} of `vec4Count` elements, zero-filled. Throws when
+   * `vec4Count` exceeds {@link DeviceLimits.maxDataTableVec4}.
+   */
+  createDataTable(vec4Count: number): DataTable
+  /**
+   * Write `data` (4 floats per element) into `table` starting at element
+   * `firstVec4`. Like {@link updateUniformBuffer}, a write is not ordered
+   * against draws already recorded this frame, so a record that two draws need
+   * with different contents needs two elements.
+   */
+  updateDataTable(table: DataTable, firstVec4: number, data: Float32Array): void
+  deleteDataTable(table: DataTable): void
+
   // Index buffers -----------------------------------------------------------
   createIndexBuffer(byteSize: number, type?: IndexType): IBuffer
   updateIndexBufferSubData(
@@ -886,6 +958,14 @@ export interface GfxDevice {
     source: TexImageSource | null,
     opts?: TextureUploadOpts,
   ): void
+  /**
+   * Replace all of a texture's texels with `data`, row 0 first, one row after
+   * another with no padding. Row 0 is sampled at v = 0 on both backends. The
+   * layout follows the texture's `pixelFormat`: 4 bytes per texel for
+   * `'rgba8'`, 1 for `'r8'`, 2 for `'rg8'`, and 4 half floats in a
+   * `Uint16Array` for `'rgba16f'`.
+   */
+  updateTexture2DData(tex: Texture, data: ArrayBufferView): void
   deleteTexture(tex: Texture): void
 
   // Render targets ----------------------------------------------------------
@@ -894,8 +974,8 @@ export interface GfxDevice {
   deleteRenderTarget(rt: RenderTarget): void
   /**
    * The sampleable color texture backing a single-sample render target (for a
-   * post-process pass or a `Viewport2DNode` quad). Throws for a multisample
-   * target. Resolve it via a pass `resolveTarget` first.
+   * post-process pass). Throws for a multisample target. Resolve it via a pass
+   * `resolveTarget` first.
    */
   colorTexture(rt: RenderTarget): Texture
   /**
@@ -943,16 +1023,22 @@ export interface GfxDevice {
 
   // Present -----------------------------------------------------------------
   /**
+   * The canvas as a single-sample color target of format `'canvas'`, the size
+   * of the canvas's pixel buffer. It can be a pass's color target or its
+   * resolve target, so the last pass of a frame writes the canvas with no copy
+   * afterwards. It cannot be sampled, and it must not be deleted or resized. On
+   * WebGPU it names the texture of the frame it is used in.
+   */
+  canvasTarget(): RenderTarget
+
+  /**
    * Present `source`'s color to the default framebuffer (the canvas). WebGL2
-   * blits. WebGPU draws a fullscreen pass into the swapchain texture. Called
-   * outside a render pass.
+   * blits. WebGPU copies a source of format `'canvas'` on the frame's encoder
+   * and draws a fullscreen pass for any other. Called outside a render pass.
    *
-   * Everything recorded so far must be visible to the read. A backend that
-   * buffers commands has to submit them before sampling `source`, or it
-   * presents whatever the target held beforehand: the previous frame, or
-   * uninitialised memory the first time a target is used. Immediate backends
-   * get this for free. WebGPU has to flush its frame encoder, because the
-   * present blit runs on an encoder of its own and submits straight away.
+   * Everything recorded so far must be visible to the read, and a backend that
+   * buffers commands orders the read after it. A frame that ends in
+   * {@link GfxDevice.endFrame} submits once.
    */
   present(
     source: RenderTarget,

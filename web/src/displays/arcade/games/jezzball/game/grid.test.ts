@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   captureEmptyRegions,
+  clearGrid,
   createGrid,
+  markWallSpan,
+  setCell,
   filledCount,
   takenPct,
   markWall,
@@ -15,6 +18,30 @@ import { CELL_FILLED, CELL_OPEN, CELL_WALL, type CellRef } from './types'
 function wallColumn(g: Grid, col: number): void {
   for (let row = 0; row < g.rows; row++) markWall(g, col, row)
 }
+
+describe('jezzball grid version', () => {
+  it('moves with every write to the cells, so painted nodes repaint', () => {
+    const g = createGrid(8, 8)
+    let v = g.version
+    const bumped = (): boolean => {
+      const changed = g.version !== v
+      v = g.version
+      return changed
+    }
+    setCell(g, 1, 1, CELL_FILLED)
+    expect(bumped()).toBe(true)
+    markWall(g, 2, 2)
+    expect(bumped()).toBe(true)
+    markWallSpan(g, 'vertical', 3, 0, 7)
+    expect(bumped()).toBe(true)
+    captureEmptyRegions(g, [])
+    expect(bumped()).toBe(true)
+    clearGrid(g)
+    expect(bumped()).toBe(true)
+    markWall(g, -1, 0)
+    expect(bumped()).toBe(false)
+  })
+})
 
 describe('jezzball grid', () => {
   it('starts empty at 0%', () => {

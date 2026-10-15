@@ -1,20 +1,23 @@
+---
+title: Layout
+group: Features
+order: 9
+---
+
 # Layout
 
-Layout is opt-in. By default you place a node by setting `transform.x`/`transform.y`, and that is the right tool for game entities. Reach for layout when a group of nodes should fill the window and reflow on resize, a menu, a HUD, a panel, instead of sitting at fixed coordinates.
+Layout sizes and places a group of nodes so that it fills the window and reflows when the window resizes. Use it for menus, heads-up displays, panels and page frames. Game objects usually don't need it. You place those by setting `transform.x` and `transform.y`.
 
-The model is constraints-based: constraints flow down, sizes flow up, and each parent places its children. You build a tree of containers, hand it to a `LayoutRoot`, and the engine measures and arranges it into the visible area, then again on every resize. Nothing here runs until you attach a `LayoutRoot`.
+Layout is opt-in. You build a tree of containers such as {@link Row}, {@link Column} and {@link Box}, give it to a {@link LayoutRoot}, and add the root to a scene. The engine then measures and places the tree to fill the visible area, and does it again after every resize. Nothing runs until you add a `LayoutRoot`.
 
-## A first layout
+Each parent tells its children the minimum and maximum size they may take. Each child reports the size it wants within those limits. Then each parent places its children. All sizes and positions are in world units.
+
+## Basic usage
+
+This example fills the screen with a column: a title bar at the top, a footer at the bottom, and a body that takes the height left over.
 
 ```ts
-import {
-  LayoutRoot,
-  Column,
-  Row,
-  Expanded,
-  Box,
-  edgeInsets,
-} from '@src/stargazer'
+import { LayoutRoot, Column, Expanded } from '@src/stargazer'
 
 const root = new LayoutRoot()
 root.setContent(
@@ -22,8 +25,8 @@ root.setContent(
     gap: 16,
     crossAxisAlign: 'stretch',
     children: [
-      titleBar, // a node you built
-      new Expanded({ child: body }), // takes the height left over
+      titleBar, // nodes you built
+      new Expanded({ child: body }),
       footer,
     ],
   }),
@@ -31,15 +34,19 @@ root.setContent(
 host.engine.tree.root.add(root)
 ```
 
-The root fills the camera's visible world rect by default, so the content tracks the canvas as it resizes. To pin the content to a fixed region instead of the live view, pass `bounds`:
+The root fills the visible world rect of the view that places it. That is the camera's view, unless the root sits under a {@link Layer} with a space of its own. When the canvas resizes, the layout runs again and the column follows. `crossAxisAlign: 'stretch'` makes each child as wide as the column.
+
+To fill a fixed region instead of the view, pass a `bounds` function. The root calls it on every layout pass.
 
 ```ts
 new LayoutRoot({ bounds: () => myRegionRect })
 ```
 
-## Row and Column
+[`setContent`](/module/layout/layoutroot#setcontent) replaces any earlier content. The old content is removed from the tree but not destroyed.
 
-`Row` lays children out left to right, `Column` top to bottom. Inflexible children take their natural size, `gap` spaces them, `mainAxisAlign` distributes the leftover space along the main axis, and `crossAxisAlign` places each child on the other axis.
+### Rows and columns
+
+A `Row` places its children left to right, and a `Column` places them top to bottom. Each child takes its own size along that direction, called the main axis. The other direction is the cross axis.
 
 ```ts
 new Row({
@@ -49,9 +56,19 @@ new Row({
 })
 ```
 
-`mainAxisAlign` is one of `start`, `center`, `end`, `spaceBetween`, `spaceAround`, `spaceEvenly`. `crossAxisAlign` is `start`, `center`, `end`, or `stretch`.
+A row or column takes these options:
 
-To make a child grow, wrap it in `Expanded`. Several expanded children split the leftover space by their `flex` weight. `Spacer` is flexible empty space, handy for pushing siblings apart.
+| Option           | Default   | Values                                                                             |
+| ---------------- | --------- | ---------------------------------------------------------------------------------- |
+| `gap`            | `0`       | Space between neighboring children                                                 |
+| `mainAxisAlign`  | `'start'` | `'start'`, `'center'`, `'end'`, `'spaceBetween'`, `'spaceAround'`, `'spaceEvenly'` |
+| `crossAxisAlign` | `'start'` | `'start'`, `'center'`, `'end'`, `'stretch'`                                        |
+
+`mainAxisAlign` decides where the leftover space on the main axis goes. `crossAxisAlign` places each child on the cross axis. `'stretch'` makes every child fill the cross axis.
+
+### Grow a child
+
+To make a child take the leftover space, wrap it in {@link Expanded}. Several expanded children split the space by their `flex` weight, which is `1` by default. {@link Spacer} is empty space that grows the same way. Use it to push neighbors apart.
 
 ```ts
 new Row({
@@ -70,38 +87,48 @@ new Row({
 })
 ```
 
-`Flexible` is the looser cousin of `Expanded`: it may end up smaller than its share, where `Expanded` always fills it.
+{@link Flexible} takes a `child`, a `flex` weight and a `fit` option. Rows and columns give each flexible child exactly its share of the space, whatever its `fit`. In practice `Flexible` lays out the same as `Expanded`.
 
-## Boxes and spacing
+### Boxes and spacing
 
-`Box` is a single-child container with an optional fixed size and padding. It stretches its child to fill the padded interior. `SizedBox` and `Padding` are the common shortcuts.
+`Box` holds one child. It has an optional fixed `width` and `height` and optional `padding`. The child gets the whole interior inside the padding. Without a `width` or `height`, the box takes the child's size plus the padding on that axis.
+
+{@link SizedBox} is a box of a fixed size. Without a child, it reserves empty space. {@link Padding} adds space around a child.
 
 ```ts
+import { Box, SizedBox, Padding, edgeInsets } from '@src/stargazer'
+
 new Box({ width: 480, padding: edgeInsets(24), child: content })
 new SizedBox({ width: 96, height: 96, child: icon })
-new Padding({ insets: edgeInsets(8, 16), child: label }) // 8 vertical, 16 horizontal
+new Padding({ insets: edgeInsets(8, 16), child: label })
 ```
 
-`edgeInsets(all)`, `edgeInsets(vertical, horizontal)`, and `edgeInsets(top, right, bottom, left)` cover the usual cases.
+{@link edgeInsets} builds the padding the way CSS shorthand does:
 
-## Placing a child in a larger area
+- `edgeInsets(16)` sets all four edges to 16.
+- `edgeInsets(8, 16)` sets top and bottom to 8, left and right to 16.
+- `edgeInsets(4, 8, 12, 16)` sets top, right, bottom and left in that order.
 
-`Align` fills the space its parent offers and places one child within it. `Center` is the centered shorthand.
+### Place a child in a larger area
+
+{@link Align} fills the space its parent offers and places one child inside it. `alignX` and `alignY` take `'start'`, `'center'`, `'end'` or `'stretch'`, and default to `'center'`. {@link Center} is `Align` with both set to `'center'`.
 
 ```ts
 new Center({ child: board })
 new Align({ alignX: 'end', alignY: 'start', child: closeButton })
 ```
 
-`AspectRatio` fits the largest box of a given width/height ratio inside the offered space and aligns the child in it. A ratio of 1 keeps a board square as the window changes shape.
+{@link AspectRatio} fits the largest box with a given width-to-height `ratio` into the offered space, and places the child in that box. A ratio of 1 keeps a board square as the window changes shape. `alignX` and `alignY` place the box and default to `'center'`.
 
 ```ts
 new AspectRatio({ ratio: 1, child: board })
 ```
 
-## Stack and Scaffold
+### Stack and Scaffold
 
-`Stack` overlays its children in one box, painted back to front, each placed by the stack's alignment. `Scaffold` is the page frame: an optional header, a content area that fills the space between, and an optional footer.
+{@link Stack} puts its children on top of each other in one box. It draws them in child order, so the last child is on top. `alignX` and `alignY` place every child and default to `'start'`. By default the stack is the size of its largest child. With `fit: 'expand'` it fills the space its parent offers.
+
+{@link Scaffold} is a page frame. It has an optional `header`, a `content` area that fills the height between, an optional `footer`, and an optional `gap`.
 
 ```ts
 new Stack({
@@ -117,41 +144,28 @@ new Scaffold({
 })
 ```
 
-## Using your own nodes
+### Text, shapes and animations in a layout
 
-A `ShapeNode` already knows its size, so it drops straight into a layout:
+{@link TextNode}, {@link ShapeNode} and {@link LottieNode} work as layout children without a wrapper.
 
 ```ts
 new Row({
+  gap: 8,
+  crossAxisAlign: 'center',
   children: [
-    new ShapeNode({ geometry: { kind: 'circle', radius: 12 } }),
-    label,
+    new ShapeNode({ geometry: { kind: 'circle', radius: 12 }, fill: '#4c8' }),
+    new TextNode({ text: 'Online', fontSize: 24, color: '#fff' }),
   ],
 })
 ```
 
-To make a custom node layout-aware, implement `Measurable`, a preallocated `measuredSize`, a `measure(constraints)` that returns it, and an `arrange(x, y, w, h)` that sets `transform.x`/`transform.y`. Extending `LayoutNode` gives you the `measuredSize` field and `markLayoutDirty()` for free. See its API reference for a worked example.
+A `TextNode` measures the width of its widest line and the height of all its lines. It then uses its `align` and `baseline` to place the text inside the box it gets. A `ShapeNode` keeps its own size, a circle's diameter or a rect's `width` and `height`, and sits centered in its box unless the rect has `centered: false`. A `LottieNode` takes the full size of the box it gets.
 
-## Opting out: freeform content in a layout
+Changing a `TextNode`'s `text` does not start a layout pass. Call [`root.requestLayout()`](/module/layout/layoutroot#requestlayout) after you change it when the new size matters.
 
-Not everything under a `LayoutRoot` has to be laid out. There are two ways to keep content freeform, positioned by its own `transform`, while the tree around it reflows.
+### Change a layout
 
-The first is to add a node that is not `Measurable` to a `Row`, `Column`, or `Stack`. Those containers lay out their measurable children and leave the rest alone: a plain `Node2D` sibling still draws, culls, and hit-tests, but the layout does not size or move it, so it stays wherever its own `transform` puts it.
-
-The second is `LayoutBuilder`, for when freeform content still needs to know the box it should fill, a physics field, a grid drawn from its own geometry, a `domAnchor`ed overlay. It takes a slot like any other node but, instead of laying out a subtree, reports the rect it was arranged into. The rect is in world coords, so content living elsewhere in the scene can read it directly.
-
-```ts
-const field = new LayoutBuilder({ onLayout: (rect) => board.fit(rect) })
-root.setContent(
-  new Center({ child: new AspectRatio({ ratio: 1, child: field }) }),
-)
-```
-
-A `LayoutBuilder` sizes like a flex child: it fills a tight box (what a `LayoutRoot`, `AspectRatio`, or `Expanded` hands it) and otherwise measures to the minimum, which is 0 under a loose box. A bare builder on the main axis of a `Row` or `Column` therefore collapses to nothing. Wrap it in `Expanded`, `AspectRatio`, or `SizedBox` to give it size. `board.fit` decides what to do with the rect: fit once, or reflow on resize. A game mid-match might store the rect for later and skip an expensive rebuild until the next round.
-
-## Updating a layout
-
-Constructor props seed the tree once. To change it later, mutate through the container's methods rather than rebuilding, which reuses the existing node instances so their running tweens and state survive:
+Change a layout through its containers' methods. They keep the existing nodes, so running tweens and other state on those nodes survive. Each call schedules one layout pass on the next frame.
 
 ```ts
 row.add(child)
@@ -161,26 +175,151 @@ row.setChildren([a, b, c])
 box.setChild(child)
 ```
 
-Each call schedules one coalesced layout pass on the next frame. Rebuilding the tree from scratch (`new Column({ children: [...] })` again) instead throws away the old nodes and everything attached to them, so prefer the methods.
+`Row` and `Column` have all four list methods. `Stack` has `add` and `remove`. `Box`, `SizedBox` and `Padding` have `setChild`. Removed children are not destroyed.
 
-## Animating
+Container options such as `gap`, `width` or `alignX` are plain fields. After you set one, call [`markLayoutDirty()`](/module/layout/layoutnode#marklayoutdirty) on that container.
 
-Animate transforms, not layout. A transform tween (`x`, `y`, `scaleX`, `scaleY`) is free: it never triggers a layout pass. Changing a layout size does trigger one, so to make something pop, tween `scaleX`/`scaleY` rather than a width:
+```ts
+row.gap = 24
+row.markLayoutDirty()
+```
+
+### Animate inside a layout
+
+Tween the transform, not the layout. A layout pass never reads `transform` as input, so a tween of `x`, `y`, `scaleX` or `scaleY` causes no layout work. A change to a layout size causes a new pass. To make a card pop, tween its scale, not its width.
 
 ```ts
 await card.tween({ scaleX: 1.1, scaleY: 1.1 }, { duration: 0.15 })
 ```
 
-## Limits
+The next layout pass writes `x` and `y` again, so a tween of position inside a layout holds only until the next resize or change.
 
-- Bounded axes and flex. A `Row`/`Column` with an `Expanded` or `Spacer` child needs a bounded size on its main axis so there is space to divide. A flex child under an unbounded axis throws a named error rather than growing forever. Give the container a size (a `LayoutRoot` always does).
-- Text. Layout does not measure text, so it cannot size a label to its content. Wrap the label in a `SizedBox` with an explicit size, or place it manually.
-- One measure pass. Sizing comes from the constraints plus content in a single pass. Intrinsic sizing (a column that sizes to its widest label) is not supported.
-- No scrolling or clipping. Content that overflows its box is not clipped.
-- A `LayoutBuilder` reports a rect but does not size to whatever content reads it. Content placed from that rect lives outside the root's subtree, so nothing keeps the two in step but your `onLayout` callback.
+## Advanced usage
 
-## Where to go next
+This section covers the root's bounds, freeform content inside a layout, custom layout nodes, and how the pass runs.
 
-- [Scene graph](/guides/scene), the `Node2D` tree layout builds on
-- [Camera](/guides/camera), the viewport whose visible rect a `LayoutRoot` fills
-- [Animation](/guides/animation), `tween` and the abort contract
+### Root bounds and views
+
+[`LayoutRootOptions`](/module/layout/layoutrootoptions) has three fields:
+
+- `bounds` is a function that returns the world rect to fill. Without it, the root fills the visible world rect of its view.
+- `camera` is the view whose visible rect the root fills when `bounds` is not set.
+- `id` is the node id. It defaults to `'layout-root'`.
+
+Without `camera`, the root uses the view that places it. Under a `Layer` with space `'screen'`, one unit is one CSS pixel and the root fills the canvas. Under a frame layer, the frame is fitted into the canvas, and the visible rect is the frame plus any extra area around it when the canvas has a different shape. See [Scene graph](/guides/scene) for layers and [Camera](/guides/camera) for the visible world rect.
+
+### Freeform content in a layout
+
+Some content positions itself, such as a physics field or a grid drawn from its own geometry. You can keep it inside a layout in two ways.
+
+The first way is to add a node that does not implement {@link Measurable} to a `Row`, `Column` or `Stack`. The container skips it. The node still draws, culls and receives pointer events, but stays where its own `transform` puts it.
+
+The second way is {@link LayoutBuilder}. It takes a place in the layout like any other child, and reports the rect it gets to an `onLayout` callback. The rect is in world coordinates, so content anywhere in the scene can use it.
+
+```ts
+import { LayoutBuilder, Center, AspectRatio } from '@src/stargazer'
+
+const field = new LayoutBuilder({ onLayout: (rect) => board.fit(rect) })
+root.setContent(
+  new Center({ child: new AspectRatio({ ratio: 1, child: field }) }),
+)
+```
+
+The builder reuses the rect object on every pass, so copy the fields you want to keep. [`contentRect`](/module/layout/layoutbuilder#contentrect) holds the rect from the last pass.
+
+A `LayoutBuilder` fills a box only when its parent gives it an exact size, as a `LayoutRoot`, `AspectRatio` or `Expanded` does. Otherwise it takes the minimum size, which is 0 in a row or column. A bare builder in a row or column therefore has no size. On an unbounded axis it also logs a warning. Wrap it in `Expanded`, `AspectRatio` or `SizedBox`, or give it a fixed `width` and `height`.
+
+### Align without a layout tree
+
+{@link alignWithin} places a box inside a rect without any layout tree. It returns the top-left point. Use it for a node, a rect of your own, or an HTML overlay.
+
+```ts
+import { alignWithin } from '@src/stargazer'
+
+const { x, y } = alignWithin(rightMargin, 120, 48, 'center', 'center')
+badge.transform.x = x
+badge.transform.y = y
+```
+
+`'stretch'` acts like `'start'` here, because the function returns only a point. {@link alignOffset} does the same for one axis.
+
+### Write a layout-aware node
+
+A node takes part in layout when it implements {@link Measurable}. That means three members:
+
+- `measuredSize` is a `{ w, h }` object that the node creates once and reuses.
+- `measure(constraints)` writes the node's size into `measuredSize` and returns it.
+- `arrange(x, y, w, h)` places the node at `x`, `y` in its parent's space, with final size `w` by `h`.
+
+Extend {@link LayoutNode} for a container. It creates `measuredSize` and adds `markLayoutDirty()`, which walks up to the root and schedules a pass.
+
+```ts
+import { LayoutNode, BoxConstraints, type Size } from '@src/stargazer'
+
+class FixedBox extends LayoutNode {
+  constructor(
+    private w: number,
+    private h: number,
+  ) {
+    super('fixed-box')
+  }
+  measure(c: BoxConstraints): Size {
+    this.measuredSize.w = c.constrainW(this.w)
+    this.measuredSize.h = c.constrainH(this.h)
+    return this.measuredSize
+  }
+  arrange(x: number, y: number, w: number, h: number): void {
+    this.transform.x = x
+    this.transform.y = y
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
+  }
+}
+```
+
+A {@link BoxConstraints} holds `minW`, `maxW`, `minH` and `maxH`. A maximum can be `Infinity`. On such an axis the node must size to its content and must not use the maximum. `constrainW` and `constrainH` clamp a value into range.
+
+Follow these rules in a custom node:
+
+- In `arrange`, write only `transform.x` and `transform.y`. Never write scale.
+- Set `boundsOverride` to the arranged box, so culling and hit tests use the right area.
+- Call `markLayoutDirty()` whenever something that affects your size changes.
+- Copy a child's `measuredSize` into local variables right after `measure`. A later `measure` call on that child overwrites it.
+- Don't keep the constraints object you receive. The parent reuses it for the next child.
+
+Moving a node in `arrange` repaints nothing. If what a node draws depends on its size, call `markNeedsPaint()` from `arrange` when the size changes.
+
+### When the pass runs
+
+A `LayoutRoot` registers itself with the engine when you add it to a scene that belongs to an engine. It runs a pass only when it is marked dirty. These events mark it dirty:
+
+- the root is added to a scene
+- `setContent` or `requestLayout` is called
+- the engine emits `resize`
+- a container's list method or `markLayoutDirty` runs
+
+The pass runs once per frame at most, after every node's `onUpdate` and before world transforms are computed. Positions written in `arrange` therefore show on the same frame. The pass also runs while the engine is paused. The root clears its dirty flag before it measures, so a `markLayoutDirty` call during a pass schedules another pass on the next frame. A pass allocates no memory.
+
+### Limits
+
+These are the limits of the layout system:
+
+- A `Row` or `Column` with an `Expanded`, `Flexible` or `Spacer` child needs a bounded size on its main axis. Under an unbounded axis it throws an error. A `LayoutRoot` always gives its content a bounded size.
+- An `AspectRatio` needs at least one bounded axis, or it throws an error.
+- A node that reports a size of `Infinity` or `NaN` makes the root throw an error that names the node.
+- Sizing is a single pass. A container can't size its children to match the widest one.
+- A `TextNode` does not wrap its text to fit a width.
+- There is no scrolling or clipping. Content that is larger than its box overflows.
+- A `LayoutBuilder` does not size to the content that reads its rect. That content lives outside the layout, so only your `onLayout` callback keeps the two in step.
+
+## See also
+
+- {@link LayoutRoot}: the node that runs a layout and fills the view
+- {@link Row}: children left to right
+- {@link Column}: children top to bottom
+- {@link LayoutBuilder}: a layout slot for freeform content
+- {@link LayoutNode}: base class for your own containers
+- {@link BoxConstraints}: the size limits a parent passes to a child
+- [Scene graph](/guides/scene): the node tree that layout builds on, and layers
+- [Camera](/guides/camera): the view whose visible rect a root fills
+- [Text](/guides/text): `TextNode` options
+- [Animation](/guides/animation): tweens and cancellation

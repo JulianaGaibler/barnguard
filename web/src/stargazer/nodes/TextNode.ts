@@ -1,6 +1,6 @@
 import { Node2D } from '../scene/Node2D'
-import type { Camera } from '../camera/Camera'
-import type { Gfx2D } from '../render/gfx/Gfx2D'
+import { definePaintProps } from '../render/picture/paintProps'
+import type { Canvas } from '../render/picture/Canvas'
 import {
   fontMetrics,
   measureText,
@@ -79,11 +79,11 @@ function blockHeight(
 }
 
 /**
- * Draws text through {@link Gfx2D.fillText}, one call per `\n`-delimited line.
- * There is no word-wrap, use HTML for long-form copy. The node's transform
- * positions and rotates the label in world space (rotation is free on the GPU
- * backend). `fontSize` + `sizeSpace` control on-screen size the same way
- * `ShapeNode` handles `lineWidth` + `strokeSpace`. Every option is a plain
+ * Paints text through the canvas's `fillText`, one call per `\n`-delimited
+ * line. There is no word-wrap, use HTML for long-form copy. The node's
+ * transform positions and rotates the label in world space (rotation is free on
+ * the GPU backend). `fontSize` + `sizeSpace` control on-screen size the same
+ * way `ShapeNode` handles `lineWidth` + `strokeSpace`. Every option is a plain
  * public field, so reassigning `text` or `color` shows on the next frame.
  *
  * Also implements {@link Measurable}, so a `TextNode` can be placed directly
@@ -111,35 +111,38 @@ function blockHeight(
  *   new TextNode({ text: 'Game\nOver', align: 'center', baseline: 'middle' })
  */
 export class TextNode extends Node2D implements Measurable {
-  // Live mirrors of TextNodeOptions, documented there. Assigning any of them
-  // shows on the next frame, no invalidation call needed.
-  text: string
-  x: number
-  y: number
-  fontFamily: string
-  fontWeight: string | number
-  fontSize: number
-  sizeSpace: 'screen' | 'world'
-  color: string
-  align: CanvasTextAlign
-  baseline: CanvasTextBaseline
-  lineHeight: number
+  // Live mirrors of TextNodeOptions, documented there. Each is a paint
+  // property: assigning a new value shows on the next frame, no invalidation
+  // call needed, and a tween can drive the numeric ones.
+  declare text: string
+  declare x: number
+  declare y: number
+  declare fontFamily: string
+  declare fontWeight: string | number
+  declare fontSize: number
+  declare sizeSpace: 'screen' | 'world'
+  declare color: string
+  declare align: CanvasTextAlign
+  declare baseline: CanvasTextBaseline
+  declare lineHeight: number
 
   readonly measuredSize: Size = { w: 0, h: 0 }
 
   constructor(opts: TextNodeOptions) {
     super(opts.id)
-    this.text = opts.text
-    this.x = opts.x ?? 0
-    this.y = opts.y ?? 0
-    this.fontFamily = opts.fontFamily ?? 'sans-serif'
-    this.fontWeight = opts.fontWeight ?? 'normal'
-    this.fontSize = opts.fontSize ?? 16
-    this.sizeSpace = opts.sizeSpace ?? 'screen'
-    this.color = opts.color ?? '#000'
-    this.align = opts.align ?? 'left'
-    this.baseline = opts.baseline ?? 'alphabetic'
-    this.lineHeight = opts.lineHeight ?? 1.2
+    definePaintProps(this, {
+      text: opts.text,
+      x: opts.x ?? 0,
+      y: opts.y ?? 0,
+      fontFamily: opts.fontFamily ?? 'sans-serif',
+      fontWeight: (opts.fontWeight ?? 'normal') as string | number,
+      fontSize: opts.fontSize ?? 16,
+      sizeSpace: opts.sizeSpace ?? ('screen' as 'screen' | 'world'),
+      color: opts.color ?? '#000',
+      align: opts.align ?? ('left' as CanvasTextAlign),
+      baseline: opts.baseline ?? ('alphabetic' as CanvasTextBaseline),
+      lineHeight: opts.lineHeight ?? 1.2,
+    })
   }
 
   /**
@@ -158,12 +161,12 @@ export class TextNode extends Node2D implements Measurable {
     return `${this.fontWeight} ${Math.round(q / step) * step}px ${this.fontFamily}`
   }
 
-  override draw(gfx: Gfx2D, camera: Camera, _dt: number): void {
+  override paint(gfx: Canvas): void {
     if (this.text.length === 0) return
-    // Screen-space: divide by the camera scale so the text nets to a constant
-    // on-screen size after the engine's per-node transform (the "1 CSS px"
-    // invariant, mirroring ShapeNode's stroke handling).
-    const s = this.sizeSpace === 'world' ? 1 : camera.strokeSpaceScale()
+    // Screen-space: multiply by the world size of a CSS pixel so the text nets
+    // to a constant on-screen size after the engine's per-node transform. The
+    // node repaints when that scale changes.
+    const s = this.sizeSpace === 'world' ? 1 : gfx.screenScale()
     const px = this.fontSize * s
     const font = this.fontString(px)
 
@@ -225,6 +228,6 @@ export class TextNode extends Node2D implements Measurable {
     this.transform.y = y
     this.x = alignOffset(alignAxis(this.align), w)
     this.y = alignOffset(baselineAxis(this.baseline), h)
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.boundsOverride = { x: 0, y: 0, width: w, height: h }
   }
 }

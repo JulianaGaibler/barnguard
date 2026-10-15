@@ -14,18 +14,14 @@ export interface GeometryHandle {
   vertices: Float32Array
   indices: Uint16Array
   /**
-   * Opt-in: upload this geometry to static GPU buffers once and draw it with a
-   * per-frame model matrix (`fillPath2D` records a retained run) instead of
-   * CPU-transforming every vertex every frame. Set at registration for large,
-   * long-lived tessellations (the SVG map). See `registerPathTessellation`.
+   * Keep this geometry in GPU buffers from its first draw and draw it with a
+   * model matrix, instead of transforming every vertex on the CPU each frame.
+   * Without it, a gradient or masked fill is kept once it is drawn on two
+   * frames running. The renderer may still free kept geometry it has not drawn
+   * for a while, and uploads it again when it is next drawn. Set at
+   * registration, see `registerPathTessellation`.
    */
   retained?: boolean
-  /**
-   * GPU-resident descriptor, populated lazily on the first retained draw and
-   * cleared on context loss. Absent until then, or entirely when `retained` is
-   * false.
-   */
-  gpu?: GpuGeometry
 }
 
 /**
@@ -37,4 +33,9 @@ export interface GpuGeometry {
   vbo: VBuffer
   ibo: IBuffer
   indexCount: number
+  /** The tessellation's local bounding box. */
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
 }

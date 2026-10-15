@@ -6,11 +6,14 @@ import type { GfxGradientStop } from './Gfx2D'
 // happy-dom's OffscreenCanvas has no real 2D context. Stub a minimal one so
 // the ramp builder reaches the texture-cache logic under test.
 let getCtxSpy: ReturnType<typeof vi.spyOn>
+let calls: string[]
 beforeEach(() => {
+  calls = []
   const fake = {
     createLinearGradient: () => ({ addColorStop: () => {} }),
     fillStyle: '',
-    fillRect: () => {},
+    clearRect: () => calls.push('clearRect'),
+    fillRect: () => calls.push('fillRect'),
   }
   getCtxSpy = vi
     .spyOn(OffscreenCanvas.prototype, 'getContext')
@@ -100,5 +103,13 @@ describe('TextureManager gradient ramp atlas', () => {
     }
     expect(tm.ensureStopsRow(keep)).toBe(first)
     void device
+  })
+
+  it('clears the scratch row before painting a ramp', () => {
+    // A translucent stop would otherwise show the previous ramp through.
+    const tm = new TextureManager(new MockGfxDevice())
+    tm.ensureStopsRow(stops('#fff', '#fff'))
+    tm.ensureStopsRow(stops('#f00', 'rgba(0, 0, 0, 0)'))
+    expect(calls).toEqual(['clearRect', 'fillRect', 'clearRect', 'fillRect'])
   })
 })

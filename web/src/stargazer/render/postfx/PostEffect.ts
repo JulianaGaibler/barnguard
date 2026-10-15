@@ -116,4 +116,10 @@ export interface PostEffect {
   enabled: boolean
   /** The passes to run, in order. Usually fixed for an effect's lifetime. */
   readonly passes: readonly PostPass[]
+  /**
+   * True when the effect removes the fine detail of its input, as a blur does.
+   * A layer whose first enabled effect sets it draws into a single-sample
+   * surface, because multisampled edges would not survive the effect.
+   */
+  readonly smoothsInput?: boolean
 }

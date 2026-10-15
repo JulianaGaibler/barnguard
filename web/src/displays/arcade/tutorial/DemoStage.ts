@@ -194,7 +194,7 @@ export class DemoStage implements DemoStageController {
     const r = stage.renderer
     const cam = stage.currentCamera2D
     const a = cam?.getScreenAffine()
-    const dynamic = stage.tree.getLayerNodes('dynamic')
+    const drawn = stage.tree.getPainterOrder()
     const box = this.#canvas.getBoundingClientRect()
     const slot = this.#canvas.parentElement
     demoLog(`frame ${TRACE_FRAMES - this.#traceLeft}`, {
@@ -210,16 +210,12 @@ export class DemoStage implements DemoStageController {
         box: { x: box.x, y: box.y, w: box.width, h: box.height },
         opacity: slot ? getComputedStyle(slot).opacity : null,
       },
-      layers: {
-        static: stage.tree.getLayerNodes('static').length,
-        aboveStatic: stage.tree.getLayerNodes('above-static').length,
-        dynamic: dynamic.length,
-      },
-      nodes: dynamic.map((n) => ({
+      nodeCount: drawn.length,
+      nodes: drawn.map((n) => ({
         id: n.id,
         visible: n.visible,
         alpha: n.transform.alpha,
-        bounds: n.debugBounds,
+        bounds: n.bounds,
         at: { x: n.transform.world.e, y: n.transform.world.f },
       })),
     })

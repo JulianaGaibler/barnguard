@@ -2,7 +2,7 @@
   /**
    * The screen after a region is picked: a card at the bottom with the region's
    * name and a Start button, and above it the high scores that exist. An HTML
-   * node on the UI stage, laid out in design pixels against the region's
+   * node on the UI layer, laid out in design pixels against the region's
    * visible rect so it stays at the bottom of any window shape.
    *
    * Picking another region while this is up swaps the text with a short fade
@@ -30,8 +30,8 @@
     regionHigh,
     type EnterpriseHighScores,
   } from '@src/displays/enterprise/game-log'
-  import type { UiRegion } from './uiRegion.svelte'
-  import { Reveal } from './reveal.svelte'
+  import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
+  import { Reveal } from '@src/core/ui/reveal.svelte'
   import { flagFor } from './flags'
   import { fitText } from './fitText'
   import ScorePill from './ScorePill.svelte'

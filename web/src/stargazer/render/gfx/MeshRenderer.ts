@@ -1,5 +1,7 @@
+import { RenderFailures } from './RenderFailures'
 import type {
   BindGroup,
+  BindGroupEntry,
   BindGroupLayout,
   TargetFormat,
   DepthState,
@@ -25,7 +27,6 @@ import {
   type TextureImage,
   type TextureSampler,
 } from '../../nodes/MeshNode'
-import { Viewport2DNode } from '../../nodes/Viewport2DNode'
 import {
   Light3D,
   DirectionalLight3D,
@@ -42,6 +43,12 @@ import {
 } from '../../math/shadowFit'
 import { vec3, vec3Normalize, type Vec3 } from '../../math/Vec3'
 import { mat4TransformPoint, type Mat4 } from '../../math/Mat4'
+import {
+  boxOutsideFrustum,
+  createFrustum,
+  frustumFromMatrix,
+  type FrustumPlanes,
+} from '../../math/frustum'
 import { RenderQuality } from '../RenderQuality'
 import { Fog } from '../Fog'
 import {
@@ -101,6 +108,11 @@ interface GpuMesh {
   tangentBuf: VBuffer
   ibo: IBuffer
   indexCount: number
+  /** The vertex buffer bindings of each program, built once per upload. */
+  flatBuffers: VertexBinding[]
+  pbrBuffers: VertexBinding[]
+  shadowBuffers: VertexBinding[]
+  gbufferBuffers: VertexBinding[]
   /** Whether the geometry actually had tangents (drives the PBR tangent path). */
   hasTangent: boolean
   /**
@@ -111,6 +123,88 @@ interface GpuMesh {
   geometry?: MeshGeometry
   /** Drops the node's destroy subscription. Absent on the shared quad. */
   offDestroy?: () => void
+}
+
+type VertexBinding = { buffer: VBuffer; offset: number }
+
+/**
+ * One mesh's draw in the main pass. Every mesh is recorded and has its uniforms
+ * staged before the first draw is issued, so each ring uploads once.
+ */
+interface DrawRec {
+  mesh: MeshNode
+  gpu: GpuMesh
+  pbr: boolean
+  blended: boolean
+  /** Index into the pipeline arrays, see {@link variantOf}. */
+  variant: number
+  /** Byte offset of the mesh's slice in its object ring. */
+  offset: number
+  /** Squared distance to the eye, for ordering. */
+  dist: number
+  /** Bound textures, one for the flat program and six for PBR. */
+  tex: Texture[]
+}
+
+/** The object bind group a mesh last drew with, and what it was built from. */
+interface ObjectGroup {
+  pbr: boolean
+  generation: number
+  tex: Texture[]
+  group: BindGroup
+}
+
+/** Pipeline array index from cull and depth write. */
+function variantOf(doubleSided: boolean, write: boolean): number {
+  return (doubleSided ? 2 : 0) + (write ? 1 : 0)
+}
+
+/**
+ * Opaque meshes first, grouped by program and state and nearest first, so the
+ * depth test rejects what hides behind them. Transparent meshes after, back to
+ * front.
+ */
+function drawOrder(a: DrawRec, b: DrawRec): number {
+  if (a.blended !== b.blended) return a.blended ? 1 : -1
+  if (a.blended) return b.dist - a.dist
+  if (a.pbr !== b.pbr) return a.pbr ? 1 : -1
+  if (a.variant !== b.variant) return a.variant - b.variant
+  return a.dist - b.dist
+}
+
+/** A bind group over a ring's buffer, rebuilt when the ring replaces it. */
+class RingBinding {
+  readonly #ring: UboRing
+  readonly #layout: BindGroupLayout
+  readonly #binding: number
+  readonly #size: number
+  #group: BindGroup | null = null
+  #generation = -1
+
+  constructor(
+    ring: UboRing,
+    layout: BindGroupLayout,
+    binding: number,
+    size: number,
+  ) {
+    this.#ring = ring
+    this.#layout = layout
+    this.#binding = binding
+    this.#size = size
+  }
+
+  group(device: GfxDevice): BindGroup {
+    if (!this.#group || this.#generation !== this.#ring.generation) {
+      this.#generation = this.#ring.generation
+      this.#group = device.createBindGroup(this.#layout, [
+        {
+          binding: this.#binding,
+          resource: { uniformBuffer: this.#ring.buffer, size: this.#size },
+        },
+      ])
+    }
+    return this.#group
+  }
 }
 
 const LOC_POSITION = 0
@@ -173,13 +267,14 @@ export class MeshRenderer {
   #shadowShader!: ShaderModule
   #cubeShader!: ShaderModule
   #gbufferShader!: ShaderModule
-  /** Flat / PBR pipelines keyed by `${cull}|${depthWrite}`. */
-  #flatPipelines = new Map<string, Pipeline>()
-  #pbrPipelines = new Map<string, Pipeline>()
+  /** Flat / PBR pipelines, indexed by {@link variantOf}. */
+  #flatPipelines: Pipeline[] = []
+  #pbrPipelines: Pipeline[] = []
   #shadowPipeline!: Pipeline
   #cubePipeline!: Pipeline
   #gbufferPipeline!: Pipeline
   #ready = false
+  readonly #failures: RenderFailures
   #warmupSeq = 0
 
   // Bind-group layouts.
@@ -215,20 +310,70 @@ export class MeshRenderer {
   // A shared buffer would clobber under WebGPU's deferred submission (every pass
   // would read the last-written matrix). The ring gives each pass its own slice.
   #shadowCamRing!: UboRing
-  #shadowCamBindGroup!: BindGroup
+  #shadowCamBinding!: RingBinding
   #cubeCamRing!: UboRing
-  #cubeCamBindGroup!: BindGroup
+  #cubeCamBinding!: RingBinding
 
-  // Per-object dynamic-offset rings.
+  // Per-object dynamic-offset rings. All are staged: a pass writes every slice
+  // into CPU memory and uploads once, so no draw is dropped and a frame costs
+  // one buffer write per ring.
   #flatObjectRing!: UboRing
   #pbrObjectRing!: UboRing
   #shadowObjectRing!: UboRing
-  #shadowObjectBindGroup!: BindGroup
+  #shadowObjectBinding!: RingBinding
   // AO G-buffer prepass: a per-frame UBO + a per-object ring.
   #gbufferFrameUbo!: UBuffer
   #gbufferFrameBindGroup!: BindGroup
   #gbufferObjectRing!: UboRing
-  #gbufferObjectBindGroup!: BindGroup
+  #gbufferObjectBinding!: RingBinding
+
+  // The frame's meshes and lights, gathered by `collect`.
+  readonly #meshes: MeshNode[] = []
+  readonly #lights: Light3D[] = []
+  /** Opaque meshes, the set the AO G-buffer draws. */
+  readonly #opaque: MeshNode[] = []
+  /** Opaque meshes that cast shadows. */
+  readonly #casters: MeshNode[] = []
+  readonly #shadowLights: Light3D[] = []
+  #collected = false
+  // What the shadow maps were last rendered from. They are reused while the
+  // casters, the lights and the map size stay the same.
+  #shadowsValid = false
+  #sig = new Float32Array(0)
+  #sigPrev = new Float32Array(0)
+  #refs: unknown[] = []
+  #refsPrev: unknown[] = []
+  readonly #visit = (n: Node): void => {
+    if (n instanceof MeshNode) {
+      if (n.geometry && isEffectivelyVisible(n)) this.#meshes.push(n)
+    } else if (n instanceof Light3D && isEffectivelyVisible(n)) {
+      this.#lights.push(n)
+    }
+  }
+  // Records of the main pass and the object bind groups meshes drew with.
+  readonly #recs: DrawRec[] = []
+  readonly #drawList: DrawRec[] = []
+  #objectGroups = new WeakMap<MeshNode, ObjectGroup>()
+  // Shadow pass: each caster's upload and ring slice, and the camera slices.
+  readonly #casterGpu: GpuMesh[] = []
+  readonly #casterOff: number[] = []
+  readonly #layerCamOff: number[] = [0, 0, 0, 0]
+  readonly #faceCamOff: number[] = [0, 0, 0, 0, 0, 0]
+  /** The camera's frustum, and each shadow layer's and cube face's. */
+  readonly #frustum = createFrustum()
+  readonly #layerFrusta: FrustumPlanes[] = Array.from(
+    { length: MAX_SHADOW_LAYERS },
+    createFrustum,
+  )
+  readonly #faceFrusta: FrustumPlanes[] = Array.from(
+    { length: 6 },
+    createFrustum,
+  )
+  /** The world box of each staged caster, six numbers each. */
+  #casterBox = new Float64Array(0)
+  readonly #box = new Float64Array(6)
+  readonly #gbufferGpu: GpuMesh[] = []
+  readonly #gbufferOff: number[] = []
 
   // Staging buffers for the UBO writes.
   readonly #flatFrameStaging = new Float32Array(FLAT_FRAME_BYTES / 4)
@@ -246,11 +391,10 @@ export class MeshRenderer {
 
   #cache = new WeakMap<MeshNode, GpuMesh>()
   readonly #uploaded = new Set<MeshNode>()
-  #quad!: GpuMesh
   #whiteTex!: Texture
   readonly #offRestore: () => void
   readonly #normalMat: Mat3 = mat3()
-  #texCache = new WeakMap<TextureImage, Map<string, Texture>>()
+  #texCache = new WeakMap<TextureImage, Map<number, Texture>>()
   #decoding = new Set<TextureImage>()
   readonly #modelInspector = new ModelTextureInspector()
   #uploadedTextures = new Set<Texture>()
@@ -267,14 +411,25 @@ export class MeshRenderer {
 
   light: FallbackLight = { ...DEFAULT_LIGHT }
   punctualScale = 1
-  readonly stats = { draws: 0, visible: 0, vertices: 0, triangles: 0 }
+  readonly stats = {
+    draws: 0,
+    visible: 0,
+    /** Meshes outside the camera's view, not drawn in the main pass. */
+    culled: 0,
+    vertices: 0,
+    triangles: 0,
+    /** Shadow depth passes rendered this frame, none when the maps are reused. */
+    shadowPasses: 0,
+  }
 
   constructor(
     device: GfxDevice,
     targetColor: TargetFormat,
     quality: RenderQuality = new RenderQuality(),
     fog: Fog = new Fog(),
+    failures: RenderFailures = new RenderFailures(),
   ) {
+    this.#failures = failures
     this.#device = device
     // Own a private copy: `retarget` mutates this, and the caller may share the
     // object it passed.
@@ -442,52 +597,65 @@ export class MeshRenderer {
     this.#pbrFrameBoundCube = null
     // One slice per shadow layer / cube face. Slot counts are sized past the
     // real maxima (4 array layers, 6 cube faces) so the ring never overflows.
-    this.#shadowCamRing = new UboRing(device, SHADOW_CAM_BYTES, 8, 'shadowCam')
-    this.#shadowCamBindGroup = device.createBindGroup(this.#shadowCamLayout, [
-      {
-        binding: CAMERA3D_UBO_BINDING,
-        resource: {
-          uniformBuffer: this.#shadowCamRing.buffer,
-          size: SHADOW_CAM_BYTES,
-        },
-      },
-    ])
-    this.#cubeCamRing = new UboRing(device, CUBE_CAM_BYTES, 8, 'cubeCam')
-    this.#cubeCamBindGroup = device.createBindGroup(this.#cubeCamLayout, [
-      {
-        binding: CAMERA3D_UBO_BINDING,
-        resource: {
-          uniformBuffer: this.#cubeCamRing.buffer,
-          size: CUBE_CAM_BYTES,
-        },
-      },
-    ])
+    this.#shadowCamRing = new UboRing(
+      device,
+      SHADOW_CAM_BYTES,
+      8,
+      'shadowCam',
+      true,
+      true,
+    )
+    this.#shadowCamBinding = new RingBinding(
+      this.#shadowCamRing,
+      this.#shadowCamLayout,
+      CAMERA3D_UBO_BINDING,
+      SHADOW_CAM_BYTES,
+    )
+    this.#cubeCamRing = new UboRing(
+      device,
+      CUBE_CAM_BYTES,
+      8,
+      'cubeCam',
+      true,
+      true,
+    )
+    this.#cubeCamBinding = new RingBinding(
+      this.#cubeCamRing,
+      this.#cubeCamLayout,
+      CAMERA3D_UBO_BINDING,
+      CUBE_CAM_BYTES,
+    )
 
     // Per-object rings.
     this.#flatObjectRing = new UboRing(
       device,
       FLAT_OBJECT_BYTES,
-      1024,
+      256,
       'flatObj',
+      true,
+      true,
     )
-    this.#pbrObjectRing = new UboRing(device, PBR_OBJECT_BYTES, 1024, 'pbrObj')
+    this.#pbrObjectRing = new UboRing(
+      device,
+      PBR_OBJECT_BYTES,
+      256,
+      'pbrObj',
+      true,
+      true,
+    )
     this.#shadowObjectRing = new UboRing(
       device,
       SHADOW_OBJECT_BYTES,
-      4096,
+      256,
       'shadowObj',
+      true,
+      true,
     )
-    this.#shadowObjectBindGroup = device.createBindGroup(
+    this.#shadowObjectBinding = new RingBinding(
+      this.#shadowObjectRing,
       this.#shadowObjectLayout,
-      [
-        {
-          binding: MESH_OBJECT_UBO_BINDING,
-          resource: {
-            uniformBuffer: this.#shadowObjectRing.buffer,
-            size: SHADOW_OBJECT_BYTES,
-          },
-        },
-      ],
+      MESH_OBJECT_UBO_BINDING,
+      SHADOW_OBJECT_BYTES,
     )
 
     // AO G-buffer prepass: one per-frame block, one per-object ring.
@@ -504,28 +672,32 @@ export class MeshRenderer {
     this.#gbufferObjectRing = new UboRing(
       device,
       GBUFFER_OBJECT_BYTES,
-      1024,
+      256,
       'gbufObj',
+      true,
+      true,
     )
-    this.#gbufferObjectBindGroup = device.createBindGroup(
+    this.#gbufferObjectBinding = new RingBinding(
+      this.#gbufferObjectRing,
       this.#gbufferObjectLayout,
-      [
-        {
-          binding: MESH_OBJECT_UBO_BINDING,
-          resource: {
-            uniformBuffer: this.#gbufferObjectRing.buffer,
-            size: GBUFFER_OBJECT_BYTES,
-          },
-        },
-      ],
+      MESH_OBJECT_UBO_BINDING,
+      GBUFFER_OBJECT_BYTES,
     )
 
-    this.#quad = this.#createQuad()
     this.#whiteTex = this.#device.createTexture2D({ width: 1, height: 1 })
     void this.#warmup()
   }
 
   async #warmup(): Promise<void> {
+    try {
+      await this.#buildPipelines()
+    } catch (err) {
+      // 3D stays off. The 2D passes are unaffected.
+      this.#failures.report('3D renderer', err)
+    }
+  }
+
+  async #buildPipelines(): Promise<void> {
     this.#ready = false
     const seq = ++this.#warmupSeq
     const device = this.#device
@@ -541,39 +713,34 @@ export class MeshRenderer {
       for (const write of [true, false]) {
         const depth: DepthState = { test: true, write }
         const key = `${cull}|${write}`
-        this.#flatPipelines.set(
-          key,
-          await device.createPipeline({
-            shader: this.#flatShader,
-            vertexLayout: this.#flatVertexLayout(),
-            bindGroupLayouts: flatLayout,
-            color: { format, blend: 'source-over' },
-            depth,
-            depthStencil,
-            cull,
-            frontFace: device.ndc.frontFace,
-            primitive: 'triangle-list',
-            samples,
-            label: `mesh-flat-${key}`,
-          }),
-        )
+        const variant = variantOf(cull === 'none', write)
+        this.#flatPipelines[variant] = await device.createPipeline({
+          shader: this.#flatShader,
+          vertexLayout: this.#flatVertexLayout(),
+          bindGroupLayouts: flatLayout,
+          color: { format, blend: 'source-over' },
+          depth,
+          depthStencil,
+          cull,
+          frontFace: device.ndc.frontFace,
+          primitive: 'triangle-list',
+          samples,
+          label: `mesh-flat-${key}`,
+        })
         if (seq !== this.#warmupSeq) return
-        this.#pbrPipelines.set(
-          key,
-          await device.createPipeline({
-            shader: this.#pbrShader,
-            vertexLayout: this.#pbrVertexLayout(),
-            bindGroupLayouts: pbrLayout,
-            color: { format, blend: 'source-over' },
-            depth,
-            depthStencil,
-            cull,
-            frontFace: device.ndc.frontFace,
-            primitive: 'triangle-list',
-            samples,
-            label: `mesh-pbr-${key}`,
-          }),
-        )
+        this.#pbrPipelines[variant] = await device.createPipeline({
+          shader: this.#pbrShader,
+          vertexLayout: this.#pbrVertexLayout(),
+          bindGroupLayouts: pbrLayout,
+          color: { format, blend: 'source-over' },
+          depth,
+          depthStencil,
+          cull,
+          frontFace: device.ndc.frontFace,
+          primitive: 'triangle-list',
+          samples,
+          label: `mesh-pbr-${key}`,
+        })
         if (seq !== this.#warmupSeq) return
       }
     }
@@ -673,9 +840,10 @@ export class MeshRenderer {
     this.#placeholderArray = null
     this.#placeholderCube = null
     this.#shadowResolution = 0
-    this.#shadowByLight.clear()
-    this.#flatPipelines.clear()
-    this.#pbrPipelines.clear()
+    this.#dropShadows()
+    this.#flatPipelines = []
+    this.#pbrPipelines = []
+    this.#objectGroups = new WeakMap()
     this.#createResources()
   }
 
@@ -726,67 +894,116 @@ export class MeshRenderer {
     s[o + 7] = 0
   }
 
+  /**
+   * Gather the frame's meshes and lights in one walk. `Stage` calls this once
+   * before the shadow pass, and the shadow, G-buffer and main passes read the
+   * result. A pass called without it gathers for itself.
+   */
+  collect(root: Node): void {
+    this.#meshes.length = 0
+    this.#lights.length = 0
+    this.#opaque.length = 0
+    this.#casters.length = 0
+    walkTree(root, this.#visit)
+    for (const mesh of this.#meshes) {
+      if (isBlended(mesh)) continue
+      this.#opaque.push(mesh)
+      if (mesh.material.castShadow !== false) this.#casters.push(mesh)
+    }
+    this.#collected = true
+  }
+
+  #ensureCollected(root: Node): void {
+    if (this.#collected) return
+    this.collect(root)
+    this.#collected = false
+  }
+
   render(camera: CameraView3D, root: Node, debugMode = 0): void {
     // The uploaded view-projection must land depth in the backend's clip range
     // (WebGPU keeps [0,1], WebGL [-1,1]). The camera rebuilds only on a change.
-    camera.setClipDepth(this.#device.ndc.clipDepth)
+    const device = this.#device
+    camera.setClipDepth(device.ndc.clipDepth)
     this.stats.draws = 0
     this.stats.visible = 0
+    this.stats.culled = 0
     this.stats.vertices = 0
     this.stats.triangles = 0
-    this.#flatObjectRing.reset()
-    this.#pbrObjectRing.reset()
-    const drawables: Node3D[] = []
-    const lights: Light3D[] = []
-    walkTree(root, (n) => {
-      if (n instanceof MeshNode && n.geometry && isEffectivelyVisible(n))
-        drawables.push(n)
-      else if (n instanceof Viewport2DNode && isEffectivelyVisible(n))
-        drawables.push(n)
-      else if (n instanceof Light3D && isEffectivelyVisible(n)) lights.push(n)
-    })
-    if (drawables.length === 0) return
+    this.#flatObjectRing.reset(device)
+    this.#pbrObjectRing.reset(device)
+    this.#ensureCollected(root)
+    // The main pass is the last reader of the frame's lists.
+    this.#collected = false
+    const meshes = this.#meshes
+    if (meshes.length === 0) return
 
     const eye = camera.eyePosition()
-    const distSq = (m: Node3D): number => {
-      const w = m.worldMatrix
+    const frustum = frustumFromMatrix(
+      this.#frustum,
+      camera.viewProjection,
+      device.ndc.clipDepth,
+    )
+    // Record each mesh and stage its uniforms, then upload each ring once and
+    // draw.
+    const list = this.#drawList
+    list.length = 0
+    let anyFlat = false
+    let anyPbr = false
+    for (const mesh of meshes) {
+      if (this.#outside(mesh, frustum)) {
+        this.stats.culled++
+        continue
+      }
+      const gpu = this.#ensureUpload(mesh)
+      if (!gpu) continue
+      const rec = this.#record(list.length)
+      rec.mesh = mesh
+      rec.gpu = gpu
+      rec.blended = isBlended(mesh)
+      rec.pbr = !!mesh.material.pbr
+      // Transparent meshes still depth-test against the opaque ones but stop
+      // writing it.
+      rec.variant = variantOf(mesh.material.doubleSided === true, !rec.blended)
+      const w = mesh.worldMatrix
       const dx = w[12] - eye.x
       const dy = w[13] - eye.y
       const dz = w[14] - eye.z
-      return dx * dx + dy * dy + dz * dz
-    }
-    const opaque: Node3D[] = []
-    const blend: Node3D[] = []
-    for (const node of drawables) (isBlended(node) ? blend : opaque).push(node)
-    blend.sort((a, b) => distSq(b) - distSq(a))
-    const ordered = opaque.concat(blend)
-    const blendStart = opaque.length
-
-    let flatReady = false
-    let pbrReady = false
-    for (let i = 0; i < ordered.length; i++) {
-      // Transparent bucket: keep depth-testing against opaque depth but stop
-      // writing (pipeline variant with write:false).
-      const write = !(i >= blendStart && blend.length > 0)
-      const node = ordered[i]
-      const cull =
-        node instanceof MeshNode && node.material.doubleSided ? 'none' : 'back'
-      if (node instanceof MeshNode && node.material.pbr) {
-        if (!pbrReady) {
-          this.#beginPbr(camera, eye, debugMode, lights)
-          pbrReady = true
-        }
-        this.#drawMeshPbr(node, cull, write)
+      rec.dist = dx * dx + dy * dy + dz * dz
+      if (rec.pbr) {
+        this.#stagePbr(rec)
+        anyPbr = true
       } else {
-        if (!flatReady) {
-          this.#beginFlat(camera, eye, debugMode)
-          flatReady = true
-        }
-        if (node instanceof Viewport2DNode)
-          this.#drawViewport(node, cull, write)
-        else this.#drawMesh(node as MeshNode, cull, write)
+        this.#stageFlat(rec)
+        anyFlat = true
       }
+      list.push(rec)
     }
+    if (list.length === 0) return
+    list.sort(drawOrder)
+    if (anyFlat) this.#beginFlat(camera, eye, debugMode)
+    if (anyPbr) this.#beginPbr(camera, eye, debugMode, this.#lights)
+    this.#flatObjectRing.flush(device)
+    this.#pbrObjectRing.flush(device)
+    for (const rec of list) this.#drawRec(rec)
+  }
+
+  /** The `i`th pooled draw record. */
+  #record(i: number): DrawRec {
+    let rec = this.#recs[i]
+    if (!rec) {
+      rec = {
+        mesh: null as unknown as MeshNode,
+        gpu: null as unknown as GpuMesh,
+        pbr: false,
+        blended: false,
+        variant: 0,
+        offset: 0,
+        dist: 0,
+        tex: [],
+      }
+      this.#recs[i] = rec
+    }
+    return rec
   }
 
   /**
@@ -795,8 +1012,11 @@ export class MeshRenderer {
    * the following {@link MeshRenderer.render} feeds to the PBR program.
    */
   renderShadows(root: Node): void {
-    this.#shadowByLight.clear()
-    if (!this.#ready || !this.#quality.meshShadowsEnabled) return
+    this.stats.shadowPasses = 0
+    if (!this.#ready || !this.#quality.meshShadowsEnabled) {
+      this.#dropShadows()
+      return
+    }
     const size = this.#quality.shadowMapSize
     if (size !== this.#shadowResolution) {
       if (this.#shadowArray) this.#device.deleteShadowArray(this.#shadowArray)
@@ -804,55 +1024,167 @@ export class MeshRenderer {
       this.#shadowArray = null
       this.#shadowCube = null
       this.#shadowResolution = size
+      this.#shadowsValid = false
     }
-    const casters: MeshNode[] = []
-    const lights: Light3D[] = []
-    walkTree(root, (n) => {
-      if (
-        n instanceof MeshNode &&
-        n.geometry &&
-        n.material.castShadow !== false &&
-        !isBlended(n) &&
-        isEffectivelyVisible(n)
-      ) {
-        casters.push(n)
-      } else if (
-        n instanceof Light3D &&
-        n.shadowEnabled &&
-        isEffectivelyVisible(n)
-      ) {
-        lights.push(n)
-      }
-    })
-    if (lights.length === 0 || casters.length === 0) return
+    this.#ensureCollected(root)
+    const casters = this.#casters
+    const shadowLights = this.#shadowLights
+    shadowLights.length = 0
+    for (const light of this.#lights) {
+      if (light.shadowEnabled) shadowLights.push(light)
+    }
+    if (shadowLights.length === 0 || casters.length === 0) {
+      this.#dropShadows()
+      return
+    }
+    // The maps and the per-light links from the last render still hold when
+    // nothing they were made from has changed.
+    const unchanged = this.#shadowInputsUnchanged(casters, shadowLights)
+    if (this.#shadowsValid && unchanged) return
     const aabb = this.#castersAABB(casters)
-    if (!aabb) return
-    this.#shadowObjectRing.reset()
-    this.#shadowCamRing.reset()
-    this.#cubeCamRing.reset()
+    if (!aabb) {
+      this.#dropShadows()
+      return
+    }
+    this.#shadowByLight.clear()
+    this.#shadowsValid = true
+    const device = this.#device
+    this.#shadowObjectRing.reset(device)
+    this.#shadowCamRing.reset(device)
+    this.#cubeCamRing.reset(device)
+
+    // Every layer and face draws the same casters, so each caster's model matrix
+    // is written once and its slice shared by all of them.
+    const gpus = this.#casterGpu
+    const offsets = this.#casterOff
+    gpus.length = 0
+    offsets.length = 0
+    const s = this.#objStaging
+    if (this.#casterBox.length < casters.length * 6) {
+      this.#casterBox = new Float64Array(casters.length * 6)
+    }
+    const boxes = this.#casterBox
+    for (const caster of casters) {
+      const gpu = this.#ensureUpload(caster)
+      if (!gpu) continue
+      s.set(caster.worldMatrix, 0)
+      const o = gpus.length * 6
+      if (this.#worldBox(caster, this.#box)) boxes.set(this.#box, o)
+      else boxes.fill(NaN, o, o + 6)
+      gpus.push(gpu)
+      offsets.push(this.#shadowObjectRing.push(device, s))
+    }
 
     let layer = 0
-    for (const light of lights) {
+    for (const light of shadowLights) {
       if (layer >= MAX_SHADOW_LAYERS) break
       const vp = this.#shadowMatrixFor(light, aabb)
       if (!vp) continue
-      this.#drawShadowLayer(vp, casters, layer)
+      this.#layerCamOff[layer] = this.#shadowCamRing.push(
+        device,
+        vp as unknown as Float32Array,
+      )
       this.#shadowMats.set(vp, layer * 16)
+      frustumFromMatrix(this.#layerFrusta[layer], vp, device.ndc.clipDepth)
       this.#shadowByLight.set(light, { kind: 1, param: layer })
       layer++
     }
-    const point = lights.find(
+    const point = shadowLights.find(
       (l): l is PointLight3D => l instanceof PointLight3D,
     )
-    if (point) this.#renderPointShadow(point, casters, aabb)
+    const pointFar = point ? this.#stagePointFaces(point, aabb) : 0
+    this.#shadowObjectRing.flush(device)
+    this.#shadowCamRing.flush(device)
+    this.#cubeCamRing.flush(device)
+
+    this.stats.shadowPasses = layer + (point ? 6 : 0)
+    for (let l = 0; l < layer; l++) {
+      device.beginRenderPass({
+        depth: {
+          target: { shadowArray: this.#ensureShadowArray(), layer: l },
+          loadOp: 'clear',
+        },
+      })
+      this.#drawShadowCasters(false, this.#layerCamOff[l], this.#layerFrusta[l])
+      device.endRenderPass()
+    }
+    if (point) {
+      const cube = this.#ensurePointCube()
+      for (let face = 0; face < 6; face++) {
+        device.beginRenderPass({
+          depth: { target: { shadowCube: cube, face }, loadOp: 'clear' },
+        })
+        this.#drawShadowCasters(
+          true,
+          this.#faceCamOff[face],
+          this.#faceFrusta[face],
+        )
+        device.endRenderPass()
+      }
+      this.#shadowByLight.set(point, { kind: 2, param: pointFar })
+    }
   }
 
-  /** Render all casters into the six faces of the point light's depth cubemap. */
-  #renderPointShadow(
-    light: PointLight3D,
-    casters: MeshNode[],
-    aabb: Aabb,
-  ): void {
+  /** Forget the shadow links, so the frame draws unshadowed. */
+  #dropShadows(): void {
+    this.#shadowByLight.clear()
+    this.#shadowsValid = false
+  }
+
+  /**
+   * Whether everything the shadow maps depend on matches the last render, and
+   * if not, record it for the next comparison. That is each caster and its
+   * geometry, each shadowing light's placement and reach, and the map size.
+   */
+  #shadowInputsUnchanged(
+    casters: readonly MeshNode[],
+    lights: readonly Light3D[],
+  ): boolean {
+    const need = casters.length * 16 + lights.length * 20 + 1
+    if (this.#sig.length !== need) this.#sig = new Float32Array(need)
+    const sig = this.#sig
+    const refs = this.#refs
+    refs.length = 0
+    let o = 0
+    for (const caster of casters) {
+      sig.set(caster.worldMatrix, o)
+      o += 16
+      refs.push(caster, caster.geometry)
+    }
+    for (const light of lights) {
+      sig.set(light.worldMatrix, o)
+      o += 16
+      sig[o++] =
+        light instanceof DirectionalLight3D ? light.shadowMaxDistance : 0
+      sig[o++] = light instanceof SpotLight3D ? light.outerConeAngle : 0
+      sig[o++] =
+        light instanceof PointLight3D || light instanceof SpotLight3D
+          ? light.range
+          : 0
+      sig[o++] = 0
+      refs.push(light)
+    }
+    sig[o] = this.#shadowResolution
+    let same = this.#sigPrev.length === sig.length
+    for (let i = 0; same && i < sig.length; i++) {
+      if (sig[i] !== this.#sigPrev[i]) same = false
+    }
+    for (let i = 0; same && i < refs.length; i++) {
+      if (refs[i] !== this.#refsPrev[i]) same = false
+    }
+    same = same && refs.length === this.#refsPrev.length
+    if (!same) {
+      ;[this.#sig, this.#sigPrev] = [this.#sigPrev, this.#sig]
+      ;[this.#refs, this.#refsPrev] = [this.#refsPrev, this.#refs]
+    }
+    return same
+  }
+
+  /**
+   * Stage the camera slices of the six faces of a point light's depth cubemap
+   * and return the light's far distance.
+   */
+  #stagePointFaces(light: PointLight3D, aabb: Aabb): number {
     const device = this.#device
     const w = light.worldMatrix
     const px = w[12]
@@ -862,7 +1194,6 @@ export class MeshRenderer {
       light.range > 0 ? light.range : this.#castersFar(aabb, px, py, pz)
     const near = Math.max(0.05, far * 0.005)
     const pos = vec3(px, py, pz)
-    const cube = this.#ensurePointCube()
     for (let face = 0; face < 6; face++) {
       // Pad the projection far so geometry at `dist ≈ far` isn't clipped.
       const vp = fitPointCubeFace(
@@ -872,21 +1203,16 @@ export class MeshRenderer {
         far * 1.01,
         device.ndc.clipDepth,
       )
+      frustumFromMatrix(this.#faceFrusta[face], vp, device.ndc.clipDepth)
       const s = this.#camStaging
       s.set(vp, 0)
       s[16] = px
       s[17] = py
       s[18] = pz
       s[20] = far
-      const camOff = this.#cubeCamRing.push(device, s)
-      if (camOff < 0) continue
-      device.beginRenderPass({
-        depth: { target: { shadowCube: cube, face }, loadOp: 'clear' },
-      })
-      for (const caster of casters) this.#drawShadowCaster(caster, true, camOff)
-      device.endRenderPass()
+      this.#faceCamOff[face] = this.#cubeCamRing.push(device, s)
     }
-    this.#shadowByLight.set(light, { kind: 2, param: far })
+    return far
   }
 
   #ensurePointCube(): ShadowCube {
@@ -926,55 +1252,68 @@ export class MeshRenderer {
     return null
   }
 
-  /** Render every caster's depth into one depth-array `layer` from `vp`. */
-  #drawShadowLayer(vp: Mat4, casters: MeshNode[], layer: number): void {
-    const device = this.#device
-    const camOff = this.#shadowCamRing.push(
-      device,
-      vp as unknown as Float32Array,
-    )
-    if (camOff < 0) return
-    device.beginRenderPass({
-      depth: {
-        target: { shadowArray: this.#ensureShadowArray(), layer },
-        loadOp: 'clear',
-      },
-    })
-    for (const caster of casters) this.#drawShadowCaster(caster, false, camOff)
-    device.endRenderPass()
-  }
-
   /**
-   * Draw one caster into the current shadow pass. `camOff` is the caller's
-   * per-pass slice offset into the shadow-camera ring (group 0). The caster's
-   * model matrix takes its own slice in the object ring (group 1).
+   * Draw the staged casters into the open shadow pass. `camOff` is the pass's
+   * slice of the camera ring (group 0), and each caster has its own slice of
+   * the object ring (group 1).
    */
-  #drawShadowCaster(caster: MeshNode, cube: boolean, camOff: number): void {
-    const gpu = this.#ensureUpload(caster)
-    if (!gpu) return
+  #drawShadowCasters(
+    cube: boolean,
+    camOff: number,
+    frustum: FrustumPlanes,
+  ): void {
     const device = this.#device
-    const s = this.#objStaging
-    s.set(caster.worldMatrix, 0)
-    const off = this.#shadowObjectRing.push(device, s)
-    if (off < 0) return
-    device.draw({
-      pipeline: cube ? this.#cubePipeline : this.#shadowPipeline,
-      vertexBuffers: [{ buffer: gpu.posBuf, offset: 0 }],
-      indexBuffer: gpu.ibo,
-      bindGroups: [
-        {
-          group: 0,
-          bindGroup: cube ? this.#cubeCamBindGroup : this.#shadowCamBindGroup,
-          dynamicOffsets: [camOff],
-        },
-        {
-          group: 1,
-          bindGroup: this.#shadowObjectBindGroup,
-          dynamicOffsets: [off],
-        },
-      ],
-      indexCount: gpu.indexCount,
-    })
+    const pipeline = cube ? this.#cubePipeline : this.#shadowPipeline
+    const camGroup = (
+      cube ? this.#cubeCamBinding : this.#shadowCamBinding
+    ).group(device)
+    const objGroup = this.#shadowObjectBinding.group(device)
+    const gpus = this.#casterGpu
+    const offsets = this.#casterOff
+    const boxes = this.#casterBox
+    for (let i = 0; i < gpus.length; i++) {
+      // A caster outside this map's sides or past its far plane cannot reach
+      // it. One nearer than the near plane still can, so that plane is kept out.
+      const o = i * 6
+      if (
+        boxes[o] === boxes[o] &&
+        (boxOutsideFrustum(
+          frustum,
+          boxes[o],
+          boxes[o + 1],
+          boxes[o + 2],
+          boxes[o + 3],
+          boxes[o + 4],
+          boxes[o + 5],
+          0,
+          4,
+        ) ||
+          boxOutsideFrustum(
+            frustum,
+            boxes[o],
+            boxes[o + 1],
+            boxes[o + 2],
+            boxes[o + 3],
+            boxes[o + 4],
+            boxes[o + 5],
+            5,
+            6,
+          ))
+      ) {
+        continue
+      }
+      const gpu = gpus[i]
+      device.draw({
+        pipeline,
+        vertexBuffers: gpu.shadowBuffers,
+        indexBuffer: gpu.ibo,
+        bindGroups: [
+          { group: 0, bindGroup: camGroup, dynamicOffsets: [camOff] },
+          { group: 1, bindGroup: objGroup, dynamicOffsets: [offsets[i]] },
+        ],
+        indexCount: gpu.indexCount,
+      })
+    }
   }
 
   /**
@@ -989,17 +1328,7 @@ export class MeshRenderer {
     if (!this.#ready) return
     const device = this.#device
     camera.setClipDepth(device.ndc.clipDepth)
-    const casters: MeshNode[] = []
-    walkTree(root, (n) => {
-      if (
-        n instanceof MeshNode &&
-        n.geometry &&
-        !isBlended(n) &&
-        isEffectivelyVisible(n)
-      ) {
-        casters.push(n)
-      }
-    })
+    this.#ensureCollected(root)
     // Frame block: view-projection + view + near/far, so the prepass can write
     // linear view depth.
     const f = this.#gbufFrameStaging
@@ -1008,7 +1337,26 @@ export class MeshRenderer {
     f[32] = camera.near
     f[33] = camera.far
     device.updateUniformBuffer(this.#gbufferFrameUbo, f)
-    this.#gbufferObjectRing.reset()
+    this.#gbufferObjectRing.reset(device)
+    const gpus = this.#gbufferGpu
+    const offsets = this.#gbufferOff
+    gpus.length = 0
+    offsets.length = 0
+    const s = this.#gbufObjStaging
+    const frustum = frustumFromMatrix(
+      this.#frustum,
+      camera.viewProjection,
+      device.ndc.clipDepth,
+    )
+    for (const mesh of this.#opaque) {
+      if (this.#outside(mesh, frustum)) continue
+      const gpu = this.#ensureUpload(mesh)
+      if (!gpu) continue
+      s.set(mesh.worldMatrix as unknown as Float32Array, 0)
+      gpus.push(gpu)
+      offsets.push(this.#gbufferObjectRing.push(device, s))
+    }
+    this.#gbufferObjectRing.flush(device)
     device.beginRenderPass({
       color: {
         target,
@@ -1023,36 +1371,21 @@ export class MeshRenderer {
         clearValue: 1,
       },
     })
-    for (const caster of casters) this.#drawGBufferCaster(caster)
+    const objGroup = this.#gbufferObjectBinding.group(device)
+    for (let i = 0; i < gpus.length; i++) {
+      const gpu = gpus[i]
+      device.draw({
+        pipeline: this.#gbufferPipeline,
+        vertexBuffers: gpu.gbufferBuffers,
+        indexBuffer: gpu.ibo,
+        bindGroups: [
+          { group: 0, bindGroup: this.#gbufferFrameBindGroup },
+          { group: 1, bindGroup: objGroup, dynamicOffsets: [offsets[i]] },
+        ],
+        indexCount: gpu.indexCount,
+      })
+    }
     device.endRenderPass()
-  }
-
-  /** Draw one caster into the current G-buffer pass (position + normal). */
-  #drawGBufferCaster(caster: MeshNode): void {
-    const gpu = this.#ensureUpload(caster)
-    if (!gpu) return
-    const device = this.#device
-    const s = this.#gbufObjStaging
-    s.set(caster.worldMatrix as unknown as Float32Array, 0)
-    const off = this.#gbufferObjectRing.push(device, s)
-    if (off < 0) return
-    device.draw({
-      pipeline: this.#gbufferPipeline,
-      vertexBuffers: [
-        { buffer: gpu.posBuf, offset: 0 },
-        { buffer: gpu.normBuf, offset: 0 },
-      ],
-      indexBuffer: gpu.ibo,
-      bindGroups: [
-        { group: 0, bindGroup: this.#gbufferFrameBindGroup },
-        {
-          group: 1,
-          bindGroup: this.#gbufferObjectBindGroup,
-          dynamicOffsets: [off],
-        },
-      ],
-      indexCount: gpu.indexCount,
-    })
   }
 
   #castersFar(aabb: Aabb, px: number, py: number, pz: number): number {
@@ -1072,6 +1405,50 @@ export class MeshRenderer {
   }
   readonly #scratchDir: Vec3 = vec3()
   readonly #scratchPt: Vec3 = vec3()
+
+  /**
+   * Write the mesh's world-space box into `out` as min x, y, z then max x, y,
+   * z. False when the mesh has no bounds.
+   */
+  #worldBox(mesh: MeshNode, out: Float64Array): boolean {
+    const b = mesh.localBounds()
+    if (!b) return false
+    const m = mesh.worldMatrix
+    // The centre moves by the matrix, and each half extent spreads over the
+    // absolute values of its column.
+    const cx = (b.min.x + b.max.x) / 2
+    const cy = (b.min.y + b.max.y) / 2
+    const cz = (b.min.z + b.max.z) / 2
+    const ex = (b.max.x - b.min.x) / 2
+    const ey = (b.max.y - b.min.y) / 2
+    const ez = (b.max.z - b.min.z) / 2
+    for (let r = 0; r < 3; r++) {
+      const c = m[r] * cx + m[4 + r] * cy + m[8 + r] * cz + m[12 + r]
+      const e =
+        Math.abs(m[r]) * ex + Math.abs(m[4 + r]) * ey + Math.abs(m[8 + r]) * ez
+      out[r] = c - e
+      out[3 + r] = c + e
+    }
+    return true
+  }
+
+  /**
+   * Whether the mesh lies wholly outside `frustum`. A mesh without bounds never
+   * does.
+   */
+  #outside(mesh: MeshNode, frustum: FrustumPlanes): boolean {
+    const box = this.#box
+    if (!this.#worldBox(mesh, box)) return false
+    return boxOutsideFrustum(
+      frustum,
+      box[0],
+      box[1],
+      box[2],
+      box[3],
+      box[4],
+      box[5],
+    )
+  }
 
   #castersAABB(casters: MeshNode[]): Aabb | null {
     let minX = Infinity,
@@ -1336,9 +1713,9 @@ export class MeshRenderer {
     }
   }
 
-  #drawMesh(mesh: MeshNode, cull: 'back' | 'none', write: boolean): void {
-    const gpu = this.#ensureUpload(mesh)
-    if (!gpu) return
+  /** Write a flat mesh's object block into its ring and note its texture. */
+  #stageFlat(rec: DrawRec): void {
+    const mesh = rec.mesh
     const s = this.#flatObjStaging
     s.set(mesh.worldMatrix, 0) // u_model @0..15
     const c = mesh.material.color
@@ -1348,81 +1725,22 @@ export class MeshRenderer {
     s[19] = c[3] * mesh.transform.alpha // u_color @16
     const m = mesh.material
     // An unlit mesh can still carry artwork. The flat program takes it straight
-    // and upright, unlike the Viewport2D path beside it.
+    // and upright.
     const base = m.baseColorTex
       ? this.#resolveMap(m.baseColorTex, 'u_texture')
       : null
     s[20] = m.lit ? 1 : 0 // u_flags.x = lit
-    s[21] = 0 // u_flags.y = viewport texture
+    s[21] = 0 // u_flags.y, unused
     s[22] = base ? 1 : 0 // u_flags.z = material texture
     s[23] = m.alphaMode === 'MASK' ? (m.alphaCutoff ?? 0.5) : 0 // u_flags.w
-    const off = this.#flatObjectRing.push(this.#device, s)
-    if (off < 0) return
-    this.#drawFlat(gpu, base ?? this.#whiteTex, off, cull, write)
-    this.#countDraw(gpu)
+    rec.tex[0] = base ?? this.#whiteTex
+    rec.offset = this.#flatObjectRing.push(this.#device, s)
   }
 
-  #drawViewport(
-    node: Viewport2DNode,
-    cull: 'back' | 'none',
-    write: boolean,
-  ): void {
-    const tex = node.colorTexture ?? this.#whiteTex
-    const s = this.#flatObjStaging
-    s.set(node.worldMatrix, 0)
-    s[16] = 1
-    s[17] = 1
-    s[18] = 1
-    s[19] = node.transform.alpha
-    s[20] = 0 // lit
-    s[21] = 1 // viewport texture
-    s[22] = 0 // material texture
-    s[23] = 0 // no cutoff
-    const off = this.#flatObjectRing.push(this.#device, s)
-    if (off < 0) return
-    this.#drawFlat(this.#quad, tex, off, cull, write)
-    this.#countDraw(this.#quad)
-  }
-
-  #drawFlat(
-    gpu: GpuMesh,
-    tex: Texture,
-    dynOffset: number,
-    cull: 'back' | 'none',
-    write: boolean,
-  ): void {
-    const device = this.#device
-    const objBg = device.createBindGroup(this.#flatObjectLayout, [
-      {
-        binding: MESH_OBJECT_UBO_BINDING,
-        resource: {
-          uniformBuffer: this.#flatObjectRing.buffer,
-          size: FLAT_OBJECT_BYTES,
-        },
-      },
-      { binding: U_TEX, resource: { texture: tex } },
-    ])
-    device.draw({
-      pipeline: this.#flatPipelines.get(`${cull}|${write}`)!,
-      vertexBuffers: [
-        { buffer: gpu.posBuf, offset: 0 },
-        { buffer: gpu.normBuf, offset: 0 },
-        { buffer: gpu.uvBuf, offset: 0 },
-      ],
-      indexBuffer: gpu.ibo,
-      bindGroups: [
-        // Set by `#beginFlat`, which runs before any flat draw.
-        { group: 0, bindGroup: this.#flatFrameBindGroup! },
-        { group: 1, bindGroup: objBg, dynamicOffsets: [dynOffset] },
-      ],
-      indexCount: gpu.indexCount,
-    })
-  }
-
-  #drawMeshPbr(mesh: MeshNode, cull: 'back' | 'none', write: boolean): void {
-    const gpu = this.#ensureUpload(mesh)
-    if (!gpu) return
-    const device = this.#device
+  /** Write a PBR mesh's object block into its ring and note its textures. */
+  #stagePbr(rec: DrawRec): void {
+    const mesh = rec.mesh
+    const gpu = rec.gpu
     const m = mesh.material
     const s = this.#pbrObjStaging
     s.fill(0)
@@ -1473,50 +1791,83 @@ export class MeshRenderer {
     s[52] = t4 ? 1 : 0
     s[53] = t5 ? 1 : 0
     s[54] = m.toonSteps ?? 0 // u_hasTex1.z: diffuse banding, off below 2
-    const off = this.#pbrObjectRing.push(device, s)
-    if (off < 0) return
-    const objBg = device.createBindGroup(this.#pbrObjectLayout, [
+    const white = this.#whiteTex
+    const tex = rec.tex
+    tex[0] = t0 ?? white
+    tex[1] = t1 ?? white
+    tex[2] = t2 ?? white
+    tex[3] = t3 ?? white
+    tex[4] = t4 ?? white
+    tex[5] = t5 ?? white
+    rec.offset = this.#pbrObjectRing.push(this.#device, s)
+  }
+
+  /**
+   * The object bind group for a record: its ring slice and its textures. A mesh
+   * keeps the one it built until its textures change or its ring grows.
+   */
+  #objectGroup(rec: DrawRec): BindGroup {
+    const ring = rec.pbr ? this.#pbrObjectRing : this.#flatObjectRing
+    const count = rec.pbr ? 6 : 1
+    const held = this.#objectGroups.get(rec.mesh)
+    if (
+      held &&
+      held.pbr === rec.pbr &&
+      held.generation === ring.generation &&
+      sameTextures(held.tex, rec.tex, count)
+    ) {
+      return held.group
+    }
+    const entries: BindGroupEntry[] = [
       {
         binding: MESH_OBJECT_UBO_BINDING,
         resource: {
-          uniformBuffer: this.#pbrObjectRing.buffer,
-          size: PBR_OBJECT_BYTES,
+          uniformBuffer: ring.buffer,
+          size: rec.pbr ? PBR_OBJECT_BYTES : FLAT_OBJECT_BYTES,
         },
       },
-      { binding: U_PBR_TEX_BASE, resource: { texture: t0 ?? this.#whiteTex } },
-      {
-        binding: U_PBR_TEX_BASE + 1,
-        resource: { texture: t1 ?? this.#whiteTex },
-      },
-      {
-        binding: U_PBR_TEX_BASE + 2,
-        resource: { texture: t2 ?? this.#whiteTex },
-      },
-      {
-        binding: U_PBR_TEX_BASE + 3,
-        resource: { texture: t3 ?? this.#whiteTex },
-      },
-      {
-        binding: U_PBR_TEX_BASE + 4,
-        resource: { texture: t4 ?? this.#whiteTex },
-      },
-      {
-        binding: U_PBR_TEX_BASE + 5,
-        resource: { texture: t5 ?? this.#whiteTex },
-      },
-    ])
-    device.draw({
-      pipeline: this.#pbrPipelines.get(`${cull}|${write}`)!,
-      vertexBuffers: [
-        { buffer: gpu.posBuf, offset: 0 },
-        { buffer: gpu.normBuf, offset: 0 },
-        { buffer: gpu.uvBuf, offset: 0 },
-        { buffer: gpu.tangentBuf, offset: 0 },
-      ],
+    ]
+    if (rec.pbr) {
+      for (let i = 0; i < count; i++) {
+        entries.push({
+          binding: U_PBR_TEX_BASE + i,
+          resource: { texture: rec.tex[i] },
+        })
+      }
+    } else {
+      entries.push({ binding: U_TEX, resource: { texture: rec.tex[0] } })
+    }
+    const group = this.#device.createBindGroup(
+      rec.pbr ? this.#pbrObjectLayout : this.#flatObjectLayout,
+      entries,
+    )
+    this.#objectGroups.set(rec.mesh, {
+      pbr: rec.pbr,
+      generation: ring.generation,
+      tex: rec.tex.slice(0, count),
+      group,
+    })
+    return group
+  }
+
+  #drawRec(rec: DrawRec): void {
+    const gpu = rec.gpu
+    const objGroup = this.#objectGroup(rec)
+    this.#device.draw({
+      pipeline: rec.pbr
+        ? this.#pbrPipelines[rec.variant]
+        : this.#flatPipelines[rec.variant],
+      vertexBuffers: rec.pbr ? gpu.pbrBuffers : gpu.flatBuffers,
       indexBuffer: gpu.ibo,
       bindGroups: [
-        { group: 0, bindGroup: this.#pbrFrameBindGroup! },
-        { group: 1, bindGroup: objBg, dynamicOffsets: [off] },
+        // Set by `#beginFlat` / `#beginPbr`, which run before any draw.
+        {
+          group: 0,
+          bindGroup: rec.pbr
+            ? this.#pbrFrameBindGroup!
+            : this.#flatFrameBindGroup!,
+        },
+        { group: 1, bindGroup: objGroup, dynamicOffsets: [rec.offset] },
       ],
       indexCount: gpu.indexCount,
     })
@@ -1545,7 +1896,10 @@ export class MeshRenderer {
     srgb: boolean,
     sampler: TextureSampler,
   ): Texture | null {
-    const key = `${srgb ? 's' : 'l'}|${sampler.wrap}|${sampler.mipmap ? 'm' : 'n'}`
+    const key =
+      (srgb ? 1 : 0) +
+      (sampler.wrap === 'repeat' ? 2 : 0) +
+      (sampler.mipmap ? 4 : 0)
     let variants = this.#texCache.get(image)
     const cached = variants?.get(key)
     if (cached) return cached
@@ -1647,6 +2001,22 @@ export class MeshRenderer {
       tangentBuf,
       ibo,
       indexCount: geom.indices.length,
+      flatBuffers: [
+        { buffer: posBuf, offset: 0 },
+        { buffer: normBuf, offset: 0 },
+        { buffer: uvBuf, offset: 0 },
+      ],
+      pbrBuffers: [
+        { buffer: posBuf, offset: 0 },
+        { buffer: normBuf, offset: 0 },
+        { buffer: uvBuf, offset: 0 },
+        { buffer: tangentBuf, offset: 0 },
+      ],
+      shadowBuffers: [{ buffer: posBuf, offset: 0 }],
+      gbufferBuffers: [
+        { buffer: posBuf, offset: 0 },
+        { buffer: normBuf, offset: 0 },
+      ],
       hasTangent: !!geom.tangents,
       geometry: geom,
       // `#uploaded` holds meshes strongly so `destroy` can free them all, which
@@ -1657,39 +2027,6 @@ export class MeshRenderer {
     this.#cache.set(mesh, gpu)
     this.#uploaded.add(mesh)
     return gpu
-  }
-
-  /** Build the shared textured unit quad (1×1 in local xy, facing +z). */
-  #createQuad(): GpuMesh {
-    const device = this.#device
-    const positions = new Float32Array([
-      -0.5, -0.5, 0, 0.5, -0.5, 0, 0.5, 0.5, 0, -0.5, 0.5, 0,
-    ])
-    const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1])
-    const uvs = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1])
-    const tangents = new Float32Array(4 * 4)
-    const indices = new Uint16Array([0, 1, 2, 0, 2, 3])
-
-    const posBuf = device.createVertexBuffer(positions.byteLength)
-    device.updateBufferSubData(posBuf, 0, positions)
-    const normBuf = device.createVertexBuffer(normals.byteLength)
-    device.updateBufferSubData(normBuf, 0, normals)
-    const uvBuf = device.createVertexBuffer(uvs.byteLength)
-    device.updateBufferSubData(uvBuf, 0, uvs)
-    const tangentBuf = device.createVertexBuffer(tangents.byteLength)
-    device.updateBufferSubData(tangentBuf, 0, tangents)
-    const ibo = device.createIndexBuffer(indices.byteLength, 'u16')
-    device.updateIndexBufferSubData(ibo, 0, indices)
-
-    return {
-      posBuf,
-      normBuf,
-      uvBuf,
-      tangentBuf,
-      ibo,
-      indexCount: indices.length,
-      hasTangent: false,
-    }
   }
 
   release(mesh: MeshNode): void {
@@ -1703,16 +2040,12 @@ export class MeshRenderer {
     this.#device.deleteIndexBuffer(gpu.ibo)
     this.#cache.delete(mesh)
     this.#uploaded.delete(mesh)
+    this.#objectGroups.delete(mesh)
   }
 
   destroy(): void {
     this.#offRestore()
     for (const mesh of this.#uploaded) this.release(mesh)
-    this.#device.deleteBuffer(this.#quad.posBuf)
-    this.#device.deleteBuffer(this.#quad.normBuf)
-    this.#device.deleteBuffer(this.#quad.uvBuf)
-    this.#device.deleteBuffer(this.#quad.tangentBuf)
-    this.#device.deleteIndexBuffer(this.#quad.ibo)
     for (const tex of this.#uploadedTextures) this.#device.deleteTexture(tex)
     this.#uploadedTextures.clear()
     this.#device.deleteTexture(this.#whiteTex)
@@ -1724,8 +2057,16 @@ export class MeshRenderer {
     this.#device.deleteUniformBuffer(this.#pbrFrameUbo)
     this.#device.deleteUniformBuffer(this.#lightsUbo)
     this.#device.deleteUniformBuffer(this.#shadowFrameUbo)
-    this.#device.deleteUniformBuffer(this.#shadowCamRing.buffer)
-    this.#device.deleteUniformBuffer(this.#cubeCamRing.buffer)
+    for (const ring of [
+      this.#shadowCamRing,
+      this.#cubeCamRing,
+      this.#flatObjectRing,
+      this.#pbrObjectRing,
+      this.#shadowObjectRing,
+      this.#gbufferObjectRing,
+    ]) {
+      ring.dispose(this.#device)
+    }
     if (this.#shadowArray) this.#device.deleteShadowArray(this.#shadowArray)
     if (this.#placeholderArray)
       this.#device.deleteShadowArray(this.#placeholderArray)
@@ -1736,13 +2077,17 @@ export class MeshRenderer {
   }
 }
 
+function sameTextures(held: Texture[], now: Texture[], count: number): boolean {
+  for (let i = 0; i < count; i++) if (held[i] !== now[i]) return false
+  return true
+}
+
 /**
- * True for surfaces drawn in the transparent bucket: a `BLEND` mesh or a
- * `Viewport2DNode` quad. Opaque and alpha-`MASK` meshes stay in the
- * depth-writing opaque bucket.
+ * True for meshes drawn in the transparent bucket, those with a `BLEND`
+ * material. Opaque and alpha-`MASK` meshes stay in the depth-writing opaque
+ * bucket.
  */
 function isBlended(node: Node3D): boolean {
-  if (node instanceof Viewport2DNode) return true
   return node instanceof MeshNode && node.material.alphaMode === 'BLEND'
 }
 

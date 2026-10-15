@@ -2,7 +2,7 @@
   /**
    * Striped bars down the left and right screen edges, marking where a packet
    * is lost when the edges of the screen are the loss line. An HTML node on the
-   * UI stage, pinned to the region's side edges so the bars sit at the exact
+   * UI layer, pinned to the region's side edges so the bars sit at the exact
    * edge of the screen at any window shape.
    *
    * The hatch lightens whatever is under it, so it reads as a paler stripe on
@@ -11,8 +11,8 @@
   import { onDestroy } from 'svelte'
   import { domAnchor, Node2D, type Engine } from '@src/stargazer'
   import hatchRaw from '@src/displays/enterprise/assets/repeat.svg?raw'
-  import type { UiRegion } from './uiRegion.svelte'
-  import { Reveal } from './reveal.svelte'
+  import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
+  import { Reveal } from '@src/core/ui/reveal.svelte'
 
   interface Props {
     engine: Engine

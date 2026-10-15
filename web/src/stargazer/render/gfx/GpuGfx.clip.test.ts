@@ -1,14 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { GpuGfx } from './GpuGfx'
+import { GfxPath } from './GfxPath'
 import { MockGfxDevice } from './webgl2/mockGfxDevice'
 import type { DrawRecord } from './webgl2/mockGfxDevice'
 
-function makeGpuGfx(): { gfx: GpuGfx; device: MockGfxDevice } {
+function makeGpuGfx(stencil = false): { gfx: GpuGfx; device: MockGfxDevice } {
   const canvas = document.createElement('canvas')
   canvas.width = 400
   canvas.height = 300
   const device = new MockGfxDevice()
-  const gfx = new GpuGfx(canvas, device)
+  const gfx = new GpuGfx(canvas, device, { stencil })
   return { gfx, device }
 }
 
@@ -29,6 +30,14 @@ async function beginFrame(gfx: GpuGfx, device: MockGfxDevice): Promise<void> {
 const clipOffset = (d: DrawRecord): number =>
   d.bindGroups.find((g) => g.group === 0)?.dynamicOffsets?.[0] ?? -1
 
+/** The param record index of each vertex of a colored-tri draw, in order. */
+function vertexRecords(d: DrawRecord): number[] {
+  const words = new Uint32Array(d.bufferSnapshot as ArrayBuffer)
+  const out: number[] = []
+  for (let w = 5; w < words.length; w += 6) out.push(words[w])
+  return out
+}
+
 describe('GpuGfx analytic clip', () => {
   it('keeps an unchanged clip in one batch, at the no-clip offset', async () => {
     const { gfx, device } = makeGpuGfx()
@@ -40,7 +49,7 @@ describe('GpuGfx analytic clip', () => {
     expect(clipOffset(device.draws[0]!)).toBe(0)
   })
 
-  it('breaks the batch on a clip change, offsetting only the clipped run', async () => {
+  it('draws clipped and unclipped fills in one draw, each naming its record', async () => {
     const { gfx, device } = makeGpuGfx()
     await beginFrame(gfx, device)
     gfx.fillRect(0, 0, 10, 10, '#fff') // no clip
@@ -49,10 +58,15 @@ describe('GpuGfx analytic clip', () => {
     gfx.setClip(null)
     gfx.fillRect(40, 0, 10, 10, '#fff') // no clip again
     gfx.endFrame()
-    expect(device.draws.length).toBe(3)
+    expect(device.draws.length).toBe(1)
+    // The streamed program reads its clip from the table, not the clip ring.
     expect(clipOffset(device.draws[0]!)).toBe(0)
-    expect(clipOffset(device.draws[1]!)).toBeGreaterThan(0)
-    expect(clipOffset(device.draws[2]!)).toBe(0)
+    const rec = vertexRecords(device.draws[0]!)
+    expect(rec).toEqual([
+      ...Array(6).fill(0),
+      ...Array(6).fill(1),
+      ...Array(6).fill(0),
+    ])
   })
 
   it('scopes the clip to save/restore', async () => {
@@ -65,9 +79,48 @@ describe('GpuGfx analytic clip', () => {
     gfx.restore()
     gfx.fillRect(40, 0, 10, 10, '#fff')
     gfx.endFrame()
-    expect(device.draws.length).toBe(3)
-    // After restore the clip is gone, not leaked into the last run.
-    expect(clipOffset(device.draws[2]!)).toBe(0)
+    // After restore the clip is gone, not leaked into the last fill.
+    const rec = vertexRecords(device.draws[0]!)
+    expect(rec.slice(12)).toEqual(Array(6).fill(0))
+    expect(rec.slice(6, 12)).toEqual(Array(6).fill(1))
+  })
+
+  it('writes the same record once for a clip set again unchanged', async () => {
+    const { gfx, device } = makeGpuGfx()
+    await beginFrame(gfx, device)
+    const clip = { kind: 'circle', cx: 5, cy: 5, r: 20 } as const
+    gfx.setClip(clip)
+    gfx.fillRect(0, 0, 10, 10, '#fff')
+    gfx.setClip(clip)
+    gfx.fillRect(20, 0, 10, 10, '#fff')
+    gfx.endFrame()
+    const rec = vertexRecords(device.draws[0]!)
+    expect(new Set(rec).size).toBe(1)
+  })
+})
+
+describe('GpuGfx analytic clip with stencil paths', () => {
+  it('stamps the current clip record on the fan and cover vertices', async () => {
+    const { gfx, device } = makeGpuGfx(true)
+    await beginFrame(gfx, device)
+    const star = new GfxPath()
+    for (let i = 0; i < 5; i++) {
+      const a = (i * 4 * Math.PI) / 5 - Math.PI / 2
+      const x = 100 + 80 * Math.cos(a)
+      const y = 100 + 80 * Math.sin(a)
+      if (i === 0) star.moveTo(x, y)
+      else star.lineTo(x, y)
+    }
+    star.close()
+    gfx.setClip({ kind: 'circle', cx: 100, cy: 100, r: 60 })
+    gfx.fillRect(0, 0, 10, 10, '#fff')
+    gfx.setClip(null)
+    gfx.fillPath(star, '#ff0000')
+    gfx.endFrame()
+    const fan = device.draws.find((d) => d.stencil !== null)!
+    const rec = vertexRecords(fan).slice(fan.first, fan.first + fan.count + 6)
+    expect(rec.length).toBeGreaterThan(0)
+    expect(new Set(rec)).toEqual(new Set([0]))
   })
 })
 

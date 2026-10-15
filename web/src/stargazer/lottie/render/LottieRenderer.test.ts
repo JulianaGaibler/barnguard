@@ -3,6 +3,7 @@ import type { Gfx2D } from '../../render/gfx/Gfx2D'
 import type { GfxPath } from '../../render/gfx/GfxPath'
 import { parseLottie } from '../model/parse'
 import { LottieRenderer } from './LottieRenderer'
+import { paintAll } from './paintAll.testutil'
 
 const fixtures = import.meta.glob('../../dev/fixtures/lottie/*.json', {
   eager: true,
@@ -23,6 +24,43 @@ function drawnBounds(name: string, frameFraction: number) {
     for (let i = 0; i < f.pointCount; i++) {
       const x = f.points[i * 2]
       const y = f.points[i * 2 + 1]
+      const X = m[0] * x + m[2] * y + m[4]
+      const Y = m[1] * x + m[3] * y + m[5]
+      b.minX = Math.min(b.minX, X)
+      b.maxX = Math.max(b.maxX, X)
+      b.minY = Math.min(b.minY, Y)
+      b.maxY = Math.max(b.maxY, Y)
+    }
+  }
+  // A shape drawn as an analytic instance, sampled along its outline: the
+  // ellipse with radii `hx`, `hy`, or the box of that half size with corners
+  // rounded by `radius`.
+  const addOutline = (
+    cx: number,
+    cy: number,
+    hx: number,
+    hy: number,
+    ellipse = false,
+    radius = 0,
+  ): void => {
+    const points: number[] = []
+    for (let i = 0; i < 64; i++) {
+      const t = (i / 64) * Math.PI * 2
+      const dx = Math.cos(t)
+      const dy = Math.sin(t)
+      if (ellipse) {
+        points.push(cx + hx * dx, cy + hy * dy)
+      } else {
+        // The corner arc for this direction, around the inset corner center.
+        points.push(
+          cx + Math.sign(dx) * (hx - radius) + radius * dx,
+          cy + Math.sign(dy) * (hy - radius) + radius * dy,
+        )
+      }
+    }
+    for (let i = 0; i < points.length; i += 2) {
+      const x = points[i]
+      const y = points[i + 1]
       const X = m[0] * x + m[2] * y + m[4]
       const Y = m[1] * x + m[3] * y + m[5]
       b.minX = Math.min(b.minX, X)
@@ -61,8 +99,16 @@ function drawnBounds(name: string, frameFraction: number) {
     fillRect: () => {},
     fillPath: add,
     strokePath: add,
+    fillRoundRect: (x: number, y: number, w: number, h: number, r: number) =>
+      addOutline(x + w / 2, y + h / 2, w / 2, h / 2, false, r),
+    strokeRoundRect: (x: number, y: number, w: number, h: number, r: number) =>
+      addOutline(x + w / 2, y + h / 2, w / 2, h / 2, false, r),
+    fillEllipse: (cx: number, cy: number, rx: number, ry: number) =>
+      addOutline(cx, cy, rx, ry, true),
+    strokeEllipse: (cx: number, cy: number, rx: number, ry: number) =>
+      addOutline(cx, cy, rx, ry, true),
   } as unknown as Gfx2D & { transform: Gfx2D['transform'] }
-  r.draw(gfx, 1)
+  paintAll(r, gfx as never)
   return { anim, ...b }
 }
 
@@ -155,7 +201,7 @@ describe('LottieRenderer placement', () => {
         calls.push({ text, y, ...style })
       },
     } as unknown as Gfx2D
-    r.draw(gfx, 1)
+    paintAll(r, gfx as never)
     expect(calls.map((c) => [c.text, c.y])).toEqual([
       ['one', 0],
       ['two', 24],
@@ -193,90 +239,12 @@ describe('LottieRenderer placement', () => {
         drawn.push([x, y, w, h])
       },
     } as unknown as Gfx2D
-    r.draw(gfx, 1)
+    paintAll(r, gfx as never)
     expect(drawn).toEqual([])
     r.setImage('img_0', {} as CanvasImageSource)
     expect(r.pendingImages()).toEqual([])
-    r.draw(gfx, 1)
+    paintAll(r, gfx as never)
     expect(drawn).toEqual([[0, 0, 16, 16]])
-  })
-
-  it('draws mask paths in the layer space, under the layer transform', () => {
-    const prop = (k: unknown) => ({ a: 0, k })
-    const square = (x: number) => ({
-      c: true,
-      v: [
-        [x, 0],
-        [x + 10, 0],
-        [x + 10, 10],
-        [x, 10],
-      ],
-      i: Array(4).fill([0, 0]),
-      o: Array(4).fill([0, 0]),
-    })
-    const anim = parseLottie({
-      v: '5.7.0',
-      fr: 30,
-      ip: 0,
-      op: 30,
-      w: 200,
-      h: 200,
-      layers: [
-        {
-          ty: 1,
-          ind: 1,
-          nm: 's',
-          ip: 0,
-          op: 30,
-          sc: '#fff',
-          sw: 200,
-          sh: 200,
-          ks: { p: prop([50, 60]), a: prop([0, 0]) },
-          masksProperties: [
-            { mode: 'a', pt: prop(square(0)), o: prop(100) },
-            { mode: 's', pt: prop(square(5)), o: prop(100) },
-          ],
-        },
-      ],
-    })
-    const r = new LottieRenderer(anim)
-    r.evaluate(0)
-    const stack: number[][] = []
-    let m = [1, 0, 0, 1, 0, 0]
-    const fills: number[][] = []
-    const gfx = {
-      save: () => stack.push(m.slice()),
-      restore: () => {
-        m = stack.pop() as number[]
-      },
-      transform: (
-        a: number,
-        b: number,
-        c: number,
-        d: number,
-        e: number,
-        f: number,
-      ) => {
-        m = [
-          m[0] * a + m[2] * b,
-          m[1] * a + m[3] * b,
-          m[0] * c + m[2] * d,
-          m[1] * c + m[3] * d,
-          m[0] * e + m[2] * f + m[4],
-          m[1] * e + m[3] * f + m[5],
-        ]
-      },
-      setAlpha() {},
-      fillRect() {},
-      fillPath: () => fills.push(m.slice()),
-      beginOffscreen: () => true,
-      endOffscreen: () => ({}),
-      drawOffscreen() {},
-    } as unknown as Gfx2D
-    r.draw(gfx, 1)
-    // Both mask covers are filled under the layer's translation.
-    expect(fills.length).toBe(2)
-    for (const f of fills) expect([f[4], f[5]]).toEqual([50, 60])
   })
 
   it('draws a layer whose parent is listed below it', () => {
@@ -322,8 +290,9 @@ describe('LottieRenderer placement', () => {
       setAlpha() {},
       fillRect() {},
       fillPath: () => fills++,
+      fillRoundRect: () => fills++,
     } as unknown as Gfx2D
-    r.draw(gfx, 1)
+    paintAll(r, gfx as never)
     expect(fills).toBe(1)
   })
 })

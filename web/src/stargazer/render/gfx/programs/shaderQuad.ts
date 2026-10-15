@@ -32,9 +32,10 @@ import {
   type DataTexture,
   type ShaderQuad,
 } from '../ShaderQuad'
-import { UboRing, unitQuadLayout, warmupBlendPipelines } from './programCommon'
+import { CLIP_DEPTH_SHIFT } from '../stencilRecipe'
+import { UboRing, unitQuadLayout, buildBlendPipelines } from './programCommon'
 
-/** Draws per frame that can carry params. Past it a draw is dropped. */
+/** Params slices the ring starts with. It grows when a frame needs more. */
 const PARAMS_SLOTS = 512
 
 /**
@@ -53,6 +54,8 @@ interface QuadGpu {
   pipelines: Map<string, Pipeline>
   pending: Set<string>
   bindGroup: BindGroup | null
+  /** Params ring generation the bind group was built against. */
+  ringGeneration: number
 }
 
 interface UploadedTexture {
@@ -63,6 +66,7 @@ interface UploadedTexture {
 export class ShaderQuadProgram implements GpuProgram {
   readonly kind = 'shaderQuad' as const
 
+  #device!: GfxDevice
   #stream!: RingStream
   #paramsRing!: UboRing
   #vertexLayout: VertexBufferLayout[] = []
@@ -75,6 +79,7 @@ export class ShaderQuadProgram implements GpuProgram {
   }
 
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
+    this.#device = device
     this.#stream = new RingStream(
       device,
       SHADER_QUAD_BUFFER_BYTES,
@@ -86,6 +91,8 @@ export class ShaderQuadProgram implements GpuProgram {
       MAX_QUAD_PARAMS_BYTES,
       PARAMS_SLOTS,
       'shaderQuadParams',
+      true,
+      true,
     )
     this.#gpu = new WeakMap()
     this.#uploads = new WeakMap()
@@ -111,13 +118,16 @@ export class ShaderQuadProgram implements GpuProgram {
   }
 
   resetFrame(): void {
-    this.#paramsRing.reset()
+    this.#paramsRing.reset(this.#device)
+  }
+
+  flushRings(device: GfxDevice): void {
+    this.#paramsRing.flush(device)
   }
 
   /**
    * Record one draw. Returns without drawing while the quad's pipeline for the
-   * current blend and target is still compiling, or when the frame's params
-   * slices are spent.
+   * current blend and target is still compiling.
    */
   record(
     ctx: GpuBatchContext,
@@ -143,7 +153,6 @@ export class ShaderQuadProgram implements GpuProgram {
         ),
       )
       paramsOffset = this.#paramsRing.push(ctx.device, staging)
-      if (paramsOffset < 0) return
     }
 
     ctx.beginBatch('shaderQuad', { shaderQuad: { quad, paramsOffset } })
@@ -169,13 +178,18 @@ export class ShaderQuadProgram implements GpuProgram {
     if (!draw) return
     const gpu = this.#gpu.get(draw.quad)
     if (!gpu?.bindGroup) return
-    const pipeline = gpu.pipelines.get(pipelineKey(ctx, run.blend))
+    const clipDepth = run.stencilDepth ?? 0
+    const key = pipelineKey(ctx, run.blend)
+    const pipeline = gpu.pipelines.get(clipDepth > 0 ? `${key}|clipTest` : key)
     if (!pipeline) return
+    const bindGroup = this.#bindGroupFor(ctx, draw.quad, gpu)
     const instCount =
       (run.endWord - run.startWord) / (SHADER_QUAD_INSTANCE_STRIDE / 4)
     if (instCount === 0) return
     ctx.device.draw({
       pipeline,
+      stencilReference:
+        clipDepth > 0 ? clipDepth << CLIP_DEPTH_SHIFT : undefined,
       vertexBuffers: [
         { buffer: ctx.unitQuadBuffer, offset: 0 },
         {
@@ -187,7 +201,7 @@ export class ShaderQuadProgram implements GpuProgram {
         ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
         {
           group: 1,
-          bindGroup: gpu.bindGroup,
+          bindGroup,
           dynamicOffsets: draw.quad.paramsBytes > 0 ? [draw.paramsOffset] : [],
         },
       ],
@@ -222,6 +236,7 @@ export class ShaderQuadProgram implements GpuProgram {
       pipelines: new Map(),
       pending: new Set(),
       bindGroup: null,
+      ringGeneration: -1,
     }
     this.#gpu.set(quad, gpu)
     return gpu
@@ -240,15 +255,24 @@ export class ShaderQuadProgram implements GpuProgram {
     if (gpu.pending.has(key)) return null
     gpu.pending.add(key)
     const mode = blend === 'lighter' ? 'lighter' : 'source-over'
-    void warmupBlendPipelines(ctx.device, ctx, {
-      shader: gpu.shader,
-      vertexLayout: this.#vertexLayout,
-      bindGroupLayouts: [ctx.frameBindGroupLayout, gpu.layout],
-      blends: [mode],
-    }).then(
-      (map) => {
+    const map = new Map<string, Pipeline>()
+    void buildBlendPipelines(
+      ctx.device,
+      ctx,
+      {
+        shader: gpu.shader,
+        vertexLayout: this.#vertexLayout,
+        bindGroupLayouts: [ctx.frameBindGroupLayout, gpu.layout],
+        blends: [mode],
+      },
+      ctx.passSamples,
+      map,
+    ).then(
+      () => {
         const pipeline = map.get(mode)
         if (pipeline) gpu.pipelines.set(key, pipeline)
+        const clipped = map.get(`${mode}|clipTest`)
+        if (clipped) gpu.pipelines.set(`${key}|clipTest`, clipped)
         gpu.pending.delete(key)
       },
       (err) => {
@@ -300,7 +324,14 @@ export class ShaderQuadProgram implements GpuProgram {
       }
       bound.push(up.texture)
     }
-    if (gpu.bindGroup && !rebuilt) return gpu.bindGroup
+    if (
+      gpu.bindGroup &&
+      !rebuilt &&
+      gpu.ringGeneration === this.#paramsRing.generation
+    ) {
+      return gpu.bindGroup
+    }
+    gpu.ringGeneration = this.#paramsRing.generation
     const entries: BindGroupEntry[] = bound.map((texture, i) => ({
       binding: i,
       resource: { texture },
@@ -319,7 +350,8 @@ export class ShaderQuadProgram implements GpuProgram {
   }
 }
 
+/** The pipeline's key: the target's format and the pass's sample count. */
 function pipelineKey(ctx: GpuBatchContext, blend: GfxBlend): string {
   const t = ctx.targetFormat
-  return `${t.format}|${t.samples}|${t.depthStencil}|${blend}`
+  return `${t.format}|${ctx.passSamples}|${t.depthStencil}|${blend}`
 }

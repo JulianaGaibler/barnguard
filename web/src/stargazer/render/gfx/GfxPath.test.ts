@@ -72,6 +72,23 @@ describe('GfxPath', () => {
     expect(p.flatten(0.25).pointCount).toBe(count + 2)
   })
 
+  it('keeps a flatten per tolerance, so two scales in a frame flatten once each', () => {
+    const p = new GfxPath().moveTo(0, 0).quadTo(50, 100, 100, 0)
+    const fine = p.flatten(0.05)
+    const coarse = p.flatten(2)
+    expect(fine.pointCount).toBeGreaterThan(coarse.pointCount)
+    expect(p.flatten(0.05)).toBe(fine)
+    expect(p.flatten(2)).toBe(coarse)
+    expect(fine.pointCount).toBeGreaterThan(coarse.pointCount)
+  })
+
+  it('recycles the oldest of its flattens past the limit', () => {
+    const p = new GfxPath().moveTo(0, 0).quadTo(50, 100, 100, 0)
+    const first = p.flatten(0.05)
+    for (const tol of [0.1, 0.2, 0.4, 0.8]) p.flatten(tol)
+    expect(p.flatten(0.05)).not.toBe(first)
+  })
+
   it('draws nothing once released', () => {
     const p = star()
     p.release()

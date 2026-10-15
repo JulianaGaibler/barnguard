@@ -52,10 +52,14 @@ export interface EnterpriseMessages extends CoreMessages {
     printedButton: string
     playAgainButton: string
     closeButton: string
-    /** The on-screen keyboard's key that closes it. */
+    /** Label of the tap target that dismisses the keyboard. */
     closeKeyboard: string
-    /** The keyboard's space bar, for screen readers. */
-    spaceKey: string
+    /** Placeholder in the print picker's name field. */
+    labelNamePlaceholder: string
+    /** Label of the print picker's button back to the game over screen. */
+    backButton: string
+    /** Names of the label variants, for the picker's preview buttons. */
+    labelVariants: { purple: string; orange: string; pink: string }
     /** Name shown for a best score nobody put a name to. */
     unnamed: string
     /** The notice before an idle screen returns to the start. */

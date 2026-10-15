@@ -1,6 +1,6 @@
 import { GroupNode } from './GroupNode'
 import type { Node, NodeOwner } from './Node'
-import type { Node2D, RenderLayer } from './Node2D'
+import type { Node2D } from './Node2D'
 import type { Node3D } from './Node3D'
 import type { Engine } from '../engine/Engine'
 import type { CameraHost } from '../camera/CameraHost'
@@ -12,12 +12,12 @@ import { walkTree } from './traverse'
  * {@link NodeOwner}, so every node reaches the engine through it, and it holds
  * the derived caches the renderer reads each frame, bucketed by node kind:
  *
- * - **2D:** painter order and the per-layer node lists, collected by walking the
- *   tree and keeping the {@link Node2D}s in DFS order.
+ * - **2D:** painter order, collected by walking the tree and keeping the
+ *   {@link Node2D}s in DFS order.
  * - **3D:** the transform pass that composes each {@link Node3D}'s world matrix.
  *
  * The two render pipelines stay separate (2D painter order, 3D depth-tested),
- * but they read from this one tree. Bridge dimensions with a `Viewport2DNode`.
+ * but they read from this one tree.
  *
  * Each `Stage` owns one `SceneTree`, rooted at a plain {@link GroupNode} unless
  * the constructor is handed another root.
@@ -25,7 +25,6 @@ import { walkTree } from './traverse'
 export class SceneTree implements NodeOwner {
   /** Tree root. Add top-level nodes here (2D, 3D, or {@link GroupNode}s). */
   readonly root: Node
-  #_staticInvalid = true
   /**
    * Back-reference to the owning Engine, set immediately after construction.
    * Null when used standalone (unit tests). Nodes reach `engine.animation`
@@ -36,16 +35,21 @@ export class SceneTree implements NodeOwner {
   /**
    * The camera registry this tree's cameras attach to, the owning `Stage`. Set
    * by the Stage right after construction, null for standalone trees (unit
-   * tests) and the embedded tree inside a `Viewport2DNode`. A camera node whose
-   * tree has no `stage` cannot register, so attaching one hard-errors.
+   * tests). A camera node whose tree has no `stage` cannot register, so
+   * attaching one hard-errors.
    */
   stage: CameraHost | null = null
 
   /** Cached DFS pre-order (painter order) of the {@link Node2D}s in the tree. */
   #_painterOrder: Node2D[] | null = null
-  /** Per-layer cached 2D node lists, rebuilt from the painter order when dirty. */
-  #_layerCache: Map<RenderLayer, Node2D[]> = new Map()
-  #_layerDirty = true
+  /** Nodes with update work, in pre-order, or `null` when stale. */
+  #updateNodes: Node[] | null = null
+  /** Nodes with fixed-step work, in pre-order, or `null` when stale. */
+  #fixedNodes: Node[] | null = null
+  /** Attached {@link Node3D}s, intrinsic ones included. */
+  #all3D = 0
+  /** Attached {@link Node3D}s that are not intrinsic. */
+  #content3D = 0
 
   constructor(root: Node = new GroupNode('scene-root')) {
     this.root = root
@@ -53,39 +57,51 @@ export class SceneTree implements NodeOwner {
   }
 
   /**
-   * Whether the `'static'` layer has been marked dirty since the last
-   * {@link SceneTree.markStaticClean}.
+   * Mark the painter-order index dirty. Cheap (flags only), the next
+   * `getPainterOrder()` read rebuilds it in one DFS.
    *
-   * The renderer redraws all three layers every frame and never reads this, so
-   * the flag and its two setters have no consumer. `Stage`, `Node2D` and
-   * `LayoutRoot` still call `invalidateStatic`, and `markStaticClean` is never
-   * called at all. Drop the whole group together if a cleanup pass gets to it.
-   */
-  get staticInvalid(): boolean {
-    return this.#_staticInvalid
-  }
-
-  invalidateStatic(): void {
-    this.#_staticInvalid = true
-  }
-
-  markStaticClean(): void {
-    this.#_staticInvalid = false
-  }
-
-  /**
-   * Mark the painter-order + per-layer indices dirty. Cheap (flags only), the
-   * next `getPainterOrder()` / `getLayerNodes()` read rebuilds them in one
-   * DFS.
-   *
-   * Called by `Node.add` and `Node.remove` for every structural change in the
-   * tree, and by {@link Node2D} when a node's `renderLayer` moves it between
-   * buckets. A change that skipped this leaves a node out of the index, which
-   * means it neither draws nor hit-tests while sitting correctly in the tree.
+   * Called by `Node.add`, `Node.remove` and the reorder methods for every
+   * structural change in the tree. A change that skipped this leaves a node out
+   * of the index, which means it neither hit-tests nor reads in order while
+   * sitting correctly in the tree.
    */
   invalidatePainterOrder(): void {
     this.#_painterOrder = null
-    this.#_layerDirty = true
+    this.#updateNodes = null
+    this.#fixedNodes = null
+  }
+
+  invalidateWork(): void {
+    this.#updateNodes = null
+    this.#fixedNodes = null
+  }
+
+  /**
+   * The nodes that have `onUpdate` work (their own or a behaviour's), in tree
+   * pre-order, any kind. Cached until the tree or a node's work changes, so a
+   * frame with no change visits only these. Each rebuild makes a new array, so
+   * a pass iterating the old one is not disturbed by changes it causes.
+   */
+  getUpdateNodes(): readonly Node[] {
+    if (!this.#updateNodes) this.#rebuildWork()
+    return this.#updateNodes!
+  }
+
+  /** The nodes that have `onFixedStep` work, like {@link getUpdateNodes}. */
+  getFixedStepNodes(): readonly Node[] {
+    if (!this.#fixedNodes) this.#rebuildWork()
+    return this.#fixedNodes!
+  }
+
+  #rebuildWork(): void {
+    const update: Node[] = []
+    const fixed: Node[] = []
+    walkTree(this.root, (n) => {
+      if (n._hasUpdateWork) update.push(n)
+      if (n._hasFixedStepWork) fixed.push(n)
+    })
+    this.#updateNodes = update
+    this.#fixedNodes = fixed
   }
 
   /**
@@ -97,36 +113,26 @@ export class SceneTree implements NodeOwner {
     const out: Node2D[] = []
     walkTree(this.root, (n) => {
       // Intrinsic nodes (camera nodes) are not content: they never draw, so
-      // they stay out of painter order, and thus out of layer buckets, the
-      // render walk, and hit-testing (which reads this list).
+      // they stay out of painter order, and thus out of hit-testing and the
+      // reading order (which read this list).
       if (n.kind === '2d' && !n.intrinsic) out.push(n as Node2D)
     })
     this.#_painterOrder = out
     return out
   }
 
-  /** {@link Node2D}s in the given layer, in painter order. Read-only. */
-  getLayerNodes(layer: RenderLayer): readonly Node2D[] {
-    if (this.#_layerDirty) {
-      const painter = this.getPainterOrder()
-      this.#_layerCache.clear()
-      for (let i = 0; i < painter.length; i++) {
-        const n = painter[i]
-        let arr = this.#_layerCache.get(n.renderLayer)
-        if (!arr) {
-          arr = []
-          this.#_layerCache.set(n.renderLayer, arr)
-        }
-        arr.push(n)
-      }
-      this.#_layerDirty = false
-    }
-    return this.#_layerCache.get(layer) ?? EMPTY_LAYER
+  /**
+   * Whether the tree contains any {@link Node3D} that is not intrinsic (drives
+   * the 3D render pass). Kept as a count when nodes attach and detach, so a
+   * frame in a pure-2D scene does not walk the tree to find out.
+   */
+  get has3D(): boolean {
+    return this.#content3D > 0
   }
 
-  /** Whether the tree contains any {@link Node3D} (drives the 3D render pass). */
-  get has3D(): boolean {
-    return hasKind(this.root, '3d')
+  count3D(all: number, content: number): void {
+    this.#all3D += all
+    this.#content3D += content
   }
 
   /**
@@ -140,26 +146,9 @@ export class SceneTree implements NodeOwner {
       const n = painter[i]
       if (n.worldDirty) n.ensureWorldTransform()
     }
+    if (this.#all3D === 0) return
     walkTree(this.root, (n) => {
       if (n.kind === '3d' && n.worldDirty) (n as Node3D).ensureWorldTransform()
-    })
-  }
-
-  /**
-   * Snapshot every 3D node's transform into its `prevTransform` for render
-   * interpolation. The fixed-step loop calls this on worlds that opt in.
-   */
-  snapshotPrevTransforms(): void {
-    walkTree(this.root, (n) => {
-      if (n.kind !== '3d') return
-      const node = n as Node3D
-      if (!node.prevTransform) return
-      const t = node.transform
-      const p = node.prevTransform
-      p.setPosition(t.position.x, t.position.y, t.position.z)
-      p.setRotation(t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w)
-      p.setScale(t.scale.x, t.scale.y, t.scale.z)
-      p.alpha = t.alpha
     })
   }
 
@@ -182,21 +171,4 @@ export class SceneTree implements NodeOwner {
   destroy(): void {
     this.root.destroy()
   }
-}
-
-const EMPTY_LAYER: readonly Node2D[] = Object.freeze([]) as readonly Node2D[]
-
-/**
- * Depth-first search with early exit: does the subtree hold a non-intrinsic
- * node of `kind`? Intrinsic nodes (e.g. a stage's default `CameraNode3D`, which
- * is kind `'3d'`) are skipped so they don't spuriously flip on the 3D pass. The
- * walk still recurses through them.
- */
-function hasKind(node: Node, kind: string): boolean {
-  if (!node.intrinsic && node.kind === kind) return true
-  const children = node.children
-  for (let i = 0; i < children.length; i++) {
-    if (hasKind(children[i], kind)) return true
-  }
-  return false
 }

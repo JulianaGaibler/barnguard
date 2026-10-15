@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { Node2D, type RenderLayer } from './Node2D'
+import type { Affine2x3 } from '../math/Affine2D'
+import { Node2D } from './Node2D'
 import { SceneTree } from './SceneTree'
+import { Behavior } from './Behavior'
 import { walkTree } from './traverse'
 import type { Node } from './Node'
 
 /**
- * Property-based fuzz suite for the P1/P3/P4/P8 caches. Runs a fixed
- * pseudo-random sequence of tree mutations and, every N ops, re-derives the
- * "truth" via a fresh DFS and compares it against every cache / counter the
- * engine maintains incrementally.
+ * Property-based fuzz suite for the P1/P3/P4 caches. Runs a fixed pseudo-random
+ * sequence of tree mutations and, every N ops, re-derives the "truth" via a
+ * fresh DFS and compares it against every cache / counter the engine maintains
+ * incrementally.
  *
  * Deterministic PRNG seed so failures reproduce exactly.
  *
@@ -52,10 +54,6 @@ function truePainterOrder(scene: SceneTree): Node2D[] {
   return out
 }
 
-function trueLayerNodes(scene: SceneTree, layer: RenderLayer): Node2D[] {
-  return truePainterOrder(scene).filter((n) => n.renderLayer === layer)
-}
-
 /**
  * Rebuild every node's world matrix from scratch (parent × local, DFS). Returns
  * a Map<nodeId, [a, b, c, d, e, f]> so we can assert equality against the
@@ -88,8 +86,6 @@ function trueWorlds(tops: readonly Node2D[]): Map<string, number[]> {
   for (const t of tops) walk(t, null)
   return m
 }
-
-const LAYERS: readonly RenderLayer[] = ['static', 'above-static', 'dynamic']
 
 /**
  * A tree to fuzz, and the 2D subtrees to start a transform pass from. Under a
@@ -124,8 +120,13 @@ const HARNESSES: [string, () => Harness][] = [
   ],
 ]
 
+/** A behaviour with update work, so attaching it changes the update list. */
+class Ticking extends Behavior {
+  override onUpdate(): void {}
+}
+
 describe.each(HARNESSES)(
-  'Scene cached-index invariants (P1/P3/P4/P8), fuzz, under %s',
+  'Scene cached-index invariants (P1/P3/P4), fuzz, under %s',
   (_name, make) => {
     it('holds every invariant under 500 random ops on a 50-node tree', () => {
       const rng = new Mulberry32(0xdeadbeef)
@@ -135,7 +136,6 @@ describe.each(HARNESSES)(
       // (or root).
       for (let i = 0; i < 50; i++) {
         const n = new Node2D(`fuzz-${i}`)
-        n.renderLayer = LAYERS[rng.int(3)]
         const parent = nodes.length > 0 ? rng.choice(nodes) : root
         parent.add(n)
         nodes.push(n)
@@ -143,12 +143,11 @@ describe.each(HARNESSES)(
 
       const OPS = 500
       for (let step = 0; step < OPS; step++) {
-        const op = rng.int(5)
-        // 0: add a new node, 1: reparent, 2: remove, 3: setRenderLayer,
-        // 4: setPosition
+        const op = rng.int(6)
+        // 0: add a new node, 1: reparent, 2: remove, 3: reorder among siblings,
+        // 4: setPosition, 5: add or remove an updating behaviour
         if (op === 0) {
           const n = new Node2D(`fuzz-late-${step}`)
-          n.renderLayer = LAYERS[rng.int(3)]
           const parent =
             nodes.length > 0 && rng.next() < 0.9 ? rng.choice(nodes) : root
           // Skip if parent was destroyed in a prior op.
@@ -183,16 +182,26 @@ describe.each(HARNESSES)(
             rng.choice(live).destroy()
           }
         } else if (op === 3) {
-          const live = nodes.filter((n) => !n.isDestroyed)
+          const live = nodes.filter((n) => !n.isDestroyed && n.parent)
           if (live.length > 0) {
-            rng.choice(live).renderLayer = LAYERS[rng.int(3)]
+            const n = rng.choice(live)
+            const parent = n.parent!
+            parent.addAt(n, rng.int(parent.children.length + 1))
           }
-        } else {
+        } else if (op === 4) {
           const live = nodes.filter((n) => !n.isDestroyed)
           if (live.length > 0) {
             const n = rng.choice(live)
             n.transform.x = rng.next() * 100 - 50
             n.transform.y = rng.next() * 100 - 50
+          }
+        } else {
+          const live = nodes.filter((n) => !n.isDestroyed)
+          if (live.length > 0) {
+            const n = rng.choice(live)
+            const held = n.getBehaviors(Ticking)[0]
+            if (held) n.removeBehavior(held)
+            else n.addBehavior(new Ticking())
           }
         }
 
@@ -205,6 +214,16 @@ describe.each(HARNESSES)(
           `painter order after op ${step}`,
         ).toEqual(truePainterOrder(scene).map((n) => n.id))
 
+        // The update list, after every op for the same reason.
+        const updating: string[] = []
+        walkTree(scene.root, (n) => {
+          if (n._hasUpdateWork) updating.push(n.id)
+        })
+        expect(
+          scene.getUpdateNodes().map((n) => n.id),
+          `update list after op ${step}`,
+        ).toEqual(updating)
+
         // Every 10 ops, verify the rest.
         if (step % 10 !== 9) continue
 
@@ -214,18 +233,6 @@ describe.each(HARNESSES)(
         expect(painterCache.map((n) => n.id)).toEqual(
           painterTrue.map((n) => n.id),
         )
-
-        // (P1) Per-layer index matches DFS filtered by layer.
-        for (const layer of LAYERS) {
-          const layerTrue = trueLayerNodes(scene, layer)
-          const layerCache = scene.getLayerNodes(layer)
-          expect(layerCache.map((n) => n.id)).toEqual(
-            layerTrue.map((n) => n.id),
-          )
-        }
-
-        // (P8) Static descendant count, per 2D subtree.
-        for (const t of tops()) t._verifyStaticCount()
 
         // (P3) After a fresh updateTransforms pass, every node's world
         // matrix must match a from-scratch composition.
@@ -273,7 +280,7 @@ function composeAllWorlds(root: Node2D): void {
 
 function propagate(
   node: Node2D,
-  parentWorld: DOMMatrix,
+  parentWorld: Affine2x3,
   parentDirty: boolean,
 ): void {
   const nodeDirty = node.worldDirty || parentDirty
