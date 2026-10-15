@@ -36,14 +36,14 @@ describe('Transform3D', () => {
     expect(p.y).toBeCloseTo(2, 4)
   })
 
-  it('fires onDirty once on the clean→dirty transition', () => {
+  it('fires onDirty once on the clean->dirty transition', () => {
     const t = new Transform3D()
     t.updateLocal() // clean
     const onDirty = vi.fn()
     t.onDirty = onDirty
     t.setPosition(1, 1, 1)
     t.setScale(2, 2, 2)
-    // Both mutations happened while already dirty after the first → one fire.
+    // Both mutations happened while already dirty after the first -> one fire.
     expect(onDirty).toHaveBeenCalledTimes(1)
   })
 

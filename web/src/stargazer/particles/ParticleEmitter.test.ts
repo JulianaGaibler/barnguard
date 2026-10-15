@@ -21,7 +21,7 @@ describe('ParticleEmitter', () => {
 
   it('particles advance along their initial velocity', () => {
     const e = new ParticleEmitter({ ...BASE_CONFIG })
-    e.burst(1, 0, 0) // spreadRad=0, dir=0 → vx=100, vy=0
+    e.burst(1, 0, 0) // spreadRad=0, dir=0 -> vx=100, vy=0
     const f = e.pool.field
     // Find the alive slot (spawn returns first free, likely 0).
     let idx = -1
@@ -66,7 +66,7 @@ describe('ParticleEmitter', () => {
     const idx = firstAlive(e)
     e.update(0.5)
     // vy: 0 + 200 * 0.5 = 100. But also position updated with the new vy
-    // (order in code: damp → accel → integrate). So vy after update = 100.
+    // (order in code: damp -> accel -> integrate). So vy after update = 100.
     expect(f.vy[idx]).toBeCloseTo(100, 5)
   })
 
@@ -74,7 +74,7 @@ describe('ParticleEmitter', () => {
     const e = new ParticleEmitter({ ...BASE_CONFIG, lifetimeSec: [0.5, 0.5] })
     e.burst(3, 0, 0)
     expect(e.aliveCount).toBe(3)
-    e.update(0.5) // life -= 0.5 → 0, killed
+    e.update(0.5) // life -= 0.5 -> 0, killed
     expect(e.aliveCount).toBe(0)
   })
 

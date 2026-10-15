@@ -17,6 +17,7 @@
     "modules/ai.ts",
     "modules/dom.ts",
     "modules/a11y.ts",
+    "modules/lottie.ts",
     "modules/debug.ts",
     "modules/svelte.ts"
   ],

@@ -135,8 +135,8 @@ const CAMERA_TWEEN_SEC = 0.6
 // Map placement: fit the 661×888 country (contain) into the arcade's fixed
 // 1920×1080 GAME region and center it. The game's scene lives under a single
 // parent node carrying this transform, so every ported node/behavior keeps
-// operating in map-local units. Only the camera framings (map→world) and the
-// spawn bounds (world→map) cross the boundary. All constant, the region and
+// operating in map-local units. Only the camera framings (map->world) and the
+// spawn bounds (world->map) cross the boundary. All constant, the region and
 // viewBox are both fixed, so the camera handles every aspect via contain-fit.
 // -----------------------------------------------------------------------------
 
@@ -168,7 +168,7 @@ function worldToMap(rect: Rect): Rect {
   }
 }
 
-/** Arcade-world point → map-local point (pointer input for path drawing). */
+/** Arcade-world point -> map-local point (pointer input for path drawing). */
 function worldToMapPoint(x: number, y: number): Vec2 {
   return {
     x: (x - PLACEMENT_X) / PLACEMENT_SCALE,
@@ -324,7 +324,7 @@ export async function startGame(
       return
     }
     // Mid-selection (zoom in-flight OR card shown), allow retargeting to a
-    // different state. Same state → no-op, avoids re-triggering the zoom + fade
+    // different state. Same state -> no-op, avoids re-triggering the zoom + fade
     // + epicenter build on an accidental double-tap.
     if (sessionState === 'zoomingIn' || sessionState === 'preGame') {
       if (id !== selectedStateId) void selectState(id)

@@ -9,7 +9,7 @@
 // @location / @binding numbers match batchLayout.ts:
 // a_unit/a_center/a_radAlpha/a_rampRow at LOC_GRAD_UNIT/CENTER/RADALPHA/RAMPROW
 // (0/1/2/3), Frame UBO at FRAME_UBO_BINDING (0), u_stops at texture unit 0. The
-// projection matrix already maps device px → clip with the Y-flip, so shaders
+// projection matrix already maps device px -> clip with the Y-flip, so shaders
 // are generated with --keep-coordinate-space.
 //
 // Sampler-binding convention: naga folds a texture and its sampler into one

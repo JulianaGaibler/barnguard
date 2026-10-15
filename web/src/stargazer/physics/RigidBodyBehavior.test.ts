@@ -44,7 +44,7 @@ describe('RigidBodyBehavior', () => {
       b.onUpdate()
     }
     expect(b.body.position.y).toBeGreaterThan(0)
-    // interpolate:false → transform tracks the current body position exactly.
+    // interpolate:false -> transform tracks the current body position exactly.
     expect(node.transform.y).toBeCloseTo(b.body.position.y, 6)
   })
 

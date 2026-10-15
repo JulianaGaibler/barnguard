@@ -90,7 +90,7 @@ function segmentVerts(a: Vec2, b: Vec2, halfThickness: number): Vec2[] {
 }
 
 /**
- * The portion of segment `a`→`b` inside `rect`, via Liang-Barsky clipping,
+ * The portion of segment `a`->`b` inside `rect`, via Liang-Barsky clipping,
  * `null` when none of it is. The engine has no cheap way to clip a stroke
  * (`setClipMask` only wires into filled-triangle draws), so every line this
  * file draws is clipped by hand before it reaches `Gfx2D`.

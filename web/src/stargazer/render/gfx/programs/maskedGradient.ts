@@ -43,7 +43,10 @@ export class MaskedGradientProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
-  /** (mask → (atlas → bind group)). The mask varies per draw, the atlas is a fixed texture. */
+  /**
+   * (mask -> (atlas -> bind group)). The mask varies per draw, the atlas is a
+   * fixed texture.
+   */
   #bindGroups = new WeakMap<Texture, WeakMap<Texture, BindGroup>>()
 
   get stream(): RingStream {
@@ -95,7 +98,11 @@ export class MaskedGradientProgram implements GpuProgram {
     })
   }
 
-  #bindGroupFor(ctx: GpuBatchContext, mask: Texture, atlas: Texture): BindGroup {
+  #bindGroupFor(
+    ctx: GpuBatchContext,
+    mask: Texture,
+    atlas: Texture,
+  ): BindGroup {
     let byAtlas = this.#bindGroups.get(mask)
     if (!byAtlas) {
       byAtlas = new WeakMap()
@@ -132,7 +139,8 @@ export class MaskedGradientProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
-    const atlas = ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
+    const atlas =
+      ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
     const material = run.texture
       ? this.#bindGroupFor(ctx, run.texture, atlas)
       : null

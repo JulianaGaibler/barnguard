@@ -13,7 +13,7 @@ describe('FrameStats', () => {
     for (let i = 1; i <= 100; i++) s.push(i / 1000) // 1ms to 100ms
     const p = s.percentiles()
     expect(p.count).toBe(100)
-    // With 100 samples, floor(100 * 0.5) = 50 → sorted[50] = 51ms.
+    // With 100 samples, floor(100 * 0.5) = 50 -> sorted[50] = 51ms.
     expect(p.p50).toBeCloseTo(0.051, 6)
     expect(p.p95).toBeCloseTo(0.096, 6)
     expect(p.p99).toBeCloseTo(0.1, 6)

@@ -20,7 +20,7 @@ describe('ShelfPacker', () => {
   it('opens a new shelf when the current one is full width', () => {
     const p = new ShelfPacker(50, 100, 4)
     const a = p.pack(40, 10)
-    const b = p.pack(20, 10) // doesn't fit remaining 10px → new shelf
+    const b = p.pack(20, 10) // doesn't fit remaining 10px -> new shelf
     expect(a).toEqual({ x: 0, y: 0 })
     expect(b).toEqual({ x: 0, y: 12 })
   })

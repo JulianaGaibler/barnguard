@@ -25,7 +25,7 @@ const EPS = 1e-9
  * The two compose: the framing sets the base fit, the node's world transform is
  * an additional view offset on top (identity by default, so a plain framed
  * camera behaves exactly like the pre-node `Camera`). The effective CSS-pixel
- * world→screen affine is `containFit(framing) ∘ inverse(node.world)`. The
+ * world->screen affine is `containFit(framing) ∘ inverse(node.world)`. The
  * renderer folds DPR in on top.
  *
  * A `Stage` tracks one _current_ 2D camera and renders through it. The first

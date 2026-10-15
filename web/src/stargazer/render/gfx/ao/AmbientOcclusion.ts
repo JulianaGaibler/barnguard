@@ -322,14 +322,14 @@ export class AmbientOcclusion {
     const gx = Math.ceil(w / 8)
     const gy = Math.ceil(h / 8)
     device.beginComputePass()
-    // generate → buffer 0
+    // generate -> buffer 0
     device.dispatchCompute({
       pipeline: this.#genComputePipeline!,
       bindGroups: [{ group: 0, bindGroup: this.#genBind! }],
       x: gx,
       y: gy,
     })
-    // blur H: 0 → 1, blur V: 1 → 0
+    // blur H: 0 -> 1, blur V: 1 -> 0
     device.dispatchCompute({
       pipeline: this.#blurComputePipeline!,
       bindGroups: [{ group: 0, bindGroup: this.#blurHBind! }],
@@ -347,11 +347,11 @@ export class AmbientOcclusion {
 
   #runFragment(): void {
     const [rt0, rt1] = this.#aoRt!
-    // generate → rt0
+    // generate -> rt0
     this.#fragPass(this.#genFragPipeline!, this.#genBind!, rt0)
-    // blur H: rt0 → rt1
+    // blur H: rt0 -> rt1
     this.#fragPass(this.#blurFragPipeline!, this.#blurHBind!, rt1)
-    // blur V: rt1 → rt0 (final)
+    // blur V: rt1 -> rt0 (final)
     this.#fragPass(this.#blurFragPipeline!, this.#blurVBind!, rt0)
   }
 

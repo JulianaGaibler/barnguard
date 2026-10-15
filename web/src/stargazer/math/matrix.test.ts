@@ -62,7 +62,7 @@ describe('multiplyMatrix2D', () => {
   })
 
   it('translate then scale (world = T × S) transforms a point correctly', () => {
-    // Point (1, 0) under S(2,3) then T(10,5) → (2, 0) → (12, 5).
+    // Point (1, 0) under S(2,3) then T(10,5) -> (2, 0) -> (12, 5).
     const T = new DOMMatrix()
     T.translateSelf(10, 5)
     const S = new DOMMatrix()
@@ -200,7 +200,7 @@ describe('multiplyMatrix2D ↔ DOMMatrix post-multiply parity', () => {
   })
 
   it('T × R at 45°', () => {
-    // Post-multiply chain: identity → T → T·R (i.e. rotate happens in T's
+    // Post-multiply chain: identity -> T -> T·R (i.e. rotate happens in T's
     // local frame). This is the canonical Transform2D order.
     const T = new DOMMatrix().translateSelf(10, 5)
     const R = new DOMMatrix().rotateSelf(45)

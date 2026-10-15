@@ -92,7 +92,7 @@ export interface CssMatrix {
 /**
  * Compose a camera screen affine after a node's world affine into the CSS
  * `matrix(a,b,c,d,e,f)` that places a DOM element over the same region the
- * canvas draws the node. `screen` is the camera's full CSS-pixel world→screen
+ * canvas draws the node. `screen` is the camera's full CSS-pixel world->screen
  * affine (`CameraView2D.getScreenAffine`), so a rotated / scaled / parented
  * camera projects correctly. The node's world affine carries its own rotation,
  * scale, and baked-in pivot. Writes into `out` (no allocation).
@@ -322,7 +322,7 @@ class Attachment implements DomAttachment {
 
     if (this.#opts.syncOpacity) {
       const alpha = effectiveAlpha(node)
-      if (Math.abs(alpha - this.#lastOpacity) > EPSILON) {
+      if (opacityNeedsWrite(alpha, this.#lastOpacity)) {
         this.element.style.opacity = String(alpha)
         this.#lastOpacity = alpha
       }
@@ -367,7 +367,7 @@ class Attachment implements DomAttachment {
  * translates the element (centered on the point), hiding it when the node is
  * behind the camera. Position-only: the element stays screen-upright and
  * doesn't inherit 3D rotation. Uses the primary stage's canvas size for the
- * NDC→CSS mapping.
+ * NDC->CSS mapping.
  */
 class Attachment3D implements Dom3DAttachment {
   readonly node: Node3D
@@ -738,6 +738,15 @@ function effectiveVisible3d(node: Node3D): boolean {
     n = n.parent
   }
   return true
+}
+
+/**
+ * Whether an element's opacity has to be written for `alpha`, given the last
+ * value written (`NaN` before the first). A first write always happens, so an
+ * element that starts transparent is transparent from its first frame.
+ */
+export function opacityNeedsWrite(alpha: number, last: number): boolean {
+  return !(Math.abs(alpha - last) <= EPSILON)
 }
 
 // Alpha compounds along the 2D (same-kind) chain only. A 3D ancestor has no 2D

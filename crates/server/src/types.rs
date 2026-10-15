@@ -497,9 +497,7 @@ fn canonical_display_id(display: &str) -> &str {
 impl DisplayHighScores {
     pub fn empty_for(display: &str) -> Self {
         match canonical_display_id(display) {
-            DISPLAY_ENTERPRISE => {
-                DisplayHighScores::Enterprise(EnterpriseHighScores::default())
-            }
+            DISPLAY_ENTERPRISE => DisplayHighScores::Enterprise(EnterpriseHighScores::default()),
             DISPLAY_ARCADE => DisplayHighScores::Arcade(ArcadeHighScores::default()),
             other => panic!("unknown display id: {other}"),
         }
@@ -586,10 +584,16 @@ pub struct LeaderboardEntry {
     pub id: Uuid,
     pub ts_ms: u64,
     pub display: String,
-    /// Already normalized (trimmed, lowercased, truncated to 6 chars) by the
-    /// time it's stored. See `NewLeaderboardEntry::normalized_name`.
+    /// Already normalized (trimmed, lowercased, truncated to
+    /// [`LEADERBOARD_NAME_MAX_CHARS`]) by the time it's stored. See
+    /// `NewLeaderboardEntry::normalized_name`.
     pub name: String,
     pub score: u32,
+    /// What the run was played on, such as a country or a state id, for a
+    /// board that shows where each score came from. Empty when the submitter
+    /// had nothing to say, which is every entry written before this existed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub region: String,
 }
 
 /// Client-supplied payload for `POST /api/leaderboard`.
@@ -599,10 +603,12 @@ pub struct NewLeaderboardEntry {
     pub display: String,
     pub name: String,
     pub score: u32,
+    #[serde(default)]
+    pub region: String,
 }
 
 /// Max characters kept from a submitted name after normalization.
-pub const LEADERBOARD_NAME_MAX_CHARS: usize = 6;
+pub const LEADERBOARD_NAME_MAX_CHARS: usize = 12;
 
 impl NewLeaderboardEntry {
     /// Trim, lowercase, and truncate to [`LEADERBOARD_NAME_MAX_CHARS`]
@@ -859,6 +865,7 @@ mod tests {
             display: "jezzball".into(),
             name: name.into(),
             score: 100,
+            region: String::new(),
         }
     }
 
@@ -873,8 +880,12 @@ mod tests {
     }
 
     #[test]
-    fn leaderboard_name_truncates_to_six_chars() {
-        assert_eq!(new_leaderboard("TOOLONG").normalized_name(), "toolon");
+    fn leaderboard_name_truncates_to_the_cap() {
+        assert_eq!(
+            new_leaderboard("ABCDEFGHIJKLMNOP").normalized_name(),
+            "abcdefghijkl"
+        );
+        assert_eq!(new_leaderboard("TOOLONG").normalized_name(), "toolong");
     }
 
     #[test]

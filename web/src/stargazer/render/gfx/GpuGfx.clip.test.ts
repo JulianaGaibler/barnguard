@@ -99,7 +99,7 @@ describe('GpuGfx device pixel grid', () => {
     const { gfx, device } = makeGpuGfx()
     await beginFrame(gfx, device)
     gfx.scale(2, 2)
-    // 3.3 local units is 6.6 device px, which rounds to 7 → 3.5 local.
+    // 3.3 local units is 6.6 device px, which rounds to 7 -> 3.5 local.
     expect(gfx.snapSize(3.3)).toBeCloseTo(3.5)
     expect(gfx.snapSize(4)).toBeCloseTo(4)
     gfx.endFrame()

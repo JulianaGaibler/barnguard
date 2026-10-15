@@ -41,9 +41,9 @@ export interface ParticleEmitterConfig {
   dampingPerSec?: number
   /** Constant acceleration in world units / sec² (gravity, wind, …). */
   accelerationWorld?: Vec2
-  /** Multiplier applied to `size` over life (spawn → death). Default [1, 1]. */
+  /** Multiplier applied to `size` over life (spawn -> death). Default [1, 1]. */
   scaleOverLife?: readonly [number, number]
-  /** Alpha over life (spawn → death). Default [1, 0]. */
+  /** Alpha over life (spawn -> death). Default [1, 0]. */
   alphaOverLife?: readonly [number, number]
   /**
    * Random per-particle constant angular velocity range, rad/s, e.g. `[-6, 6]`

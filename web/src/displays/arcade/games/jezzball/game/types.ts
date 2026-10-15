@@ -10,7 +10,7 @@ export const CELL_FILLED = 1
 export const CELL_WALL = 2
 export type CellState = typeof CELL_OPEN | typeof CELL_FILLED | typeof CELL_WALL
 
-/** A grid coordinate: column 0..cols-1 (left→right), row 0 at the top. */
+/** A grid coordinate: column 0..cols-1 (left->right), row 0 at the top. */
 export interface CellRef {
   col: number
   row: number

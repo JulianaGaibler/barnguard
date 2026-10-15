@@ -120,7 +120,7 @@ export class Camera implements CameraView2D {
   }
 
   /**
-   * Uniform world→screen mapping. Without `out`, returns a cached object
+   * Uniform world->screen mapping. Without `out`, returns a cached object
    * memoised against `viewport` + `pixelSize` (invalidated whenever either
    * changes via `setViewport` / `setPixelSize`, both of which bump
    * `_frameNum`). Callers MUST NOT mutate the cached result, treat it as
@@ -158,7 +158,7 @@ export class Camera implements CameraView2D {
   }
 
   /**
-   * The world→screen mapping as a full CSS-pixel affine. A plain Camera never
+   * The world->screen mapping as a full CSS-pixel affine. A plain Camera never
    * rotates or skews, so this is the uniform screen transform expanded to `{a:
    * scale, d: scale, e: offsetX, f: offsetY}`. Without `out`, returns a cached
    * object the caller MUST treat as read-only.

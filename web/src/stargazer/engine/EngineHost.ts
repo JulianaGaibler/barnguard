@@ -18,9 +18,9 @@ export interface EngineHostOptions extends Omit<EngineOptions, 'canvas'> {
   onContextLost?: (restorable: boolean) => void
   /**
    * Boot-time HUD state override. If omitted, reads from `?debug` in
-   * `window.location.search`: `?debug=hud` → HUD visible on boot `?debug=perf`
-   * → HUD visible on boot + per-node `performance.mark()` timing enabled on the
-   * engine (inspect via DevTools User Timing lane) (absent / anything else) →
+   * `window.location.search`: `?debug=hud` -> HUD visible on boot `?debug=perf`
+   * -> HUD visible on boot + per-node `performance.mark()` timing enabled on the
+   * engine (inspect via DevTools User Timing lane) (absent / anything else) ->
    * HUD hidden on boot
    *
    * The DebugController is ALWAYS instantiated, the URL flag only controls its

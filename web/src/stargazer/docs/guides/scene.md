@@ -37,7 +37,7 @@ A node can also drive an HTML element: attach one so the engine keeps it flush w
 
 ## Transforms
 
-`node.transform` is a `Transform2D`, a decomposed 2D affine with getters and setters for `x`, `y`, `scaleX`, `scaleY`, `rotation` (radians), `originX`, `originY`, and `alpha`. Every setter marks the local matrix dirty. The tree walk in `Engine.frame()` rebuilds `local` when dirty and recomputes `world = parent.world × local`.
+`node.transform` is a `Transform2D`, a decomposed 2D affine with getters and setters for `x`, `y`, `scaleX`, `scaleY`, `rotation` (radians), `skew` and `skewAxis` (radians), `originX`, `originY`, and `alpha`. Every setter marks the local matrix dirty. The tree walk in `Engine.frame()` rebuilds `local` when dirty and recomputes `world = parent.world × local`.
 
 Most code sets the properties directly:
 
@@ -47,6 +47,8 @@ node.transform.y = 200
 node.transform.rotation = Math.PI / 4
 node.transform.alpha = 0.5
 ```
+
+`skew` shears along the direction given by `skewAxis` (default 0, a horizontal shear). The composition order is origin, scale, skew, rotate, translate.
 
 For animation, prefer `node.tween(...)` over per-frame mutation. See [Animation](/guides/animation).
 
@@ -95,7 +97,7 @@ class DragToMove extends PointerBehavior {
     return {
       singlePointer: true, // ignore extra fingers while one drags
       move: (e) => {
-        const p = e.localTo(this.node) // world → this node's local space
+        const p = e.localTo(this.node) // world -> this node's local space
         this.node.transform.x = p.x
         this.node.transform.y = p.y
       },
@@ -192,6 +194,54 @@ const track = new Path2DNode({
 The default (`strokeSpace: 'screen'`) mirrors how CSS `stroke-width` behaves under an SVG viewport transform. A node that overrides `draw` does the same thing by hand, passing `width: cssPx * camera.strokeSpaceScale()` in its stroke style. See [Drawing](/guides/drawing#style-is-per-call) and [Camera](/guides/camera#stroke-space-scale).
 
 `ShapeNode`'s and `Path2DNode`'s `shadow` option follows the same `strokeSpace` setting as `lineWidth`: a shadow's `offsetX`/`offsetY`/`blur`/`spread` stay visually constant across zoom by default, same reasoning as the stroke width next to them.
+
+## Clipping a subtree
+
+`node.clip` limits a node and all its descendants to a region in the node's own
+space: a rectangle `{ x, y, width, height }` or a `GfxPath`.
+
+```ts
+const panel = new Node2D()
+panel.clip = { x: 0, y: 0, width: 320, height: 200 }
+panel.add(list) // rows that scroll past the edge are cut off
+```
+
+The clip follows the node's transform, so a rotated or scaled panel clips
+correctly. Clips on nested nodes narrow each other, up to 7 deep. The clip
+applies to descendants in every render layer. Clearing it with `null` removes
+it. It uses the stencil buffer (see [Drawing](/guides/drawing)), so it costs a
+few extra draws per clipped subtree and not per node.
+
+## Inset views
+
+An `InsetViewNode` shows a separate 2D world inside a rounded rect on the scene,
+with a camera of its own. Build the inner world under `inset.content` in its own
+units, and set `inset.viewport` to the part of it to show. Setting it every frame
+pans and zooms the way a camera does, such as following a moving subject.
+
+```ts
+const inset = new InsetViewNode({ width: 392, height: 516, radius: 40 })
+inset.content.add(ship)
+engine.ticker.onFrame(() => {
+  inset.viewport = {
+    x: ship.transform.x - 39,
+    y: ship.transform.y - 52,
+    width: 78,
+    height: 104,
+  }
+})
+card.add(inset)
+```
+
+Everything under `content` is clipped to the inset's rounded rect and draws with
+a camera view that accounts for the inset's zoom, so a screen-space stroke keeps
+its width on screen and `visibleWorldRect` reports the inner world's view. The
+inset moves and scales with its parents like any node.
+
+Three limits. The clip is the analytic clip, so an inner node that calls
+`setClip` itself replaces it for its own draw. An inset inside another inset is
+clipped to the inner one only. Pointer input and `domAnchor` do not see the
+inset's view.
 
 ## Scene lifecycle
 

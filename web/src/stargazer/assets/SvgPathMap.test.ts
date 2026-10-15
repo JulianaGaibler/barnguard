@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSvgPaths, computePathBounds } from './SvgPathMap'
+import { parseSvgPaths, computePathBounds, scaleSvgPath } from './SvgPathMap'
 
 describe('parseSvgPaths', () => {
   it('extracts viewBox and paths keyed by id', () => {
@@ -30,6 +30,19 @@ describe('parseSvgPaths', () => {
     expect(map.viewBox).toEqual({ x: 0, y: 0, width: 500, height: 300 })
   })
 
+  it('scales the paths and the viewBox by the scale option', () => {
+    const raw =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="10 0 100 50"><path id="p" d="M10 10 L30 20 Z"/></svg>'
+    const map = parseSvgPaths(raw, { scale: 0.5 })
+    expect(map.viewBox).toEqual({ x: 5, y: 0, width: 50, height: 25 })
+    expect(map.paths.get('p')?.bounds).toEqual({
+      x: 5,
+      y: 5,
+      width: 10,
+      height: 5,
+    })
+  })
+
   it('throws on invalid XML', () => {
     expect(() => parseSvgPaths('<svg><path')).toThrow()
   })
@@ -45,6 +58,20 @@ describe('parseSvgPaths', () => {
       expect(entry.bounds.width, `path ${id} width`).toBeGreaterThan(0)
       expect(entry.bounds.height, `path ${id} height`).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('scaleSvgPath', () => {
+  it('scales coordinates across repeated and relative commands', () => {
+    expect(scaleSvgPath('M1 2 3 4h5v-6c1 2 3 4 5 6Z', 2)).toBe(
+      'M 2 4 6 8 h 10 v -12 c 2 4 6 8 10 12 Z',
+    )
+  })
+
+  it('keeps an arc rotation and flags unscaled', () => {
+    expect(scaleSvgPath('A 10 20 30 1 0 40 50', 2)).toBe(
+      'A 20 40 30 1 0 80 100',
+    )
   })
 })
 

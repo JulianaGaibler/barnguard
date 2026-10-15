@@ -133,7 +133,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
 
   host.start()
 
-  // Wire `T` → destroy the whole scene subtree.
+  // Wire `T` -> destroy the whole scene subtree.
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 't' || e.key === 'T') {
       const children = host.engine.tree.root.children.slice()

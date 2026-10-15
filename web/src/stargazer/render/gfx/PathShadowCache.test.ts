@@ -13,14 +13,14 @@ import { VectorQuality, SHADOW_SIGMA_BUDGETS } from '../VectorQuality'
 import type { GeometryHandle } from './GeometryHandle'
 
 /** A unit square, two triangles, in local path space. */
-function squareGeometry(x: number, y: number, w: number, h: number): GeometryHandle {
+function squareGeometry(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): GeometryHandle {
   return {
-    vertices: new Float32Array([
-      x, y,
-      x + w, y,
-      x + w, y + h,
-      x, y + h,
-    ]),
+    vertices: new Float32Array([x, y, x + w, y, x + w, y + h, x, y + h]),
     indices: new Uint16Array([0, 1, 2, 0, 2, 3]),
   }
 }
@@ -76,7 +76,9 @@ describe('resolveMaskSize', () => {
 
   it('a cheaper sigma budget produces a smaller mask than a pricier one, same blur', () => {
     const sizes = SHADOW_SIGMA_BUDGETS.map(
-      (budget) => resolveMaskSize(100, 60, 32, 0, 1, budget, 3).maskW * resolveMaskSize(100, 60, 32, 0, 1, budget, 3).maskH,
+      (budget) =>
+        resolveMaskSize(100, 60, 32, 0, 1, budget, 3).maskW *
+        resolveMaskSize(100, 60, 32, 0, 1, budget, 3).maskH,
     )
     expect(sizes[0]).toBeLessThanOrEqual(sizes[1])
     expect(sizes[1]).toBeLessThanOrEqual(sizes[2])

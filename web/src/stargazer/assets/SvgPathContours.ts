@@ -1,5 +1,5 @@
 /**
- * SVG path → flattened polylines → triangulated geometry.
+ * SVG path -> flattened polylines -> triangulated geometry.
  *
  * - `flattenSvgPath(d, tol)` load-time, one contour per `M`.
  * - `flattenQuadratic` / `flattenCubic` live, zero-alloc subdivision into a
@@ -630,7 +630,7 @@ export function tessellateContours(contours: Float32Array[]): GeometryHandle {
   for (const { outer, holes } of nestContours(contours)) {
     if (pointCounts[outer] < 3) continue
     if (holes.length === 0) {
-      // earcut on this contour alone → offset the returned indices so they
+      // earcut on this contour alone -> offset the returned indices so they
       // reference positions in the merged `vertices` buffer.
       const tris = earcut(Array.from(contours[outer]))
       for (const t of tris) allIndices.push(pointOffsets[outer] + t)

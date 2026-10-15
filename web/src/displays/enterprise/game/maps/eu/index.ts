@@ -12,7 +12,9 @@ import {
 } from '@src/stargazer'
 import countriesSvgRaw from '@src/displays/enterprise/assets/eu-countries.svg?raw'
 import { buildLandMask, findEnclosedRegions, mergeAllPaths } from '../geometry'
+import { TUNING } from '../../data/tuning'
 import { MAP_NAMESPACE } from '../namespaces'
+import { PLAY_VIEW_ASPECT, PLAY_VIEW_HEIGHT } from '../playScale'
 import type {
   MapDescriptor,
   MapGeometry,
@@ -25,12 +27,14 @@ import { DRAWN_ONLY, SOVEREIGN } from './regions'
 /** Wire key for this map's records and high scores. */
 export const MAP_ID_EU = 'eu'
 
+/** The width of `eu-countries.svg`'s viewBox. */
+const ARTWORK_WIDTH = 1134
+
 /**
- * Grid overlay cell size. The German map uses its own tuned value over a
- * 661x888 country, so this is scaled by the ratio of map extents to keep the
- * cells about the same size relative to the landmass.
+ * The play framing shows the map's full width, so the map loads at the scale
+ * that makes that width {@link PLAY_VIEW_HEIGHT} tall on a 16:9 screen.
  */
-const GRID_CELL_WORLD = 46
+const MAP_SCALE = (PLAY_VIEW_HEIGHT * PLAY_VIEW_ASPECT) / ARTWORK_WIDTH
 
 /** Build one region record, or `null` when the artwork has no such path. */
 function regionFrom(
@@ -65,7 +69,10 @@ function regionFrom(
 
 /** Load the European geometry and resolve every country's region record. */
 export async function loadEuropeMap(): Promise<MapDescriptor> {
-  const regionPaths = parseSvgPaths(countriesSvgRaw, { tessellate: true })
+  const regionPaths = parseSvgPaths(countriesSvgRaw, {
+    tessellate: true,
+    scale: MAP_SCALE,
+  })
   const viewBox = regionPaths.viewBox
 
   // There is no separate outline asset for Europe, so the landmass is the
@@ -112,7 +119,10 @@ export async function loadEuropeMap(): Promise<MapDescriptor> {
     playAreaMask(ctx: PlayAreaContext) {
       return new ScreenEdgeMask(ctx.viewport)
     },
-    gridCellWorld: GRID_CELL_WORLD,
+    previewLostAtBorder: false,
+    edgesAreFailLine: true,
+    gridCellWorld: TUNING.wahlkreise.grid.cellSizeWorld,
+    gridMask: null,
     // No neighbour graph. A 44-country graph is not worth authoring by hand,
     // so the selection ripple orders by distance instead (see `maps/ripple`).
   }

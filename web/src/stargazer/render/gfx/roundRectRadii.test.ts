@@ -21,7 +21,7 @@ describe('resolveRadii', () => {
   })
 
   it('proportionally shrinks radii that overrun a side', () => {
-    // Both top corners want 60 on a 100-wide box: sum 120 > 100 → scale 100/120.
+    // Both top corners want 60 on a 100-wide box: sum 120 > 100 -> scale 100/120.
     const [tl, tr, br, bl] = resolveRadii([60, 60, 0, 0], 100, 200)
     expect(tl).toBeCloseTo(50)
     expect(tr).toBeCloseTo(50)
@@ -30,7 +30,7 @@ describe('resolveRadii', () => {
   })
 
   it('clamps a single over-large radius to the half-extent (capsule)', () => {
-    // radius 999 on a 40-tall, 200-wide box → limited by height/2 = 20.
+    // radius 999 on a 40-tall, 200-wide box -> limited by height/2 = 20.
     expect(resolveRadii(999, 200, 40)).toEqual([20, 20, 20, 20])
   })
 

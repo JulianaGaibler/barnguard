@@ -2,7 +2,7 @@
  * Typed client for the printer-daemon HTTP + SSE API. `printerLive` mirrors
  * queue/printer status over one EventSource per subscription cycle.
  *
- * Connection state machine (`connecting → online → offline`):
+ * Connection state machine (`connecting -> online -> offline`):
  *
  * - Retries on ANY `onerror`, never checks `readyState`. Vite's proxy 502 stalls
  *   the EventSource in `CONNECTING`, so a `CLOSED` check would never fire.
@@ -10,7 +10,7 @@
  *   `ping` event fires every 15 s. Its comment keep-alive is byte-level only,
  *   browsers don't dispatch comment lines to EventSource handlers, so we can't
  *   observe them.
- * - Exponential backoff 1 → 15 s, resets on `onopen` or `forceReopen`.
+ * - Exponential backoff 1 -> 15 s, resets on `onopen` or `forceReopen`.
  */
 
 import { readable, writable, type Readable } from 'svelte/store'
@@ -218,7 +218,7 @@ export async function resetLabelUrlOverride(): Promise<void> {
   if (!res.ok) throw new Error(`reset label URL override failed: ${res.status}`)
 }
 
-/** Fetch the recent buffered log entries (oldest → newest). */
+/** Fetch the recent buffered log entries (oldest -> newest). */
 export async function getLog(): Promise<LogEntry[]> {
   return jsonOrThrow(await robustFetch(`${API}/log`))
 }
@@ -242,7 +242,7 @@ export interface PrinterLiveState {
   active: PrintJob | null
   pending: PrintJob[]
   recent: PrintJob[]
-  /** Recent daemon log messages, oldest → newest. */
+  /** Recent daemon log messages, oldest -> newest. */
   logs: LogEntry[]
   /**
    * SSE state. `'connecting'` = trying (first attempt or mid-session retry).
@@ -391,7 +391,7 @@ export const printerLive: Readable<PrinterLiveState> =
       // Daemon config lives in its own store, `onopen`'s log-clear doesn't
       // touch it. Default persists until the first snapshot arrives.
       listen<DaemonConfig>('config', (c) => setDaemonConfig(c))
-      // Game log: server sends `games` (full snapshot, oldest → newest) once
+      // Game log: server sends `games` (full snapshot, oldest -> newest) once
       // on connect, then `game.created` / `game.deleted` incrementally.
       listen<GameRecord[]>('games', (list) => {
         update({ games: [...list].reverse() })

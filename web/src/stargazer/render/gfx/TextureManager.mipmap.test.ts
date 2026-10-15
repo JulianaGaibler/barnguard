@@ -58,7 +58,7 @@ describe('TextureManager drawImage texture sampling', () => {
   it('leaves the ramp atlas unmipped, since it is never minified', () => {
     const device = new MockGfxDevice()
     const tm = new TextureManager(device)
-    expect(tm.ensureStopsRow(stops, () => {})).toBeGreaterThanOrEqual(0)
+    expect(tm.ensureStopsRow(stops)).toBeGreaterThanOrEqual(0)
     expect(device.textureOpts).toHaveLength(1)
     expect(optsFor(device, 0).mipmap).toBeFalsy()
   })

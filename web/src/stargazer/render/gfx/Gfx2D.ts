@@ -17,6 +17,9 @@
 import type { BitmapMask } from '../../assets/BitmapMask'
 import type { RoundRectRadii } from './roundRectRadii'
 import type { StrokeAlign } from './strokeOutline'
+import type { ShaderQuad } from './ShaderQuad'
+import type { GfxPath } from './GfxPath'
+import type { FillRule } from './stencilRecipe'
 
 /**
  * Compositing mode. Maps to `ctx.globalCompositeOperation`. The GPU backend
@@ -39,6 +42,36 @@ export type GfxClipShape =
       h: number
       radius: number
     }
+
+/** How a matte surface scales the content it is composited with. */
+export type GfxMatteMode = 'alpha' | 'inverted-alpha' | 'luma' | 'inverted-luma'
+
+/** A finished offscreen surface, valid until the end of the frame. */
+export interface GfxOffscreenHandle {
+  readonly __gfxOffscreen: unique symbol
+}
+
+/** Options for {@link Gfx2D.beginOffscreen}. */
+export interface GfxOffscreenOptions {
+  /**
+   * The region to capture, in the current local space. Default the whole
+   * target.
+   */
+  bounds?: { x: number; y: number; width: number; height: number }
+  /** Opacity of the composite. Default 1. */
+  opacity?: number
+  /** Blend mode of the composite. Default the current blend. */
+  blend?: GfxBlend
+  /**
+   * A retained surface to use as a track matte. It must have been captured with
+   * the same bounds as this one, or it is ignored.
+   */
+  matte?: GfxOffscreenHandle
+  /** How the matte scales the content. Default `'alpha'`. */
+  matteMode?: GfxMatteMode
+  /** Keep the surface instead of compositing it. */
+  retain?: boolean
+}
 
 /** A single radial/linear gradient stop. `offset` in `[0, 1]`. */
 export interface GfxGradientStop {
@@ -75,12 +108,47 @@ export interface GfxLinearGradient {
 }
 
 /**
- * Anything that can fill a shape beyond a flat color. One member today
- * (`'linear'`); a `'radial'` gradient is a predictable future addition, which
- * is why this is declared as its own union rather than folded directly into
+ * A radial gradient paint. Stop offset 0 is at the focal point and offset 1 is
+ * on the circle of radius `r` around `(cx, cy)`, in the current transform's
+ * local space. Without `fx` and `fy` the focal point is the center, which gives
+ * the usual concentric rings. A focal point inside the circle shifts the rings
+ * toward it. A focal point on or outside the circle is pulled just inside.
+ *
+ * @remarks
+ *   Engine developers: the shader solves for the circle through the point whose
+ *   center slides from the focal point to `(cx, cy)` while its radius grows
+ *   from 0 to `r`. It assumes the transform scales both axes alike, and a
+ *   skewed or non-uniformly scaled transform distorts the rings.
+ * @example
+ *   gfx.fillCircle(100, 100, 80, {
+ *     kind: 'radial',
+ *     cx: 100,
+ *     cy: 100,
+ *     r: 80,
+ *     fx: 70,
+ *     fy: 70,
+ *     stops: [
+ *       { offset: 0, color: '#ffffff' },
+ *       { offset: 1, color: '#2255ff' },
+ *     ],
+ *   })
+ */
+export interface GfxRadialGradient {
+  kind: 'radial'
+  cx: number
+  cy: number
+  r: number
+  fx?: number
+  fy?: number
+  stops: readonly GfxGradientStop[]
+}
+
+/**
+ * Anything that can fill a shape beyond a flat color: a linear or a radial
+ * gradient. Declared as its own union rather than folded directly into
  * {@link GfxFill}.
  */
-export type GfxPaint = GfxLinearGradient
+export type GfxPaint = GfxLinearGradient | GfxRadialGradient
 
 /** Anything that can fill or stroke a shape: a CSS color, or a {@link GfxPaint}. */
 export type GfxFill = string | GfxPaint
@@ -138,6 +206,13 @@ export interface GfxStrokeStyle {
   join?: CanvasLineJoin
   /** Dash pattern in the current transform space. Omit/empty = solid. */
   dash?: readonly number[]
+  /**
+   * Distance into the dash pattern where the stroke starts, in the same units
+   * as `dash`. May be negative. Honored by `strokePath`, which cuts dashes of
+   * any pattern length. The other stroke calls use the first `[on, off]` pair
+   * and ignore the offset.
+   */
+  dashOffset?: number
   /** `strokePolyline` only, midpoint smoothing mode. Default `'none'`. */
   smoothing?: 'none' | 'quadratic'
   /** `strokePolyline` only, close the path back to the first point. */
@@ -246,10 +321,28 @@ export interface Gfx2D {
   rotate(rad: number): void
   /** Post-multiply a scale onto the current transform. */
   scale(sx: number, sy: number): void
+  /**
+   * Post-multiply an arbitrary 2D affine matrix onto the current transform. The
+   * six values are the `a, b, c, d, e, f` of a `DOMMatrix`: a point maps to
+   * `(a*x + c*y + e, b*x + d*y + f)`. Use it for skew and for matrices that
+   * come from outside the engine.
+   */
+  transform(
+    a: number,
+    b: number,
+    c: number,
+    d: number,
+    e: number,
+    f: number,
+  ): void
 
   /** Set the absolute draw alpha in `[0, 1]` (like `ctx.globalAlpha`). */
   setAlpha(alpha: number): void
-  /** Set the compositing mode for subsequent draws. */
+  /**
+   * Set the compositing mode for subsequent draws. `'source-over'` and
+   * `'lighter'` (additive) are supported. Any other value draws as
+   * `'source-over'` and warns once per mode.
+   */
   setBlend(mode: GfxBlend): void
   /**
    * Set or clear a bitmap clip mask for an arbitrary shape. `fill*` draws are
@@ -333,7 +426,7 @@ export interface Gfx2D {
    *
    * @example
    *   gfx.fillRoundRect(0, 0, 480, 320, 24, '#1c1c22') // uniform corners
-   *   gfx.fillRoundRect(0, 0, 200, 40, 20, '#8f74e7') // radius ≥ h/2 → capsule
+   *   gfx.fillRoundRect(0, 0, 200, 40, 20, '#8f74e7') // radius ≥ h/2 -> capsule
    *   gfx.fillRoundRect(0, 0, w, h, [0, 32, 0, 0], fill) // only top-right rounded
    */
   fillRoundRect(
@@ -401,6 +494,82 @@ export interface Gfx2D {
    */
   fillPath2D(path: Path2D, fill: GfxFill): void
   /**
+   * Fill a {@link GfxPath}. `rule` is `'nonzero'` (default) or `'evenodd'`, the
+   * same as Canvas 2D. Self-overlapping outlines and holes follow the rule.
+   * `fill` is a CSS color or a gradient paint.
+   *
+   * Needs a stencil buffer (the stage's main surface has one). On a surface
+   * without one the path fills even-odd and warns once. Unlike `fillPath2D`,
+   * the path may change between frames.
+   *
+   * @example
+   *   gfx.fillPath(star, '#f5c542', 'evenodd')
+   */
+  fillPath(path: GfxPath, fill: GfxFill, rule?: FillRule): void
+  /**
+   * Start drawing into an offscreen surface covering `opts.bounds` (a rectangle
+   * in the current local space, or the whole target). Everything drawn until
+   * {@link Gfx2D.endOffscreen} goes into the surface, which then composites into
+   * the enclosing target as one unit with `opacity`, `blend` and optionally a
+   * track matte. Returns `false` when the bounds fall outside the target or
+   * offscreen surfaces are unavailable, in which case nothing was started and
+   * the caller should skip the content or draw it directly.
+   *
+   * @remarks
+   *   Surfaces are only available in frames where something has declared it needs
+   *   them (see `addOffscreenDemand`), because the main pass has to keep its
+   *   samples. The surface has the main target's format and starts from a clean
+   *   state: alpha 1, normal blend, no clip. Clips set inside do not leak out.
+   *
+   *   Engine developers: surfaces are pooled and claimed for one frame.
+   *   Composites replay in painter order, and the passes of nested surfaces run
+   *   before the surface that contains them is sampled.
+   */
+  beginOffscreen(opts?: GfxOffscreenOptions): boolean
+  /**
+   * Finish the surface started by the matching {@link Gfx2D.beginOffscreen}.
+   * Composites it into the enclosing target, or with `retain: true` returns a
+   * handle without compositing. A handle works until the end of the frame.
+   */
+  endOffscreen(): GfxOffscreenHandle | null
+  /**
+   * Composite a retained surface into the current target, with an opacity, a
+   * blend, and optionally a matte captured over the same bounds.
+   */
+  drawOffscreen(
+    handle: GfxOffscreenHandle,
+    opts?: {
+      opacity?: number
+      blend?: GfxBlend
+      matte?: GfxOffscreenHandle
+      matteMode?: GfxMatteMode
+    },
+  ): void
+  /**
+   * Intersect the clip with the inside of a {@link GfxPath}, by the fill `rule`
+   * (default `'nonzero'`). Everything drawn afterwards is limited to the clip
+   * until the enclosing `restore()`, which undoes it. Clips nest, each one
+   * narrowing the last, up to 7 deep. A deeper one is ignored with a warning.
+   *
+   * The clip is exact per pixel under any transform, unlike
+   * {@link Gfx2D.setClip}, and it combines with it. It needs a stencil buffer
+   * and is ignored without one. `drawShaderQuad` does not respect it.
+   *
+   * @example
+   *   gfx.save()
+   *   gfx.clipPath(blob)
+   *   gfx.fillRect(0, 0, 400, 400, '#7cc4ff') // only the part inside `blob`
+   *   gfx.restore()
+   */
+  clipPath(path: GfxPath, rule?: FillRule): void
+  /**
+   * Stroke a {@link GfxPath}, one polyline per contour. A contour closed with
+   * `close()` is stroked closed. A `dash` pattern of any length is cut on the
+   * CPU, starting `dashOffset` into the pattern, and each dash is stroked with
+   * the style's caps.
+   */
+  strokePath(path: GfxPath, style: GfxStrokeStyle): void
+  /**
    * Filled circle whose interior is a radial gradient from centre (`offset 0`)
    * to rim (`offset 1`).
    */
@@ -432,7 +601,7 @@ export interface Gfx2D {
   ): void
   /**
    * Filled polygon (interleaved points, auto-closed) whose interior is a 2-stop
-   * linear gradient from `(x0,y0)`→`colorStart` to `(x1,y1)`→`colorEnd`. Used
+   * linear gradient from `(x0,y0)`->`colorStart` to `(x1,y1)`->`colorEnd`. Used
    * for gradient-filled ribbons such as a motion trail.
    */
   fillPolyLinearGradient(
@@ -444,6 +613,29 @@ export interface Gfx2D {
     y1: number,
     colorStart: string,
     colorEnd: string,
+  ): void
+
+  /**
+   * Draw `quad`'s shader over the local rectangle `(x, y, w, h)`. The shader
+   * sees the rectangle as `uv` in `0..1` and decides every pixel, so one draw
+   * can cover what would otherwise be thousands of shapes.
+   *
+   * The current transform (rotation included), `setAlpha`, `setBlend` and the
+   * analytic `setClip` apply. `setClipMask` does not, so a shader that needs a
+   * bitmap outline samples it itself. Each call snapshots `quad.params`.
+   *
+   * Nothing draws on the frames before the quad's pipelines finish compiling.
+   *
+   * @example
+   *   quad.params[0] = performance.now() / 1000
+   *   gfx.drawShaderQuad(quad, 0, 0, 400, 300)
+   */
+  drawShaderQuad(
+    quad: ShaderQuad,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
   ): void
 
   // --- shadows ---------------------------------------------------------------

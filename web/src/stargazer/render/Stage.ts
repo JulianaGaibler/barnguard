@@ -440,6 +440,7 @@ export class Stage implements CameraHost {
     const marks = this.tree.engine?.perfMarks ?? false
 
     const screen = this.#screenGfx
+    screen.perfMarks = marks
 
     // Stand up the 3D pass when the world has 3D content or the 3D debug camera
     // is active. `has3D` skips intrinsic nodes, a pure-2D stage never enables it.

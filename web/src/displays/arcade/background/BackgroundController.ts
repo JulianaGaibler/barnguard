@@ -107,7 +107,7 @@ export class BackgroundController implements PaletteSource {
   async build(): Promise<void> {
     const bitmap = await loadCloudBitmap()
 
-    // Draw order (back → front): sky, clouds, ocean. The clouds sit BEHIND the
+    // Draw order (back -> front): sky, clouds, ocean. The clouds sit BEHIND the
     // ocean so they rise from behind the waterline.
     this.#group.add(new SkyGradientNode(this))
 
@@ -141,7 +141,7 @@ export class BackgroundController implements PaletteSource {
       }),
     )
 
-    // Ocean last within the background group → in front of the clouds.
+    // Ocean last within the background group -> in front of the clouds.
     this.#group.add(new OceanNode(this))
 
     // The whole background group is added first to the scene root, so it draws

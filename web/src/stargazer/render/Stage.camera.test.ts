@@ -92,7 +92,7 @@ describe('Stage camera registry (explicit cameras)', () => {
     engine.destroy()
   })
 
-  it('destroyChildren removes non-intrinsic cameras (current → null)', () => {
+  it('destroyChildren removes non-intrinsic cameras (current -> null)', () => {
     const engine = makeEngine()
     const stage = engine.primaryStage
     const cam = new CameraNode2D()

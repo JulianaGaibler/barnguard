@@ -101,7 +101,7 @@ fn controller_cancel_reprint_clear() {
     assert_ne!(reprinted, id1);
     assert_eq!(controller.queue_len(), 2);
 
-    // Unknown id → NotFound.
+    // Unknown id -> NotFound.
     assert_eq!(
         controller.reprint(Uuid::new_v4()).unwrap_err(),
         ReprintError::NotFound
@@ -172,8 +172,39 @@ async fn worker_boot_reconcile_holds_until_label_removed() {
         "must not print onto a held label"
     );
 
-    // Attendant removes the label → boot reconcile clears → the job prints.
+    // Attendant removes the label -> boot reconcile clears -> the job prints.
     controls.clear_awaiting();
+    wait_job(&mut rx, JobState::Done, 5).await;
+    assert_eq!(count_jpgs(dir.path()), 1);
+}
+
+#[tokio::test]
+async fn worker_cancels_the_active_job() {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = fast_cfg(dir.path());
+    let (backend, controller, events, controls) = build(&cfg);
+    let mut rx = events.subscribe();
+    tokio::spawn(run_worker(
+        backend,
+        controller.clone(),
+        WorkerConfig::from_config(&cfg),
+    ));
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // A held label keeps the job waiting on a human, the way a stuck job does.
+    controls.set_awaiting_now(true);
+    let id = controller.enqueue(meta(), b"FAKEJPEG".to_vec());
+    wait_job(&mut rx, JobState::AwaitingRemoval, 5).await;
+
+    assert_eq!(controller.cancel(id), CancelOutcome::Canceling);
+    let job = wait_job(&mut rx, JobState::Canceled, 5).await;
+    assert_eq!(job.id, id);
+    assert!(controller.snapshot().active.is_none());
+    assert_eq!(count_jpgs(dir.path()), 0);
+
+    // The worker moves on, and the canceled job can be printed again.
+    controls.clear_awaiting();
+    controller.reprint(id).expect("reprint canceled job");
     wait_job(&mut rx, JobState::Done, 5).await;
     assert_eq!(count_jpgs(dir.path()), 1);
 }
@@ -227,7 +258,7 @@ async fn worker_reports_unreachable_and_recovers() {
         WorkerConfig::from_config(&cfg),
     ));
 
-    // Status polls fail → reachable:false with a growing failed-attempt count.
+    // Status polls fail -> reachable:false with a growing failed-attempt count.
     let down = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let Ok(ServerEvent::Status(s)) = rx.recv().await {

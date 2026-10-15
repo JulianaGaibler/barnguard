@@ -4,7 +4,7 @@
  * A window that mounts with a `storageId` calls `registerWindow` so any other
  * code can ask "where is that window right now?" without walking the DOM.
  * `placeNextTo` uses that registry to seed a child window's initial position
- * next to its spawning parent, so operator flows like "booth menu → printer
+ * next to its spawning parent, so operator flows like "booth menu -> printer
  * panel" don't dump both windows on top of each other in the top-left corner.
  *
  * The helper only writes a starting position on the child's FIRST open (no
@@ -73,7 +73,7 @@ export interface PlaceNextToOptions {
 /**
  * Seed the child window's saved position adjacent to the parent window, but
  * only if the child doesn't already have a saved position. Preference order:
- * right of parent → left of parent → below parent → clamped to viewport.
+ * right of parent -> left of parent -> below parent -> clamped to viewport.
  */
 export function placeNextTo(
   parentStorageId: string,

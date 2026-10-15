@@ -1,45 +1,42 @@
-// Local @font-face declarations for the Mozilla type family. Only the weights
-// referenced by the typography map are shipped to keep the bundle small.
+// Local // The Mozilla type family, from the upstream release's variable fonts. One
+// Headline file serves three families: `Mozilla Headline` is its standard
+// width, and `Mozilla Headline Extended` and `Mozilla Headline Condensed` pin
+// the width axis to 125 and 75 through the descriptor, so a plain
+// `font-stretch: normal` request lands on the wide or narrow cut. All cover
+// weights 200 to 700.
+@font-face {
+  font-family: 'Mozilla Text';
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaText-Variable.woff2') format('woff2');
+}
 
 @font-face {
   font-family: 'Mozilla Headline';
-  font-weight: 600;
+  font-weight: 200 700;
+  font-stretch: 100%;
   font-style: normal;
   font-display: swap;
-  src: url('@src/assets/fonts/MozillaHeadline-SemiBold.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Mozilla Text';
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/MozillaText-Regular.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Mozilla Text';
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/MozillaText-Medium.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Mozilla Text';
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/MozillaText-Bold.woff2') format('woff2');
+  src: url('@src/assets/fonts/MozillaHeadline-Variable.woff2') format('woff2');
 }
 
 @font-face {
   font-family: 'Mozilla Headline Extended';
-  font-weight: 700;
+  font-weight: 200 700;
+  font-stretch: 125%;
   font-style: normal;
   font-display: swap;
-  src: url('@src/assets/fonts/MozillaHeadlineExtended-Bold.woff2')
-    format('woff2');
+  src: url('@src/assets/fonts/MozillaHeadline-Variable.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Mozilla Headline Condensed';
+  font-weight: 200 700;
+  font-stretch: 75%;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaHeadline-Variable.woff2') format('woff2');
 }
 
 // Azeret Mono backs the `mono` role. Variable: one file covers 100–900, and at

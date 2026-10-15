@@ -21,7 +21,7 @@ export const WIN_GLOW: Record<Player, string> = {
   2: '#50CEAB',
 }
 
-/** The game view's full-bleed gradient, top-left → bottom-right. */
+/** The game view's full-bleed gradient, top-left -> bottom-right. */
 export const BACKGROUND = {
   topLeft: '#A9B4BB',
   bottomRight: '#D2D6D9',

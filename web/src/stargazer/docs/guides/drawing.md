@@ -59,11 +59,11 @@ zooms in. Dash lengths need the same treatment.
 ## What you can draw
 
 Fills: `fillRect`, `fillRoundRect`, `fillCircle`, `fillConvexPoly`,
-`fillPath2D`, `fillCircleRadialGradient`, `fillPolyLinearGradient`,
+`fillPath2D`, `fillPath`, `fillCircleRadialGradient`, `fillPolyLinearGradient`,
 `fillMaskedRadialGradient`.
 
 Strokes: `strokeLine`, `strokeCircle`, `strokeRoundRect`, `strokePolyline`,
-`strokeQuadratic`, `strokePath2D`.
+`strokeQuadratic`, `strokePath2D`, `strokePath`.
 
 Combined (fill and stroke in one call, so a translucent border composites
 against the fill instead of double-blending over it): `fillAndStrokeRoundRect`,
@@ -85,6 +85,56 @@ need a registered tessellation. A `Path2D` you built by hand silently draws
 nothing and ticks a counter in the debug HUD. See [Assets](/guides/assets).
 
 Text is its own subject. See [Text](/guides/text).
+
+## Paths that change
+
+`GfxPath` is a path you build in code and can edit every frame. Unlike a
+`Path2D` it needs no registration, and `clear()` keeps its storage, so refilling
+one each frame allocates nothing.
+
+```ts
+const blob = new GfxPath()
+
+override draw(gfx: Gfx2D): void {
+  blob.clear()
+  blob.moveTo(0, 0)
+  blob.cubicTo(40, -30, 90, -30, 120, 0)
+  blob.cubicTo(150, 40, 60, 80, 0, 50)
+  blob.close()
+  gfx.fillPath(blob, '#7cc4ff')
+  gfx.strokePath(blob, { color: '#ffffff', width: 3 })
+}
+```
+
+`fillPath` takes a fill rule, `'nonzero'` (the default) or `'evenodd'`, with the
+same meaning as in Canvas 2D. A star drawn with one self-crossing outline fills
+solid under `'nonzero'` and leaves a hole in the middle under `'evenodd'`. Holes
+come from a contour that winds the other way, or from any extra contour under
+`'evenodd'`.
+
+A path that turns the same way at every vertex and winds once, such as a
+rectangle or a circle, fills with a single batch-friendly draw. Any other path
+costs two draws and fills its bounding box, so a large concave path costs about
+as much fill-rate as its bounding box does. Winding is counted modulo 16: 16
+contours wound the same way over one point cancel out, and `fillPath` warns once
+when a nonzero fill has that many contours.
+
+A surface without a stencil buffer cannot resolve overlap. `fillPath` then
+fills even-odd regardless of the rule and warns once. The stage's main surface
+has stencil. See [Combined depth and stencil](../combined-depth-stencil.md) for
+the bit layout.
+
+`strokePath` with a gradient color, or with `exactJoins`, draws the stroke as the
+filled union of its pieces (a quad per segment, a join piece at each bend and a
+piece per cap) with the nonzero rule, so sharp bends and nearly closed paths
+never fold over themselves. It honors `cap`, `join` and `miterLimit`.
+
+`strokePath` honors `dash` with a pattern of any length and a `dashOffset`. It
+cuts the dashes on the CPU and strokes each one with the style's caps, so a
+dashed path costs one stroke per dash. A path that changes every frame pays for
+the cutting each frame.
+
+Call `release()` on a `GfxPath` when its owner is destroyed.
 
 ## Gradients
 
@@ -129,9 +179,33 @@ registered path's geometry is retained specifically to skip. A bitmap clip
 mask or a non-`'normal'` debug mode still falls back to the per-vertex path,
 since the retained shader carries neither.
 
-Only `kind: 'linear'` exists today. A gradient stroke on `strokeCircle` or
-`strokeRoundRect` (as opposed to a path's border, which does support it; see
-below) falls back to the gradient's first stop as a flat color.
+`kind: 'radial'` gives a radial gradient with an optional focal point:
+
+```ts
+gfx.fillPath(blob, {
+  kind: 'radial',
+  cx: 60,
+  cy: 60,
+  r: 60,
+  fx: 45, // optional highlight, kept inside the circle
+  fy: 45,
+  stops: [
+    { offset: 0, color: '#ffffff' },
+    { offset: 1, color: '#2255ff' },
+  ],
+})
+```
+
+Offset 0 is at the focal point and offset 1 on the circle. A radial gradient
+works on `fillPath`, `fillConvexPoly`, `fillPath2D` and a path's gradient
+border. The rect and circle fills (`fillRect`, `fillRoundRect`, `fillCircle`)
+draw it as its middle stop in one flat color and warn once. The shader assumes
+a transform that scales both axes alike. A skewed or non-uniform scale
+distorts the rings.
+
+A gradient stroke on `strokeCircle` or `strokeRoundRect` (as opposed to a
+path's border, which does support it; see below) falls back to the gradient's
+first stop as a flat color.
 
 ## Borders: alignment and exact joins
 
@@ -237,8 +311,8 @@ counts as a cache key.
 ## Transform, alpha, and blend
 
 `save` and `restore` bracket a change to the transform, alpha, blend, or clip.
-`translate`, `rotate`, and `scale` post-multiply onto the current transform, the
-same as Canvas 2D.
+`translate`, `rotate`, `scale`, and `transform(a, b, c, d, e, f)` post-multiply
+onto the current transform, the same as Canvas 2D.
 
 ```ts
 override draw(gfx: Gfx2D): void {
@@ -257,12 +331,13 @@ override draw(gfx: Gfx2D): void {
 multiplying into it, so a nested draw that wants to dim relative to its parent
 has to read and multiply itself.
 
-`setBlend` takes `'source-over'` (the default) or `'lighter'` (additive). Other
-composite modes are not implemented.
+`setBlend` takes `'source-over'` (the default) or `'lighter'` (additive). Any
+other composite mode draws as `'source-over'` and logs one warning per mode.
 
 ## Clipping
 
-Two clips, and the analytic one is almost always the right choice.
+Three clips. The analytic one is the right choice for a circle or rounded
+rectangle, and `clipPath` handles any other shape.
 
 `setClip({ kind: 'circle', cx, cy, r })` or `setClip({ kind: 'roundRect', x, y,
 w, h, radius })` crops every following draw to that shape with a crisp
@@ -281,9 +356,120 @@ gfx.restore()
 A circle clip is rotation-safe. A rounded rect assumes an axis-aligned
 transform, and warns once in dev if it gets rotation or skew.
 
+`clipPath(path, rule?)` limits every following draw to the inside of a
+`GfxPath`, exact per pixel under any transform. `restore()` undoes it, and
+clips nest, each narrowing the last.
+
+```ts
+gfx.save()
+gfx.clipPath(blob)
+gfx.fillRect(0, 0, 400, 400, '#7cc4ff') // only the part inside `blob`
+gfx.restore()
+```
+
+It uses the stencil buffer, so a path clip costs two extra draws to set up and
+one to undo, and every draw inside it uses a pipeline that tests the stencil.
+Nesting stops at 7 deep, and a deeper clip is ignored with a warning. A surface
+without a stencil buffer ignores `clipPath`. It combines with the analytic
+`setClip`, but `drawShaderQuad` and `setClipMask` content do not honor it.
+
+To clip a whole subtree of nodes, set `node.clip` instead. See
+[Scene graph](/guides/scene).
+
 `setClipMask(mask)` handles an arbitrary shape by sampling a `BitmapMask`'s
 alpha. It only masks fills, not strokes or text, and it uploads a texture. Use
 it when the shape genuinely cannot be a circle or a rounded rect.
+
+## Offscreen surfaces
+
+`beginOffscreen` redirects drawing into a temporary surface, and `endOffscreen`
+composites the result back as one unit. That is how a group fades without its
+overlapping parts showing through each other, how a layer takes a mask or a
+matte, and how a blend applies to a whole group.
+
+```ts
+if (
+  gfx.beginOffscreen({
+    bounds: { x: 0, y: 0, width: 300, height: 200 },
+    opacity: 0.5,
+  })
+) {
+  gfx.fillCircle(100, 100, 80, '#ff0000')
+  gfx.fillCircle(160, 100, 80, '#0000ff') // overlap is not doubled
+  gfx.endOffscreen()
+}
+```
+
+The call returns `false` when there is nothing to capture or surfaces are not
+available, and the caller then draws the content directly or skips it. A surface
+covers `bounds` (in the current local space, default the whole target) clipped to
+the target. Inside it the state is clean: alpha 1, normal blend, no clip. The
+composite takes `opacity`, `blend` (`'source-over'`, `'lighter'`, `'screen'`,
+`'multiply'`, `'destination-out'`, `'destination-in'`, `'xor'`) and optionally a
+`matte`.
+
+`retain: true` keeps the surface instead of compositing, and returns a handle
+valid for the rest of the frame. `drawOffscreen(handle, opts)` composites it,
+and a matte is another retained surface captured over the same bounds, applied
+as `'alpha'`, `'inverted-alpha'`, `'luma'` or `'inverted-luma'`. Surfaces nest.
+
+Surfaces cost memory and render passes, and they must be switched on. The main
+pass keeps its multisampled samples only in frames where something has declared
+it may use surfaces, so a node that uses them calls `addOffscreenDemand()` while
+it is alive and calls the function it returns when it is destroyed.
+`LottieNode` does this for animations that need masks, mattes, blends or
+group opacity. Without a declaration `beginOffscreen` returns `false`.
+
+`multiply` is exact only over an opaque backdrop. Other blend names fall back to
+`'source-over'` with a warning.
+
+## Custom shaders
+
+`gfx.drawShaderQuad(quad, x, y, w, h)` draws a rectangle with your own shader.
+Reach for it when one fragment shader can stand in for many shapes, such as a
+field of dots or a procedural fill, where drawing each one separately would cost
+a draw record apiece.
+
+```ts
+import { DataTexture, ShaderQuad, quadShader } from '@src/stargazer'
+
+const shader = quadShader(vertGlsl, fragGlsl, wgsl, reflection)
+const cells = new DataTexture(cols, rows)
+const quad = new ShaderQuad({ shader, paramsBytes: 32, textures: [cells] })
+
+quad.params[0] = cols
+cells.data[i * 4] = 200
+cells.markDirty()
+gfx.drawShaderQuad(quad, 0, 0, width, height)
+```
+
+The current transform (rotation included), `setAlpha`, `setBlend` and the
+analytic `setClip` apply. `setClipMask` does not, so a shader that needs a
+bitmap outline samples it itself.
+
+### The shader contract
+
+Write one WGSL module with `vs_main` and `fs_main`, and run `npm run
+gen:shaders` to produce the GLSL and reflection beside it. The module declares:
+
+- Group 0, binding 0: the shared `Frame` block, and binding 8: the `Clip` block.
+  Copy both structs and `clipCoverage` from an existing shader such as
+  `render/gfx/shaders/maskedRadialGradient.wgsl`.
+- Vertex inputs: `a_unit` at location 0 (the quad's corner in `0..1`),
+  `a_originAxisX` at 1 (a `vec4` holding the origin in device pixels and the
+  x edge vector), and `a_axisYAlpha` at 2 (the y edge vector, then the draw's
+  alpha). A vertex shader places the corner at `origin + axisX * unit.x + axisY *
+unit.y`, projects it with `frame.proj`, and passes `unit` on as the quad's UV.
+- Group 1, binding 10: a `Params` uniform block, written from `quad.params`.
+- Group 1, bindings 0 to 3: up to four textures, each a `DataTexture`.
+
+Each draw snapshots `params` into a slice of its own, so one quad drawn twice
+with different values in between renders both. A `DataTexture` is different:
+uploads are not ordered against draws already recorded in the frame, so every
+draw that samples one sees the contents as they stood when the last of them was
+recorded. Write a texture once per frame, before drawing with it.
+
+Nothing draws on the frames before a quad's pipelines finish compiling.
 
 ## Pixel snapping
 
@@ -335,6 +521,12 @@ in painter order at frame end. What breaks a batch is a change of program,
 texture, blend mode, or clip. What does not break a batch is alpha, color, or
 transform, because those ride in the per-instance data.
 
+The buffers size themselves. A frame that draws more than the buffers hold makes
+them grow, and they shrink again after about a minute of lower use. A draw is
+never dropped for lack of room, and a frame is never split into several
+submissions. A scene with thousands of separate runs pays in upload bytes and
+uniform slices (both in the debug HUD), not in lost draws.
+
 That shapes a few habits.
 
 **Fade with alpha, not color.** `setAlpha` folds into the instance data.
@@ -382,11 +574,10 @@ and the label page.
 marks, so the browser profiler shows a per-node flame chart.
 `engine.lastFrameWorkSec` is CPU work inside the frame, not the vsync interval.
 
-Two readings worth acting on. `overflowWarns` above zero means a ring buffer
-filled mid-frame and forced an extra submit, so either the scene draws far more
-than expected or a loop is unbounded. A label page wipe means every label in the
-scene re-rasterized in one frame, which is the most expensive thing the text
-cache can do.
+One reading worth acting on: a label page wipe means every label in the scene
+re-rasterized in one frame, which is the most expensive thing the text cache can
+do. `bytesUploaded` and `uboSlices` show how much per-frame data the scene
+streams to the GPU.
 
 ## Where to go next
 

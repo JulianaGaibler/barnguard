@@ -56,14 +56,14 @@ describe('CameraNode2D (transform + framing unified)', () => {
   })
 
   it('a parented (translated) camera pans the view', () => {
-    // Square world→canvas so scale is 1 and math is easy to reason about.
+    // Square world->canvas so scale is 1 and math is easy to reason about.
     const parent = new Node2D()
     const cam = new CameraNode2D()
     parent.add(cam)
     cam.setViewport({ x: 0, y: 0, width: 100, height: 100 })
     cam.setPixelSize(100, 100) // scale 1, offset 0
 
-    // With the camera at origin, world (10,10) → screen (10,10).
+    // With the camera at origin, world (10,10) -> screen (10,10).
     expect(cam.worldToScreen(10, 10).x).toBeCloseTo(10, 6)
 
     // Move the camera +50 in x: the framed region shifts, so the same world
@@ -95,7 +95,7 @@ describe('CameraNode2D (transform + framing unified)', () => {
   it('strokeSpaceScale accounts for camera scale (zoom), not just the fit', () => {
     const cam = new CameraNode2D()
     cam.setViewport({ x: 0, y: 0, width: 1000, height: 1000 })
-    cam.setPixelSize(500, 500) // fit scale 0.5 → strokeSpaceScale 2
+    cam.setPixelSize(500, 500) // fit scale 0.5 -> strokeSpaceScale 2
     expect(cam.strokeSpaceScale()).toBeCloseTo(2, 6)
     // Zoom in 2× via the node scale: composed screen scale doubles to 1, so
     // strokeSpaceScale halves to 1 (the "1 CSS px" invariant against the

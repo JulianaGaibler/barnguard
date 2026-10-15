@@ -10,11 +10,25 @@ import {
 import type { SceneTree } from './SceneTree'
 import type { CameraView2D } from '../camera/CameraView2D'
 import type { Gfx2D } from '../render/gfx/Gfx2D'
+import type { GfxPath } from '../render/gfx/GfxPath'
 import type { TweenOptions } from '../anim/Animator'
 import { ignoreAbort } from '../anim/abortSignal'
 import type { Semantics, SemanticsHandle } from '../a11y/types'
 
 export type { NodeEvents, PointerHandlers }
+
+/** Number of live nodes with a clip, so the walker can skip the work when 0. */
+let clipNodeCount = 0
+
+/**
+ * Whether any node currently has a {@link Node2D.clip}. The renderer checks it
+ * to skip clip bookkeeping in scenes that use none.
+ *
+ * @internal
+ */
+export function hasClipNodes(): boolean {
+  return clipNodeCount > 0
+}
 
 // Reused across calls, hit-testing is synchronous, so there's no reentrancy.
 const HIT_TEST_SCRATCH: Vec2 = { x: 0, y: 0 }
@@ -77,6 +91,37 @@ export class Node2D extends Node {
   debugBounds: Rect | null = null
   /** Whether the debug outline overlay draws this node. Cosmetic only. */
   debugVisible = true
+
+  #_clip: GfxPath | Rect | null = null
+
+  /**
+   * A region, in this node's local space, that limits this node and everything
+   * under it. A {@link Rect} clips to a rectangle and a `GfxPath` to any shape.
+   * `null` (the default) clips nothing. Clips on nested nodes narrow each
+   * other, up to 7 deep.
+   *
+   * Descendants are clipped even when they draw in another render layer than
+   * the clipping node.
+   *
+   * @remarks
+   *   Engine developers: the layer walker keeps the clip ancestors of the node it
+   *   is drawing on a stack and pushes or pops stencil clips as the stack
+   *   changes between consecutive nodes, so a run of siblings under one clip
+   *   pays for it once. A clip costs two stencil draws plus one to undo it, and
+   *   a rect is built into a cached path.
+   * @example
+   *   // A scroll panel: content below this node never paints outside it.
+   *   panel.clip = { x: 0, y: 0, width: 320, height: 200 }
+   */
+  get clip(): GfxPath | Rect | null {
+    return this.#_clip
+  }
+  set clip(v: GfxPath | Rect | null) {
+    if ((this.#_clip === null) !== (v === null)) {
+      clipNodeCount += v === null ? -1 : 1
+    }
+    this.#_clip = v
+  }
 
   #_renderLayer: RenderLayer = 'dynamic'
   /**

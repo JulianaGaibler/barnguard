@@ -18,7 +18,7 @@ import {
 export interface Grid {
   readonly cols: number
   readonly rows: number
-  /** `row * cols + col` → {@link CellState}. */
+  /** `row * cols + col` -> {@link CellState}. */
   readonly cells: Uint8Array
 }
 

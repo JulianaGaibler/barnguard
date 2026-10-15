@@ -138,7 +138,7 @@ const CLIP_P0 = vec2()
 const CLIP_P1 = vec2()
 
 /**
- * Polygon vs polygon SAT. Writes the manifold with `a → b` normal. `outFlip`
+ * Polygon vs polygon SAT. Writes the manifold with `a -> b` normal. `outFlip`
  * has no meaning here. The caller supplies a, b in the collide() order.
  */
 function collidePolyPoly(a: WorldPoly, b: WorldPoly, m: Manifold): boolean {
@@ -191,8 +191,8 @@ function collidePolyPoly(a: WorldPoly, b: WorldPoly, m: Manifold): boolean {
 
   // Keep points below the reference face (penetrating).
   const refFaceDist = refNormal.x * rv1.x + refNormal.y * rv1.y
-  // Normal points a → b. For ref = a it's the outward ref normal. For ref = b
-  // (flip) it must be negated so it still reads a → b.
+  // Normal points a -> b. For ref = a it's the outward ref normal. For ref = b
+  // (flip) it must be negated so it still reads a -> b.
   const nx = flipNormal ? -refNormal.x : refNormal.x
   const ny = flipNormal ? -refNormal.y : refNormal.y
   m.normal.x = nx
@@ -245,7 +245,7 @@ function clipSegment(
   return true
 }
 
-/** Circle vs world polygon. `nOut` gets the poly→circle normal. */
+/** Circle vs world polygon. `nOut` gets the poly->circle normal. */
 function collideCirclePolyWorld(
   cx: number,
   cy: number,
@@ -318,7 +318,7 @@ function collideCirclePolyWorld(
       }
     }
   }
-  // nx,ny points polygon → circle. Set the manifold in a → b order.
+  // nx,ny points polygon -> circle. Set the manifold in a -> b order.
   if (circleIsA) {
     m.normal.x = -nx
     m.normal.y = -ny

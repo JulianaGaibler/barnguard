@@ -243,11 +243,11 @@ describe('fontFor', () => {
   })
 
   it('snaps a weight the family does not ship', () => {
-    const f = resolveFonts()
-    // Mozilla Text ships 400/500/700. Asking for 800 would otherwise get a
+    const f = resolveFonts({ text: FAMILIES.hkGrotesk })
+    // HK Grotesk ships 400/500/700. Asking for 800 would otherwise get a
     // browser-synthesised bold, which differs across engines.
-    expect(fontFor(f, 'text', 800, 20)).toBe(`700 20px ${DEFAULT_FONTS.text}`)
-    expect(fontFor(f, 'text', 600, 20)).toBe(`500 20px ${DEFAULT_FONTS.text}`)
+    expect(fontFor(f, 'text', 800, 20)).toBe(`700 20px ${FAMILIES.hkGrotesk}`)
+    expect(fontFor(f, 'text', 600, 20)).toBe(`500 20px ${FAMILIES.hkGrotesk}`)
   })
 
   it('leaves weights alone for stacks outside the catalogue', () => {
@@ -264,6 +264,13 @@ describe('fontFor', () => {
     expect(fontWith(FAMILIES.azeretMono, 1200, 14)).toBe(
       `900 14px ${FAMILIES.azeretMono}`,
     )
+    // Mozilla Text covers 200-700 the same way.
+    expect(fontWith(FAMILIES.mozillaText, 300, 14)).toBe(
+      `300 14px ${FAMILIES.mozillaText}`,
+    )
+    expect(fontWith(FAMILIES.mozillaText, 800, 14)).toBe(
+      `700 14px ${FAMILIES.mozillaText}`,
+    )
   })
 
   it('warns once per role and weight in dev', () => {
@@ -272,7 +279,7 @@ describe('fontFor', () => {
     fontFor(f, 'text', 800, 20)
     fontFor(f, 'text', 800, 44)
     expect(warn).toHaveBeenCalledTimes(1)
-    fontFor(f, 'text', 600, 20)
+    fontFor(f, 'text', 900, 20)
     expect(warn).toHaveBeenCalledTimes(2)
     warn.mockRestore()
   })

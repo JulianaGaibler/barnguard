@@ -1011,7 +1011,7 @@ export class PathShadowCache {
       this.#device.deleteBuffer(this.#fullscreenTriBuf)
     this.#device.deleteShaderModule(this.#rasterShader)
     this.#device.deleteShaderModule(this.#blurShader)
-    this.#device.deleteUniformBuffer(this.#rasterRing.buffer)
-    this.#device.deleteUniformBuffer(this.#blurRing.buffer)
+    this.#rasterRing.dispose(this.#device)
+    this.#blurRing.dispose(this.#device)
   }
 }

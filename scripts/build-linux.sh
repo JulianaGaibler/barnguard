@@ -8,9 +8,9 @@
 # `cc` build-script or links native C libs, this will fail with a missing-cc
 # or missing-native-lib error. Switch to cargo-zigbuild in that case.
 #
-#   1. vite build          → web/dist/ (the web UI, embedded into the binary)
-#   2. cargo build         → cross-compile with rust-lld (musl, fully static), --features embed-web
-#   3. assemble release-linux/ → the executable + config.example.toml
+#   1. vite build          -> web/dist/ (the web UI, embedded into the binary)
+#   2. cargo build         -> cross-compile with rust-lld (musl, fully static), --features embed-web
+#   3. assemble release-linux/ -> the executable + config.example.toml
 #
 # Prerequisites (one-time):
 #   rustup target add x86_64-unknown-linux-musl

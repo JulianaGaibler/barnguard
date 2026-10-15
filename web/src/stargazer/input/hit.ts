@@ -6,7 +6,7 @@ import { isEffectivelyVisible, walkTree } from '../scene/traverse'
 /**
  * Reverse-DFS hit walk: visits the tree's {@link Node2D}s in painter order and
  * returns the last-drawn (topmost) `hitEnabled` node whose `hitTest` accepts
- * the point. World-coord input, the node's `hitTest` handles the world→local
+ * the point. World-coord input, the node's `hitTest` handles the world->local
  * transform internally. 3D nodes are skipped (they pick via a ray, not
  * bounds).
  *

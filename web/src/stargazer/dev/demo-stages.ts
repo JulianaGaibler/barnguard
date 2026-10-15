@@ -48,7 +48,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   engine.events.on('pointerDown', () => {
     engineDowns++
     console.log(
-      `[demo-stages] engine.events pointerDown  →  engine=${engineDowns} stage=${stageDowns}`,
+      `[demo-stages] engine.events pointerDown  ->  engine=${engineDowns} stage=${stageDowns}`,
     )
   })
 
@@ -83,7 +83,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     unsubStagePointerDown = secondaryStage.events.on('pointerDown', () => {
       stageDowns++
       console.log(
-        `[demo-stages] stage.events pointerDown   →  engine=${engineDowns} stage=${stageDowns}`,
+        `[demo-stages] stage.events pointerDown   ->  engine=${engineDowns} stage=${stageDowns}`,
       )
     })
 

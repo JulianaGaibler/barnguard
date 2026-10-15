@@ -18,7 +18,7 @@ const CELL_COUNT = COLS * ROWS
 const CENTER_FIRST: readonly number[] = [3, 2, 4, 1, 5, 0, 6]
 
 export interface Board {
-  /** `row * COLS + col` → 0 empty / 1 / 2. */
+  /** `row * COLS + col` -> 0 empty / 1 / 2. */
   readonly cells: Int8Array
   /** Filled count per column (0..ROWS). The next drop lands at this row. */
   readonly heights: Int8Array

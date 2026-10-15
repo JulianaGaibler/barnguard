@@ -79,9 +79,10 @@ render-end, so an idle wait does not inflate it. A well-behaved 60 Hz frame read
 
 Three readings usually point at a real problem.
 
-`overflowWarns` above zero means a vertex ring filled mid-frame and forced an
-extra submit. Either the scene draws far more than expected, or a loop is
-unbounded.
+`Bytes uploaded` and `Uniform slices` grow with the number of draws. Streams and
+uniform rings enlarge themselves when a frame needs more room, and shrink again
+after a minute of lower use, so a spike shows up here and in memory but never
+drops a draw.
 
 A label page wipe means every label in the scene re-rasterized in a single
 frame. It shows in the texture inspector alongside evictions and size clamps.
@@ -94,6 +95,24 @@ inside a loop. See [Drawing](/guides/drawing#keeping-the-batch-intact).
 `?debug=perf` wraps each node's update and draw in `performance` marks, so the
 browser profiler's user-timing lane shows a per-node flame chart and a per-phase
 breakdown of the frame. Leave it off otherwise, since the marks themselves cost.
+
+With `?debug=perf` on, the renderer also emits these spans. The profiler drops a
+measure's detail object, so the counters are part of the span name.
+
+| Marker                                                                    | Meaning                                                                                                                         |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `gfx submit draws=… passes=… surfaces=… uboSlices=… bytes=… target=WxHxN` | Uploading the frame's streams and replaying every recorded run, with the frame's counters and the target size and sample count. |
+| `gfx offscreen surface WxH`                                               | One span per offscreen surface pass. `leaf` marks a surface with no nested surfaces.                                            |
+| `gfx present`                                                             | The final blit to the canvas.                                                                                                   |
+| `lottie evaluate`                                                         | Sampling an animation at a new frame.                                                                                           |
+| `lottie record`                                                           | A Lottie node recording its draws.                                                                                              |
+
+The spans measure the time JavaScript spends issuing work. They do not include
+GPU time.
+
+`?demo=bench&marks` turns the marks on in the benchmark demo. Its Lottie scenes
+(`lottie-hero`, `lottie-grid`, `lottie-stagger`, `lottie-mixed`) take `&file=`
+and `&n=`.
 
 The "Path shadows" section's counters are cumulative since startup, not
 per-frame (a bake or a tessellation is bursty enough that a one-frame window

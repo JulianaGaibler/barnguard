@@ -19,7 +19,7 @@ export interface CloudOptions {
   bottomOffset: number
   /** Horizontal spacing between repeated copies (world units). */
   period: number
-  /** Drift direction: +1 = left→right, -1 = right→left. */
+  /** Drift direction: +1 = left->right, -1 = right->left. */
   dir: 1 | -1
   /** Drift speed (world units / sec). */
   speed: number

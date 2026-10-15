@@ -71,7 +71,7 @@ describe('connect four board', () => {
       [2, 2, 1], // col2: rows 0,1=2, row2=1
       [2, 2, 2], // col3: rows 0,1,2 = 2 (row3 open)
     ])
-    force(b, 3, 1) // lands row3 → completes the diagonal
+    force(b, 3, 1) // lands row3 -> completes the diagonal
     expect(b.winner).toBe(1)
     expect(winningCells(b, 3, 3)?.length).toBeGreaterThanOrEqual(4)
   })

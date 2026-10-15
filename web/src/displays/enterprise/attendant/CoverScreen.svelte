@@ -39,7 +39,7 @@
     inset: 0
     z-index: var(--z-cover)
     overflow: hidden
-    background-color: #FDCC9B
+    background-color: #D1C3F4
     // Catch every pointer event so the game underneath is unreachable.
     pointer-events: auto
     user-select: none

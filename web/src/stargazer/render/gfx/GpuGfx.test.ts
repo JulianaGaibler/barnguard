@@ -61,7 +61,7 @@ describe('GpuGfx batching, fillRect', () => {
     const { gfx, device } = makeGpuGfx()
     await baseFrame(gfx, device)
     gfx.fillRect(0, 0, 5, 5, '#ff0000')
-    gfx.fillPath2D(new Path2D(), '#ff0000') // unregistered → counter++
+    gfx.fillPath2D(new Path2D(), '#ff0000') // unregistered -> counter++
     gfx.fillRect(10, 10, 5, 5, '#00ff00')
     gfx.endFrame()
     expect(device.draws.length).toBe(1)
@@ -135,7 +135,7 @@ describe('GpuGfx Phase 3, stats reflect real GL state changes', () => {
   it('counts a program switch per real program flip', async () => {
     const { gfx, device } = makeGpuGfx()
     await baseFrame(gfx, device)
-    // fill (coloredTri) → circle (shape) → fill (coloredTri): the middle run flips
+    // fill (coloredTri) -> circle (shape) -> fill (coloredTri): the middle run flips
     // the program, so three real switches.
     gfx.fillRect(0, 0, 5, 5, '#f00')
     gfx.fillCircle(50, 50, 5, '#0f0')
@@ -194,7 +194,7 @@ describe('GpuGfx batching, drawImage / static blit', () => {
     expect(device.draws[0].instanceCount).toBe(500)
   })
 
-  it('fillRect after drawImage forces a program change → 2 draws', async () => {
+  it('fillRect after drawImage forces a program change -> 2 draws', async () => {
     const { gfx, device } = makeGpuGfx()
     const sprite = document.createElement('canvas')
     sprite.width = 32
@@ -211,7 +211,7 @@ describe('GpuGfx batching, drawImage / static blit', () => {
     expect(device.draws[0].program).not.toBe(device.draws[1].program)
   })
 
-  it('different image sources force a texture bind change → 2 draws', async () => {
+  it('different image sources force a texture bind change -> 2 draws', async () => {
     const { gfx, device } = makeGpuGfx()
     const spriteA = document.createElement('canvas')
     spriteA.width = 32
@@ -361,7 +361,7 @@ describe('GpuGfx roundRect batching', () => {
     // Circles/round-rects share the shape program, so a coloredTri fill (not a
     // circle) is what forces the break here.
     gfx.fillRoundRect(0, 0, 40, 40, 8, '#ffffff')
-    gfx.fillRect(80, 0, 12, 12, '#ffffff') // coloredTri program → separate batch
+    gfx.fillRect(80, 0, 12, 12, '#ffffff') // coloredTri program -> separate batch
     gfx.fillRoundRect(120, 0, 40, 40, 8, '#ffffff')
     gfx.endFrame()
     expect(device.draws.length).toBe(3)
@@ -525,7 +525,7 @@ describe('GpuGfx Phase 3, particle atlas', () => {
     gfx.drawImage(untaggedA, 0, 0, 64, 64)
     gfx.drawImage(untaggedB, 64, 0, 64, 64)
     gfx.endFrame()
-    // Different per-source textures → 2 draws.
+    // Different per-source textures -> 2 draws.
     expect(device.draws.length).toBe(2)
     // No sub-image uploads.
     expect(device.subImageUploads.length).toBe(0)

@@ -44,7 +44,7 @@ struct FlatObject {
 @group(0) @binding(2) var u_ao: texture_2d<f32>;
 @group(0) @binding(18) var u_aoSamp: sampler;
 
-// AO factor at this fragment (1 = unoccluded). Off → 1. `fragPos` is the
+// AO factor at this fragment (1 = unoccluded). Off -> 1. `fragPos` is the
 // fragment builtin position (screen pixels). The flip matches the AO texture's
 // per-backend row order.
 fn sampleSSAO(fragPos: vec4<f32>) -> f32 {

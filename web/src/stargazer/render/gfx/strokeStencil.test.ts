@@ -38,12 +38,12 @@ const ZIGZAG = [10, 10, 60, 40, 110, 10, 160, 40]
  * question is whether it tests and writes.
  */
 function isDedup(d: DrawRecord): boolean {
-  return d.stencil?.front.passOp === 'increment-clamp'
+  return d.stencil?.front.passOp === 'invert' && d.colorWrite
 }
 
 /** Whether a draw is the pass that zeroes the bits again. */
 function isReset(d: DrawRecord): boolean {
-  return d.stencil?.front.passOp === 'zero'
+  return d.stencil?.front.passOp === 'invert' && !d.colorWrite
 }
 
 /**
@@ -84,14 +84,14 @@ describe('translucent strokes deduplicate through the stencil', () => {
     expect(core.colorWrite).toBe(true)
     expect(fringe.colorWrite).toBe(true)
     expect(core.stencil?.front.compare).toBe('equal')
-    expect(core.stencil?.reference).toBe(0)
+    expect(core.stencilReference).toBe(0)
     // Only the uniform separates them.
     expect(uniform(core)).not.toBe(uniform(fringe))
 
     // The reset only zeroes the bits, it must not repaint.
     expect(reset.colorWrite).toBe(false)
-    expect(reset.stencil?.front.compare).toBe('always')
-    expect(reset.stencil?.front.passOp).toBe('zero')
+    expect(reset.stencil?.front.compare).toBe('equal')
+    expect(reset.stencilReference).toBe(0x10)
   })
 
   it('still deduplicates while a 3D pass holds the depth attachment', async () => {
@@ -193,12 +193,9 @@ describe('translucent strokes deduplicate through the stencil', () => {
     expect(draws[0].stencil).toBeNull()
   })
 
-  it('seals into complete groups when a ring overflow splits a stroke', async () => {
-    // The ring holds ~29k stroke instances. A stroke longer than that submits
-    // mid-flight, which wipes the command list. Without sealing first, the
-    // draw runs recorded so far would replay with no reset behind them and
-    // leave the stencil set for the rest of the frame, silently rejecting
-    // every later stroke over those pixels.
+  it('keeps a stroke longer than the initial ring in one group', async () => {
+    // The stream grows instead of submitting mid-frame, so the dedup group is
+    // never split and its reset pass is always recorded.
     const { gfx, device } = await makeGfx()
     const points = 40_000
     const pts = new Float32Array(points * 2)
@@ -211,32 +208,9 @@ describe('translucent strokes deduplicate through the stencil', () => {
     gfx.endFrame()
 
     const draws = strokeDraws(device)
-    // More than one group, so the split really happened.
-    expect(draws.length).toBeGreaterThan(3)
-    const painted = draws.filter((d) => d.colorWrite)
-    const reset = draws.filter((d) => !d.colorWrite)
-    // Two painting passes (core, fringe) per reset.
-    expect(painted.length).toBe(reset.length * 2)
-    expect(reset.length).toBeGreaterThan(1)
-    for (const d of painted) expect(isDedup(d)).toBe(true)
-    for (const r of reset) expect(isReset(r)).toBe(true)
-
-    // Every painted range is answered by a reset over the same instances, so no
-    // pixel is left with its stencil bit set for the rest of the frame. Counted
-    // rather than set-compared: the ring restarts at offset 0 after the
-    // overflow, so both groups legitimately share a starting offset.
-    const tally = (ds: DrawRecord[]): Map<number, number> => {
-      const m = new Map<number, number>()
-      for (const d of ds) {
-        const k = d.vertexBuffers[1].offset
-        m.set(k, (m.get(k) ?? 0) + 1)
-      }
-      return m
-    }
-    const paintedBy = tally(painted)
-    for (const [offset, resets] of tally(reset)) {
-      expect(paintedBy.get(offset)).toBe(resets * 2)
-    }
+    expect(draws).toHaveLength(3)
+    expect(draws.filter((d) => !d.colorWrite)).toHaveLength(1)
+    expect(device.passes).toHaveLength(1)
   })
 
   it('clears the stencil once at the start of the frame', async () => {

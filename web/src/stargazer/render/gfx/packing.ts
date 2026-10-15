@@ -1,9 +1,9 @@
-// Pure CPU-side packing helpers shared by the GPU draw programs: CSS color →
+// Pure CPU-side packing helpers shared by the GPU draw programs: CSS color ->
 // premultiplied unorm8×4, dash resolution, vertex writers, and paint
 // resolution (the one place that tells a flat color from a gradient).
 
 import { parseColor, type RGBA } from './parseColor'
-import type { GfxFill, GfxLinearGradient } from './Gfx2D'
+import type { GfxFill, GfxPaint } from './Gfx2D'
 
 /**
  * Pack an already-parsed color into a little-endian premultiplied `unorm8×4`
@@ -33,7 +33,7 @@ export function rgbaTuple(c: RGBA): readonly [number, number, number, number] {
 /** A fill resolved to what it actually is. The one place that discriminates. */
 export type ResolvedPaint =
   | { kind: 'solid'; packedColor: number }
-  | { kind: 'gradient'; paint: GfxLinearGradient }
+  | { kind: 'gradient'; paint: GfxPaint }
 
 /**
  * Tell a flat color from a gradient paint. `alpha` (the current draw alpha)
@@ -73,7 +73,7 @@ export function gradientAxis(
 }
 
 /**
- * Canvas `[on, off, ...]` dash → `(dashStart, dashPeriod, dashOnLen)` in device
+ * Canvas `[on, off, ...]` dash -> `(dashStart, dashPeriod, dashOnLen)` in device
  * px. Only the first `[on, off]` pair is honored (matches the game's 2-element
  * usage). `dashPeriod === 0` disables dashing in the shader.
  */
@@ -110,7 +110,7 @@ export function writeColoredVert(
   fv[off + 4] = v
 }
 
-/** HSV → RGB. Hue in `[0, 6)` sector space. `'batch-color'` debug helper. */
+/** HSV -> RGB. Hue in `[0, 6)` sector space. `'batch-color'` debug helper. */
 export function hsvToRgb(
   h: number,
   s: number,

@@ -56,7 +56,7 @@ describe('TextureManager label cache', () => {
     expect(device.subImageUploads.length).toBe(1) // one rasterization in-bucket
     tm.ensureLabelTexture('base', 'hi', style, 4)
     expect(device.textures.length).toBe(1) // still just the page
-    expect(device.subImageUploads.length).toBe(2) // new bucket → new sub-upload
+    expect(device.subImageUploads.length).toBe(2) // new bucket -> new sub-upload
   })
 
   it('drops the cache on rebuild (context loss) without deleting dead textures', () => {
@@ -70,7 +70,7 @@ describe('TextureManager label cache', () => {
 
   it('evicts the least-recently-used page label by freeing its span, not deleting the shared page', () => {
     const del = vi.spyOn(device, 'deleteTexture')
-    // 769 distinct labels (cap is 768) → exactly one eviction. All are
+    // 769 distinct labels (cap is 768) -> exactly one eviction. All are
     // page-backed, so eviction frees a span and the shared page survives.
     for (let i = 0; i < 769; i++) {
       tm.ensureLabelTexture(`label-${i}`, `t${i}`, style, 2)
@@ -81,7 +81,7 @@ describe('TextureManager label cache', () => {
 
   it('gives an oversized label its own texture and deletes it on eviction', () => {
     const del = vi.spyOn(device, 'deleteTexture')
-    // scale 60 → texW ≈ 600 > 512 threshold → dedicated texture (not the page).
+    // scale 60 -> texW ≈ 600 > 512 threshold -> dedicated texture (not the page).
     tm.ensureLabelTexture('big', 'T', style, 60)
     // Fill past the cap so the oversized label (the LRU) is evicted.
     for (let i = 0; i < 768; i++) {
@@ -97,7 +97,7 @@ describe('TextureManager label cache', () => {
       tm.ensureLabelTexture(`key${i}`, 't', style, 2) // regens #2..#24 (budget = 24)
     }
     const before = device.textures.length
-    // Same label at a neighbouring bucket while over budget → ride, no upload.
+    // Same label at a neighbouring bucket while over budget -> ride, no upload.
     const near = tm.ensureLabelTexture('key0', 't', style, 2.3)
     expect(near).toBe(e0)
     expect(device.textures.length).toBe(before)

@@ -43,7 +43,10 @@ export class GradientRadialProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
-  /** One bind group per atlas-texture identity (placeholder, then the real atlas once it exists). */
+  /**
+   * One bind group per atlas-texture identity (placeholder, then the real atlas
+   * once it exists).
+   */
   #bindGroups = new WeakMap<Texture, BindGroup>()
 
   get stream(): RingStream {
@@ -106,9 +109,9 @@ export class GradientRadialProgram implements GpuProgram {
 
   /**
    * Begin (or continue) the `gradientRadial` batch and reserve one instance
-   * record. The atlas is a fixed texture, so distinct gradients (distinct
-   * rows) never break the batch, only a switch away from this program does.
-   * Returns the word offset, or `-1` on overflow.
+   * record. The atlas is a fixed texture, so distinct gradients (distinct rows)
+   * never break the batch, only a switch away from this program does. Returns
+   * the word offset, or `-1` on overflow.
    */
   beginInstance(ctx: GpuBatchContext): number {
     ctx.beginBatch('gradientRadial')
@@ -124,7 +127,8 @@ export class GradientRadialProgram implements GpuProgram {
   }
 
   drawRun(ctx: GpuBatchContext, run: DrawRun): void {
-    const atlas = ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
+    const atlas =
+      ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
     drawInstancedRun(
       ctx,
       this.#pipelines,

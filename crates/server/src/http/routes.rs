@@ -4,8 +4,7 @@ use super::AppState;
 use crate::config::Config;
 use crate::queue::{CancelOutcome, ReprintError};
 use crate::types::{
-    JobMeta, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus, ServerEvent,
-    DISPLAY_ENTERPRISE,
+    JobMeta, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus, ServerEvent, DISPLAY_ENTERPRISE,
 };
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -96,9 +95,9 @@ pub async fn cancel(State(st): State<AppState>, Path(id): Path<String>) -> Respo
         CancelOutcome::Canceled => {
             Json(json!({ "id": uuid.to_string(), "state": "canceled" })).into_response()
         }
-        CancelOutcome::AlreadyActive => (
-            StatusCode::CONFLICT,
-            Json(json!({"error": "already_printing"})),
+        CancelOutcome::Canceling => (
+            StatusCode::ACCEPTED,
+            Json(json!({ "id": uuid.to_string(), "state": "canceling" })),
         )
             .into_response(),
         CancelOutcome::NotFound => {
@@ -257,7 +256,7 @@ pub async fn config_override_reset(State(st): State<AppState>) -> impl IntoRespo
     Json(json!({ "ok": true }))
 }
 
-/// `GET /log`. Recent buffered log entries (oldest → newest).
+/// `GET /log`. Recent buffered log entries (oldest -> newest).
 pub async fn log(State(st): State<AppState>) -> impl IntoResponse {
     Json(st.log.snapshot())
 }
@@ -277,7 +276,7 @@ pub struct GamesQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
     /// Optional display filter. When set, only records whose `display` tag
-    /// matches this id are returned. Absent → all displays.
+    /// matches this id are returned. Absent -> all displays.
     pub display: Option<String>,
 }
 

@@ -102,7 +102,7 @@ describe('GpuGfx.fillText', () => {
     gfx.setAlpha(1)
     gfx.setBaseTransform(1, 0, 0, 1, 0, 0) // scale 1
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
-    gfx.setBaseTransform(4, 0, 0, 4, 0, 0) // scale 4 → higher bucket
+    gfx.setBaseTransform(4, 0, 0, 4, 0, 0) // scale 4 -> higher bucket
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
     gfx.endFrame()
     // Two distinct bitmaps packed into the one page: two sub-uploads, one tex.
@@ -121,7 +121,7 @@ describe('GpuGfx.fillText', () => {
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
     gfx.endFrame()
     const fv = new Float32Array(device.draws[0].bufferSnapshot as ArrayBuffer)
-    // translate.x = 1*(-1) + 100.4 = 99.4 → 99. translate.y = -3 + 50.6 = 47.6 → 48.
+    // translate.x = 1*(-1) + 100.4 = 99.4 -> 99. translate.y = -3 + 50.6 = 47.6 -> 48.
     expect(fv[4]).toBe(99)
     expect(fv[5]).toBe(48)
   })
@@ -134,11 +134,11 @@ describe('GpuGfx.fillText', () => {
     gfx.fillText('hi', 0, 0, { font: '10px x', color: '#fff' })
     gfx.endFrame()
     const uv = new Uint32Array(device.draws[0].bufferSnapshot as ArrayBuffer)
-    // 0.5 × 255 = 127.5 → 128 in every channel (tint at shape word 22).
+    // 0.5 × 255 = 127.5 -> 128 in every channel (tint at shape word 22).
     expect(uv[22]).toBe(0x80808080)
   })
 
-  it('packs many distinct labels into one page → one bind, one draw', async () => {
+  it('packs many distinct labels into one page -> one bind, one draw', async () => {
     const { gfx, device } = makeGpuGfx()
     await beginFrame(gfx, device)
     gfx.setBaseTransform(1, 0, 0, 1, 0, 0)

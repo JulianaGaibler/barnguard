@@ -1,0 +1,17 @@
+// Type shared by the screens that sit over the map. Sizes are design pixels,
+// since the element is scaled with the design region and never sized to the
+// window.
+
+@mixin headline
+  font-family: var(--font-mozilla-headline-condensed)
+  font-weight: 600
+  font-size: 202px
+  line-height: 0.85
+  letter-spacing: -4.04px
+  color: #15141a
+  margin: 0
+  // Trims the line box to the cap height so the block starts and ends at the
+  // glyphs rather than the font's ascent and descent.
+  text-box-trim: trim-both
+  text-box-edge: cap alphabetic
+  overflow-wrap: break-word

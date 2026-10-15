@@ -101,6 +101,7 @@ Read the first four in order. The rest are reference for when you need them.
 - [Text](/guides/text), `fillText`, `TextNode`, measurement, label caching
 - [Layout](/guides/layout), constraints-based boxes, `Row` and `Column`, resize
 - [Assets](/guides/assets), SVG paths, bitmap masks, keyed async loading
+- [Lottie](/guides/lottie), parsing, playback, markers, diagnostics
 - [Stages](/guides/stages), a second canvas on the same clock
 - [Particles](/guides/particles) and [vector particles](/guides/vector-particles)
 - [Physics](/guides/physics), the opt-in 2D rigid-body world

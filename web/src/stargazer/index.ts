@@ -212,6 +212,14 @@ export { FilmGrain } from './render/postfx/effects/FilmGrain'
 export type { FilmGrainOptions } from './render/postfx/effects/FilmGrain'
 export { AmbientOcclusion } from './render/gfx/ao/AmbientOcclusion'
 export type { AoPreset } from './render/gfx/ao/AmbientOcclusion'
+export { DataTexture, ShaderQuad, quadShader } from './render/gfx/ShaderQuad'
+export { InsetViewNode } from './nodes/InsetViewNode'
+export type { InsetViewOptions } from './nodes/InsetViewNode'
+export type {
+  DataTextureOptions,
+  QuadShaderSource,
+  ShaderQuadOptions,
+} from './render/gfx/ShaderQuad'
 export type {
   Gfx2D,
   GfxBlend,
@@ -221,10 +229,18 @@ export type {
   GfxTextStyle,
   GfxGradientStop,
   GfxLinearGradient,
+  GfxMatteMode,
+  GfxOffscreenHandle,
+  GfxOffscreenOptions,
+  GfxRadialGradient,
   GfxPaint,
   GfxFill,
   GfxShadowStyle,
 } from './render/gfx/Gfx2D'
+export { GfxPath } from './render/gfx/GfxPath'
+export { addOffscreenDemand } from './render/gfx/offscreenDemand'
+export type { FlatPath } from './render/gfx/GfxPath'
+export type { FillRule } from './render/gfx/stencilRecipe'
 export {
   strokeOutline,
   StrokeOutlineBuffer,
@@ -502,6 +518,29 @@ export {
 } from './anim/abortSignal'
 export type { CombinedAbort } from './anim/abortSignal'
 export { AbortScope } from './anim/AbortScope'
+
+// lottie
+export {
+  parseLottie,
+  LottiePlayer,
+  LottieNode,
+  computeLayout,
+  parseDotLottie,
+  loadLottie,
+  loadDotLottie,
+  applyTheme,
+  parseTheme,
+  resetSlots,
+  setSlotValue,
+} from './modules/lottie'
+export type * from './modules/lottie'
+export {
+  EasingCache,
+  ValueProp,
+  PathProp,
+  parseProp,
+  parsePathProp,
+} from './modules/lottie'
 
 // dom (attach HTML elements to scene nodes)
 export { DomTransformSync, projectWorldToCss } from './dom/DomTransformSync'

@@ -36,6 +36,11 @@
      * input button.
      */
     showTrigger?: boolean
+    /** Passed to the keyboard, see `OnScreenKeyboard`. */
+    extraKeys?: string
+    spaceLabel?: string
+    suggestions?: readonly string[]
+    onSuggestion?: (word: string) => void
   }
   let {
     value = $bindable(),
@@ -47,6 +52,10 @@
     onOpenChange,
     caption,
     showTrigger = true,
+    extraKeys,
+    spaceLabel,
+    suggestions,
+    onSuggestion,
   }: Props = $props()
 
   function setOpen(next: boolean): void {
@@ -96,6 +105,10 @@
       onClose={() => setOpen(false)}
       {caption}
       {closeLabel}
+      {extraKeys}
+      {spaceLabel}
+      {suggestions}
+      {onSuggestion}
     />
   </div>
 {/if}

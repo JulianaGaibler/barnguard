@@ -33,7 +33,7 @@ describe('connect four AI', () => {
 
   it('easy takes its random-blunder branch when the roll is low', () => {
     const b = build([[2], [2], [2]], 1)
-    // random() < blunderChance(0.3) → random legal move (not the search).
+    // random() < blunderChance(0.3) -> random legal move (not the search).
     const col = chooseColumn(b, 'easy', () => 0.1)
     expect(legalColumns(b)).toContain(col)
   })

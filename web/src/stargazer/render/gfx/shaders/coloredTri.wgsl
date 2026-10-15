@@ -1,6 +1,6 @@
 // Colored-triangle program. Streamed 2D fills: positions arrive already in
 // device pixels (CPU-transformed before append), so the vertex stage only
-// projects device-px → clip via the shared Frame matrix.
+// projects device-px -> clip via the shared Frame matrix.
 //
 // The fragment stage writes the premultiplied per-vertex color (or, in
 // gradient mode, a ramp sample), optionally modulated by a bitmap clip mask,
@@ -136,6 +136,24 @@ fn fs_main(in: VOut) -> @location(0) vec4<f32> {
     let u = t * (255.0 / 256.0) + 0.5 / 256.0;
     // ATLAS_ROWS must match TextureManager.ts.
     let v = (params.paint.w + 0.5) / 64.0;
+    c = textureSample(u_ramp, u_rampSamp, vec2<f32>(u, v)) * params.misc.y;
+  } else if (paintMode == 3u) {
+    // Radial gradient with a focal point. `paint` is (focal.xy, focal-to-center
+    // vector) in device px, `misc` is (radius, opacity, ramp row). `t` is the
+    // scale of the circle through this pixel whose center slides from the focal
+    // point to the center as its radius grows to `misc.x`. With the focal point
+    // inside the circle the quadratic's leading term is negative and the
+    // positive root is the one below.
+    let p = devicePos(in.pos.xy);
+    let d = p - params.paint.xy;
+    let e = params.paint.zw;
+    let r = params.misc.x;
+    let a = min(dot(e, e) - r * r, -1e-4);
+    let de = dot(d, e);
+    let disc = max(de * de - a * dot(d, d), 0.0);
+    let t = clamp((de - sqrt(disc)) / a, 0.0, 1.0);
+    let u = t * (255.0 / 256.0) + 0.5 / 256.0;
+    let v = (params.misc.z + 0.5) / 64.0;
     c = textureSample(u_ramp, u_rampSamp, vec2<f32>(u, v)) * params.misc.y;
   } else {
     c = in.color;

@@ -25,7 +25,7 @@ export function getSourceHeight(source: TexImageSource): number {
  *
  * `flipY` flips the SOURCE rows during the copy, it does not encode screen
  * orientation. Both backends store source row 0 at texel row 0 and sample `uv.y
- * = 0` there, and the shared device-px→clip projection owns the on-screen
+ * = 0` there, and the shared device-px->clip projection owns the on-screen
  * Y-flip. `flipY` must therefore pass through UNCHANGED here. Inverting it for
  * one backend double-flips every image that backend uploads, which shows up
  * first on text because a glyph is usually the only asymmetric texture around.

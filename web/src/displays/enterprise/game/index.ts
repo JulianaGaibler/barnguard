@@ -16,6 +16,7 @@ export {
 } from './session'
 export {
   DEFAULT_MAP_ID,
+  LEGACY_MAP_ID,
   knownMapIds,
   loadMap,
   resolveMapId,

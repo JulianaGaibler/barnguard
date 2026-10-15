@@ -76,6 +76,46 @@ nor reported. WebGL2 samples depth only from a `DEPTH_COMPONENT24` texture,
 which holds no stencil bits, so reporting otherwise would diverge from WebGPU
 for the same options.
 
+## What the stencil bits mean
+
+The 2D renderer divides each 8-bit stencil value so that fills, clip paths and
+translucent strokes can overlap without clobbering each other.
+
+| Bits | Holds                                                               |
+| ---- | ------------------------------------------------------------------- |
+| 7..5 | Clip depth `D` (0 to 7). A pixel is inside when its bits equal `D`. |
+| 4    | Flag, set by a translucent stroke while it paints a pixel.          |
+| 3..0 | Winding count modulo 16. Non-zero only between a fan and its cover. |
+
+Anything that writes stencil outside the 2D renderer (a 3D pass) has to leave
+bits 7..5 at zero where 2D content starts.
+
+`render/gfx/stencilRecipe.ts` holds one row per operation. WebGPU bakes the
+compare function, the operations and the masks into the pipeline and keeps only
+the reference dynamic, so every row is its own pipeline variant. `D` is the
+current clip depth. `less` passes when `(ref & readMask) < (stencil & readMask)`.
+
+| Row                | Compare / reference / read mask                     | Operations / write mask                            | Color |
+| ------------------ | --------------------------------------------------- | -------------------------------------------------- | ----- |
+| Draw inside a clip | `equal` / `D<<5` / `0xE0`                           | keep / `0x00`                                      | on    |
+| Fan, nonzero       | `equal` / `D<<5` / `0xE0`                           | front increment-wrap, back decrement-wrap / `0x0F` | off   |
+| Fan, even-odd      | `equal` / `D<<5` / `0xE0`                           | invert / `0x01`                                    | off   |
+| Cover              | `not-equal` / `0` / `0x0F` (even-odd `0x01`)        | pass and fail zero / `0x0F`                        | on    |
+| Clip apply         | `not-equal` / `(D+1)<<5` / `0x0F` (even-odd `0x01`) | pass replace / `0xFF`                              | off   |
+| Clip pop           | `less` / `((D-1)<<5) \| 0x1F` / `0xFF`              | pass replace / `0xE0`                              | off   |
+| Stroke mark        | `equal` / `D<<5` / `0xF0`                           | pass invert / `0x10`                               | on    |
+| Stroke reset       | `equal` / `(D<<5) \| 0x10` / `0xF0`                 | pass invert / `0x10`                               | off   |
+
+A fan is never recorded without its cover, and the pair comes from one buffer
+reservation, so a dropped draw drops both. That keeps the winding bits zero
+everywhere outside the pair. The fan's write mask confines carries and borrows
+to the winding bits.
+
+A fill's fan is a set of triangles from the first point of each contour, written
+with the same vertex layout as every other `coloredTri` draw. The cover is a
+device-space quad over the path's bounds clipped to the target, so a path with a
+small visible part costs a small cover.
+
 ## Verifying it
 
 `?demo=shapes3d` draws a translucent multi-segment stroke over a 3D scene, and

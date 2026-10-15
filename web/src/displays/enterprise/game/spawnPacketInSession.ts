@@ -38,17 +38,9 @@ export interface SpawnPacketOpts {
   packetId: string
   hexParticleId: string
   /**
-   * `false` disables auto-acceleration to `travelSpeed`. The packet sits at v=0
-   * until the player draws a path, then follows the path exactly, and settles
-   * back to v=0 whenever the path is fully consumed. Used by the tutorial
-   * mini-stage, main game leaves this `true`.
-   */
-  autonomousDrift?: boolean
-  /**
    * Fires when the packet's scene-graph `destroy` event runs, the helper uses
    * this internally to pair-destroy the motion trail + hex emitter, and the
-   * caller can hook it to remove the packet from an `activePackets` array (main
-   * game does, tutorial doesn't need to).
+   * caller can hook it to remove the packet from an `activePackets` array.
    */
   onDestroy?: (packet: PacketNode) => void
 }
@@ -56,13 +48,8 @@ export interface SpawnPacketOpts {
 /**
  * Spawn one packet with the same visual and behavioral stack the live game
  * uses, hex node, shooting-star motion trail (`PacketMotionTrailNode`),
- * decaying-hex wake emitter, `PacketBehavior` (with configurable autonomous
- * drift), and, once travel-ready, `PathDrawBehavior` bound to the packet.
- *
- * Extracted from `session.ts::spawnPacket` so both the main `GameSession` and
- * the tutorial `TutorialSession` share one construction path, any visual or
- * dynamics tweak the main game gets carries over to the tutorial
- * automatically.
+ * decaying-hex wake emitter, `PacketBehavior`, and, once travel-ready,
+ * `PathDrawBehavior` bound to the packet.
  *
  * The packet is added to `packetLayer` synchronously, the caller may push it
  * onto whatever active-packet list they keep. The returned reference stays
@@ -75,15 +62,7 @@ export function spawnPacketInSession(
   headingRad: number,
   travelSpeed: number,
 ): PacketNode {
-  const {
-    host,
-    packetLayer,
-    hooks,
-    drawHooks,
-    packetId,
-    hexParticleId,
-    autonomousDrift = true,
-  } = opts
+  const { host, packetLayer, hooks, drawHooks, packetId, hexParticleId } = opts
 
   const packet = new PacketNode({ id: packetId })
   packet.transform.x = worldPos.x
@@ -157,9 +136,7 @@ export function spawnPacketInSession(
   })
   packetLayer.add(convergeNode)
 
-  const behavior = new PacketBehavior(hooks, headingRad, travelSpeed, {
-    autonomousDrift,
-  })
+  const behavior = new PacketBehavior(hooks, headingRad, travelSpeed)
   packet.addBehavior(behavior)
   behavior.attachMotionTrail(motionTrail)
   behavior.attachHexParticles(hexParticles)
@@ -204,9 +181,8 @@ export function spawnPacketInSession(
   })
 
   // `host` is currently only used inside the closures above (via TUNING /
-  // scene-attached tweens), but exposing it in `SpawnPacketOpts` keeps
-  // future callers (e.g. tutorial variants that need `engine.wait`) from
-  // having to plumb it separately.
+  // scene-attached tweens), but exposing it in `SpawnPacketOpts` keeps a caller
+  // that needs `engine.wait` from having to plumb it separately.
   void host
   return packet
 }

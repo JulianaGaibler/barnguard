@@ -18,11 +18,13 @@
     isFullscreen,
     leaderboardPanelVisible,
     printerPanelVisible,
+    printStatusPillVisible,
     toggleDebugHud,
     toggleFullscreen,
     toggleGamesPanel,
     toggleLeaderboardPanel,
     togglePrinterPanel,
+    togglePrintStatusPill,
   } from '@src/core/attendant/boothMenuToggle'
 
   function handleReload(): void {
@@ -139,6 +141,13 @@
       onToggle={togglePrinterPanel}
       label="Printer"
     />
+    {#if $activeDisplay?.renderPreviewLabel}
+      <ToggleButton
+        active={$printStatusPillVisible}
+        onToggle={togglePrintStatusPill}
+        label="Print status pill"
+      />
+    {/if}
     <ToggleButton
       active={$debugHudVisible}
       onToggle={toggleDebugHud}

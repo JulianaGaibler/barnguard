@@ -122,7 +122,10 @@ easings.inCubic / easings.outCubic / easings.inOutCubic
 easings.outQuint
 easings.outBack
 easings.outElastic
+easings.cubicBezier(x1, y1, x2, y2)
 ```
+
+`easings.cubicBezier(x1, y1, x2, y2)` builds a CSS-style curve, for example `easings.cubicBezier(0.42, 0, 0.58, 1)` for ease-in-out.
 
 Any function of type `(t: number) => number` where `t ∈ [0, 1]` works. Write your own if the built-ins don't fit.
 

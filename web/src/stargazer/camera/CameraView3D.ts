@@ -10,15 +10,15 @@ import type { ScreenProjection, Projectionness } from './Camera3D'
  * {@link CameraView2D}).
  */
 export interface CameraView3D {
-  /** View matrix (world → camera). */
+  /** View matrix (world -> camera). */
   readonly view: Mat4
   /** Projection matrix (ortho↔perspective blend). */
   readonly projection: Mat4
-  /** Inverse of {@link CameraView3D.projection} (clip → view). */
+  /** Inverse of {@link CameraView3D.projection} (clip -> view). */
   readonly invProjection: Mat4
-  /** Combined `projection × view` (world → clip). */
+  /** Combined `projection × view` (world -> clip). */
   readonly viewProjection: Mat4
-  /** Inverse of {@link CameraView3D.viewProjection} (clip → world). */
+  /** Inverse of {@link CameraView3D.viewProjection} (clip -> world). */
   readonly invViewProjection: Mat4
 
   readonly fovY: number

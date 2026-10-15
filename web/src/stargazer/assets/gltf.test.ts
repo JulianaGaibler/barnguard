@@ -188,7 +188,7 @@ describe('parseGltf materials', () => {
     const { doc, buffer } = texturedDoc()
     const m = (parseGltf(doc, [buffer]).children[0].children[0] as MeshNode)
       .material
-    // occlusion + metallic-roughness reference the same glTF image → same
+    // occlusion + metallic-roughness reference the same glTF image -> same
     // TextureImage instance, so the renderer uploads it once.
     expect(m.occlusionTex?.image).toBe(m.metalRoughTex?.image)
     // base color is a different image.
@@ -253,7 +253,7 @@ describe('parseGltf materials', () => {
 
   it('builds an auto-playing AnimationPlayer that drives its target node', () => {
     const times = new Float32Array([0, 1])
-    const values = new Float32Array([0, 0, 0, 4, 0, 0]) // x: 0 → 4
+    const values = new Float32Array([0, 0, 0, 4, 0, 0]) // x: 0 -> 4
     const buffer = new ArrayBuffer(times.byteLength + values.byteLength)
     new Float32Array(buffer, 0, 2).set(times)
     new Float32Array(buffer, times.byteLength, 6).set(values)

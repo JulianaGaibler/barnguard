@@ -24,12 +24,11 @@ import type { Engine } from '@src/stargazer'
  * missing from here simply is not waited for.
  */
 export const BOOT_FONT_SPECS: readonly string[] = [
+  // Variable faces: one spec is enough, the whole file downloads either way.
   '400 16px "Mozilla Text"',
-  '500 16px "Mozilla Text"',
-  '700 16px "Mozilla Text"',
   '600 16px "Mozilla Headline"',
   '700 16px "Mozilla Headline Extended"',
-  // Variable faces: one spec is enough, the whole file downloads either way.
+  '600 16px "Mozilla Headline Condensed"',
   '400 16px "Azeret Mono"',
   '400 16px "Geist"',
   '400 16px "HK Grotesk"',

@@ -37,7 +37,7 @@ describe('AnimationPlayer', () => {
   it('wraps a looping clip past its end', () => {
     const target = new Node3D()
     const player = new AnimationPlayer(translationClip(target), { loop: true })
-    player.onUpdate(2.5) // wraps to t=0.5 → x = 2.5
+    player.onUpdate(2.5) // wraps to t=0.5 -> x = 2.5
     expect(target.transform.position.x).toBeCloseTo(2.5, 5)
   })
 
@@ -68,7 +68,7 @@ describe('AnimationPlayer', () => {
           path: 'rotation',
           sampler: {
             input: new Float32Array([0, 2]),
-            // identity → 90° about Y (0, sin45, 0, cos45)
+            // identity -> 90° about Y (0, sin45, 0, cos45)
             output: new Float32Array([
               0,
               0,

@@ -2,8 +2,8 @@
 # Copy to `config.toml` and edit, or override any key via env
 # vars named PRINTER_DAEMON_<KEY> (e.g. PRINTER_DAEMON_BACKEND=tcp).
 
-# "mock"  → simulated printer; writes received JPEGs to `mock.out_dir`.
-# "tcp"   → real Brother VC-500W over the network (requires [printer].host).
+# "mock"  -> simulated printer; writes received JPEGs to `mock.out_dir`.
+# "tcp"   -> real Brother VC-500W over the network (requires [printer].host).
 backend = "mock"
 
 # Address the HTTP + SSE server binds to. The web app reaches it here.

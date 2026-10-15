@@ -1,7 +1,7 @@
 /**
- * A `Node2D`'s local transform: position, per-axis scale, rotation, a pivot
- * origin, and alpha. Set the fields directly (`node.transform.x = 100`). Each
- * setter marks the node dirty so the scene walk rebuilds the matrices and
+ * A `Node2D`'s local transform: position, per-axis scale, skew, rotation, a
+ * pivot origin, and alpha. Set the fields directly (`node.transform.x = 100`).
+ * Each setter marks the node dirty so the scene walk rebuilds the matrices and
  * propagates to descendants.
  *
  * `local` is the composed matrix rebuilt lazily from the fields. `world` is
@@ -9,8 +9,12 @@
  * frame. Read them for hit-testing or custom draw math, but treat them as
  * read-only.
  *
- * Composition order (applied right-to-left to a point): translate origin →
- * scale → rotate → translate to `(x, y)`.
+ * Composition order (applied right-to-left to a point): translate origin ->
+ * scale -> skew -> rotate -> translate to `(x, y)`.
+ *
+ * @example
+ *   // Italic-style slant: shear x by 20° along the horizontal axis.
+ *   node.transform.skew = (20 * Math.PI) / 180
  */
 export class Transform2D {
   /** Composed local matrix, rebuilt lazily from the fields. Treat as read-only. */
@@ -26,6 +30,8 @@ export class Transform2D {
   #_scaleX = 1
   #_scaleY = 1
   #_rotation = 0
+  #_skew = 0
+  #_skewAxis = 0
   #_originX = 0
   #_originY = 0
   #_dirty = true
@@ -97,6 +103,35 @@ export class Transform2D {
     }
   }
 
+  /**
+   * Shear angle in radians. Each point moves along the skew axis by `tan(skew)`
+   * times its distance from the axis line. With the default axis (0) that is a
+   * horizontal shear: `x' = x + tan(skew) * y`. Applied after scale and before
+   * rotation. Values near ±π/2 produce a degenerate matrix.
+   */
+  get skew(): number {
+    return this.#_skew
+  }
+  set skew(v: number) {
+    if (this.#_skew !== v) {
+      this.#_skew = v
+      this.#_dirty = true
+      this.onDirty?.()
+    }
+  }
+
+  /** Direction in radians of the line that `skew` shears along. Default 0. */
+  get skewAxis(): number {
+    return this.#_skewAxis
+  }
+  set skewAxis(v: number) {
+    if (this.#_skewAxis !== v) {
+      this.#_skewAxis = v
+      this.#_dirty = true
+      this.onDirty?.()
+    }
+  }
+
   /** Pivot X (local units) that scale and rotation turn around. Default 0. */
   get originX(): number {
     return this.#_originX
@@ -132,8 +167,8 @@ export class Transform2D {
   /**
    * Rebuild `local` from decomposed fields. Cheap no-op when clean.
    *
-   * Composition order (right-to-left applied to a point): translate origin →
-   * scale → rotate → translate to (x, y).
+   * Composition order (right-to-left applied to a point): translate origin ->
+   * scale -> skew -> rotate -> translate to (x, y).
    */
   updateLocal(): void {
     if (!this.#_dirty) return
@@ -149,6 +184,22 @@ export class Transform2D {
       // DOMMatrix.rotateSelf takes degrees around Z when passed one argument,
       // so this passes the single-arg form for 2D.
       l.rotateSelf((this.#_rotation * 180) / Math.PI)
+    }
+    if (this.#_skew !== 0) {
+      // Rot(axis) · Shear(tan skew) · Rot(-axis), written out.
+      const t = Math.tan(this.#_skew)
+      const c = Math.cos(this.#_skewAxis)
+      const s = Math.sin(this.#_skewAxis)
+      l.multiplySelf(
+        new DOMMatrix([
+          1 - c * s * t,
+          -s * s * t,
+          c * c * t,
+          1 + c * s * t,
+          0,
+          0,
+        ]),
+      )
     }
     if (this.#_scaleX !== 1 || this.#_scaleY !== 1) {
       l.scaleSelf(this.#_scaleX, this.#_scaleY)

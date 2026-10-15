@@ -53,7 +53,7 @@ describe('polygon SAT narrow-phase', () => {
     const hit = collide(a.colliders[0], b.colliders[0], m)
     expect(hit).toBe(true)
     const mm = m as ReturnType<typeof makeManifold>
-    // Overlap of 5 along x, and the normal points a → b (+x).
+    // Overlap of 5 along x, and the normal points a -> b (+x).
     expect(Math.abs(mm.normal.x)).toBeCloseTo(1, 3)
     expect(mm.normal.y).toBeCloseTo(0, 3)
     expect(mm.penetration).toBeCloseTo(5, 3)
@@ -85,7 +85,7 @@ describe('polygon SAT narrow-phase', () => {
     const m = makeManifold() as never
     expect(collide(circle.colliders[0], poly.colliders[0], m)).toBe(true)
     const mm = m as ReturnType<typeof makeManifold>
-    // circle is a → normal points circle → poly (−x).
+    // circle is a -> normal points circle -> poly (−x).
     expect(mm.normal.x).toBeCloseTo(-1, 2)
     expect(mm.penetration).toBeCloseTo(2, 2)
   })

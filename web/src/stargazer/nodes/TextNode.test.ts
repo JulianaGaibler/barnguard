@@ -66,7 +66,7 @@ function recordingGfx(): {
 }
 
 /**
- * Camera whose world→screen scale is `scale` (so `strokeSpaceScale()` is
+ * Camera whose world->screen scale is `scale` (so `strokeSpaceScale()` is
  * 1/scale).
  */
 function cameraWithScale(scale: number): Camera {

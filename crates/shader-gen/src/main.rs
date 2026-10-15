@@ -1,9 +1,9 @@
-//! WGSL → GLSL ES 300 + reflection sidecar, using the naga library directly.
+//! WGSL -> GLSL ES 300 + reflection sidecar, using the naga library directly.
 //!
 //! For each `<name>.wgsl` in the target directory this emits, alongside it:
 //!   `<name>.gen.vert.glsl`  GLSL ES 300 vertex stage (entry point `vs_main`)
 //!   `<name>.gen.frag.glsl`  GLSL ES 300 fragment stage (entry point `fs_main`)
-//!   `<name>.reflect.json`   binding → generated GLSL name map (ShaderReflection)
+//!   `<name>.reflect.json`   binding -> generated GLSL name map (ShaderReflection)
 //!
 //! GLSL ES 300 has no UBO/sampler binding qualifiers and naga mangles resource
 //! names, so the WebGL2 backend needs the reflection to wire each binding

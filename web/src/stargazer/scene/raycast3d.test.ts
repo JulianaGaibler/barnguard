@@ -23,7 +23,7 @@ describe('raycastMesh', () => {
       direction: { x: 0, y: 0, z: -1 },
     }
     const dist = raycastMesh(ray, box)
-    // Box half-extent 1 at z=-10 → front face at z=-9, distance 9.
+    // Box half-extent 1 at z=-10 -> front face at z=-9, distance 9.
     expect(dist).toBeCloseTo(9, 4)
   })
 

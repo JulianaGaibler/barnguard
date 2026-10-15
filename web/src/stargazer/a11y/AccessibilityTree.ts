@@ -54,9 +54,9 @@ import {
 export class AccessibilityTree {
   readonly #engine: Engine
   readonly #entries = new Map<Node2D, Entry>()
-  /** Node id → entry, for mapping delegated DOM events back to a node. */
+  /** Node id -> entry, for mapping delegated DOM events back to a node. */
   readonly #byId = new Map<string, Entry>()
-  /** Composite node id → active member node id, for roving tabindex. */
+  /** Composite node id -> active member node id, for roving tabindex. */
   readonly #active = new Map<string, string>()
   readonly #offFrame: () => void
 

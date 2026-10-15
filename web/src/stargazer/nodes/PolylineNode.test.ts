@@ -4,7 +4,7 @@ import { Camera } from '../camera/Camera'
 import type { GfxStrokeStyle } from '../render/gfx/Gfx2D'
 
 /**
- * Real camera with a known 1:1 world→screen scale, `strokeSpaceScale()` returns
+ * Real camera with a known 1:1 world->screen scale, `strokeSpaceScale()` returns
  * 1, so tests can assert on the raw `lineWidth` without maths.
  */
 function unitCamera(): Camera {

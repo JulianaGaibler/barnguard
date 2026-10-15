@@ -16,9 +16,9 @@ describe('parseColor, hex', () => {
   })
 
   it('parses #rgb (expands each nibble ×17)', () => {
-    // #fff → 255/255 across the board.
+    // #fff -> 255/255 across the board.
     expect(parseColor('#fff')).toEqual({ r: 1, g: 1, b: 1, a: 1 })
-    // #08c → r=0, g=136/255, b=204/255.
+    // #08c -> r=0, g=136/255, b=204/255.
     const c = parseColor('#08c')
     expect(c.r).toBeCloseTo(0)
     expect(c.g).toBeCloseTo(136 / 255)
@@ -27,7 +27,7 @@ describe('parseColor, hex', () => {
   })
 
   it('parses #rrggbbaa (alpha included)', () => {
-    // #00000080 → r=g=b=0, a=128/255.
+    // #00000080 -> r=g=b=0, a=128/255.
     const c = parseColor('#00000080')
     expect(c.r).toBe(0)
     expect(c.g).toBe(0)

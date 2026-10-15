@@ -10,12 +10,12 @@ describe('PacketMotionTrailNode', () => {
     expect(trail.count).toBe(0)
     expect(trail.sample(0, 0)).toBe(true)
     expect(trail.count).toBe(1)
-    // Within 4 units → dropped.
+    // Within 4 units -> dropped.
     expect(trail.sample(1, 0)).toBe(false)
     expect(trail.count).toBe(1)
     expect(trail.sample(2, 2)).toBe(false)
     expect(trail.count).toBe(1)
-    // Just past 4 units → accepted.
+    // Just past 4 units -> accepted.
     expect(trail.sample(5, 0)).toBe(true)
     expect(trail.count).toBe(2)
   })

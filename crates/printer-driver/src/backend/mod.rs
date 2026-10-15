@@ -15,7 +15,7 @@ pub use tcp::{TcpBackend, TcpTimeouts};
 
 /// A printer backend. Connection lifecycle is explicit because the VC-500W's
 /// cut is triggered by closing the socket. The caller must do
-/// `send_print` → `close_for_cut` → reconnect → poll, so the backend cannot
+/// `send_print` -> `close_for_cut` -> reconnect -> poll, so the backend cannot
 /// hide connect/close behind each call.
 #[async_trait]
 pub trait PrinterBackend: Send {

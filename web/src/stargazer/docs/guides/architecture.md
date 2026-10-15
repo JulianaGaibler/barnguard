@@ -36,7 +36,7 @@ Read `ticker.fixedAlpha` inside a render-time draw to interpolate between the la
 
 ## Rendering
 
-Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. `GpuGfx` implements it as a record-and-submit batcher: draws append into per-program ring buffers, a change of program, texture, blend mode, or clip carves off a draw run, and the whole run list uploads once and replays in painter order at frame end. Alpha, color, and transform fold into per-instance data and never break a batch. See [Drawing](/guides/drawing).
+Nodes draw through the `Gfx2D` facade, so node code never sees the backend directly. `GpuGfx` implements it as a record-and-submit batcher: draws append into per-program ring buffers, a change of program, texture, blend mode, or clip carves off a draw run, and the whole run list uploads once and replays in painter order at frame end. The ring buffers grow on demand, so a busy frame is never split or truncated. Alpha, color, and transform fold into per-instance data and never break a batch. See [Drawing](/guides/drawing).
 
 It clips two ways: an analytic circle or rounded rect (`setClip`, evaluated as a signed distance field in every 2D program's fragment stage) and an arbitrary bitmap mask (`setClipMask`, fills only). `?msaa=N` picks the sample count, clamped to the driver maximum.
 
@@ -59,11 +59,11 @@ There are three coordinate spaces:
 Convert between the two spaces through the camera. Game code that reads a DOM pointer coord maps it to world. Code that positions an HTML element maps the other way:
 
 ```ts
-const world = engine.currentCamera2D.screenToWorld(cssX, cssY) // CSS px → world
+const world = engine.currentCamera2D.screenToWorld(cssX, cssY) // CSS px -> world
 const screen = engine.currentCamera2D.worldToScreen(
   node.transform.x,
   node.transform.y,
-) // world → CSS px
+) // world -> CSS px
 ```
 
 Both take an optional `out: Vec2` to avoid allocating in a per-frame loop.

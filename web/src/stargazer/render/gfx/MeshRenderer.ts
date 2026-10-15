@@ -146,7 +146,7 @@ const U_TEX = 0
 const U_AO = 2 // screen-space AO texture in the frame group (sampler at +16 = 18)
 const U_SHADOW_ARRAY = 8
 const U_SHADOW_CUBE = 9
-const U_PBR_TEX_BASE = 10 // baseColor..diffuseTransmission → 10..15
+const U_PBR_TEX_BASE = 10 // baseColor..diffuseTransmission -> 10..15
 
 /** Per-light shadow linkage packed for the shader (see `u_lightShadow`). */
 interface ShadowLink {

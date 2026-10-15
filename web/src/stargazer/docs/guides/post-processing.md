@@ -150,7 +150,7 @@ display-space.
 ## How it works
 
 When at least one effect is enabled, the stage submits the frame into its offscreen target **without
-presenting**, then the pipeline: resolves that target (MSAA → a sampleable single-sample texture),
+presenting**, then the pipeline: resolves that target (MSAA -> a sampleable single-sample texture),
 runs each pass as a fullscreen draw ping-ponging between two pooled targets, and blits the final
 result to the canvas. Passes run with depth and blending **disabled**: each overwrites every pixel,
 so targets are neither cleared nor blended (the fastest path, and the correct one for premultiplied

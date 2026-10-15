@@ -61,7 +61,7 @@ export function drawNodeOutlines(
       strokeStyle,
     )
 
-    // OBB from debugBounds corners → world → screen. See scene/Node2D.ts
+    // OBB from debugBounds corners -> world -> screen. See scene/Node2D.ts
     // for the debug-bounds convention (local AABB, projected through world).
     const b = node.debugBounds
     if (!b) return

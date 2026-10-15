@@ -244,7 +244,7 @@ export interface DebugControllerOptions {
 
 /**
  * Consumer-supplied panel spec. Passed to `DebugController.registerPanel` to
- * append a section to the HUD without any stargazer → game coupling.
+ * append a section to the HUD without any stargazer -> game coupling.
  *
  * The `component` is instantiated by `DebugHud.svelte` inside a `DebugSection`
  * wrapper. It receives `debug: DebugController` as a prop plus anything the
@@ -262,7 +262,7 @@ export interface DebugPanelSpec {
   /** Header text shown at the top of the panel's `DebugSection`. */
   title: string
   /**
-   * Sort key. Panels sort ascending by `order` (default `Infinity` →
+   * Sort key. Panels sort ascending by `order` (default `Infinity` ->
    * registration-order append). Reserve values for stable ordering across
    * dynamic registers/unregisters.
    */
@@ -339,7 +339,7 @@ export class DebugController {
   readonly #worldAccents = new Map<PhysicsWorld, string>()
   /** Node whose bounds the overlay highlights, driven by the Scene panel. */
   #highlightedNode: Node2D | null = null
-  #_activeStage: Stage | null = null // null → primary
+  #_activeStage: Stage | null = null // null -> primary
 
   #_pointerScreen: { x: number; y: number } | null = null
 
@@ -1158,7 +1158,7 @@ export class DebugController {
     const dpr = renderer.dpr
 
     // Clip-mask viz FIRST while we still have a clean state, we install
-    // a world→device_pixel base transform for the fillRect + setClipMask
+    // a world->device_pixel base transform for the fillRect + setClipMask
     // so the mask UVs computed inside `GpuGfx.fillRect` line up with the
     // mask's worldRect. Only active on GPU stages under `'clip-mask'`
     // render mode.
@@ -1168,7 +1168,7 @@ export class DebugController {
 
     // Reset blend so a lingering `lighter` from the last dynamic-layer
     // particle draw doesn't leak into debug lines. Base transform puts us
-    // in CSS-px space (× dpr → device px in the actual draw call).
+    // in CSS-px space (× dpr -> device px in the actual draw call).
     gfx.setBlend('source-over')
     gfx.setAlpha(1)
     gfx.setBaseTransform(dpr, 0, 0, dpr, 0, 0)
@@ -1313,7 +1313,7 @@ export class DebugController {
 
   /**
    * Paint the inspected clip mask over the frame as a translucent red fill,
-   * clipped to the mask itself. Works by installing a world→device base
+   * clipped to the mask itself. Works by installing a world->device base
    * transform + `gfx.setClipMask(mask)` so `fillRect` uses local (world) coords
    * for the mask UVs, same coord system the mask's `worldRect` is in.
    */

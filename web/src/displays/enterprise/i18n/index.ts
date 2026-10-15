@@ -14,7 +14,7 @@ export const enterpriseLocales: LocaleBundle[] = [
   { language: 'en', label: 'English', messages: en },
 ]
 
-export const ENTERPRISE_DEFAULT_LANGUAGE = 'de'
+export const ENTERPRISE_DEFAULT_LANGUAGE = 'en'
 
 /**
  * Strongly-typed `t` store for use inside the display. Wraps the framework

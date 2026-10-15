@@ -42,10 +42,30 @@ export interface GpuProgram {
   drawRun(ctx: GpuBatchContext, run: DrawRun): void
 
   /**
+   * Stage this run's per-draw uniform slice and store its offset on the run.
+   * Called for every run, in order, before any run is drawn. Optional, since
+   * only programs with per-draw uniforms in a staged ring need it.
+   */
+  prepareRun?(ctx: GpuBatchContext, run: DrawRun): void
+
+  /**
+   * Upload the program's staged uniform rings, once, after every `prepareRun`
+   * and before the first `drawRun`.
+   */
+  flushRings?(device: GfxDevice): void
+
+  /**
    * Reset per-frame accumulators the program owns beyond its ring stream (e.g.
    * a dynamic-offset uniform ring, or a per-frame bind-group cache). Called
    * once per frame from the batch context's slot reset. Optional, since most
    * programs only have a stream, which the context resets directly.
    */
   resetFrame?(): void
+
+  /**
+   * Uniform-ring slices pushed this frame, for the debug HUD. Read after the
+   * frame's replay. Optional, since only programs with per-draw uniforms have
+   * rings.
+   */
+  uboSlices?(): number
 }

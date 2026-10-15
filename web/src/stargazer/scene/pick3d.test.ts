@@ -10,7 +10,7 @@ const material = {
   color: [1, 1, 1, 1] as [number, number, number, number],
 }
 
-/** Mirror InputSystem's screen(css)→NDC mapping (full-canvas, y-flipped). */
+/** Mirror InputSystem's screen(css)->NDC mapping (full-canvas, y-flipped). */
 function screenToNdc(sx: number, sy: number, cssW: number, cssH: number) {
   return { x: (2 * sx) / cssW - 1, y: 1 - (2 * sy) / cssH }
 }

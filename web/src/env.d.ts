@@ -4,7 +4,7 @@
 interface ImportMetaEnv {
   /**
    * Base URL of the printer-daemon. Empty / unset means same-origin, which in
-   * dev is handled by the Vite proxy (`/api/printer` → the daemon). On the
+   * dev is handled by the Vite proxy (`/api/printer` -> the daemon). On the
    * kiosk this points at the local daemon origin (e.g.
    * `http://localhost:9110`).
    */

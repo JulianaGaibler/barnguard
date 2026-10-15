@@ -196,7 +196,9 @@
           label="Gradient ramp rows"
           value={`${snap.rampAtlas.used} / ${snap.rampAtlas.rows}`}
         />
-        <ProgressBar percentage={pct(snap.rampAtlas.used, snap.rampAtlas.rows)} />
+        <ProgressBar
+          percentage={pct(snap.rampAtlas.used, snap.rampAtlas.rows)}
+        />
       </DebugSection>
 
       <DebugSection title={`Atlas (${snap.atlas.width}×${snap.atlas.height})`}>
@@ -286,8 +288,8 @@
               >{mask.width}×{mask.height} · rg8 · bucket {mask.bucket}</span
             >
             <span class="meta"
-              >{(mask.bytes / 1024).toFixed(1)} KB · baked f{mask.bakedFrame} ·
-              used f{mask.lastUsedFrame}</span
+              >{(mask.bytes / 1024).toFixed(1)} KB · baked f{mask.bakedFrame} · used
+              f{mask.lastUsedFrame}</span
             >
           </div>
         {/each}

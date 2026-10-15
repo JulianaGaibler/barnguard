@@ -379,11 +379,11 @@
   <DebugRow label="Stroke instances" value={stats.gpu.strokeInstances} />
   <DebugRow label="Round-rect instances" value={stats.gpu.roundRectInstances} />
   <DebugRow label="Shadow instances" value={stats.gpu.shadowInstances} />
-  <DebugRow
-    label="Overflow warns"
-    value={stats.gpu.overflowWarns}
-    tone={stats.gpu.overflowWarns > 0 ? 'error' : 'default'}
-  />
+  <DebugRow label="Uniform slices" value={stats.gpu.uboSlices} />
+  <DebugRow label="Bytes uploaded" value={stats.gpu.bytesUploaded} />
+  <DebugRow label="Render passes" value={stats.gpu.passCount} />
+  <DebugRow label="Offscreen surfaces" value={stats.gpu.surfaces} />
+  <DebugRow label="Offscreen bytes" value={stats.gpu.offscreenBytes} />
 </DebugSection>
 
 <DebugSection title="Path shadows" bind:open={vectorOpen}>
@@ -433,7 +433,10 @@
     label="Mask bake work (cumulative)"
     value={stats.gpu.maskBakeWork}
   />
-  <DebugRow label="Mask bytes (live)" value={formatMaskBytes(stats.gpu.maskBytes)} />
+  <DebugRow
+    label="Mask bytes (live)"
+    value={formatMaskBytes(stats.gpu.maskBytes)}
+  />
   <DebugRow
     label="Bake pool hits / misses (cumulative)"
     value={`${stats.gpu.poolHits} / ${stats.gpu.poolMisses}`}

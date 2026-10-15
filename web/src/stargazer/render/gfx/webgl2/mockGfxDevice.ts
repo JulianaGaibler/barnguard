@@ -29,6 +29,7 @@ import type {
   PipelineDesc,
   DepthStencilFormat,
   RenderPassDesc,
+  ScissorRect,
   RenderTarget,
   RenderTargetOpts,
   ShaderModule,
@@ -106,6 +107,10 @@ export interface DrawRecord {
   stencil: StencilState | null
   /** Whether the pipeline writes color. `false` marks a stencil reset pass. */
   colorWrite: boolean
+  /** The reference the draw tests against: the call's, else the pipeline's. */
+  stencilReference: number
+  /** The draw's scissor rectangle, or `null` when unscissored. */
+  scissor: ScissorRect | null
   /**
    * Program identity: the pipeline's shader module, stable across blend
    * variants.
@@ -305,9 +310,6 @@ export class MockGfxDevice implements GfxDevice {
   deleteBuffer(b: VBuffer): void {
     this.deletedBuffers.push(b)
   }
-  orphanBuffer(_b: VBuffer): void {
-    /* noop */
-  }
 
   // --- uniform buffers ------------------------------------------------------
 
@@ -337,9 +339,6 @@ export class MockGfxDevice implements GfxDevice {
       ),
     )
     this.uniformUploads.push({ buffer, data: copy, byteOffset })
-  }
-  orphanUniformBuffer(_b: UBuffer): void {
-    /* noop */
   }
   deleteUniformBuffer(_b: UBuffer): void {
     this.deletedUniformBuffers++
@@ -611,6 +610,8 @@ export class MockGfxDevice implements GfxDevice {
       blend: desc.color?.blend ?? 'none',
       stencil: desc.stencil ?? null,
       colorWrite: desc.color?.write !== false,
+      stencilReference: call.stencilReference ?? desc.stencil?.reference ?? 0,
+      scissor: call.scissor ? { ...call.scissor } : null,
       texture,
     })
     if (this.#curPass) this.#curPass.drawCount++

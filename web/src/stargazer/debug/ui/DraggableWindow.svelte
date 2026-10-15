@@ -89,8 +89,8 @@
   })
 
   // Seed position on open. Order: spawnedBy (auto-place, writes storage)
-  // → localStorage (previous drag, wins because placeNextTo no-ops when
-  // storage already has a value) → CSS `side` fallback. `placeNextTo` and
+  // -> localStorage (previous drag, wins because placeNextTo no-ops when
+  // storage already has a value) -> CSS `side` fallback. `placeNextTo` and
   // the storage read live in one effect so the write lands first.
   $effect(() => {
     if (!visible) return

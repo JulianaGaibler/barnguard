@@ -182,9 +182,9 @@ export class PathTrailNode extends PolylineNode {
     // Per-sub-segment alpha still works because each is its own stroke.
     //
     // Sub-segment k's alpha is driven by `pointConsumedAt[k]`:
-    //   - k = 0        (P_0 → mid(P_0,P_1))       : fades when packet passes P_0
-    //   - 1 ≤ k ≤ n-2  (mid(P_{k-1},P_k) → mid(P_k,P_{k+1}) via P_k) : fades when P_k is consumed
-    //   - k = n-1      (mid(P_{n-2},P_{n-1}) → P_{n-1}) : fades when P_{n-1} is consumed
+    //   - k = 0        (P_0 -> mid(P_0,P_1))       : fades when packet passes P_0
+    //   - 1 ≤ k ≤ n-2  (mid(P_{k-1},P_k) -> mid(P_k,P_{k+1}) via P_k) : fades when P_k is consumed
+    //   - k = n-1      (mid(P_{n-2},P_{n-1}) -> P_{n-1}) : fades when P_{n-1} is consumed
 
     // First sub-segment.
     this.pointAt(0, pA)

@@ -4,13 +4,13 @@ import { Camera } from './Camera'
 describe('Camera (uniform aspect-preserving fit)', () => {
   it('screenPxPerWorldUnit uses the smaller axis (contain)', () => {
     const cam = new Camera({ x: 0, y: 0, width: 100, height: 100 })
-    // Landscape canvas, square world → limited by height.
+    // Landscape canvas, square world -> limited by height.
     cam.setPixelSize(200, 100)
     expect(cam.screenPxPerWorldUnit()).toBe(1)
-    // Portrait canvas, square world → limited by width.
+    // Portrait canvas, square world -> limited by width.
     cam.setPixelSize(100, 200)
     expect(cam.screenPxPerWorldUnit()).toBe(1)
-    // Both dimensions doubled → scale 2.
+    // Both dimensions doubled -> scale 2.
     cam.setPixelSize(200, 200)
     expect(cam.screenPxPerWorldUnit()).toBe(2)
   })
@@ -67,7 +67,7 @@ describe('Camera (uniform aspect-preserving fit)', () => {
     it('is the reciprocal of screenPxPerWorldUnit for a valid camera', () => {
       const cam = new Camera({ x: 0, y: 0, width: 1000, height: 1000 })
       cam.setPixelSize(500, 500)
-      // 500 CSS px / 1000 world units → 0.5 CSS px per world unit.
+      // 500 CSS px / 1000 world units -> 0.5 CSS px per world unit.
       expect(cam.screenPxPerWorldUnit()).toBe(0.5)
       expect(cam.strokeSpaceScale()).toBe(2)
     })
@@ -76,7 +76,7 @@ describe('Camera (uniform aspect-preserving fit)', () => {
       const cam = new Camera({ x: 0, y: 0, width: 1000, height: 1000 })
       cam.setPixelSize(500, 500)
       expect(cam.strokeSpaceScale()).toBe(2)
-      // Half the viewport = 2× the world→screen scale, so strokeSpaceScale
+      // Half the viewport = 2× the world->screen scale, so strokeSpaceScale
       // halves to compensate so `lineWidth × strokeSpaceScale()` renders
       // as the same CSS-px count.
       cam.setViewport({ x: 0, y: 0, width: 500, height: 500 })

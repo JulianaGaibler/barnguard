@@ -24,7 +24,7 @@ import {
   resolveDepthStencil,
 } from '../depthStencil'
 
-/** Vertex attribute format → WebGPU vertex format. */
+/** Vertex attribute format -> WebGPU vertex format. */
 export function vertexFormatToGPU(f: VertexFormat): GPUVertexFormat {
   switch (f) {
     case 'float32':
@@ -43,7 +43,7 @@ export function vertexFormatToGPU(f: VertexFormat): GPUVertexFormat {
 }
 
 /**
- * Color-target format → WebGPU texture format. The swapchain uses the browser's
+ * Color-target format -> WebGPU texture format. The swapchain uses the browser's
  * preferred canvas format instead, so present-time targets pass that through.
  */
 export function colorFormatToGPU(f: ColorFormat): GPUTextureFormat {
@@ -51,10 +51,9 @@ export function colorFormatToGPU(f: ColorFormat): GPUTextureFormat {
 }
 
 /**
- * Pixel-layout override → WebGPU texture format, for a non-color-managed
- * target (a coverage mask). `'rgba8'` defers to {@link colorFormatToGPU}'s
- * `'linear'` case rather than being a case of its own, so the two stay in
- * sync.
+ * Pixel-layout override -> WebGPU texture format, for a non-color-managed target
+ * (a coverage mask). `'rgba8'` defers to {@link colorFormatToGPU}'s `'linear'`
+ * case rather than being a case of its own, so the two stay in sync.
  */
 export function targetPixelFormatToGPU(f: TargetPixelFormat): GPUTextureFormat {
   switch (f) {
@@ -68,7 +67,22 @@ export function targetPixelFormatToGPU(f: TargetPixelFormat): GPUTextureFormat {
 }
 
 /**
- * Blend mode → WebGPU blend state, or `undefined` for no blending. Colors are
+ * Factors of the fixed-function blends beyond over and additive, on
+ * premultiplied color. `multiply` is exact only over an opaque backdrop.
+ */
+const BLEND_FACTORS = {
+  screen: { src: 'one', dst: 'one-minus-src' },
+  multiply: { src: 'dst', dst: 'one-minus-src-alpha' },
+  'destination-out': { src: 'zero', dst: 'one-minus-src-alpha' },
+  'destination-in': { src: 'zero', dst: 'src-alpha' },
+  xor: { src: 'one-minus-dst-alpha', dst: 'one-minus-src-alpha' },
+} as const satisfies Record<
+  string,
+  { src: GPUBlendFactor; dst: GPUBlendFactor }
+>
+
+/**
+ * Blend mode -> WebGPU blend state, or `undefined` for no blending. Colors are
  * premultiplied end-to-end, so `'source-over'` uses a `'one'` source factor
  * (the shader already multiplied rgb by alpha) rather than `'src-alpha'`.
  */
@@ -80,6 +94,15 @@ export function blendToGPU(mode: GfxBlendMode): GPUBlendState | undefined {
       color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
       alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
     }
+  }
+  const extra = BLEND_FACTORS[mode as keyof typeof BLEND_FACTORS]
+  if (extra) {
+    const part = {
+      srcFactor: extra.src,
+      dstFactor: extra.dst,
+      operation: 'add' as const,
+    }
+    return { color: part, alpha: part }
   }
   // 'source-over' premultiplied over: src + dst * (1 - srcAlpha).
   return {
@@ -103,7 +126,7 @@ export function blendToGPU(mode: GfxBlendMode): GPUBlendState | undefined {
 const COLOR_WRITE_ALL = 0xf
 
 /**
- * Color-target state → WebGPU color target. A `write` of `false` becomes a zero
+ * Color-target state -> WebGPU color target. A `write` of `false` becomes a zero
  * write mask, which keeps the fragment stage and its depth/stencil side effects
  * while leaving the color attachment untouched.
  */
@@ -118,7 +141,7 @@ export function colorTargetToGPU(color: ColorState): GPUColorTargetState {
 }
 
 /**
- * Depth/stencil comparison → WebGPU compare function. The names line up
+ * Depth/stencil comparison -> WebGPU compare function. The names line up
  * one-to-one, so this is an exhaustiveness check as much as a conversion.
  */
 export function compareFnToGPU(c: CompareFn): GPUCompareFunction {
@@ -142,12 +165,12 @@ export function compareFnToGPU(c: CompareFn): GPUCompareFunction {
   }
 }
 
-/** Stencil op → WebGPU stencil operation. The names line up one-to-one. */
+/** Stencil op -> WebGPU stencil operation. The names line up one-to-one. */
 export function stencilOpToGPU(op: StencilOp): GPUStencilOperation {
   return op
 }
 
-/** One facing's stencil state → WebGPU, filling in the pass-through defaults. */
+/** One facing's stencil state -> WebGPU, filling in the pass-through defaults. */
 export function stencilFaceToGPU(f: StencilFaceState): GPUStencilFaceState {
   return {
     compare: compareFnToGPU(f.compare ?? 'always'),
@@ -157,7 +180,7 @@ export function stencilFaceToGPU(f: StencilFaceState): GPUStencilFaceState {
   }
 }
 
-/** Depth-stencil aspects → the WebGPU texture format carrying them. */
+/** Depth-stencil aspects -> the WebGPU texture format carrying them. */
 export function depthStencilFormatToGPU(
   f: DepthStencilFormat,
 ): GPUTextureFormat | null {
@@ -220,22 +243,22 @@ export function depthStencilToGPU(
   return state
 }
 
-/** Cull mode → WebGPU cull mode. */
+/** Cull mode -> WebGPU cull mode. */
 export function cullModeToGPU(c: CullMode): GPUCullMode {
   return c
 }
 
-/** Front-face winding → WebGPU front face. */
+/** Front-face winding -> WebGPU front face. */
 export function frontFaceToGPU(f: FrontFace): GPUFrontFace {
   return f
 }
 
-/** Primitive topology → WebGPU topology. */
+/** Primitive topology -> WebGPU topology. */
 export function topologyToGPU(p: PrimitiveTopology): GPUPrimitiveTopology {
   return p === 'line-list' ? 'line-list' : 'triangle-list'
 }
 
-/** Index element width → WebGPU index format. */
+/** Index element width -> WebGPU index format. */
 export function indexTypeToGPU(t: IndexType): GPUIndexFormat {
   return t === 'u32' ? 'uint32' : 'uint16'
 }

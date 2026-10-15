@@ -27,6 +27,80 @@ export const inOutCubic: Easing = (t) =>
 /** Quintic ease-out. A long, soft tail into the end value. */
 export const outQuint: Easing = (t) => 1 - Math.pow(1 - t, 5)
 
+const BEZIER_SAMPLES = 11
+const BEZIER_STEP = 1 / (BEZIER_SAMPLES - 1)
+const BEZIER_NEWTON_MIN_SLOPE = 0.001
+
+/**
+ * Build a CSS-style `cubic-bezier(x1, y1, x2, y2)` easing. The curve runs from
+ * (0, 0) to (1, 1) through the two control points. `x1` and `x2` must be in
+ * `[0, 1]` so that time stays a function of progress. `y1` and `y2` may leave
+ * that range to overshoot.
+ *
+ * @remarks
+ *   Engine developers: solving for `t` given `x` uses an 11-entry sample table to
+ *   pick a starting guess, then up to 4 Newton iterations, and falls back to
+ *   bisection where the slope is too flat for Newton. When both control points
+ *   lie on the diagonal the curve is linear and the identity function is
+ *   returned. The returned closure allocates nothing per call.
+ * @example
+ *   // Same as CSS `ease-in-out`.
+ *   const e = cubicBezier(0.42, 0, 0.58, 1)
+ *   e(0.5) // 0.5
+ */
+export function cubicBezier(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): Easing {
+  if (x1 === y1 && x2 === y2) return linear
+  const ax = 1 - 3 * x2 + 3 * x1
+  const bx = 3 * x2 - 6 * x1
+  const cx = 3 * x1
+  const ay = 1 - 3 * y2 + 3 * y1
+  const by = 3 * y2 - 6 * y1
+  const cy = 3 * y1
+  const sampleX = (t: number) => ((ax * t + bx) * t + cx) * t
+  const slopeX = (t: number) => (3 * ax * t + 2 * bx) * t + cx
+  const table = new Float64Array(BEZIER_SAMPLES)
+  for (let i = 0; i < BEZIER_SAMPLES; i++) table[i] = sampleX(i * BEZIER_STEP)
+
+  const solveT = (x: number): number => {
+    let start = 0
+    let i = 1
+    for (; i < BEZIER_SAMPLES - 1 && table[i] <= x; i++) start += BEZIER_STEP
+    i--
+    const dist = (x - table[i]) / (table[i + 1] - table[i])
+    let t = start + dist * BEZIER_STEP
+    const slope = slopeX(t)
+    if (slope >= BEZIER_NEWTON_MIN_SLOPE) {
+      for (let n = 0; n < 4; n++) {
+        const s = slopeX(t)
+        if (s === 0) return t
+        t -= (sampleX(t) - x) / s
+      }
+      return t
+    }
+    if (slope === 0) return t
+    let lo = start
+    let hi = start + BEZIER_STEP
+    for (let n = 0; n < 12; n++) {
+      t = (lo + hi) / 2
+      if (sampleX(t) > x) hi = t
+      else lo = t
+    }
+    return t
+  }
+
+  return (x) => {
+    if (x <= 0) return 0
+    if (x >= 1) return 1
+    const t = solveT(x)
+    return ((ay * t + by) * t + cy) * t
+  }
+}
+
 /**
  * Build an ease-out that overshoots past 1 by a tunable amount before settling.
  * `overshoot` 0 removes the overshoot. The default {@link outBack} uses

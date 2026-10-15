@@ -242,7 +242,7 @@ export class Camera3D implements CameraView3D {
   }
 
   /**
-   * Inverse of {@link Camera3D.projection} (clip → view). Reconstructs a
+   * Inverse of {@link Camera3D.projection} (clip -> view). Reconstructs a
    * view-space position from a sampled depth (the AO pass), and stays correct
    * across the ortho↔perspective blend because it inverts the actual blended
    * projection, not a hardcoded perspective form.
@@ -259,14 +259,14 @@ export class Camera3D implements CameraView3D {
   get view(): Mat4 {
     if (this.#_viewDirty) {
       this.transform.updateLocal()
-      // The pose is camera→world. The view is its inverse (world→camera).
+      // The pose is camera->world. The view is its inverse (world->camera).
       mat4Invert(this.#_view, this.transform.local)
       this.#_viewDirty = false
     }
     return this.#_view
   }
 
-  /** Combined `projection × view` (world → clip). Rebuilt lazily. */
+  /** Combined `projection × view` (world -> clip). Rebuilt lazily. */
   get viewProjection(): Mat4 {
     if (this.#_viewProjDirty) {
       mat4Multiply(this.#_viewProj, this.projection, this.view)
@@ -276,7 +276,7 @@ export class Camera3D implements CameraView3D {
     return this.#_viewProj
   }
 
-  /** Inverse of {@link Camera3D.viewProjection} (clip → world), for unprojecting. */
+  /** Inverse of {@link Camera3D.viewProjection} (clip -> world), for unprojecting. */
   get invViewProjection(): Mat4 {
     void this.viewProjection // ensure current
     return this.#_invViewProj

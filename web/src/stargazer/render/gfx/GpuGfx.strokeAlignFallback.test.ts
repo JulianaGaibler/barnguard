@@ -63,9 +63,8 @@ describe('GpuGfx.unimplemented.strokeAlignFallback', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { gfx, device } = makeGpuGfx()
     await beginFrame(gfx, device)
-    const { registerPathTessellation } = await import(
-      './PathTessellationRegistry'
-    )
+    const { registerPathTessellation } =
+      await import('./PathTessellationRegistry')
     const path = new Path2D('M0 0 L40 0 Z')
     // An open-ended contour (closed: false) so the align request can never
     // resolve: registered with no contours is also valid, but giving one

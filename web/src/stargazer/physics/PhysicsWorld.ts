@@ -407,7 +407,7 @@ export class PhysicsWorld {
         }
         continue
       }
-      // Dynamic: forces → velocity.
+      // Dynamic: forces -> velocity.
       b.velocity.x += (gravity.x + b._forceX * b.invMass) * dt
       b.velocity.y += (gravity.y + b._forceY * b.invMass) * dt
       b.angularVelocity += b._torque * b.invInertia * dt
@@ -430,7 +430,7 @@ export class PhysicsWorld {
         b.velocity.y *= scale
         speedSq = maxSpeedSq
       }
-      // Velocity → position.
+      // Velocity -> position.
       b.position.x += b.velocity.x * dt
       b.position.y += b.velocity.y * dt
       b.rotation += b.angularVelocity * dt
@@ -592,7 +592,7 @@ export class PhysicsWorld {
         }
       }
     }
-    // Swap current → previous, reuse the emptied sets as next current.
+    // Swap current -> previous, reuse the emptied sets as next current.
     const s1 = this.#prevSolid
     this.#prevSolid = this.#curSolid
     this.#curSolid = s1
@@ -728,7 +728,7 @@ export class PhysicsWorld {
         if (cb.sensor) continue
         const m = this.#pool.next()
         if (collide(ca, cb, m)) {
-          // normal points body → other. Move body opposite.
+          // normal points body -> other. Move body opposite.
           body.position.x -= m.normal.x * m.penetration
           body.position.y -= m.normal.y * m.penetration
           body._aabbDirty = true

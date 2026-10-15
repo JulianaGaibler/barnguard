@@ -75,7 +75,7 @@ export const TEXT_QUAD_INSTANCE_STRIDE = 44
  *   stop (see `GpuGfx.#flattenStrokeColor`).
  */
 export const SHAPE_INSTANCE_STRIDE = 112
-export const SHAPE_BUFFER_BYTES = 640 * 1024 // 640 KB → ~5.8k instances
+export const SHAPE_BUFFER_BYTES = 640 * 1024 // 640 KB -> ~5.8k instances
 /** Shape `shapeType` discriminants (must match `shape.{vert,frag}.glsl`). */
 export const SHAPE_KIND_TEXTURED = 0
 export const SHAPE_KIND_CIRCLE = 1
@@ -99,13 +99,13 @@ export const SHAPE_TEX_LABEL = 1
  * ~5k tri verts + ~6.5k stroke instances per frame, then gameplay layers
  * particles / debris / grid overlay on top.
  */
-export const COLORED_TRI_BUFFER_BYTES = 2 * 1024 * 1024 // 2 MB → ~104k verts
-export const STROKE_BUFFER_BYTES = 1 * 1024 * 1024 // 1 MB → ~29k instances
-export const SDF_BUFFER_BYTES = 128 * 1024 // 128 KB → ~4k instances
-export const ROUNDRECT_BUFFER_BYTES = 128 * 1024 // 128 KB → ~2k instances
-export const GRADIENT_BUFFER_BYTES = 16 * 1024 // 16 KB  → ~682 instances
-export const MASKED_GRAD_BUFFER_BYTES = 16 * 1024 // 16 KB → ~340 instances (a few clouds)
-export const TEXT_QUAD_BUFFER_BYTES = 128 * 1024 // 128 KB → ~2.9k label instances
+export const COLORED_TRI_BUFFER_BYTES = 2 * 1024 * 1024 // 2 MB -> ~104k verts
+export const STROKE_BUFFER_BYTES = 1 * 1024 * 1024 // 1 MB -> ~29k instances
+export const SDF_BUFFER_BYTES = 128 * 1024 // 128 KB -> ~4k instances
+export const ROUNDRECT_BUFFER_BYTES = 128 * 1024 // 128 KB -> ~2k instances
+export const GRADIENT_BUFFER_BYTES = 16 * 1024 // 16 KB  -> ~682 instances
+export const MASKED_GRAD_BUFFER_BYTES = 16 * 1024 // 16 KB -> ~340 instances (a few clouds)
+export const TEXT_QUAD_BUFFER_BYTES = 128 * 1024 // 128 KB -> ~2.9k label instances
 
 /**
  * Two buffers per stream so the GPU can read buffer N-1 while the CPU writes N.
@@ -118,7 +118,7 @@ export const RING_SIZE = 2
  * Uniform-block binding registry. Binding indices are global per device, so
  * every uniform block picks a distinct slot here to keep them from colliding.
  *
- * - 0 `Frame`, the 2D per-frame block (`u_proj`, device-px → clip).
+ * - 0 `Frame`, the 2D per-frame block (`u_proj`, device-px -> clip).
  * - 1 `Camera3D`, the 3D per-frame view-projection block.
  *
  * Add new blocks (per-material, per-object) at the next free index.
@@ -143,6 +143,8 @@ export const POST_PARAMS_UBO_BINDING = 6
 export const MESH_SHADOW_UBO_BINDING = 7
 /** `shape` per-run debug-mode override (dynamic-offset ring). */
 export const SHAPE_PARAMS_UBO_BINDING = 9
+/** `shaderQuad` per-draw user params block (dynamic-offset ring). */
+export const SHADER_QUAD_PARAMS_UBO_BINDING = 10
 
 /**
  * `Frame` UBO size in floats. std140 lays a `mat3` out as 3 vec4-aligned
@@ -230,6 +232,15 @@ export const LOC_SHAPE_PAINT = 10
  * (affine, f32×6) + srcRect.xyzw (f32×4) + tint(u8×4) + dither (f32) = 48 B.
  */
 export const PATHSHADOW_INSTANCE_STRIDE = 48
+/**
+ * Offscreen composite vertex layout: position.xy (device px) + uv = 4 floats =
+ * 16 B, six vertices per quad.
+ */
+export const COMPOSITE_VERTEX_STRIDE = 16
+export const COMPOSITE_BUFFER_BYTES = 16 * 1024
+export const LOC_COMPOSITE_POS = 0
+export const LOC_COMPOSITE_UV = 1
+
 export const PATHSHADOW_BUFFER_BYTES = 16 * 1024 // 16 KB -> ~340 instances
 export const LOC_PATHSHADOW_UNIT = 0
 export const LOC_PATHSHADOW_MCOL0 = 1
@@ -238,6 +249,17 @@ export const LOC_PATHSHADOW_MTRANSLATE = 3
 export const LOC_PATHSHADOW_SRC = 4
 export const LOC_PATHSHADOW_TINT = 5
 export const LOC_PATHSHADOW_DITHER = 6
+
+/**
+ * Shader-quad instance layout: a device-px origin plus the quad's two edge
+ * vectors (affine, so rotation and skew survive) and the draw's alpha, as two
+ * vec4s = 32 B.
+ */
+export const SHADER_QUAD_INSTANCE_STRIDE = 32
+export const SHADER_QUAD_BUFFER_BYTES = 16 * 1024 // 16 KB -> 512 draws
+export const LOC_QUAD_UNIT = 0
+export const LOC_QUAD_ORIGIN_AXISX = 1
+export const LOC_QUAD_AXISY_ALPHA = 2
 
 /** Pixel tolerance for CPU curve flattening (device px). */
 export const CURVE_FLATTEN_TOL_PX = 0.5
@@ -254,3 +276,5 @@ export type BatchKind =
   | 'textQuad'
   | 'shape'
   | 'pathShadowComposite'
+  | 'shaderQuad'
+  | 'composite'

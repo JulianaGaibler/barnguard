@@ -24,9 +24,8 @@ interface EpicenterNodeOptions {
   coneRadiusWorld?: number
   coneSweepRad?: number
   /**
-   * Optional bitmap painted inside the apex disc, the Firefox mark in the main
-   * game. Omitted in the tutorial (which has no game assets in scope), in which
-   * case only the plain white dot is drawn.
+   * Optional bitmap painted inside the apex disc, the Firefox mark in the game.
+   * Omitted, only the plain white dot is drawn.
    */
   apexIcon?: CanvasImageSource
   /** Rendered size of `apexIcon` in world units (square). Default 20. */
@@ -46,7 +45,7 @@ export class EpicenterNode extends Node2D {
   readonly coneRadius: number
   readonly coneSweep: number
   /**
-   * Direction (radians) the cone opens, apex → approachReference. Packets
+   * Direction (radians) the cone opens, apex -> approachReference. Packets
    * approaching from within `±(coneSweep/2 + approachForgivenessRad)` of the
    * INWARD axis (`axisRad + π`) are considered valid entries.
    */
@@ -59,7 +58,7 @@ export class EpicenterNode extends Node2D {
    */
   outerScale = 1
   /**
-   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 → 1 over 2 s,
+   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 -> 1 over 2 s,
    * resets, waits 3 s, repeats. Multiplied into the wedge radius.
    */
   pulseScale = 0
@@ -114,7 +113,7 @@ export class EpicenterNode extends Node2D {
   }
 
   /**
-   * True when `from → apex` lies within the cone opening (with
+   * True when `from -> apex` lies within the cone opening (with
    * `approachForgivenessRad` slack beyond `±coneSweep/2`).
    */
   isApproachAngleValid(fromX: number, fromY: number): boolean {
@@ -164,7 +163,7 @@ export class EpicenterNode extends Node2D {
       gfx.restore()
     }
 
-    // Overlay pulse, a brighter wedge that grows from 0 → outerScale and
+    // Overlay pulse, a brighter wedge that grows from 0 -> outerScale and
     // fades out as it expands. Layered on top so it reads as an
     // "energising" sweep across the cone's face.
     if (this.pulseScale > 0.001) {
@@ -183,7 +182,7 @@ export class EpicenterNode extends Node2D {
 
     // Apex disc, the exact capture centre. Sized to host the icon (if
     // supplied) so the mark reads clearly against the cone. Falls back
-    // to a small marker dot when no icon is provided (e.g. tutorial).
+    // to a small marker dot when no icon is provided.
     gfx.setAlpha(alpha)
     if (this.#apexIcon) {
       const half = this.#apexIconSize * 0.5

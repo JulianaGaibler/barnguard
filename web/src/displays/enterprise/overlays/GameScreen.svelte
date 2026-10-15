@@ -1,11 +1,8 @@
 <script lang="ts">
-  import StateConfirmCard from './StateConfirmCard.svelte'
-  import SmallRegionList from './SmallRegionList.svelte'
-  import GameOverOverlay from './GameOverOverlay.svelte'
-  import AttendantControls from '@src/core/attendant/AttendantControls.svelte'
   import PauseOverlay from './PauseOverlay.svelte'
   import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
+  import { onDestroy } from 'svelte'
   import { t, regionName, mapCopy } from '@src/displays/enterprise/i18n'
   import { goToScreen } from '@src/stores/appState'
   import { selectedStateId, stopGameHandle } from '@src/stores/gameSelection'
@@ -27,6 +24,18 @@
   import { coverScreen } from '@src/displays/enterprise/attendant/coverState'
   import CoverScreen from '@src/displays/enterprise/attendant/CoverScreen.svelte'
   import Backdrop from '@src/displays/enterprise/background/Backdrop.svelte'
+  import UiStage from '@src/displays/enterprise/ui/UiStage.svelte'
+  import SplashScreen from '@src/displays/enterprise/ui/SplashScreen.svelte'
+  import SelectPrompt from '@src/displays/enterprise/ui/SelectPrompt.svelte'
+  import SelectedScreen from '@src/displays/enterprise/ui/SelectedScreen.svelte'
+  import PlayingHud from '@src/displays/enterprise/ui/PlayingHud.svelte'
+  import FailEdges from '@src/displays/enterprise/ui/FailEdges.svelte'
+  import GameOverScreen from '@src/displays/enterprise/ui/GameOverScreen.svelte'
+  import IdleNotice from '@src/displays/enterprise/ui/IdleNotice.svelte'
+  import {
+    ScreenFlow,
+    type ScreenState,
+  } from '@src/displays/enterprise/game/flow/screenFlow'
   import type { GameEvents } from '@src/displays/enterprise/game'
 
   type GameOverPayload = GameEvents['gameOver']
@@ -56,11 +65,33 @@
   let activeRegionId = $state<RegionId | null>(null)
   /** The loaded map, needed to resolve region names in this screen's copy. */
   let map = $state<MapDescriptor | null>(null)
-  /**
-   * Regions the corner list offers. Read once the session is ready rather than
-   * derived, since it depends on the canvas size at that moment.
-   */
-  let smallRegionIds = $state<readonly string[]>([])
+  /** Which of the five screens is showing. Mirrors `flow`. */
+  let screen = $state<ScreenState>('splash')
+  const flow = new ScreenFlow()
+  /** The idle return is close, so the notice shows. */
+  let idleWarning = $state(false)
+  const offWarning = flow.onWarning((warning) => {
+    idleWarning = warning
+  })
+  const offFlow = flow.onChange((next, prev) => {
+    screen = next
+    // Back to the splash from the picker or the zoomed card, on a timeout or
+    // a tap on the picker's headline. The map has to come back out before the
+    // splash plays over it.
+    if (next === 'splash' && (prev === 'select' || prev === 'selected')) {
+      session?.cancelSelection().catch(ignoreAbort)
+    }
+    // The result timed out. Close already reset the round on its own way out,
+    // which leaves the session idle by the time the flow moves, so this only
+    // runs for the timeout.
+    if (
+      next === 'splash' &&
+      prev === 'gameOver' &&
+      session?.state === 'gameOver'
+    ) {
+      reset()
+    }
+  })
   let gameOverPayload = $state<GameOverPayload | null>(null)
   let loadError = $state<string | null>(null)
   /**
@@ -114,17 +145,19 @@
       activeMap.set({ id: loaded.id, i18nNamespace: loaded.i18nNamespace })
       const s = await startGame(h, loaded)
       session = s
-      smallRegionIds = s.smallRegionIds
       s.events.on('stateSelected', (payload) => {
         selectedStateId.set(payload.stateId)
+        flow.send('pick')
       })
       s.events.on('selectionCanceled', () => {
         selectedStateId.set(null)
+        flow.send('back')
       })
       s.events.on('roundStarted', (payload) => {
         selectedStateId.set(null)
         activeRegionId = payload.stateId
         score = 0
+        flow.send('start')
         goToScreen('playing')
       })
       s.events.on('packetScored', (payload) => {
@@ -132,12 +165,14 @@
       })
       s.events.on('gameOver', (payload) => {
         gameOverPayload = payload
+        flow.send('ended')
         goToScreen('result')
       })
       s.events.on('reset', () => {
         gameOverPayload = null
         activeRegionId = null
         score = 0
+        flow.send(flow.state === 'gameOver' ? 'continue' : 'abort')
         goToScreen('idle')
       })
     } catch (err) {
@@ -152,12 +187,49 @@
     session = null
     host = null
     map = null
-    smallRegionIds = []
     activeMap.set(null)
   }
 
+  function play(): void {
+    flow.send('play')
+  }
+
+  function backToSplash(): void {
+    flow.send('back')
+  }
+
+  // The map fades under the result so its cards read clearly.
+  $effect(() => {
+    session?.setMapDimmed(screen === 'gameOver')
+  })
+
+  // The splash plays a round by itself over the map, and nothing else does.
+  $effect(() => {
+    if (!session) return
+    if (screen === 'splash') session.startAttract()
+    else session.stopAttract()
+  })
+
+  // Taps on the map select a region only while the player is picking.
+  $effect(() => {
+    session?.setTapsEnabled(screen === 'select' || screen === 'selected')
+  })
+
+  onDestroy(() => {
+    offWarning()
+    offFlow()
+    flow.destroy()
+  })
+
   function confirmSelection(): void {
     session?.startRound().catch(ignoreAbort)
+  }
+
+  /** Back to the selected card for the region just played. */
+  function playAgain(): void {
+    if (!flow.send('again')) return
+    gameOverPayload = null
+    session?.returnToSelection()
   }
 
   function reset(): void {
@@ -181,41 +253,18 @@
     return () => stopGameHandle.set(null)
   })
 
-  // Two backdrop slots sit behind the (transparent) canvas at the bottom
-  // corners. Contents switch on whether a round is live:
-  //
-  //   pre-play  → left: "choose a state" prompt, right: mission text
-  //   playing / game over → left: state name, right: score (zero-padded
-  //                          to 2 digits so single-digit scores read
-  //                          "01", "02", … which matches the mock)
-  //
-  // `activeRegionId` is the pivot, it's non-null only during / after a
-  // round, which is exactly when we want the state-name + score pair.
-  const isRoundActive = $derived(activeRegionId !== null)
-  const backdropLeftText = $derived(
-    isRoundActive && activeRegionId !== null
-      ? regionName($t, map?.i18nNamespace ?? 'states', activeRegionId)
-      : session !== null && !loadError && $selectedStateId === null
-        ? // Hide the "pick a state" prompt once a state is selected, the
-          // confirm card takes over the choice at that point and the
-          // corner prompt would just repeat what the card already says.
-          mapCopy($t, map?.id ?? DEFAULT_MAP_ID).pick
-        : null,
-  )
-  const backdropRightText = $derived(
-    isRoundActive || $selectedStateId !== null
-      ? null
-      : session !== null
-        ? mapCopy($t, map?.id ?? DEFAULT_MAP_ID).mission
-        : null,
-  )
-  // Two-digit minimum with leading zero, reads as a scoreboard. Scores
-  // past 99 (unlikely but possible) render bare (100, 101, …) and just
-  // extend leftward from the anchored right edge. `tabular-nums` on the
-  // CSS side keeps every digit the same width so the readout doesn't
-  // jitter as it counts.
-  const scoreDisplay = $derived(String(score).padStart(2, '0'))
-
+  /** The round's region name for the header, held after a round for its exit. */
+  let hudRegionName = $state('')
+  $effect(() => {
+    if (activeRegionId !== null) {
+      hudRegionName = regionName(
+        $t,
+        map?.i18nNamespace ?? 'states',
+        activeRegionId,
+      )
+    }
+  })
+  const copy = $derived(mapCopy($t, map?.id ?? DEFAULT_MAP_ID))
   // Mirror the booth-menu-driven `debugHudVisible` store into the engine's
   // debug controller. Runs when either the store or the host changes. The
   // controller's `setHudVisible` is idempotent so re-entry after a
@@ -237,7 +286,11 @@
   })
 </script>
 
-<main class="game">
+<main
+  class="game"
+  onpointerdowncapture={() => flow.touch()}
+  onkeydowncapture={() => flow.touch()}
+>
   <!--
     The brand backdrop canvas, the backdrop text, and the transparent game
     canvas draw in that order, furthest back first. No z-index needed:
@@ -248,19 +301,13 @@
   -->
   {#key canvasKey}
     {#if host}
-      <Backdrop engine={host.engine} />
+      <Backdrop
+        engine={host.engine}
+        variant={screen === 'select' || screen === 'selected'
+          ? 'radial'
+          : 'diagonal'}
+      />
     {/if}
-
-    <div class="game__backdrop" class:game__backdrop--active={isRoundActive}>
-      {#if backdropLeftText}
-        <span class="game__backdrop-headline">{backdropLeftText}</span>
-      {/if}
-      {#if isRoundActive}
-        <span class="game__backdrop-score">{scoreDisplay}</span>
-      {:else if backdropRightText}
-        <span class="game__backdrop-mission">{backdropRightText}</span>
-      {/if}
-    </div>
 
     <canvas
       class="game__canvas"
@@ -274,6 +321,65 @@
         onDestroy: onEngineDestroy,
       }}
     ></canvas>
+
+    {#if host}
+      <UiStage engine={host.engine}>
+        {#snippet children(region)}
+          <SplashScreen
+            engine={host!.engine}
+            {region}
+            active={screen === 'splash' && session !== null}
+            headline={$t.game.splashHeadline}
+            description={copy.splashDescription}
+            playLabel={$t.game.playButton}
+            mapId={map?.id ?? DEFAULT_MAP_ID}
+            onPlay={play}
+          />
+          <SelectPrompt
+            engine={host!.engine}
+            {region}
+            active={screen === 'select' && session !== null}
+            prompt={copy.selectPrompt}
+            onBack={backToSplash}
+          />
+          <SelectedScreen
+            engine={host!.engine}
+            {region}
+            active={screen === 'selected' && session !== null}
+            regionId={$selectedStateId}
+            mapId={map?.id ?? DEFAULT_MAP_ID}
+            namespace={map?.i18nNamespace ?? 'states'}
+            onStart={confirmSelection}
+          />
+          <PlayingHud
+            engine={host!.engine}
+            {region}
+            active={screen === 'playing'}
+            {score}
+            elapsed={() => session?.elapsedSec ?? 0}
+            regionName={hudRegionName}
+            onPause={togglePause}
+          />
+          {#if map?.edgesAreFailLine}
+            <FailEdges
+              engine={host!.engine}
+              {region}
+              active={screen === 'playing'}
+            />
+          {/if}
+          <GameOverScreen
+            engine={host!.engine}
+            host={host!}
+            {region}
+            active={screen === 'gameOver'}
+            payload={gameOverPayload}
+            mapId={map?.id ?? DEFAULT_MAP_ID}
+            onPlayAgain={playAgain}
+            onClose={reset}
+          />
+        {/snippet}
+      </UiStage>
+    {/if}
   {/key}
 
   {#if !session && !loadError}
@@ -288,47 +394,10 @@
     </div>
   {/if}
 
-  {#if session && !isRoundActive && !$selectedStateId && !gameOverPayload}
-    <SmallRegionList
-      regionIds={smallRegionIds}
-      mapId={map?.id ?? DEFAULT_MAP_ID}
-      onPick={(id) => session?.selectRegion(id)}
-    />
-  {/if}
-
-  {#if $selectedStateId && host}
-    <StateConfirmCard
-      stateId={$selectedStateId}
-      mapId={map?.id ?? DEFAULT_MAP_ID}
-      {host}
-      onConfirm={confirmSelection}
-    />
-  {/if}
-
-  {#if gameOverPayload && host}
-    <GameOverOverlay
-      reason={gameOverPayload.reason}
-      stateId={gameOverPayload.stateId}
-      score={gameOverPayload.score}
-      isOverallHigh={gameOverPayload.isOverallHigh}
-      isStateHigh={gameOverPayload.isStateHigh}
-      highScores={gameOverPayload.highScores}
-      escapeHeadingRad={gameOverPayload.escapeHeadingRad}
-      {host}
-      onContinue={reset}
-    />
-  {/if}
+  <IdleNotice visible={idleWarning} />
 
   {#if paused}
     <PauseOverlay onResume={togglePause} />
-  {/if}
-
-  {#if host}
-    <AttendantControls
-      {paused}
-      showPause={activeRegionId !== null && gameOverPayload === null}
-      onTogglePause={togglePause}
-    />
   {/if}
 </main>
 
@@ -346,13 +415,6 @@
     height: 100%
     width: 100%
     overflow: hidden
-    // Bottom-right stack: the mission copy sits at the bottom, the region
-    // list above it. They cannot share a flex parent, because the copy renders
-    // behind the transparent canvas while the list has to take taps in front
-    // of it, so the two anchor to the same inset instead.
-    --corner-inset: var(--space-80)
-    // Height reserved for the mission copy: three lines at its own size.
-    --corner-copy-height: 6rem
 
   .game__canvas
     position: absolute
@@ -381,74 +443,4 @@
   .game__hint
     color: var(--color-text-secondary)
     @include tint.type-class(ui)
-
-  // Bottom-corner backdrop copy, sits behind the transparent canvas so
-  // the map + packets composite over it. `pointer-events: none` so it
-  // never intercepts a state tap that lands in the same pixel area.
-
-  .game__backdrop
-    position: absolute
-    inset: 0
-    pointer-events: none
-    user-select: none
-    font-family: tint.$mozilla-headline
-    font-weight: 700
-    line-height: 0.95
-
-  // Idle-state distances from the edges, noticeably larger than the
-  // playing-state figures below so the headline + mission text sit
-  // clearly inset from the corners. `.game__backdrop--active` overrides
-  // these back to the tighter playing values.
-  .game__backdrop-headline
-    position: absolute
-    inset-inline-start: var(--space-80)
-    inset-block-end: var(--space-80)
-    max-width: 35%
-    color: var(--color-text-inverse)
-    // Art-directed backdrop copy sizes (not part of the semantic UI scale).
-    font-size: 4.5rem
-    letter-spacing: -0.01em
-
-  .game__backdrop-mission
-    position: absolute
-    inset-inline-end: var(--corner-inset)
-    inset-block-end: var(--corner-inset)
-    max-width: 25%
-    color: var(--color-text-inverse)
-    font-size: 1.5rem
-    font-weight: 500
-    line-height: 1.25
-    text-align: right
-
-  .game__backdrop-score
-    position: absolute
-    inset-inline-end: var(--space-48)
-    inset-block-end: var(--space-48)
-    // Huge outlined-looking numeral. `font-variant-numeric: slashed-zero`
-    // matches the mock's slash through the leading zero. `tabular-nums`
-    // keeps every digit the same width so the score doesn't jitter as
-    // it counts up (10 vs 11 render the same shape width). Text is
-    // right-anchored so 3-digit scores extend leftward from a fixed
-    // right edge without shifting the final digit.
-    @include tint.type-class(watermark)
-    letter-spacing: -0.04em
-    font-variant-numeric: slashed-zero tabular-nums
-    line-height: 0.9
-
-  // When a round is live, both slots dim to a low-opacity backdrop so
-  // they don't compete with the gameplay foreground. Position also
-  // tightens back toward the corner, the idle padding is decorative,
-  // gameplay wants the score bigger against the frame edge. The
-  // typography switches to the widest brand face, standing in for the
-  // Mozilla Slab Headline Expanded the mock calls for until that woff2
-  // ships in `src/assets/fonts/`.
-  .game__backdrop--active
-    .game__backdrop-headline
-      inset-inline-start: var(--space-48)
-      inset-block-end: var(--space-48)
-
-    .game__backdrop-headline,
-    .game__backdrop-score
-      color: rgba(9, 22, 44, 0.55)
-      font-family: tint.$font-mozilla-headline-extended
 </style>

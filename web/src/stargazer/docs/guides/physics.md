@@ -187,7 +187,7 @@ explicitly to override. The body is the source of truth, and the node follows it
 
 Sometimes the node transform needs to break away from the body: a tween slides
 the node off-screen, or a finger drags it directly and you want no interpolation
-lag. Rather than hand-rolling the body→node mirror in your own `onUpdate`, gate
+lag. Rather than hand-rolling the body->node mirror in your own `onUpdate`, gate
 the behavior's sync:
 
 - Set `rb.syncEnabled = false` to stop the per-frame sync entirely (a tween now

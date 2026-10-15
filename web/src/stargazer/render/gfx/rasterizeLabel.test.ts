@@ -78,7 +78,7 @@ describe('measureLabel', () => {
     // A stub with only `width` (old browsers / headless DOMs).
     const { ctx } = stubCtx({ width: 30 })
     const m = measureLabel(ctx, 'hi', style({ font: '10px sans-serif' }))
-    // fallback: alphabetic → ascent 8, descent 2. align left → left 0, right 30.
+    // fallback: alphabetic -> ascent 8, descent 2. align left -> left 0, right 30.
     expect(m.localW).toBe(34) // 30 + 4
     expect(m.localH).toBe(14) // 8 + 2 + 4
     expect(m.anchorOffsetX).toBe(2)

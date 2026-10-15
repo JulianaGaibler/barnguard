@@ -20,6 +20,8 @@
     icon?: string
     onTap: () => void
     disabled?: boolean
+    /** As wide as five keys, for a space bar. */
+    wide?: boolean
   }
   const {
     label,
@@ -27,6 +29,7 @@
     icon,
     onTap,
     disabled = false,
+    wide = false,
   }: Props = $props()
 
   let active = $state(false)
@@ -93,6 +96,7 @@
   type="button"
   class="key"
   class:active
+  class:key--wide={wide}
   {disabled}
   aria-label={ariaLabel}
   onpointerdown={down}
@@ -123,6 +127,9 @@
     touch-action: none
     cursor: pointer
     transition: transform 0.2s linear
+
+    &.key--wide
+      width: calc(var(--space-48) * 5 + var(--space-8) * 4)
 
     &.active
       transform: scale(1.2)

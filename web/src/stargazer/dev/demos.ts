@@ -21,6 +21,9 @@ export const demos: Record<string, () => Promise<DemoFn>> = {
   stages: () => import('./demo-stages').then((m) => m.default),
   postfx: () => import('./demo-postfx').then((m) => m.default),
   vector: () => import('./demo-vector').then((m) => m.default),
+  bench: () => import('./bench').then((m) => m.default),
+  lottie: () => import('./demo-lottie').then((m) => m.default),
+  compositing: () => import('./demo-compositing').then((m) => m.default),
 }
 
 export type DemoName = keyof typeof demos

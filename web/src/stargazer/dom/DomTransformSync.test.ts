@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { projectWorldToCss, type CssMatrix } from './DomTransformSync'
+import {
+  opacityNeedsWrite,
+  projectWorldToCss,
+  type CssMatrix,
+} from './DomTransformSync'
 import type { Affine2x3 } from '../camera/CameraView2D'
 
 const IDENTITY: CssMatrix = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
@@ -53,5 +57,20 @@ describe('projectWorldToCss', () => {
     const result = projectWorldToCss(screen(2, 1, 1), world, out)
     expect(result).toBe(out)
     expect(out).toEqual({ a: 2, b: 0, c: 0, d: 2, e: 9, f: 17 })
+  })
+})
+
+describe('opacityNeedsWrite', () => {
+  it('writes the first value, even when it is zero', () => {
+    expect(opacityNeedsWrite(0, Number.NaN)).toBe(true)
+    expect(opacityNeedsWrite(1, Number.NaN)).toBe(true)
+  })
+
+  it('skips a value that has not changed', () => {
+    expect(opacityNeedsWrite(0.5, 0.5)).toBe(false)
+  })
+
+  it('writes a value that has changed', () => {
+    expect(opacityNeedsWrite(0.4, 0.5)).toBe(true)
   })
 })

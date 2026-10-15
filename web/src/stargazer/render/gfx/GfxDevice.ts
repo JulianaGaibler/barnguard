@@ -125,9 +125,7 @@ export interface ShadowCube {
  * GPU-side uniform-block buffer (`GL_UNIFORM_BUFFER` on WebGL2). Bound through
  * a bind group. A `'uniform-buffer'` layout entry with `dynamicOffset` lets one
  * buffer feed many draws by supplying a per-draw byte offset (the
- * dynamic-offset ring used for per-object and per-run uniforms). Like the
- * vertex ring it can be {@link GfxDevice.orphanUniformBuffer}ed on a mid-frame
- * overflow.
+ * dynamic-offset ring used for per-object and per-run uniforms).
  */
 export interface UBuffer {
   readonly __gfxUniformBuffer: unique symbol
@@ -157,7 +155,7 @@ export interface RenderTarget {
   /**
    * Color-attachment color space the target was allocated with. A post-process
    * pass reads this to allocate ping-pong / resolve targets with a matching
-   * format. A multisample→single-sample resolve requires identical formats.
+   * format. A multisample->single-sample resolve requires identical formats.
    */
   readonly colorSpace: ColorFormat
   /** Color-attachment pixel layout the target was allocated with. */
@@ -183,11 +181,11 @@ export interface RenderTarget {
  * within a block stay the caller's responsibility (see `batchLayout.ts`).
  */
 export interface ShaderReflection {
-  /** Vertex attribute location → GLSL `in` name (for `bindAttribLocation`). */
+  /** Vertex attribute location -> GLSL `in` name (for `bindAttribLocation`). */
   attributes: { location: number; glslName: string }[]
-  /** Uniform-block binding → GLSL block name (for `getUniformBlockIndex`). */
+  /** Uniform-block binding -> GLSL block name (for `getUniformBlockIndex`). */
   uniformBlocks: { binding: number; glslName: string }[]
-  /** Sampler binding → GLSL sampler uniform name (for `getUniformLocation`). */
+  /** Sampler binding -> GLSL sampler uniform name (for `getUniformLocation`). */
   samplers: { binding: number; glslName: string }[]
 }
 
@@ -298,7 +296,15 @@ export interface BindGroupEntry {
 
 // --- pipelines --------------------------------------------------------------
 
-export type GfxBlendMode = 'source-over' | 'lighter' | 'none'
+export type GfxBlendMode =
+  | 'source-over'
+  | 'lighter'
+  | 'screen'
+  | 'multiply'
+  | 'destination-out'
+  | 'destination-in'
+  | 'xor'
+  | 'none'
 
 /**
  * Face-culling mode. `'none'` draws both faces (the 2D baseline). `'back'` /
@@ -341,7 +347,7 @@ export type GfxBackend = 'webgpu' | 'webgl2'
 
 export type PrimitiveTopology = 'triangle-list' | 'line-list'
 
-/** Color-target format: `'linear'` → `RGBA8`, `'srgb'` → sRGB-encoded RGBA8. */
+/** Color-target format: `'linear'` -> `RGBA8`, `'srgb'` -> sRGB-encoded RGBA8. */
 export type ColorFormat = 'linear' | 'srgb'
 
 /**
@@ -430,9 +436,9 @@ export interface StencilFaceState {
 }
 
 /**
- * Stencil state for a pipeline. The reference value is part of the pipeline
- * rather than per-draw state: every use in this engine compares against a
- * constant, so baking it keeps {@link DrawCall} free of dynamic state.
+ * Stencil state for a pipeline. Compare, ops and masks are baked into the
+ * pipeline (WebGPU has no dynamic alternative). The reference is the default
+ * for draws that don't set {@link DrawCall.stencilReference}.
  */
 export interface StencilState {
   front: StencilFaceState
@@ -442,7 +448,10 @@ export interface StencilState {
   readMask?: number
   /** Bits the ops may write. Default `0xff`. */
   writeMask?: number
-  /** Compared against, per {@link StencilFaceState.compare}. Default `0`. */
+  /**
+   * Compared against, per {@link StencilFaceState.compare}. Default `0`.
+   * Overridden per draw by {@link DrawCall.stencilReference}.
+   */
   reference?: number
 }
 
@@ -513,7 +522,7 @@ export interface Texture2DOpts {
   filter?: 'nearest' | 'linear'
   wrap?: 'clamp' | 'repeat'
   /**
-   * Allocate sRGB storage so sampling decodes sRGB → linear in hardware. Set
+   * Allocate sRGB storage so sampling decodes sRGB -> linear in hardware. Set
    * for glTF base-color / emissive textures. Leave off (default linear `RGBA8`)
    * for normal / metallic-roughness / occlusion maps.
    */
@@ -597,7 +606,7 @@ export interface RenderTargetOpts {
    */
   stencil?: boolean
   /**
-   * Color-attachment format. `'linear'` (default) → `RGBA8`. `'srgb'` →
+   * Color-attachment format. `'linear'` (default) -> `RGBA8`. `'srgb'` ->
    * sRGB-encoded. Only the single-sample path honors `'srgb'`.
    */
   colorSpace?: ColorFormat
@@ -726,6 +735,26 @@ export interface DrawCall {
   first?: number
   /** Instances to draw. Default `1`. */
   instanceCount?: number
+  /**
+   * Stencil reference for this draw. Overrides the pipeline's
+   * {@link StencilState.reference}. The pipeline bakes the test's compare and
+   * ops, and only the reference varies per draw. Omit to use the pipeline's.
+   */
+  stencilReference?: number
+  /**
+   * Scissor rectangle in target pixels, origin top-left (WebGL2 flips it
+   * internally). Clamped to the target. Omit to draw unscissored. A pass starts
+   * unscissored, and a draw without this field restores the full target.
+   */
+  scissor?: ScissorRect
+}
+
+/** A scissor rectangle in target pixels, origin top-left. */
+export interface ScissorRect {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
 // --- stats & limits ---------------------------------------------------------
@@ -797,12 +826,6 @@ export interface GfxDevice {
     byteLength?: number,
   ): void
   deleteBuffer(buf: VBuffer): void
-  /**
-   * Reallocate `buf`'s storage at its current size, detaching whatever the GPU
-   * is still reading. Used after a mid-frame overflow submit so the append
-   * cursor can restart without overwriting data an in-flight draw references.
-   */
-  orphanBuffer(buf: VBuffer): void
 
   // Uniform buffers ---------------------------------------------------------
   createUniformBuffer(byteSize: number): UBuffer
@@ -822,11 +845,6 @@ export interface GfxDevice {
     data: ArrayBufferView,
     byteOffset?: number,
   ): void
-  /**
-   * Reallocate a uniform buffer's storage, the UBO-ring analogue of
-   * {@link orphanBuffer}.
-   */
-  orphanUniformBuffer(buf: UBuffer): void
   deleteUniformBuffer(buf: UBuffer): void
 
   // Index buffers -----------------------------------------------------------

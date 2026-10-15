@@ -108,54 +108,73 @@ void main() {
         float _e43 = _group_1_binding_2_fs.misc.y;
         c = (_e39 * _e43);
     } else {
-        c = in_.color;
+        if ((paintMode == 3u)) {
+            vec2 _e49 = devicePos(in_.pos.xy);
+            vec4 _e52 = _group_1_binding_2_fs.paint;
+            vec2 d_1 = (_e49 - _e52.xy);
+            vec4 _e57 = _group_1_binding_2_fs.paint;
+            vec2 e = _e57.zw;
+            float r = _group_1_binding_2_fs.misc.x;
+            float a = min((dot(e, e) - (r * r)), -0.0001);
+            float de = dot(d_1, e);
+            float disc = max(((de * de) - (a * dot(d_1, d_1))), 0.0);
+            float t_1 = clamp(((de - sqrt(disc)) / a), 0.0, 1.0);
+            float u_1 = ((t_1 * 0.99609375) + 0.001953125);
+            float _e88 = _group_1_binding_2_fs.misc.z;
+            float v_1 = ((_e88 + 0.5) / 64.0);
+            vec4 _e96 = texture(_group_1_binding_3_fs, vec2(vec2(u_1, v_1)));
+            float _e100 = _group_1_binding_2_fs.misc.y;
+            c = (_e96 * _e100);
+        } else {
+            c = in_.color;
+        }
     }
     if ((paintMode == 2u)) {
-        vec2 _e50 = devicePos(in_.pos.xy);
-        vec4 _e53 = _group_1_binding_2_fs.paint;
-        vec4 _e58 = _group_1_binding_2_fs.paint;
-        vec2 uv = ((_e50 - _e53.xy) * _e58.zw);
+        vec2 _e107 = devicePos(in_.pos.xy);
+        vec4 _e110 = _group_1_binding_2_fs.paint;
+        vec4 _e115 = _group_1_binding_2_fs.paint;
+        vec2 uv = ((_e107 - _e110.xy) * _e115.zw);
         if (all(greaterThanEqual(uv, vec2(0.0)))) {
             local = all(lessThanEqual(uv, vec2(1.0)));
         } else {
             local = false;
         }
         bool uvInside = local;
-        vec4 _e75 = texture(_group_1_binding_4_fs, vec2(uv));
-        float maskR = (uvInside ? _e75.x : 0.0);
-        vec4 _e79 = c;
-        c = (_e79 * (1.0 - maskR));
+        vec4 _e132 = texture(_group_1_binding_4_fs, vec2(uv));
+        float maskR = (uvInside ? _e132.x : 0.0);
+        vec4 _e136 = c;
+        c = (_e136 * (1.0 - maskR));
     }
-    uint _e86 = _group_1_binding_2_fs.flags.x;
-    if ((_e86 > 0u)) {
-        vec4 _e89 = c;
-        vec4 _e93 = texture(_group_1_binding_1_fs, vec2(in_.uv));
-        c = (_e89 * _e93.w);
+    uint _e143 = _group_1_binding_2_fs.flags.x;
+    if ((_e143 > 0u)) {
+        vec4 _e146 = c;
+        vec4 _e150 = texture(_group_1_binding_1_fs, vec2(in_.uv));
+        c = (_e146 * _e150.w);
     }
-    vec4 _e96 = c;
-    float _e99 = clipCoverage(in_.pos.xy);
-    c = (_e96 * _e99);
-    uint _e104 = _group_1_binding_2_fs.flags.w;
-    if ((_e104 > 0u)) {
-        float _e109 = bayerValue(in_.pos.xy);
-        float _e115 = c.w;
-        float noise = (((_e109 - 0.5) / 256.0) * _e115);
-        vec4 _e117 = c;
-        float _e122 = c.w;
-        float _e126 = c.w;
-        c = vec4(min((_e117.xyz + vec3(noise)), vec3(_e122)), _e126);
+    vec4 _e153 = c;
+    float _e156 = clipCoverage(in_.pos.xy);
+    c = (_e153 * _e156);
+    uint _e161 = _group_1_binding_2_fs.flags.w;
+    if ((_e161 > 0u)) {
+        float _e166 = bayerValue(in_.pos.xy);
+        float _e172 = c.w;
+        float noise = (((_e166 - 0.5) / 256.0) * _e172);
+        vec4 _e174 = c;
+        float _e179 = c.w;
+        float _e183 = c.w;
+        c = vec4(min((_e174.xyz + vec3(noise)), vec3(_e179)), _e183);
     }
     uint mode = _group_1_binding_2_fs.flags.y;
     if ((mode == 1u)) {
         c = vec4(0.05, 0.0, 0.0, 0.05);
     } else {
         if ((mode == 2u)) {
-            vec4 _e143 = _group_1_binding_2_fs.debugColor;
-            c = _e143;
+            vec4 _e200 = _group_1_binding_2_fs.debugColor;
+            c = _e200;
         }
     }
-    vec4 _e144 = c;
-    _fs2p_location0 = _e144;
+    vec4 _e201 = c;
+    _fs2p_location0 = _e201;
     return;
 }
 

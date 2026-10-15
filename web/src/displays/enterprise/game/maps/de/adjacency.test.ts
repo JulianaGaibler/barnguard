@@ -9,7 +9,7 @@ describe('ADJACENCY', () => {
     }
   })
 
-  it('is symmetric, every A→B implies B→A', () => {
+  it('is symmetric, every A->B implies B->A', () => {
     for (const a of STATE_IDS) {
       for (const b of ADJACENCY[a]) {
         expect(
@@ -61,7 +61,7 @@ describe('bfsDepth', () => {
     expect(bfsDepth('BB', 'BE', 3)).toBe(1)
   })
 
-  it('returns 2 for two-hop neighbors (BE → BB → MV)', () => {
+  it('returns 2 for two-hop neighbors (BE -> BB -> MV)', () => {
     expect(bfsDepth('BE', 'MV', 3)).toBe(2)
   })
 
@@ -85,7 +85,7 @@ describe('bfsLayers', () => {
 
   it('assigns depth 2 for two-hop states', () => {
     const layers = bfsLayers('BE', 3)
-    // BE→BB→MV, BE→BB→SN etc.
+    // BE->BB->MV, BE->BB->SN etc.
     expect(layers.get('MV')).toBe(2)
     expect(layers.get('SN')).toBe(2)
   })

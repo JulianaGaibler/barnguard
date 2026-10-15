@@ -27,7 +27,7 @@ export interface MatchScore {
   teamR: number
 }
 
-/** A cell coordinate: column 0..6 (left→right), row 0 at the bottom. */
+/** A cell coordinate: column 0..6 (left->right), row 0 at the bottom. */
 export interface CellRef {
   col: number
   row: number

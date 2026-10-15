@@ -2,10 +2,10 @@ import type { CoreMessages, Messages } from '@src/i18n'
 
 /** The per-map strings every map has to supply. */
 export interface MapCopy {
-  /** Idle prompt, e.g. "pick a state" or "pick a country". */
-  pick: string
-  /** The mission line shown beside the idle map. */
-  mission: string
+  /** The picker's headline, naming what the player chooses. */
+  selectPrompt: string
+  /** The splash description: the goal, and what the packets must not leave. */
+  splashDescription: string
   /** Game-over message when the packet left the play area. */
   lost: string
 }
@@ -27,21 +27,39 @@ export interface EnterpriseMessages extends CoreMessages {
     subtitle: string
     startButton: string
     loading: string
-    confirmStateTitle: string
-    confirmButton: string
-    cancelButton: string
     gameOverTitle: string
     gameOverCollision: string
-    tryAgainButton: string
     point: string
     points: string
-    highScoreLabel: string
-    stateHighScoreLabel: string
     newHighScoreBanner: string
-    continueButton: string
     pauseTitle: string
     pauseHint: string
     resumeButton: string
+    /** The splash headline. */
+    splashHeadline: string
+    /** The splash button that moves on to the picker. */
+    playButton: string
+    /** The label on the pill showing the map's overall high score. */
+    allScores: string
+    /** Title of the game over leaderboard card. */
+    leaderboardTitle: string
+    /** Placeholder in the player's own leaderboard row. */
+    enterName: string
+    /** Shown on the leaderboard card when the board could not be loaded. */
+    leaderboardUnavailable: string
+    printButton: string
+    /** The print button once its label is queued. */
+    printedButton: string
+    playAgainButton: string
+    closeButton: string
+    /** The on-screen keyboard's key that closes it. */
+    closeKeyboard: string
+    /** The keyboard's space bar, for screen readers. */
+    spaceKey: string
+    /** Name shown for a best score nobody put a name to. */
+    unnamed: string
+    /** The notice before an idle screen returns to the start. */
+    idleReturning: string
   }
   /**
    * Copy that reads differently per map, keyed by map id. A map's prompt names

@@ -44,7 +44,7 @@ export const ATLAS_TILE_SIZE = ATLAS_TILE_CORE + 2 * ATLAS_TILE_PADDING // 66
  * label page, gradient LUTs and clip masks are all sampled at or above 1:1.
  */
 
-/** Atlas texture dimensions. 1024×1024 → 15×15 = 225 tiles capacity. */
+/** Atlas texture dimensions. 1024×1024 -> 15×15 = 225 tiles capacity. */
 export const ATLAS_WIDTH = 1024
 export const ATLAS_HEIGHT = 1024
 
@@ -132,7 +132,7 @@ const LABEL_ATLAS_MAX_SIDE = 512
 const LABEL_ENTRY_SPACING = 1
 /**
  * Scale-bucket ratio. `deviceScale` is rounded UP to the nearest `ratio**k`, so
- * the texture is always ≥ on-screen size (only ever minified → crisp). A bucket
+ * the texture is always ≥ on-screen size (only ever minified -> crisp). A bucket
  * spans `(ratio**(k-1), ratio**k]`, giving ~`ratio`× hysteresis: small scale
  * jitter within a bucket reuses the same texture. ~1.26× ≈ 3 buckets/octave.
  */
@@ -152,9 +152,9 @@ const LABEL_PACK_EVICT_LIMIT = 32
 /**
  * Read-only snapshot of the texture caches for the debug inspector. Built on
  * demand by {@link TextureManager.snapshot}, so nothing here runs unless the
- * inspector panel asks for it. Covers the four enumerable caches (atlas,
- * ramp atlas, per-source, labels). The clip-mask cache is a `WeakMap` and
- * not enumerable, so it's omitted.
+ * inspector panel asks for it. Covers the four enumerable caches (atlas, ramp
+ * atlas, per-source, labels). The clip-mask cache is a `WeakMap` and not
+ * enumerable, so it's omitted.
  */
 export interface TextureInspectorSnapshot {
   atlas: {
@@ -175,10 +175,10 @@ export interface TextureInspectorSnapshot {
     bindings: { srcRect: readonly [number, number, number, number] }[]
   }
   /**
-   * The shared gradient ramp atlas (see `ensureStopsRow`). No `canvas`
-   * preview: unlike the sprite atlas and label page, a row paints from a
-   * transient scratch canvas that is discarded immediately, so there is no
-   * CPU-side backing to draw without a GPU readback.
+   * The shared gradient ramp atlas (see `ensureStopsRow`). No `canvas` preview:
+   * unlike the sprite atlas and label page, a row paints from a transient
+   * scratch canvas that is discarded immediately, so there is no CPU-side
+   * backing to draw without a GPU readback.
    */
   rampAtlas: {
     width: number
@@ -331,7 +331,7 @@ export class TextureManager implements TextureInspector {
   // Gradient ramp atlas --------------------------------------------------
   // One shared `256 x ATLAS_ROWS` texture: every distinct stops array gets a
   // row instead of a dedicated texture, so a draw that samples a ramp never
-  // changes which texture is bound (no batch break in or out). A ref→key
+  // changes which texture is bound (no batch break in or out). A ref->key
   // WeakMap in front skips the key rebuild for a module-constant stops array.
   #rampKeyByRef = new WeakMap<readonly GfxGradientStop[], string>()
   // Row LRU, in insertion order (re-inserted on touch, same as the atlas/label
@@ -348,6 +348,7 @@ export class TextureManager implements TextureInspector {
   // called once that replay has happened, which is also the point it becomes
   // safe to recycle a pinned row (see `#evictRampRow`).
   #rampPinnedRows = new Set<number>()
+  #rampExhaustedWarned = false
   /** 256x1 scratch canvas, reused across `ensureStopsRow` calls. */
   #rampRowCanvas: HTMLCanvasElement | OffscreenCanvas | null = null
   #rampRowCtx: CanvasRenderingContext2D | null = null
@@ -398,9 +399,9 @@ export class TextureManager implements TextureInspector {
 
   /**
    * The gradient ramp atlas texture, or `null` until the first gradient.
-   * Exposed so `coloredTri`, `shape`, `gradientRadial` and `maskedGradient`
-   * can bind it at a fixed unit, the same way `getAtlasTexture` exposes the
-   * sprite atlas.
+   * Exposed so `coloredTri`, `shape`, `gradientRadial` and `maskedGradient` can
+   * bind it at a fixed unit, the same way `getAtlasTexture` exposes the sprite
+   * atlas.
    */
   getRampAtlasTexture(): Texture | null {
     return this.#rampAtlasTex
@@ -666,21 +667,17 @@ export class TextureManager implements TextureInspector {
 
   /**
    * Look up (or build) the atlas row holding `stops`'s premultiplied ramp.
-   * Returns the row index, or `-1` if a 2D context isn't available (a
-   * headless environment). The row is pinned until `flushRampRowPins` runs,
-   * so the caller's own draw and every draw already recorded this frame may
-   * read it safely.
+   * Returns the row index, or `-1` if a 2D context isn't available (a headless
+   * environment). The row is pinned until `flushRampRowPins` runs, so the
+   * caller's own draw and every draw already recorded this frame may read it
+   * safely.
    *
-   * `forceSubmit` runs, at most once, only if every row is pinned when a new
-   * ramp needs one. It must replay (and thereby unpin, via
-   * `flushRampRowPins`) everything recorded so far this frame -
-   * `GpuBatchContext.forceMidFrameSubmit` is the real implementation. Only
-   * reachable with `ATLAS_ROWS` distinct ramps alive within a single frame.
+   * Also returns `-1` when every row is pinned by draws recorded this frame,
+   * which needs `ATLAS_ROWS` distinct ramps alive within one frame. The first
+   * such frame warns. Callers fall back to a solid fill so the draw still
+   * appears. No submit happens mid-frame to free a row.
    */
-  ensureStopsRow(
-    stops: readonly GfxGradientStop[],
-    forceSubmit: () => void,
-  ): number {
+  ensureStopsRow(stops: readonly GfxGradientStop[]): number {
     // Fast path: reuse the key for a constant stops array (skips the join).
     let key = this.#rampKeyByRef.get(stops)
     if (key === undefined) {
@@ -695,8 +692,16 @@ export class TextureManager implements TextureInspector {
       this.#rampPinnedRows.add(hit)
       return hit
     }
-    const row = this.#allocRampRow(forceSubmit)
-    if (row < 0) return -1
+    const row = this.#allocRampRow()
+    if (row < 0) {
+      if (!this.#rampExhaustedWarned) {
+        this.#rampExhaustedWarned = true
+        console.warn(
+          `GpuGfx: more than ${ATLAS_ROWS} distinct gradients in one frame, extra gradients draw as a solid color`,
+        )
+      }
+      return -1
+    }
     if (!this.#paintRampRow(row, stops)) return -1
     this.#rampRowsWritten++
     this.#rampRowByKey.set(key, row)
@@ -704,21 +709,20 @@ export class TextureManager implements TextureInspector {
     return row
   }
 
-  /** Ramp atlas rows actually painted since startup (an LRU touch doesn't count). */
+  /**
+   * Ramp atlas rows actually painted since startup (an LRU touch doesn't
+   * count).
+   */
   get rampRowsWritten(): number {
     return this.#rampRowsWritten
   }
 
   /**
-   * A free row, or the least-recently-touched unpinned row, recycled. If
-   * every row is pinned, forces a submit (which unpins them all) and retries
-   * once, which is always sufficient.
+   * A free row, or the least-recently-touched unpinned row, recycled. `-1` when
+   * every row is pinned.
    */
-  #allocRampRow(forceSubmit: () => void): number {
+  #allocRampRow(): number {
     if (this.#rampFreeRows.length > 0) return this.#rampFreeRows.pop() as number
-    const evicted = this.#evictLruRampRow()
-    if (evicted >= 0) return evicted
-    forceSubmit()
     return this.#evictLruRampRow()
   }
 
@@ -733,8 +737,8 @@ export class TextureManager implements TextureInspector {
   }
 
   /**
-   * Rasterize `stops` into a reused 256x1 scratch canvas and sub-upload it
-   * into atlas row `row`, allocating the atlas texture itself on first use.
+   * Rasterize `stops` into a reused 256x1 scratch canvas and sub-upload it into
+   * atlas row `row`, allocating the atlas texture itself on first use.
    */
   #paintRampRow(row: number, stops: readonly GfxGradientStop[]): boolean {
     if (!this.#rampRowCanvas) {
@@ -769,6 +773,14 @@ export class TextureManager implements TextureInspector {
         filter: 'linear',
         wrap: 'clamp',
       })
+      // Rows are painted one at a time, so zero the rest up front. Sampling a
+      // row that was never written would otherwise force a lazy clear.
+      if (typeof ImageData !== 'undefined') {
+        this.#device.updateTexture2D(
+          this.#rampAtlasTex,
+          new ImageData(GRADIENT_LUT_WIDTH, ATLAS_ROWS),
+        )
+      }
     }
     this.#device.updateTextureSubImage2D(
       this.#rampAtlasTex,
@@ -783,8 +795,7 @@ export class TextureManager implements TextureInspector {
   /**
    * Unpin every row touched this frame. Safe once the draw runs recorded
    * against this frame's slot have been replayed (after
-   * `GpuBatchContext.submitFrame`, including a mid-frame overflow submit, not
-   * only the final one), never before.
+   * `GpuBatchContext.submitFrame`), never before.
    */
   flushRampRowPins(): void {
     this.#rampPinnedRows.clear()
@@ -798,7 +809,7 @@ export class TextureManager implements TextureInspector {
    * uploads via the `updateTexture2D` path. Cached per mask instance and
    * dropped on context loss via `rebuild`.
    *
-   * Linear filter + clamp wrap: linear gives the fragment shader a smooth 0→1
+   * Linear filter + clamp wrap: linear gives the fragment shader a smooth 0->1
    * alpha ramp along the coast (bilinear coverage AA). Clamp maps out-of-bounds
    * UVs to the mask's zero-alpha border pixels so cells past the rect naturally
    * read as fully clipped.

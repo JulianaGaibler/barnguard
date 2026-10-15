@@ -63,7 +63,7 @@ export class EyeNode extends Node2D {
   /** 0..1, vertical scale on the outline. Scene tweens this on spawn. */
   openAmount = 0
   /**
-   * 0..1, the iris slide toward `lookAt`. Scene tweens 0 → 1 AFTER the lid
+   * 0..1, the iris slide toward `lookAt`. Scene tweens 0 -> 1 AFTER the lid
    * finishes opening so the pupil visibly drifts to focus.
    */
   irisFocusAmount = 0

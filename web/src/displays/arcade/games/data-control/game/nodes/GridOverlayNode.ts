@@ -146,7 +146,7 @@ export class GridOverlayNode extends Node2D {
     // variance pattern every reload, no `Math.random` footgun.
     for (let i = 0; i < this.#count; i++) {
       const h = ((i * 2654435761) >>> 0) / 4294967296
-      // h ∈ [0, 1) → variance factor ∈ [1 - VARIANCE_AMP, 1 + VARIANCE_AMP].
+      // h ∈ [0, 1) -> variance factor ∈ [1 - VARIANCE_AMP, 1 + VARIANCE_AMP].
       this.#varianceFactor[i] = 1 + (h * 2 - 1) * VARIANCE_AMP
     }
 
@@ -370,7 +370,7 @@ export class GridOverlayNode extends Node2D {
       for (let i = 0; i < n; i++) {
         const localT = elapsed - startTime - delay[i]
         if (localT < 0 || localT > totalLife) continue
-        // Triangular envelope: 0 → amp over `rise`, then amp → 0 over `fall`.
+        // Triangular envelope: 0 -> amp over `rise`, then amp -> 0 over `fall`.
         const value =
           localT < rise
             ? (localT / rise) * amp

@@ -6,7 +6,7 @@
  * what differs, and no `var(--color-*)` is ever undefined.
  *
  * Keys are camelCase and map to kebab-case CSS variables (e.g. `textSecondary`
- * → `--color-text-secondary`, `shadowCard` → `--color-shadow-card`).
+ * -> `--color-text-secondary`, `shadowCard` -> `--color-shadow-card`).
  */
 export interface ThemePalette {
   /** App background behind everything. */
@@ -90,9 +90,9 @@ export interface ThemeFonts {
  * (`import x from '…?url'`), never a path string.
  */
 export interface ThemeAssets {
-  /** Primary logo shown top-left (falsy → not rendered). */
+  /** Primary logo shown top-left (falsy -> not rendered). */
   topBarPrimary?: string
-  /** Secondary logo shown top-right (falsy → not rendered). */
+  /** Secondary logo shown top-right (falsy -> not rendered). */
   topBarSecondary?: string
 }
 

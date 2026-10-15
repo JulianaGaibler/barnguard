@@ -21,15 +21,15 @@ There are two hops with different communication styles:
   │                │◀═══ SSE ═══════│  Worker task (1)       │──poll────▶│         │
   │ (printerLive)  │  push: status, │  owns Box<dyn Backend> │◀─resp─────│         │
   └────────────────┘  job, queue    └───────────────────────┘           └─────────┘
-        ▲  PUSH  (daemon → browser)          POLL  (daemon → printer)  ▲
+        ▲  PUSH  (daemon -> browser)          POLL  (daemon -> printer)  ▲
 ```
 
-Daemon → browser is push (SSE). The daemon broadcasts `status`, `job`, and
+Daemon -> browser is push (SSE). The daemon broadcasts `status`, `job`, and
 `queue` events the instant it has something new.
 
-Daemon → printer is poll (request/response). The printer never calls back;
+Daemon -> printer is poll (request/response). The printer never calls back;
 the daemon only learns its state by asking (`get_status`). State the daemon
-drives itself (a job going `printing → cutting → done`) is pushed instantly;
+drives itself (a job going `printing -> cutting -> done`) is pushed instantly;
 externally-changed state (printer asleep, out of media) is discovered on the
 next poll and then pushed.
 
@@ -70,20 +70,20 @@ by the hardware:
 
 ```
 Queued
-  → get_status()            pre-flight: NoMedia → fail fast (don't send bytes);
-                            AwaitingRemoval → wait until the old label is pulled
-  → send <print> + JPEG     ack "ready to receive" → stream exactly datasize bytes
-                            → ack "print data received"
-  → state = Printing
-  → CLOSE the TCP socket    ★ this is what triggers the physical cut
-  → state = Cutting
-  → sleep(cut_wait_ms)      let the cut cycle begin
-  → reconnect
-  → poll get_status() until Idle           (every poll_interval_ms)
-       · AwaitingRemoval → hold (no timeout, waits on a human), then Done
-       · idle_timeout    → Done + warning "idle_timeout" (label almost certainly
+  -> get_status()            pre-flight: NoMedia -> fail fast (don't send bytes);
+                            AwaitingRemoval -> wait until the old label is pulled
+  -> send <print> + JPEG     ack "ready to receive" -> stream exactly datasize bytes
+                            -> ack "print data received"
+  -> state = Printing
+  -> CLOSE the TCP socket    ★ this is what triggers the physical cut
+  -> state = Cutting
+  -> sleep(cut_wait_ms)      let the cut cycle begin
+  -> reconnect
+  -> poll get_status() until Idle           (every poll_interval_ms)
+       · AwaitingRemoval -> hold (no timeout, waits on a human), then Done
+       · idle_timeout    -> Done + warning "idle_timeout" (label almost certainly
                            printed; NOT retried, to avoid a duplicate)
-  → Done
+  -> Done
 ```
 
 Quirks handled here:
@@ -103,12 +103,12 @@ Quirks handled here:
 
 ### Retry policy
 
-- `NoMedia` / `NotReady` → terminal (`failed`), no retry.
-- `Timeout` / `Disconnected` mid-sequence → retry the whole job at most
+- `NoMedia` / `NotReady` -> terminal (`failed`), no retry.
+- `Timeout` / `Disconnected` mid-sequence -> retry the whole job at most
   `max_retries` times (default 1). Capped low on purpose: a failure after
   "print data received" may mean the label already printed, so aggressive
   retry risks duplicates.
-- Post-send `idle_timeout` → `done` with a `warning`, not a retry.
+- Post-send `idle_timeout` -> `done` with a `warning`, not a retry.
 
 ## Status polling: adaptive cadence, keep-alive, reconnect
 
@@ -176,17 +176,17 @@ All routes are under `/api/printer`. JSON responses; the print body is raw
 
 | Method | Path | Notes |
 |---|---|---|
-| POST | `/print` | body = raw JPEG; meta via query: `stateId`, `score`, `highScore`, `source`. → `202 { jobId, state, queuePosition }` |
+| POST | `/print` | body = raw JPEG; meta via query: `stateId`, `score`, `highScore`, `source`. -> `202 { jobId, state, queuePosition }` |
 | GET  | `/status` | `{ printer: PrinterStatus, queueLength, active: PrintJob\|null }` |
 | GET  | `/queue` | `{ active, pending[], recent[] }` |
 | GET  | `/jobs/{id}` | one `PrintJob` (404 if unknown) |
-| POST | `/jobs/{id}/cancel` | cancels a queued job; `409` if already printing |
+| POST | `/jobs/{id}/cancel` | cancels a queued job; for the active job, `202` and the worker abandons it (what the printer already received may still print) |
 | POST | `/jobs/{id}/reprint` | re-enqueues the retained bytes as a new job; `410` if evicted |
-| POST | `/queue/clear` | drops all queued jobs → `{ cleared }` |
+| POST | `/queue/clear` | drops all queued jobs -> `{ cleared }` |
 | POST | `/reconnect` | nudge an immediate printer poll (manual retry) |
 | GET  | `/events` | SSE stream (see below) |
 | POST | `/debug/mock` | mock backend only; `{ forceNoMedia?, forceAwaitingRemoval?, clearAwaitingRemoval?, forceUnreachable? }` |
-| GET  | `/healthz` | liveness → `ok` |
+| GET  | `/healthz` | liveness -> `ok` |
 
 ### SSE events (`GET /events`)
 
@@ -250,7 +250,7 @@ for the full annotated set.
 | `print.img_width` / `.img_height` | `0` / `0` | `0` ⇒ printer autofit (the web app sizes the JPEG). |
 | `timing.cut_wait_ms` | 3000 | Wait after socket close (cut) before reconnecting. |
 | `timing.poll_interval_ms` | 2500 | In-job poll rate while waiting for idle. |
-| `timing.idle_timeout_ms` | 30000 | Give up waiting for idle after a print (→ done+warning). |
+| `timing.idle_timeout_ms` | 30000 | Give up waiting for idle after a print (-> done+warning). |
 | `timing.keepalive_interval_ms` | 30000 | Slow idle poll (anti-sleep). |
 | `timing.active_interval_ms` | 3000 | Fast idle poll while active. |
 | `timing.active_linger_ms` | 30000 | Stay fast this long after the last job. |
@@ -272,7 +272,7 @@ curl localhost:9110/api/printer/status
 
 Run the web app (`npm --prefix web run dev`) in another terminal. The Vite
 dev proxy forwards `/api/printer/*` to `localhost:9110`. Open the booth menu
-(double-tap a top corner) → **Printer** to see the live panel.
+(double-tap a top corner) -> **Printer** to see the live panel.
 
 ### Kiosk (real printer)
 
@@ -283,15 +283,15 @@ kiosk and restarts on crash:
 
 ```sh
 cargo build --release -p printer-daemon --features embed-web
-# → ./target/release/barnguard-server
+# -> ./target/release/barnguard-server
 ```
 
 ## Tests & checks
 
 ```sh
 cargo test -p printer-daemon    # queue lifecycle (mock-driven): print, no-media,
-                                # awaiting-removal, reprint, history cap,
-                                # unreachable→recover.
+                                # awaiting-removal, active cancel, reprint,
+                                # history cap, unreachable->recover.
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 ```

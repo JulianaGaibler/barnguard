@@ -19,7 +19,7 @@ import type { DemoFn } from './types'
 //     BELOW it. This is the Y-flip check: run `?gfx=webgpu` and confirm the disc
 //     sits under the box (not offset above/to the side). A mirrored AO buffer on
 //     one backend puts it on the wrong side, invert the generate-flip if so.
-// Toggle AO in the debug HUD (Rendering → 3D → Ambient occlusion) to A/B it, and
+// Toggle AO in the debug HUD (Rendering -> 3D -> Ambient occlusion) to A/B it, and
 // crank intensity/radius there. Force the backend with `?gfx=webgpu`.
 
 const WHITE: [number, number, number, number] = [0.82, 0.82, 0.8, 1]
@@ -86,7 +86,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
     box(1, 1, 1, 2, 0.5, -5)
     box(1, 1, 1, 2, 1.5, -5)
 
-    // Boxes with shrinking gaps: 0.4 → 0.2 → 0.05. AO deepens as they close.
+    // Boxes with shrinking gaps: 0.4 -> 0.2 -> 0.05. AO deepens as they close.
     box(1, 1, 1, -1, 0.5, -5)
     box(1, 1, 1, -2.4, 0.5, -5) // gap 0.4
     box(1, 1, 1, -3.6, 0.5, -5) // gap 0.2

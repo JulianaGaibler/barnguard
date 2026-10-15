@@ -18,7 +18,7 @@
   interface Props {
     /** True while a game is mounted, gates the gesture + rendering. */
     active: boolean
-    /** Confirmed → hand control back to the arcade (return to launcher). */
+    /** Confirmed -> hand control back to the arcade (return to launcher). */
     onConfirm: () => void
   }
   const { active, onConfirm }: Props = $props()

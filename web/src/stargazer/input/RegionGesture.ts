@@ -51,7 +51,7 @@ export interface RegionGestureOptions {
  *     down: (e) => beginPreview(e),
  *     move: (e) => movePreview(e),
  *     up: (e) => commitDrop(e),
- *     onReject: () => pause(), // tap outside the board → menu
+ *     onReject: () => pause(), // tap outside the board -> menu
  *   })
  */
 export function bindRegionGesture(

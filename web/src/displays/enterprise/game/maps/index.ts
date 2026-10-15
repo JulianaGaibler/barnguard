@@ -12,7 +12,14 @@ import type { MapDescriptor } from './types'
  * The map a bare `?display=enterprise` boots. Kiosks are configured with a URL
  * that predates `?map=`, so a missing parameter has to keep working.
  */
-export const DEFAULT_MAP_ID = 'de'
+export const DEFAULT_MAP_ID = 'eu'
+
+/**
+ * The map a record without a `mapId` belongs to. Records written before maps
+ * existed were all German rounds, and the server attributes them the same way,
+ * so this stays fixed when the default above changes.
+ */
+export const LEGACY_MAP_ID = 'de'
 
 const MAP_LOADERS: Record<string, () => Promise<MapDescriptor>> = {
   de: () => import('./de').then((m) => m.loadGermanyMap()),

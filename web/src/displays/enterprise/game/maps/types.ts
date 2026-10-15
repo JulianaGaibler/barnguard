@@ -51,8 +51,8 @@ export interface RegionInfo {
 export interface MapGeometry {
   /**
    * The landmass, rasterized from every region merged into one shape. Used for
-   * spawn rejection sampling and to filter the grid overlay's cells, never as
-   * the failure boundary (see `MapDescriptor.playAreaMask`).
+   * spawn rejection sampling, never as the failure boundary (see
+   * `MapDescriptor.playAreaMask`).
    */
   landMask: BitmapMask
 }
@@ -90,8 +90,29 @@ export interface MapDescriptor {
    * sideways while the top and bottom turn it back.
    */
   playAreaMask(ctx: PlayAreaContext): PacketMask
+  /**
+   * Whether the splash's self-playing round is lost at the play-area boundary
+   * as well as by a collision. True where the boundary is a real edge of the
+   * map, such as Germany's coastline. False where it is only the edge of the
+   * screen, as on Europe, since a packet lost there would end a round at
+   * nothing the player can see.
+   */
+  previewLostAtBorder: boolean
+  /**
+   * Whether the screen's left and right edges are where a packet is lost, so
+   * the playing screen marks them. True on Europe. False where the loss line is
+   * a coastline the map already draws.
+   */
+  edgesAreFailLine: boolean
   /** Grid overlay cell size in map units, scaled to the map's own extent. */
   gridCellWorld: number
+  /**
+   * Outline the grid overlay's dots are limited to, or `null` for a grid over
+   * the whole map. A map whose coastline decides play draws the dots on land
+   * only. A map where play ends at the screen's edges draws them across the
+   * playing field, since its coastline is not a boundary.
+   */
+  gridMask: BitmapMask | null
   /**
    * Neighbour graph driving the selection ripple's BFS order. Optional: a map
    * without one ripples outward by distance from the selected region instead,

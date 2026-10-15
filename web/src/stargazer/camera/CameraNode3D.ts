@@ -161,7 +161,7 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     }
     this.#cachedWorldGen = this.#worldGen
     this.#cachedProjGen = this.#projGen
-    // View = inverse of the node's world pose (world→camera).
+    // View = inverse of the node's world pose (world->camera).
     mat4Invert(this.#view, this.worldMatrix)
     mat4Multiply(this.#viewProj, this.#proj.projection, this.#view)
     mat4Invert(this.#invViewProj, this.#viewProj)
@@ -172,7 +172,7 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     return this.#proj.projection
   }
 
-  /** Inverse of {@link CameraNode3D.projection} (clip → view). */
+  /** Inverse of {@link CameraNode3D.projection} (clip -> view). */
   get invProjection(): Mat4 {
     // Projection is view-independent, so it delegates straight to the helper.
     return this.#proj.invProjection
@@ -184,13 +184,13 @@ export class CameraNode3D extends Node3D implements CameraView3D {
     return this.#view
   }
 
-  /** Combined `projection × view` (world → clip). */
+  /** Combined `projection × view` (world -> clip). */
   get viewProjection(): Mat4 {
     this.#ensureMatrices()
     return this.#viewProj
   }
 
-  /** Inverse of {@link CameraNode3D.viewProjection} (clip → world). */
+  /** Inverse of {@link CameraNode3D.viewProjection} (clip -> world). */
   get invViewProjection(): Mat4 {
     this.#ensureMatrices()
     return this.#invViewProj

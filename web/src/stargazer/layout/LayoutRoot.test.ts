@@ -50,7 +50,7 @@ describe('LayoutRoot', () => {
     // Grow the camera, but the root only reflows when told to.
     camera.setViewport({ x: 0, y: 0, width: 300, height: 300 })
     camera.setPixelSize(300, 300)
-    root._runIfDirty() // still clean → no-op
+    root._runIfDirty() // still clean -> no-op
     expect(child.measuredSize).toEqual({ w: 200, h: 200 })
 
     root.requestLayout()

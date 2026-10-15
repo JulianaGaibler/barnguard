@@ -64,7 +64,14 @@ export type {
   GfxStrokeStyle,
   GfxTextStyle,
   GfxGradientStop,
+  GfxMatteMode,
+  GfxOffscreenHandle,
+  GfxOffscreenOptions,
 } from '../render/gfx/Gfx2D'
+export { GfxPath } from '../render/gfx/GfxPath'
+export { addOffscreenDemand } from '../render/gfx/offscreenDemand'
+export type { FlatPath } from '../render/gfx/GfxPath'
+export type { FillRule } from '../render/gfx/stencilRecipe'
 export { resolveRadii } from '../render/gfx/roundRectRadii'
 export type {
   RoundRectRadii,

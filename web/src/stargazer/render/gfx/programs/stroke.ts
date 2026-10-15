@@ -8,7 +8,6 @@ import type {
   BindGroupLayout,
   GfxDevice,
   Pipeline,
-  StencilState,
   VertexBufferLayout,
 } from '../GfxDevice'
 import type { SolidStrokeStyle } from '../Gfx2D'
@@ -28,6 +27,7 @@ import {
 } from '../batchLayout'
 import type { DrawRun, GpuBatchContext } from '../GpuBatchContext'
 import type { GpuProgram } from '../GpuProgram'
+import { STENCIL_ROWS, stencilReferenceFor } from '../stencilRecipe'
 import {
   drawInstancedRun,
   unitQuadLayout,
@@ -38,26 +38,6 @@ import strokeWgsl from '../shaders/stroke.wgsl?raw'
 import strokeVertSrc from '../shaders/stroke.gen.vert.glsl?raw'
 import strokeFragSrc from '../shaders/stroke.gen.frag.glsl?raw'
 import strokeReflect from '../shaders/stroke.reflect.json'
-
-/**
- * Paint each covered pixel exactly once. The first fragment passes the `equal
- * 0` test and bumps the bits to 1, and every later fragment over the same pixel
- * fails it. That is what stops a segment's round cap and its neighbour's body
- * from compositing twice at a shared vertex.
- */
-const STENCIL_DRAW: StencilState = {
-  front: { compare: 'equal', passOp: 'increment-clamp' },
-  reference: 0,
-}
-
-/**
- * Zero the bits again, over the same geometry, so the next stroke starts from a
- * clean buffer. Colour writes are off, so this only touches the stencil.
- */
-const STENCIL_RESET: StencilState = {
-  front: { compare: 'always', passOp: 'zero' },
-  reference: 0,
-}
 
 /** One `f32` plus padding to the 16-byte uniform block alignment. */
 const STROKE_UBO_BYTES = 16
@@ -142,8 +122,12 @@ export class StrokeProgram implements GpuProgram {
       // Only worth building where a stencil buffer exists to use them.
       variants: ctx.targetHasStencil
         ? [
-            { suffix: 'draw', stencil: STENCIL_DRAW },
-            { suffix: 'reset', stencil: STENCIL_RESET, colorWrite: false },
+            { suffix: 'draw', stencil: STENCIL_ROWS.strokeMark.state },
+            {
+              suffix: 'reset',
+              stencil: STENCIL_ROWS.strokeReset.state,
+              colorWrite: false,
+            },
           ]
         : [],
     })
@@ -167,6 +151,12 @@ export class StrokeProgram implements GpuProgram {
       run,
       run.strokePass === 'core' ? this.#coreBind : this.#fringeBind,
       variant,
+      run.strokePass === undefined
+        ? undefined
+        : stencilReferenceFor(
+            run.strokePass === 'reset' ? 'strokeReset' : 'strokeMark',
+            run.stencilDepth ?? 0,
+          ),
     )
   }
 

@@ -28,7 +28,7 @@ export interface RadialDef {
 }
 
 export interface SkyPalette {
-  /** Sky linear gradient endpoints (top-left → bottom-right of the world). */
+  /** Sky linear gradient endpoints (top-left -> bottom-right of the world). */
   skyTop: Rgba
   skyBottom: Rgba
   /** Ocean base fill + horizon glow (radial, bright at the waterline). */

@@ -16,9 +16,9 @@ import { TUNING } from '../data/tuning'
 export type PacketMode = 'growing' | 'travelling' | 'captured' | 'lost'
 
 /**
- * Minimum surface `PacketBehavior` needs from a mask. Both the game's
- * `BitmapMask` (Germany outline) and the tutorial's `RectMask` (viewport AABB)
- * satisfy this, structural typing lets us swap them freely.
+ * Minimum surface `PacketBehavior` needs from a mask. The game's `BitmapMask`
+ * (a coastline) and the Europe viewport band both satisfy this, structural
+ * typing lets us swap them freely.
  */
 export interface PacketMask {
   contains(x: number, y: number, inset: number): boolean
@@ -40,8 +40,8 @@ export interface PacketSessionHooks {
    */
   gameViewport(): Rect
   /**
-   * Boundary of the play area. Germany outline in-game, viewport in the
-   * tutorial.
+   * Boundary of the play area. A coastline on the German map, the view's left
+   * and right edges on Europe.
    */
   mask(): PacketMask
   /**
@@ -75,15 +75,6 @@ export class PacketBehavior extends Behavior {
   #motionTrail: PacketMotionTrailNode | null = null
   #hexParticles: ParticleEmitterNode | null = null
   /**
-   * When false, the packet does not accelerate toward `travelSpeed` on its own,
-   * it moves only when steered by a bound trail, and settles back to v=0
-   * whenever the trail is absent or drained. Used by the tutorial mini-stage
-   * where the packet should sit still until the player draws a path. Main game
-   * always uses `true` (the default), so autonomous spawn drift stays
-   * unchanged.
-   */
-  readonly #autonomousDrift: boolean
-  /**
    * Reused tuple written each fixed step into the hex emitter's
    * `config.speedWorld`, pre-allocated so mutating the range doesn't churn the
    * GC at 120 Hz.
@@ -94,21 +85,14 @@ export class PacketBehavior extends Behavior {
     session: PacketSessionHooks,
     initialHeadingRad: number,
     travelSpeed: number,
-    opts: { autonomousDrift?: boolean } = {},
   ) {
     super()
     this.#session = session
     this.#targetSpeed = travelSpeed
-    this.#autonomousDrift = opts.autonomousDrift ?? true
-    if (this.#autonomousDrift) {
-      // Store initial heading with unit magnitude, approachTargetSpeed will
-      // grow this to `travelSpeed` once the growth animation completes.
-      this.#velocity.x = Math.cos(initialHeadingRad)
-      this.#velocity.y = Math.sin(initialHeadingRad)
-    }
-    // else: velocity stays (0, 0) so the packet doesn't drift without a
-    // trail. steerAlongTrail's `magnitude(v) || targetSpeed` fallback picks
-    // targetSpeed when the first waypoint is consumed.
+    // Store initial heading with unit magnitude, approachTargetSpeed will
+    // grow this to `travelSpeed` once the growth animation completes.
+    this.#velocity.x = Math.cos(initialHeadingRad)
+    this.#velocity.y = Math.sin(initialHeadingRad)
   }
 
   /** Called by the SpawnController after the grow tween settles. */
@@ -180,10 +164,6 @@ export class PacketBehavior extends Behavior {
 
     // 2) Ensure velocity magnitude is at the target speed. Simple lerp toward
     //    target magnitude, accelToSpeedSec controls the approach.
-    //    Non-autonomous packets (tutorial) start at v=0, and approachTargetSpeed
-    //    early-returns while `magnitude < 1e-4`, so they only begin drifting
-    //    once `steerAlongTrail` sets a nonzero velocity from the first drawn
-    //    trail point. From that moment on, the packet is fully autonomous.
     approachTargetSpeed(this.#velocity, this.#targetSpeed, fdt)
 
     // 3) Integrate position.

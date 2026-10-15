@@ -12,7 +12,7 @@ describe('Node2D world/local coordinate mapping', () => {
     // local (0,0) sits at the node's world translation.
     expect(node.localToWorld(0, 0)).toEqual({ x: 96, y: 54 })
 
-    // world → local inverts the scale + translate.
+    // world -> local inverts the scale + translate.
     const local = node.worldToLocal(96 + 0.9 * 100, 54 + 0.9 * 200)
     expect(local.x).toBeCloseTo(100, 6)
     expect(local.y).toBeCloseTo(200, 6)
@@ -33,7 +33,7 @@ describe('Node2D world/local coordinate mapping', () => {
     child.transform.scaleY = 0.5
     parent.add(child)
 
-    // child local 0 → child world 96 → +parent 1080 = 1176.
+    // child local 0 -> child world 96 -> +parent 1080 = 1176.
     expect(child.localToWorld(0, 0).x).toBeCloseTo(1176, 6)
     expect(child.worldToLocal(1176, 0).x).toBeCloseTo(0, 6)
   })

@@ -10,7 +10,7 @@
  *
  * - `antialias: false`, we own AA (shader-distance / offscreen MSAA).
  * - Premultiplied alpha end-to-end so the compositor doesn't double-multiply.
- * - `UNPACK_COLORSPACE_CONVERSION_WEBGL = NONE` guards against silent sRGB→linear
+ * - `UNPACK_COLORSPACE_CONVERSION_WEBGL = NONE` guards against silent sRGB->linear
  *   on `ImageBitmap` / `HTMLImageElement` upload.
  *
  * Binding-number convention: `@binding` numbers are treated as globally unique
@@ -47,6 +47,7 @@ import type {
   Pipeline,
   PipelineDesc,
   RenderPassDesc,
+  ScissorRect,
   RenderTarget,
   RenderTargetOpts,
   ShaderModule,
@@ -74,7 +75,7 @@ import {
 interface WebGL2Shader extends ShaderModule {
   gl: WebGLProgram
   /**
-   * Sampler binding → GL sampler uniform name, wired to unit === binding at
+   * Sampler binding -> GL sampler uniform name, wired to unit === binding at
    * link.
    */
   samplerBindings: { binding: number; glslName: string }[]
@@ -200,7 +201,7 @@ interface FormatInfo {
 }
 
 /**
- * `TargetPixelFormat` → the GL internal/upload format triple `texImage2D`
+ * `TargetPixelFormat` -> the GL internal/upload format triple `texImage2D`
  * needs. `srgb` only has an effect for `'rgba8'`: a mask has no color space to
  * convert.
  */
@@ -251,6 +252,10 @@ export class WebGL2Device implements GfxDevice {
   #curStencilTest = false
   /** Serialized front/back func + op, so one compare covers the whole state. */
   #curStencilState: string | null = null
+  /** Scissor currently enabled in GL, as `x,y,w,h` in GL (bottom-up) pixels. */
+  #curScissor: string | null = null
+  /** Height of the open pass's target, for the scissor's Y flip. */
+  #passH = 0
   #curStencilWriteMask = 0xff
   #curColorWrite = true
   #boundTex: (WebGLTexture | null)[] = []
@@ -269,6 +274,10 @@ export class WebGL2Device implements GfxDevice {
   #passColor: {
     target: WebGL2RenderTarget
     resolveTarget?: WebGL2RenderTarget
+    /** MSAA color is not read after the pass, so it can be invalidated. */
+    discardColor: boolean
+    /** Stencil-only attachment whose contents die with the pass. */
+    discardStencil: boolean
   } | null = null
 
   readonly deviceStats: DeviceStats = {
@@ -298,7 +307,7 @@ export class WebGL2Device implements GfxDevice {
   #warnedMaxTextureClamp = false
   #warnedMaxSamplesClamp = false
 
-  /** Pipeline memoization: descriptor key → pipeline. */
+  /** Pipeline memoization: descriptor key -> pipeline. */
   readonly #pipelineCache = new Map<string, WebGL2Pipeline>()
 
   constructor(canvas: HTMLCanvasElement) {
@@ -456,7 +465,7 @@ export class WebGL2Device implements GfxDevice {
         )
       }
     }
-    // Sampler → unit is fixed by the layout (unit === binding), so set it once
+    // Sampler -> unit is fixed by the layout (unit === binding), so set it once
     // here. Draws only bind textures to those units afterwards.
     const prevProgram = this.#curProgram
     gl.useProgram(program)
@@ -646,13 +655,6 @@ export class WebGL2Device implements GfxDevice {
     this.#gl.deleteBuffer(b.gl)
   }
 
-  orphanBuffer(buf: VBuffer): void {
-    const gl = this.#gl
-    const b = buf as WebGL2Buffer
-    this.#bindArrayBuffer(b.gl)
-    gl.bufferData(gl.ARRAY_BUFFER, b.byteSize, gl.DYNAMIC_DRAW)
-  }
-
   // --- uniform buffers ------------------------------------------------------
 
   createUniformBuffer(byteSize: number): UBuffer {
@@ -681,14 +683,6 @@ export class WebGL2Device implements GfxDevice {
     const b = buf as WebGL2UniformBuffer
     gl.bindBuffer(gl.UNIFORM_BUFFER, b.gl)
     gl.bufferSubData(gl.UNIFORM_BUFFER, byteOffset, data)
-    gl.bindBuffer(gl.UNIFORM_BUFFER, null)
-  }
-
-  orphanUniformBuffer(buf: UBuffer): void {
-    const gl = this.#gl
-    const b = buf as WebGL2UniformBuffer
-    gl.bindBuffer(gl.UNIFORM_BUFFER, b.gl)
-    gl.bufferData(gl.UNIFORM_BUFFER, b.byteSize, gl.DYNAMIC_DRAW)
     gl.bindBuffer(gl.UNIFORM_BUFFER, null)
   }
 
@@ -766,7 +760,11 @@ export class WebGL2Device implements GfxDevice {
     const srgb = opts.srgb ?? false
     const mipmap = opts.mipmap ?? false
     const pixelFormat = opts.pixelFormat ?? 'rgba8'
-    const { internalFormat, format, type } = pixelFormatGl(gl, pixelFormat, srgb)
+    const { internalFormat, format, type } = pixelFormatGl(
+      gl,
+      pixelFormat,
+      srgb,
+    )
     gl.bindTexture(gl.TEXTURE_2D, tex)
     gl.texImage2D(
       gl.TEXTURE_2D,
@@ -935,6 +933,10 @@ export class WebGL2Device implements GfxDevice {
     const [clampedW, clampedH] = this.#clampTextureDim(opts.width, opts.height)
 
     let rt: WebGL2RenderTarget
+    // A target can be created while a pass is open, because recording a frame
+    // acquires offscreen surfaces after the main pass began. Setup rebinds the
+    // framebuffer, so the pass's binding is put back afterwards.
+    const previousFbo = this.#curFbo
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo)
     this.#curFbo = fbo
     if (samples > 1) {
@@ -1055,8 +1057,8 @@ export class WebGL2Device implements GfxDevice {
       rt.depthRbFormat = format
     }
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    this.#curFbo = null
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFbo)
+    this.#curFbo = previousFbo
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
       this.deleteRenderTarget(rt)
       throw new Error(
@@ -1345,6 +1347,8 @@ export class WebGL2Device implements GfxDevice {
       gl.drawBuffers([gl.NONE])
       gl.readBuffer(gl.NONE)
       gl.viewport(0, 0, size, size)
+      this.#passH = size
+      this.#setScissor(undefined)
       if ((desc.depth?.loadOp ?? 'clear') === 'clear') {
         this.setDepthWrite(true)
         gl.clearDepth(desc.depth?.clearValue ?? 1.0)
@@ -1369,6 +1373,8 @@ export class WebGL2Device implements GfxDevice {
     // A color FBO created with drawBuffers NONE (reused shadow FBO) is not our
     // case here. Color targets carry COLOR_ATTACHMENT0 as the draw buffer.
     gl.viewport(0, 0, target.width, target.height)
+    this.#passH = target.height
+    this.#setScissor(undefined)
     let mask = 0
     if (color.loadOp === 'clear') {
       const c = color.clearColor ?? [0, 0, 0, 0]
@@ -1389,44 +1395,66 @@ export class WebGL2Device implements GfxDevice {
       gl.clearStencil(desc.stencil.clearValue ?? 0)
       mask |= gl.STENCIL_BUFFER_BIT
     }
-    if (mask !== 0) gl.clear(mask)
+    if (mask !== 0) {
+      // `gl.clear` honours the color write mask the same way it honours the
+      // stencil one, so a pipeline's narrower mask would skip channels.
+      this.#setColorWrite(true)
+      gl.clear(mask)
+    }
     this.#passColor = {
       target,
       resolveTarget: color.resolveTarget as WebGL2RenderTarget | undefined,
+      discardColor: color.storeOp === 'discard',
+      discardStencil:
+        desc.stencil?.storeOp === 'discard' &&
+        target.hasStencil &&
+        !target.hasDepth,
     }
   }
 
   endRenderPass(): void {
     const pass = this.#passColor
     this.#passColor = null
-    if (!pass || !pass.resolveTarget) return
-    // Resolve the MSAA color into the single-sample resolve target.
+    if (!pass) return
     const gl = this.#gl
     const s = pass.target
     const d = pass.resolveTarget
-    // A multisample resolve blit forbids scaling: source and resolve bounds must
-    // match (the caller allocates the resolve target at the source's size).
-    if (s.width !== d.width || s.height !== d.height) {
-      throw new Error(
-        `WebGL2Device.endRenderPass: resolve target ${d.width}×${d.height} must match source ${s.width}×${s.height}`,
+    this.#setScissor(undefined)
+    if (d) {
+      // A multisample resolve blit forbids scaling: source and resolve bounds
+      // must match (the caller allocates the resolve target at the source's
+      // size).
+      if (s.width !== d.width || s.height !== d.height) {
+        throw new Error(
+          `WebGL2Device.endRenderPass: resolve target ${d.width}×${d.height} must match source ${s.width}×${s.height}`,
+        )
+      }
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, s.fbo)
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, d.fbo)
+      gl.blitFramebuffer(
+        0,
+        0,
+        s.width,
+        s.height,
+        0,
+        0,
+        d.width,
+        d.height,
+        gl.COLOR_BUFFER_BIT,
+        gl.NEAREST,
       )
     }
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, s.fbo)
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, d.fbo)
-    gl.blitFramebuffer(
-      0,
-      0,
-      s.width,
-      s.height,
-      0,
-      0,
-      d.width,
-      d.height,
-      gl.COLOR_BUFFER_BIT,
-      gl.NEAREST,
-    )
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
-    this.#curFbo = null
+    const invalidate: number[] = []
+    if (pass.discardColor) invalidate.push(gl.COLOR_ATTACHMENT0)
+    if (pass.discardStencil) invalidate.push(gl.STENCIL_ATTACHMENT)
+    if (invalidate.length > 0) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, s.fbo)
+      gl.invalidateFramebuffer(gl.FRAMEBUFFER, invalidate)
+    }
+    if (d || invalidate.length > 0) {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+      this.#curFbo = null
+    }
   }
 
   endFrame(): void {
@@ -1438,7 +1466,8 @@ export class WebGL2Device implements GfxDevice {
   draw(call: DrawCall): void {
     const gl = this.#gl
     const p = call.pipeline as WebGL2Pipeline
-    this.#applyPipeline(p)
+    this.#applyPipeline(p, call.stencilReference)
+    this.#setScissor(call.scissor)
     const vao = this.#vaoFor(p, call)
     this.#bindVao(vao)
     this.#repointVertexOffsets(p, vao, call)
@@ -1469,7 +1498,7 @@ export class WebGL2Device implements GfxDevice {
     }
   }
 
-  #applyPipeline(p: WebGL2Pipeline): void {
+  #applyPipeline(p: WebGL2Pipeline, stencilReference?: number): void {
     if (this.#curProgram !== p.shader.gl) {
       this.#gl.useProgram(p.shader.gl)
       this.#curProgram = p.shader.gl
@@ -1485,7 +1514,7 @@ export class WebGL2Device implements GfxDevice {
     // would silently reject fragments of every later draw.
     if (p.stencil) {
       this.#setStencilTest(true)
-      this.#setStencilState(p.stencil)
+      this.#setStencilState(p.stencil, stencilReference)
       this.#setStencilWriteMask(p.stencil.writeMask ?? 0xff)
     } else {
       this.#setStencilTest(false)
@@ -1671,6 +1700,7 @@ export class WebGL2Device implements GfxDevice {
     opts: BlitOpts = {},
   ): void {
     const gl = this.#gl
+    this.#setScissor(undefined)
     const r = source as WebGL2RenderTarget
     // A multisample source resolve via blitFramebuffer requires NEAREST and
     // identical bounds. Single-sample allows LINEAR scaling.
@@ -1715,8 +1745,27 @@ export class WebGL2Device implements GfxDevice {
           gl.ONE,
           gl.ONE_MINUS_SRC_ALPHA,
         )
-      } else {
+      } else if (mode === 'lighter') {
         gl.blendFunc(gl.ONE, gl.ONE)
+      } else {
+        // Factors of the other fixed-function blends, see `BLEND_FACTORS` in
+        // `webgpu/conv.ts`.
+        const f = (n: string): number =>
+          n === 'one'
+            ? gl.ONE
+            : n === 'zero'
+              ? gl.ZERO
+              : n === 'dst'
+                ? gl.DST_COLOR
+                : n === 'one-minus-src'
+                  ? gl.ONE_MINUS_SRC_COLOR
+                  : n === 'one-minus-src-alpha'
+                    ? gl.ONE_MINUS_SRC_ALPHA
+                    : n === 'src-alpha'
+                      ? gl.SRC_ALPHA
+                      : gl.ONE_MINUS_DST_ALPHA
+        const fac = GL_BLEND_FACTORS[mode as keyof typeof GL_BLEND_FACTORS]
+        gl.blendFunc(f(fac[0]), f(fac[1]))
       }
     }
     this.#curBlend = mode
@@ -1747,6 +1796,33 @@ export class WebGL2Device implements GfxDevice {
     this.#curDepthFunc = compare
   }
 
+  /**
+   * Enable the scissor for a rectangle in top-left target pixels, or disable it
+   * for `undefined`. GL's scissor origin is bottom-left, so Y flips against the
+   * pass target's height. `gl.clear` and blits honour the scissor, so passes
+   * and resolves call this with `undefined` first.
+   */
+  #setScissor(rect: ScissorRect | undefined): void {
+    const gl = this.#gl
+    if (!rect) {
+      if (this.#curScissor === null) return
+      gl.disable(gl.SCISSOR_TEST)
+      this.#curScissor = null
+      return
+    }
+    const h = this.#passH
+    const x = Math.max(0, Math.floor(rect.x))
+    const top = Math.max(0, Math.floor(rect.y))
+    const w = Math.max(0, Math.ceil(rect.x + rect.w) - x)
+    const rows = Math.max(0, Math.ceil(rect.y + rect.h) - top)
+    const y = Math.max(0, h - top - rows)
+    const key = `${x},${y},${w},${rows}`
+    if (this.#curScissor === key) return
+    if (this.#curScissor === null) gl.enable(gl.SCISSOR_TEST)
+    gl.scissor(x, y, w, rows)
+    this.#curScissor = key
+  }
+
   #setStencilTest(enabled: boolean): void {
     if (this.#curStencilTest === enabled) return
     const gl = this.#gl
@@ -1756,11 +1832,11 @@ export class WebGL2Device implements GfxDevice {
   }
 
   /** Front and back func + op together, cached on their serialized form. */
-  #setStencilState(st: StencilState): void {
+  #setStencilState(st: StencilState, refOverride?: number): void {
     const front = st.front
     const back = st.back ?? st.front
     const read = st.readMask ?? 0xff
-    const ref = st.reference ?? 0
+    const ref = refOverride ?? st.reference ?? 0
     const key = `${faceKey(front)}~${faceKey(back)}/${read}/${ref}`
     if (this.#curStencilState === key) return
     const gl = this.#gl
@@ -1972,6 +2048,15 @@ function faceKey(f: {
 function rtHasStencil(opts: RenderTargetOpts): boolean {
   return !!opts.stencil && !(opts.depth && opts.depthSampled)
 }
+
+/** Source and destination factors of the extra fixed-function blends. */
+const GL_BLEND_FACTORS = {
+  screen: ['one', 'one-minus-src'],
+  multiply: ['dst', 'one-minus-src-alpha'],
+  'destination-out': ['zero', 'one-minus-src-alpha'],
+  'destination-in': ['zero', 'src-alpha'],
+  xor: ['one-minus-dst-alpha', 'one-minus-src-alpha'],
+} as const
 
 function stencilOpGl(gl: WebGL2RenderingContext, op: StencilOp): number {
   switch (op) {

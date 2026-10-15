@@ -193,7 +193,7 @@ export class DebugLine3DRenderer {
     buf.push(ax, ay, az, r, g, b, a, bx, by, bz, r, g, b, a)
   }
 
-  /** Axis-aligned box wireframe (12 edges) spanning `min`→`max`. */
+  /** Axis-aligned box wireframe (12 edges) spanning `min`->`max`. */
   box(
     minX: number,
     minY: number,

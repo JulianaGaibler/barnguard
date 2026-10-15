@@ -155,7 +155,7 @@ describe('PostProcessPipeline', () => {
     const pp = new PostProcessPipeline(device)
     const source = makeSource(device)
     pp.add(new Vignette())
-    // First synchronous run: pipeline not warm yet → present source, no passes.
+    // First synchronous run: pipeline not warm yet -> present source, no passes.
     pp.run(source, FRAME)
     expect(fullscreenDraws(device)).toBe(0)
     expect(device.presents).toHaveLength(1)

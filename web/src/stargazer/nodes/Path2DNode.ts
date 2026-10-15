@@ -70,7 +70,7 @@ export interface Path2DNodeOptions {
    */
   shadow?: GfxShadowStyle | readonly GfxShadowStyle[]
   /**
-   * Hit-testing strategy (world coords → boolean). `'none'` never hits
+   * Hit-testing strategy (world coords -> boolean). `'none'` never hits
    * (default). `'fill'` uses `ctx.isPointInPath` with the even-odd rule (exact
    * interior test, a hole excluded from the fill is excluded here too).
    * `'stroke'` uses `ctx.isPointInStroke` (exact edge test). `'circle'` tests
@@ -222,7 +222,7 @@ export class Path2DNode extends Node2D {
   ): boolean {
     if (this.hitMode === 'none') return false
 
-    // Transform world → local via the inverse of node.world (2D affine).
+    // Transform world -> local via the inverse of node.world (2D affine).
     // Uses (a, b, c, d, e, f). Determinant guards against a degenerate node.
     const w = this.transform.world
     const det = w.a * w.d - w.b * w.c

@@ -4,10 +4,12 @@
   import {
     BOOTH_CORNER_SIZE_PX,
     initBoothMenuToggle,
+    printStatusPillVisible,
   } from '@src/core/attendant/boothMenuToggle'
   import { startActivityTracking } from '@src/core/activity'
   import BoothMenu from '@src/core/attendant/BoothMenu.svelte'
   import PrinterPanel from '@src/core/attendant/PrinterPanel.svelte'
+  import PrintStatusPill from '@src/core/attendant/PrintStatusPill.svelte'
   import GamesPanel from '@src/core/attendant/GamesPanel.svelte'
   import LeaderboardPanel from '@src/core/attendant/LeaderboardPanel.svelte'
   import BackgroundLayer from '@src/core/ui/BackgroundLayer.svelte'
@@ -52,6 +54,10 @@
 <DisplayRoot />
 
 <TopBar />
+
+{#if display.renderPreviewLabel && $printStatusPillVisible}
+  <PrintStatusPill />
+{/if}
 
 <BoothMenu />
 <PrinterPanel />

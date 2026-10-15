@@ -55,7 +55,7 @@ async function pulseState(
     overlay.renderLayer = 'above-static'
     parent.add(overlay)
 
-    // `autoDestroy` handles the "tween → destroy" pair. Chain the two
+    // `autoDestroy` handles the "tween -> destroy" pair. Chain the two
     // tweens via .then so both finish before destroy fires.
     await overlay.autoDestroy(
       overlay

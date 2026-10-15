@@ -16,7 +16,7 @@
     CONTEXT_ROWS,
     NAME_MAX_LEN,
     NameEntry,
-  } from '@src/displays/arcade/leaderboard/nameEntry.svelte'
+  } from '@src/core/leaderboard/nameEntry.svelte'
   import { registerExitTask } from '@src/displays/arcade/exitTasks'
   import LeaderboardList from '../../../leaderboard/LeaderboardList.svelte'
   import { t as arcadeT } from '../../../i18n'

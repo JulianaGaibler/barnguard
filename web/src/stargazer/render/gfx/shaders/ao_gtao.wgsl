@@ -1,7 +1,7 @@
 // Screen-space ambient occlusion, fragment path (WebGL2, and any backend
 // without compute). Reads the G-buffer's stored view normal (octahedral, RG)
 // and 16-bit LINEAR view depth (BA), reconstructs view-space position along the
-// pixel's view ray (near→far, exact for ortho + perspective), and estimates
+// pixel's view ray (near->far, exact for ortho + perspective), and estimates
 // occlusion with a hemisphere-obscurance sum. Output is a scalar AO in `[0,1]`.
 //
 // The compute path (`ao_gtao.compute.wgsl`) mirrors this math, so keep in sync.
@@ -23,7 +23,7 @@ struct Params {
   // x = steps, y = near, z = far, w = ndc-z of the near plane.
   stepsNearFar: vec4<f32>,
   // x = ndc-z of the far plane, y = projection[0][0], z = projection[1][1],
-  // w = flipY (1 → uv.y=0 is the top of NDC, for top-down textures).
+  // w = flipY (1 -> uv.y=0 is the top of NDC, for top-down textures).
   proj: vec4<f32>,
 };
 @group(0) @binding(6) var<uniform> params: Params;
@@ -61,7 +61,7 @@ fn loadG(uv: vec2<f32>) -> vec4<f32> {
   return textureLoad(u_gbuf, c, 0);
 }
 
-// UV → NDC xy. NDC y points up, and a top-down texture (uv.y=0 at the top) flips
+// UV -> NDC xy. NDC y points up, and a top-down texture (uv.y=0 at the top) flips
 // it.
 fn ndcXY(uv: vec2<f32>) -> vec2<f32> {
   let x = uv.x * 2.0 - 1.0;

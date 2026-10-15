@@ -244,6 +244,7 @@ impl LeaderboardController {
                 return Ok(guard[idx].clone());
             }
             guard[idx].score = new.score;
+            guard[idx].region = new.region;
             guard[idx].ts_ms = now_ms();
             guard[idx].clone()
         } else {
@@ -253,6 +254,7 @@ impl LeaderboardController {
                 display: new.display,
                 name,
                 score: new.score,
+                region: new.region,
             };
             guard.push(entry.clone());
             entry
@@ -423,7 +425,7 @@ mod tests {
     use super::*;
     use crate::events::EventHub;
     use crate::types::{
-        GameDetails, GameEndReason, NewArcadeDetails, NewGameDetails, NewEnterpriseDetails,
+        GameDetails, GameEndReason, NewArcadeDetails, NewEnterpriseDetails, NewGameDetails,
         DISPLAY_ARCADE, MAP_DE,
     };
     use tempfile::TempDir;
@@ -438,7 +440,10 @@ mod tests {
         let value: JsonValue = serde_json::from_slice(&migrated).unwrap();
         let items = value.as_array().unwrap();
         for item in items {
-            assert_eq!(item["display"], JsonValue::String(DISPLAY_ENTERPRISE.to_string()));
+            assert_eq!(
+                item["display"],
+                JsonValue::String(DISPLAY_ENTERPRISE.to_string())
+            );
         }
     }
 
@@ -491,7 +496,12 @@ mod tests {
         let store = GameLogController::load(dir.path(), &log, events);
 
         let first = store
-            .push(enterprise_new("bayern", GameEndReason::Collision, 100, 5000))
+            .push(enterprise_new(
+                "bayern",
+                GameEndReason::Collision,
+                100,
+                5000,
+            ))
             .unwrap();
         let GameDetails::Enterprise(fd) = &first.details else {
             panic!("expected Enterprise details")
@@ -509,7 +519,12 @@ mod tests {
         assert!(!sd.was_state_high);
 
         let third = store
-            .push(enterprise_new("hessen", GameEndReason::ExitedGermany, 75, 4000))
+            .push(enterprise_new(
+                "hessen",
+                GameEndReason::ExitedGermany,
+                75,
+                4000,
+            ))
             .unwrap();
         let GameDetails::Enterprise(td) = &third.details else {
             panic!("expected Enterprise details")
@@ -615,7 +630,48 @@ mod tests {
             display: display.into(),
             name: name.into(),
             score,
+            region: String::new(),
         }
+    }
+
+    fn new_score_in(display: &str, name: &str, score: u32, region: &str) -> NewLeaderboardEntry {
+        NewLeaderboardEntry {
+            region: region.into(),
+            ..new_score(display, name, score)
+        }
+    }
+
+    #[test]
+    fn leaderboard_keeps_the_region_of_the_best_run() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        store
+            .submit(new_score_in("enterprise-eu", "mia", 10, "DEU"))
+            .unwrap();
+
+        // A lower score from another country changes nothing, region included.
+        let unchanged = store
+            .submit(new_score_in("enterprise-eu", "mia", 5, "FRA"))
+            .unwrap();
+        assert_eq!(unchanged.region, "DEU");
+
+        // A better score replaces the entry, and takes its region with it.
+        let improved = store
+            .submit(new_score_in("enterprise-eu", "Mia", 20, "FRA"))
+            .unwrap();
+        assert_eq!(improved.region, "FRA");
+        assert_eq!(improved.id, unchanged.id);
+        assert_eq!(store.list("enterprise-eu", None).len(), 1);
+    }
+
+    #[test]
+    fn leaderboard_entry_without_a_region_still_loads() {
+        let json = r#"{"id":"3fa1f167-71c0-4a6d-9b1b-000000000000","tsMs":1,"display":"jezzball","name":"abc","score":5}"#;
+        let entry: LeaderboardEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.region, "");
+        let out = serde_json::to_string(&entry).unwrap();
+        assert!(!out.contains("region"));
     }
 
     #[test]

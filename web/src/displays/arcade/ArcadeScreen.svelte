@@ -338,7 +338,7 @@
     // a slow daemon costs nothing anyone can see.
     const flushed = runExitTasks()
     // Pan back to the launcher: the game's overlays slide out and cull, the
-    // launcher slides back in. Unmount the game (→ session.destroy()) only once
+    // launcher slides back in. Unmount the game (-> session.destroy()) only once
     // the camera has left the game region.
     await panCamera(launcherView())
     await flushed

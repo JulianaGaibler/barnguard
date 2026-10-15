@@ -16,6 +16,7 @@ import type {
   RegionInfo,
 } from '../types'
 import { MAP_NAMESPACE } from '../namespaces'
+import { PLAY_VIEW_HEIGHT } from '../playScale'
 import { ADJACENCY } from './adjacency'
 import { CITY_ID_TO_STATE_ID, STATE_IDS, type StateId } from './regions'
 
@@ -31,8 +32,13 @@ const FULL_VIEW: Rect = { x: 0, y: 0, width: 661, height: 888 }
  * selected state. The lower half is bottom-anchored to the 888-tall map so the
  * camera never shows empty space past the coast.
  */
-const UPPER_HALF: Rect = { x: 0, y: -30, width: 661, height: 560 }
-const LOWER_HALF: Rect = { x: 0, y: 328, width: 661, height: 560 }
+const UPPER_HALF: Rect = { x: 0, y: -30, width: 661, height: PLAY_VIEW_HEIGHT }
+const LOWER_HALF: Rect = {
+  x: 0,
+  y: FULL_VIEW.height - PLAY_VIEW_HEIGHT,
+  width: 661,
+  height: PLAY_VIEW_HEIGHT,
+}
 
 /** Capital position per state, from the circle AABB centres in the cities SVG. */
 function capitalsFrom(cities: SvgPathMap): Map<StateId, Rect> {
@@ -111,7 +117,10 @@ export async function loadGermanyMap(): Promise<MapDescriptor> {
       // not depend on where the camera happens to be looking.
       return landMask
     },
+    previewLostAtBorder: true,
+    edgesAreFailLine: false,
     gridCellWorld: TUNING.wahlkreise.grid.cellSizeWorld,
+    gridMask: landMask,
     adjacency: ADJACENCY,
   }
 }

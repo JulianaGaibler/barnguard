@@ -83,7 +83,11 @@
       programSwitches: 0,
       textureBinds: 0,
       blendSwitches: 0,
-      overflowWarns: 0,
+      uboSlices: 0,
+      bytesUploaded: 0,
+      passCount: 0,
+      surfaces: 0,
+      offscreenBytes: 0,
       sdfInstances: 0,
       strokeInstances: 0,
       roundRectInstances: 0,
@@ -455,7 +459,7 @@
           <HoldButton
             ariaLabel="Pan right"
             onPress={() => pressPan('KeyD')}
-            onRelease={() => releasePan('KeyD')}>→</HoldButton
+            onRelease={() => releasePan('KeyD')}>-></HoldButton
           >
         </div>
         <div class="pad-cell pad-bc">
@@ -513,7 +517,7 @@
           <HoldButton
             ariaLabel="Strafe right"
             onPress={() => pressPan('KeyD')}
-            onRelease={() => releasePan('KeyD')}>→</HoldButton
+            onRelease={() => releasePan('KeyD')}>-></HoldButton
           >
         </div>
         <div class="pad-cell pad-bl">

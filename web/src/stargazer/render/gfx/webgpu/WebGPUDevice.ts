@@ -42,6 +42,7 @@ import type {
   Pipeline,
   PipelineDesc,
   RenderPassDesc,
+  ScissorRect,
   RenderTarget,
   RenderTargetOpts,
   ShaderModule,
@@ -97,6 +98,8 @@ interface WebGPUShader extends ShaderModule {
 interface WebGPUPipeline extends Pipeline {
   gpu: GPURenderPipeline
   vertexLayout: VertexBufferLayout[]
+  /** The descriptor's stencil reference, the default for a draw. */
+  stencilRef: number
 }
 
 interface WebGPUComputePipeline extends ComputePipeline {
@@ -209,6 +212,12 @@ export class WebGPUDevice implements GfxDevice {
   #computePass: GPUComputePassEncoder | null = null
   /** Last pipeline set on the open pass, for the `pipelineSwitches` stat. */
   #lastPipeline: GPURenderPipeline | null = null
+  /** Pass state a draw may change: reset to the WebGPU defaults per pass. */
+  #stencilRef = 0
+  #scissorSet = false
+  #passW = 0
+  #passH = 0
+  #scissorKey = ''
 
   // Cached samplers reused across bind groups. Regular textures share one
   // filtering sampler per (filter, wrap). Shadows share a comparison sampler
@@ -246,7 +255,7 @@ export class WebGPUDevice implements GfxDevice {
     textureTopDown: true,
   }
 
-  /** Pipeline memoization: descriptor key → pipeline. */
+  /** Pipeline memoization: descriptor key -> pipeline. */
   readonly #pipelineCache = new Map<string, WebGPUPipeline>()
 
   /**
@@ -394,6 +403,7 @@ export class WebGPUDevice implements GfxDevice {
       __gfxPipeline: undefined as never,
       gpu,
       vertexLayout: desc.vertexLayout,
+      stencilRef: desc.stencil?.reference ?? 0,
     } as WebGPUPipeline
     this.#pipelineCache.set(key, pipeline)
     return pipeline
@@ -693,15 +703,6 @@ export class WebGPUDevice implements GfxDevice {
     this.#destroyDeferred((buf as WebGPUBuffer).gpu)
   }
 
-  orphanBuffer(buf: VBuffer): void {
-    const b = buf as WebGPUBuffer
-    b.gpu.destroy()
-    b.gpu = this.#device.createBuffer({
-      size: b.byteSize,
-      usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-    })
-  }
-
   #writeBuffer(
     gpu: GPUBuffer,
     byteOffset: number,
@@ -778,15 +779,6 @@ export class WebGPUDevice implements GfxDevice {
       data.byteOffset,
       data.byteLength,
     )
-  }
-
-  orphanUniformBuffer(buf: UBuffer): void {
-    const b = buf as WebGPUUniformBuffer
-    b.gpu.destroy()
-    b.gpu = this.#device.createBuffer({
-      size: b.byteSize,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    })
   }
 
   deleteUniformBuffer(buf: UBuffer): void {
@@ -1319,6 +1311,12 @@ export class WebGPUDevice implements GfxDevice {
 
     this.#pass = encoder.beginRenderPass(descriptor)
     this.#lastPipeline = null
+    this.#stencilRef = 0
+    this.#scissorSet = false
+    this.#scissorKey = ''
+    const size = desc.color?.target ?? desc.stencil?.target
+    this.#passW = size?.width ?? 0
+    this.#passH = size?.height ?? 0
   }
 
   /**
@@ -1486,6 +1484,12 @@ export class WebGPUDevice implements GfxDevice {
       this.#lastPipeline = p.gpu
       this.deviceStats.pipelineSwitches++
     }
+    const ref = call.stencilReference ?? p.stencilRef
+    if (ref !== this.#stencilRef) {
+      pass.setStencilReference(ref)
+      this.#stencilRef = ref
+    }
+    this.#applyScissor(pass, call.scissor)
     for (let i = 0; i < call.vertexBuffers.length; i++) {
       const vb = call.vertexBuffers[i]
       pass.setVertexBuffer(i, (vb.buffer as WebGPUBuffer).gpu, vb.offset)
@@ -1509,6 +1513,39 @@ export class WebGPUDevice implements GfxDevice {
     } else {
       pass.draw(call.vertexCount ?? 0, instances, first, 0)
     }
+  }
+
+  /**
+   * Set the scissor for a draw, clamped to the pass target. A draw without one
+   * restores the full target, but only after an earlier draw narrowed it.
+   */
+  #applyScissor(
+    pass: GPURenderPassEncoder,
+    rect: ScissorRect | undefined,
+  ): void {
+    if (!rect) {
+      if (this.#scissorSet && this.#passW > 0) {
+        pass.setScissorRect(0, 0, this.#passW, this.#passH)
+        this.#scissorSet = false
+        this.#scissorKey = ''
+      }
+      return
+    }
+    const x = Math.max(0, Math.min(this.#passW, Math.floor(rect.x)))
+    const y = Math.max(0, Math.min(this.#passH, Math.floor(rect.y)))
+    const w = Math.max(
+      0,
+      Math.min(this.#passW - x, Math.ceil(rect.x + rect.w) - x),
+    )
+    const h = Math.max(
+      0,
+      Math.min(this.#passH - y, Math.ceil(rect.y + rect.h) - y),
+    )
+    const key = `${x},${y},${w},${h}`
+    if (key === this.#scissorKey) return
+    pass.setScissorRect(x, y, w, h)
+    this.#scissorKey = key
+    this.#scissorSet = true
   }
 
   // --- present --------------------------------------------------------------

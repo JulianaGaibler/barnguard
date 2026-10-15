@@ -124,7 +124,7 @@ export class Animator {
 
   /**
    * Resolve after `seconds` of engine time (variable dt, capped by the ticker).
-   * Cancellable via `opts.signal`. Zero seconds → resolves on the next tick.
+   * Cancellable via `opts.signal`. Zero seconds -> resolves on the next tick.
    */
   wait(seconds: number, signal?: AbortSignal): Promise<void> {
     return this.#schedule({ duration: Math.max(0, seconds), signal })

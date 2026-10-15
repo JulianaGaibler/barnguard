@@ -26,7 +26,7 @@ export interface PacketSpawnConvergeOptions {
   /** Peak world-space size at end of life. Particles start at scale 0. */
   sizeMaxWorld: number
   /**
-   * Fraction of life spent ramping alpha 0 → 1. Remainder is a quick fade to 0.
+   * Fraction of life spent ramping alpha 0 -> 1. Remainder is a quick fade to 0.
    * So the particle starts invisible, becomes progressively more opaque as it
    * moves inward, then briefly dips out at the end.
    */
@@ -41,8 +41,8 @@ export interface PacketSpawnConvergeOptions {
  * 1. Spawns at a random angle on the ring (`ringRadiusWorld` from centre) at scale
  *    0, alpha 0.
  * 2. Eases inward (quadratic) toward `ringRadiusWorld * radiusEndFraction`.
- * 3. Grows linearly from scale 0 → `sizeMaxWorld`.
- * 4. Alpha ramps from 0 → 1 over the first `alphaGrowFraction` of its life, then
+ * 3. Grows linearly from scale 0 -> `sizeMaxWorld`.
+ * 4. Alpha ramps from 0 -> 1 over the first `alphaGrowFraction` of its life, then
  *    quick-fades to 0 for the remainder.
  * 5. Dies before reaching the centre, the packet's own grow tween owns the middle
  *    of the animation.

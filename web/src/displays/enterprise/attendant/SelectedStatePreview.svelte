@@ -16,6 +16,7 @@
     BRAND_HEADLINE,
     type CoverMode,
   } from './coverState'
+  import { setSplashBoardEnabled, splashBoardEnabled } from './splashBoard'
 
   // The store carries an opaque id. Its name resolves against whichever map
   // the running session loaded, since the same id string means nothing on
@@ -43,6 +44,14 @@
     </div>
   </DebugSection>
 {/if}
+
+<DebugSection title="Splash screen" open>
+  <ToggleButton
+    active={$splashBoardEnabled}
+    onToggle={() => setSplashBoardEnabled(!$splashBoardEnabled)}
+    label="Leaderboard top 3"
+  />
+</DebugSection>
 
 <DebugSection title="Cover screen" open>
   <ToggleButton

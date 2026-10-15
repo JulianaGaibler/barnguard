@@ -64,7 +64,7 @@
           <span class="pointer-item__id">#{p.id}</span>
           <span class="pointer-item__kind">{p.kind}</span>
           {#if p.capturedByNodeId}
-            <span class="pointer-item__cap">→ {p.capturedByNodeId}</span>
+            <span class="pointer-item__cap">-> {p.capturedByNodeId}</span>
           {/if}
         </div>
         <DebugRow label="screen" value={fmtPair(p.screen)} />

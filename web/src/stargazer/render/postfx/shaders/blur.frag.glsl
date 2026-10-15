@@ -7,8 +7,8 @@ precision highp float;
 //
 // Note: this blurs sRGB-encoded (not light-linear) values, which darkens the
 // result slightly ("dark energy"). Accepted here as a cheap stylistic edge
-// blur. A correct linear blur would need un-premultiply → linearize → blur →
-// encode → re-premultiply, far too costly for this pass. The unit-weight sum of
+// blur. A correct linear blur would need un-premultiply -> linearize -> blur ->
+// encode -> re-premultiply, far too costly for this pass. The unit-weight sum of
 // premultiplied samples keeps the premultiplied color valid.
 
 in vec2 v_uv;

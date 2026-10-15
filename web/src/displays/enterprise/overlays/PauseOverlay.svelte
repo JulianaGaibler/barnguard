@@ -1,7 +1,13 @@
 <script lang="ts">
-  import { fade } from 'svelte/transition'
+  /**
+   * The paused screen. A page overlay with CSS transitions rather than an
+   * engine node, since the engine itself is what is paused and its tweens stand
+   * still until it resumes. Sized in design pixels scaled to the window, like
+   * the rest of the screens.
+   */
+  import { fade, scale } from 'svelte/transition'
+  import { cubicOut } from 'svelte/easing'
   import { t } from '@src/displays/enterprise/i18n'
-  import Button from '@src/core/ui/Button.svelte'
 
   interface Props {
     onResume: () => void
@@ -9,11 +15,7 @@
 
   const { onResume }: Props = $props()
 
-  /**
-   * Dismiss only on backdrop taps. Clicks on the card itself bubble up but
-   * `e.target !== e.currentTarget` for those, so we ignore them. Same pattern
-   * as `GameOverOverlay.handleDismiss`.
-   */
+  /** Resume on a tap anywhere outside the card. The card's button resumes too. */
   function handleDismiss(e: PointerEvent): void {
     if (e.target !== e.currentTarget) return
     onResume()
@@ -21,74 +23,79 @@
 </script>
 
 <div
-  class="pause-overlay"
+  class="pause"
   role="dialog"
   aria-modal="true"
   tabindex="-1"
   onpointerdown={handleDismiss}
-  in:fade={{ duration: 220 }}
+  in:fade={{ duration: 200 }}
   out:fade={{ duration: 160 }}
 >
-  <section class="pause-overlay__card">
-    <h2 class="pause-overlay__title">{$t.game.pauseTitle}</h2>
-    <p class="pause-overlay__hint">{$t.game.pauseHint}</p>
-    <div class="pause-overlay__actions">
-      <Button variant="primary" onclick={onResume}>
-        {$t.game.resumeButton}
-      </Button>
-    </div>
+  <section
+    class="pause__card"
+    in:scale={{ start: 0.9, duration: 260, easing: cubicOut }}
+  >
+    <h2 class="pause__title">{$t.game.pauseTitle}</h2>
+    <p class="pause__hint">{$t.game.pauseHint}</p>
+    <button class="pause__resume" onclick={onResume}>
+      {$t.game.resumeButton}
+    </button>
   </section>
 </div>
 
 <style lang="sass">
-  .pause-overlay
+  // One design pixel, the 1920 by 1080 frame fitted into the window.
+  .pause
+    --px: min(100vw / 1920, 100vh / 1080)
     position: absolute
     inset: 0
+    z-index: var(--z-overlay)
     display: flex
     align-items: center
     justify-content: center
-    background: var(--color-scrim)
-    // Full-surface tap target, anywhere outside the card dismisses.
-    pointer-events: auto
-    z-index: var(--z-overlay)
+    background: rgba(21, 20, 26, 0.35)
+    backdrop-filter: blur(6px)
 
-  .pause-overlay__card
-    // Shared dark-card visual, see `src/styles/tokens.sass`. Matches
-    // the game-over "data lost" card so the two overlays feel like the
-    // same family of dialogs.
-    @include tint.dark-card
-    box-sizing: border-box
-    // Sized proportionally to the game-over score card, scaled to a smaller
-    // footprint since the pause card carries only a title + button.
-    width: min(28vw, 21.25rem)
-    padding-block: var(--space-48)
-    padding-inline: var(--space-32)
+  .pause__card
     display: flex
     flex-direction: column
     align-items: center
-    gap: var(--space-24)
+    gap: calc(var(--px) * 32)
+    padding: calc(var(--px) * 64) calc(var(--px) * 96)
+    border-radius: calc(var(--px) * 48)
+    background: linear-gradient(224.2deg, #fcf5f0 43.78%, #f9f9f9 91.31%), #ffffff
+    color: #15141a
     text-align: center
-    box-shadow: var(--color-shadow-panel)
 
-  .pause-overlay__title
-    @include tint.type-class(headline-sm)
-    // The wide brand face, named explicitly: the type scale binds every heading
-    // role to `--font-heading` so a game can restyle it, and this display wants
-    // the extended cut here regardless.
-    font-family: tint.$font-mozilla-headline-extended
-    line-height: 1.05
+  .pause__title
     margin: 0
+    font-family: var(--font-mozilla-headline-condensed)
+    font-weight: 600
+    font-size: calc(var(--px) * 120)
+    line-height: 0.85
+    letter-spacing: calc(var(--px) * -2.4)
+    text-box-trim: trim-both
+    text-box-edge: cap alphabetic
 
-  .pause-overlay__hint
-    @include tint.type-class(ui)
-    line-height: 1.4
+  .pause__hint
     margin: 0
-    color: var(--color-text-inverse)
-    opacity: 0.7
-    max-width: 22ch
+    font-family: var(--font-mozilla-text)
+    font-weight: 500
+    font-size: calc(var(--px) * 32)
+    opacity: 0.6
 
-  .pause-overlay__actions
-    display: flex
-    justify-content: center
-    margin-block-start: var(--space-8)
+  .pause__resume
+    appearance: none
+    border: 0
+    cursor: pointer
+    height: calc(var(--px) * 80)
+    padding: 0 calc(var(--px) * 40)
+    border-radius: 999px
+    background: #15141a
+    color: #ffffff
+    font-family: var(--font-mozilla-headline-condensed)
+    font-weight: 600
+    font-size: calc(var(--px) * 40)
+    letter-spacing: calc(var(--px) * -0.8)
+    white-space: nowrap
 </style>

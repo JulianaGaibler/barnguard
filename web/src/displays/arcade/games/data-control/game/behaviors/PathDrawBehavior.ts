@@ -100,7 +100,7 @@ export class PathDrawBehavior extends PointerBehavior {
   }
 
   /**
-   * Two-phase scale pop, 1 → `scaleTo` then back to 1, that fires on every
+   * Two-phase scale pop, 1 -> `scaleTo` then back to 1, that fires on every
    * touchdown so the player gets an immediate visual "heard you" before their
    * finger starts producing samples. Runs on the packet's transform.
    * `PacketBehavior::steerAlongTrail` doesn't touch scale so the tween never

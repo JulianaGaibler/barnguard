@@ -14,7 +14,11 @@
   import { registerExitTask } from '../exitTasks'
   import { t } from '../i18n'
   import LeaderboardList from './LeaderboardList.svelte'
-  import { CONTEXT_ROWS, NAME_MAX_LEN, NameEntry } from './nameEntry.svelte'
+  import {
+    CONTEXT_ROWS,
+    NAME_MAX_LEN,
+    NameEntry,
+  } from '@src/core/leaderboard/nameEntry.svelte'
 
   interface Props {
     display: string

@@ -130,9 +130,9 @@ describe('Node2D', () => {
       const leaf = new Node2D('leaf')
       leaf.renderLayer = 'static'
       mid.add(leaf)
-      // leaf is static → mid._staticDescendantCount === 1
+      // leaf is static -> mid._staticDescendantCount === 1
       root.add(mid)
-      // root sees mid's whole subtree total (1 static) → root._staticDescendantCount === 1
+      // root sees mid's whole subtree total (1 static) -> root._staticDescendantCount === 1
       root._verifyStaticCount()
     })
 
@@ -593,12 +593,12 @@ describe('Node2D', () => {
         up: (e) => ups.push(e.pointer.id),
       })
 
-      node.onPointerDown?.(evt(1)) // first press → tracked
-      node.onPointerDown?.(evt(2)) // second finger → ignored
-      node.onPointerMove?.(evt(2)) // move from the ignored finger → dropped
-      node.onPointerMove?.(evt(1)) // move from the tracked finger → delivered
-      node.onPointerUp?.(evt(2)) // up from the ignored finger → dropped
-      node.onPointerUp?.(evt(1)) // up from the tracked finger → frees the slot
+      node.onPointerDown?.(evt(1)) // first press -> tracked
+      node.onPointerDown?.(evt(2)) // second finger -> ignored
+      node.onPointerMove?.(evt(2)) // move from the ignored finger -> dropped
+      node.onPointerMove?.(evt(1)) // move from the tracked finger -> delivered
+      node.onPointerUp?.(evt(2)) // up from the ignored finger -> dropped
+      node.onPointerUp?.(evt(1)) // up from the tracked finger -> frees the slot
 
       expect(downs).toEqual([1])
       expect(moves).toEqual([1])
@@ -614,7 +614,7 @@ describe('Node2D', () => {
       })
       node.onPointerDown?.(evt(1))
       node.onPointerUp?.(evt(1))
-      node.onPointerDown?.(evt(2)) // slot free → tracked
+      node.onPointerDown?.(evt(2)) // slot free -> tracked
       expect(downs).toEqual([1, 2])
     })
 

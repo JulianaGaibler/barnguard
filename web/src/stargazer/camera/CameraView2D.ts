@@ -26,7 +26,7 @@ export interface Affine2x3 {
  *
  * Every mapping is in CSS pixels. The renderer folds DPR in separately as a
  * baseline factor. {@link CameraView2D.getScreenAffine} is the single CSS-pixel
- * world→screen affine that already incorporates the camera's own world
+ * world->screen affine that already incorporates the camera's own world
  * transform, so a translated / scaled / rotated camera projects correctly
  * everywhere that reads it.
  */
@@ -50,7 +50,7 @@ export interface CameraView2D {
    */
   strokeSpaceScale(): number
   /**
-   * The full CSS-pixel world→screen affine, including the camera's own world
+   * The full CSS-pixel world->screen affine, including the camera's own world
    * transform. Without `out`, returns a cached object the caller MUST treat as
    * read-only. Pass `out` for a private copy.
    */

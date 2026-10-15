@@ -113,7 +113,8 @@ describe('GpuGfx depth and stencil', () => {
         'depth-stencil',
       )
       expect(p.desc.depth).toBeNull()
-      expect(p.desc.stencil ?? null).toBeNull()
+      // At most the clip test, which reads stencil and never writes it.
+      if (p.desc.stencil) expect(p.desc.stencil.writeMask).toBe(0)
     }
   })
 

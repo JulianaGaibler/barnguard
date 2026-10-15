@@ -9,6 +9,12 @@ import type { RegionId } from '../maps/types'
 export type OnStateTap = (id: RegionId) => void
 
 /**
+ * Finds the region whose disc covers a world point, if any. A disc sits over
+ * its neighbours' fills, so a tap on one has to win over the fill under it.
+ */
+export type DiscAt = (x: number, y: number) => RegionId | null
+
+/**
  * Attached to every state's `Path2DNode` (hitMode: 'fill'). Forwards a tap to
  * the session. The session decides whether to act on it. Hover feedback (mouse
  * only) is left to the caller because it wants to know about the
@@ -17,11 +23,13 @@ export type OnStateTap = (id: RegionId) => void
 export class StateSelectionBehavior extends PointerBehavior {
   readonly #stateId: RegionId
   readonly #onTap: OnStateTap
+  readonly #discAt: DiscAt | undefined
 
-  constructor(stateId: RegionId, onTap: OnStateTap) {
+  constructor(stateId: RegionId, onTap: OnStateTap, discAt?: DiscAt) {
     super()
     this.#stateId = stateId
     this.#onTap = onTap
+    this.#discAt = discAt
   }
 
   protected handlers(): PointerHandlers {
@@ -32,7 +40,8 @@ export class StateSelectionBehavior extends PointerBehavior {
         // Only fire on the captured node, synthetic events (camera-drift)
         // still carry `capturedBy`, and we only want the initial tap.
         if (e.pointer.capturedBy !== this.node) return
-        this.#onTap(this.#stateId)
+        const disc = this.#discAt?.(e.pointer.world.x, e.pointer.world.y)
+        this.#onTap(disc ?? this.#stateId)
       },
       // The Path2DNode sets its own hit-testing (via hitMode), don't
       // override the hitEnabled flag it set.

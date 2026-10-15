@@ -1,5 +1,4 @@
 import {
-  CameraNode2D,
   Node2D,
   easings,
   getPathContours,
@@ -10,7 +9,7 @@ import {
   type EngineHost,
   type Gfx2D,
   type Rect,
-  type Stage,
+  type InsetViewNode,
   type Vec2,
 } from '@src/stargazer'
 import { PacketNode } from '../nodes/PacketNode'
@@ -139,15 +138,18 @@ export interface GameOverSceneOptions {
 }
 
 /**
- * One-shot scene painted into the loss card's canvas. Owns a secondary `Stage`
- * on the primary engine, a small scene graph, and a per-reason async phase
- * machine. Destroys cleanly on card unmount, every await is scoped to a shared
- * `AbortController` and the frame handler is unsubscribed in `destroy()`.
+ * One-shot loss scene shown inside the loss card's inset view. Builds a small
+ * scene graph under the inset's content and runs a per-reason async phase
+ * machine from {@link GameOverScene.start}. The inset's viewport stands in for a
+ * camera, following the escaping packet. Destroys cleanly, every await is
+ * scoped to a shared `AbortController` and the frame handler is unsubscribed in
+ * `destroy()`.
  */
 export class GameOverScene {
   readonly #host: EngineHost
-  readonly #stage: Stage
-  readonly #camera: CameraNode2D
+  readonly #inset: InsetViewNode
+  /** Where the scene's nodes live, the inset's own world. */
+  readonly #root: Node2D
   readonly #reason: GameOverReason
   readonly #escapeHeadingRad: number
   readonly #eyeOutlinePath: Path2D
@@ -156,6 +158,7 @@ export class GameOverScene {
   readonly #sessionAbort = new AbortController()
   #offFrame: (() => void) | null = null
   #destroyed = false
+  #started = false
   // --- collision state ---
   #leftPacket: PacketNode | null = null
   #rightPacket: PacketNode | null = null
@@ -174,10 +177,12 @@ export class GameOverScene {
 
   constructor(
     host: EngineHost,
-    canvas: HTMLCanvasElement,
+    inset: InsetViewNode,
     opts: GameOverSceneOptions,
   ) {
     this.#host = host
+    this.#inset = inset
+    this.#root = inset.content
     this.#reason = opts.reason
     this.#escapeHeadingRad = opts.escapeHeadingRad ?? 0
 
@@ -189,40 +194,33 @@ export class GameOverScene {
     this.#eyeOutlineBounds = merged.bounds
     this.#impactFlashPath = opts.impactFlashPath
 
-    this.#stage = host.engine.attachStage(canvas, {
-      name: 'GameOver',
-      interactive: false,
-      // Transparent compositing so the frame clear leaves the canvas
-      // corners transparent. The card's own rounded `#010612` background
-      // (same color) shows through there, so the card's `border-radius`
-      // clips cleanly instead of the opaque canvas painting square corners
-      // over it. `clearColor` is ignored while `transparent` is true.
-      transparent: true,
-      clearColor: '#010612',
-    })
-    // The scene's own camera, centered on the origin.
-    this.#camera = new CameraNode2D('gameover-camera')
-    this.#camera.setViewport({
+    // The view starts centred on the origin, where both scenes begin.
+    this.#inset.viewport = {
       x: -CAM_W / 2,
       y: -CAM_H / 2,
       width: CAM_W,
       height: CAM_H,
-    })
-    this.#stage.tree.root.add(this.#camera)
-    this.#camera.makeCurrent()
+    }
+  }
 
-    // Kick off the per-reason async choreography. Both flows finish by
-    // idling. On destroy the shared abort signal cancels every await.
-    // Starfield is added inside `runEscapeScene` only, it's the camera
-    // motion that sells the parallax, and the collision scene's camera
-    // stays put.
+  /**
+   * Run the per-reason choreography. Separate from construction so the card can
+   * be built and laid out before it is on screen, and the loss plays once it
+   * is. Calling it again does nothing.
+   */
+  start(): void {
+    if (this.#started || this.#destroyed) return
+    this.#started = true
+    // Both flows finish by idling. On destroy the shared abort signal cancels
+    // every await. Starfield is added inside `runEscapeScene` only, it's the
+    // view's motion that sells the parallax, and the collision view stays put.
     if (this.#reason === 'collision') {
       void this.#runCollisionScene()
     } else {
       void this.#runEscapeScene()
     }
 
-    // Per-frame integration for packet movement + camera follow + eye
+    // Per-frame integration for packet movement + view follow + eye
     // positions. Registered even before either flow adds a packet, the
     // handler bails on null refs.
     this.#offFrame = this.#host.engine.ticker.onFrame((dt) => this.#tick(dt))
@@ -234,7 +232,7 @@ export class GameOverScene {
     this.#sessionAbort.abort()
     this.#offFrame?.()
     this.#offFrame = null
-    this.#host.engine.detachStage(this.#stage)
+    this.#root.destroyChildren()
   }
 
   // -------------------------------------------------------------------------
@@ -309,12 +307,12 @@ export class GameOverScene {
       this.#escapeTrail.sample(packet.transform.x, packet.transform.y)
     }
     // Keep the packet centred.
-    this.#camera.setViewport({
+    this.#inset.viewport = {
       x: packet.transform.x - CAM_W / 2,
       y: packet.transform.y - CAM_H / 2,
       width: CAM_W,
       height: CAM_H,
-    })
+    }
     // Border cross detection, projection of the packet's position onto
     // the heading vector. When that projection passes the fixed
     // BORDER_LINE_OFFSET, fire the shrapnel and dissolve the line.
@@ -357,8 +355,8 @@ export class GameOverScene {
     this.#leftTrail = new PacketMotionTrailNode()
     this.#rightTrail = new PacketMotionTrailNode()
     // Trails first (behind), then packets on top.
-    this.#stage.tree.root.add(this.#leftTrail)
-    this.#stage.tree.root.add(this.#rightTrail)
+    this.#root.add(this.#leftTrail)
+    this.#root.add(this.#rightTrail)
 
     this.#leftPacket = new PacketNode({ id: 'gameover-collide-left' })
     this.#leftPacket.transform.x = -spawnX
@@ -370,8 +368,8 @@ export class GameOverScene {
     this.#rightPacket.transform.y = 0
     this.#rightPacket.transform.rotation = Math.PI + Math.PI / 2 // heading = π (-x)
     this.#rightPacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.#stage.tree.root.add(this.#leftPacket)
-    this.#stage.tree.root.add(this.#rightPacket)
+    this.#root.add(this.#leftPacket)
+    this.#root.add(this.#rightPacket)
 
     // Seed the trails' live-head + one sample so the ribbon starts
     // glued to each hex from frame 1 rather than snapping in on the
@@ -400,20 +398,20 @@ export class GameOverScene {
       alphaRange: [0.15, 0.5],
       color: '#ffffff',
     })
-    this.#stage.tree.root.add(stars)
+    this.#root.add(stars)
 
     // Motion trail behind the packet, added after stars so it renders
     // above them but under the hex. Same shooting-star ribbon the live
     // packets use.
     this.#escapeTrail = new PacketMotionTrailNode()
-    this.#stage.tree.root.add(this.#escapeTrail)
+    this.#root.add(this.#escapeTrail)
 
     // Single packet at world origin, the camera keeps it centred as it
     // drifts. Pre-orient so the top vertex points along the heading.
     this.#escapePacket = new PacketNode({ id: 'gameover-escape-packet' })
     this.#escapePacket.transform.rotation = this.#escapeHeadingRad + Math.PI / 2
     this.#escapePacket.lineWidth = PACKET_STROKE_CSS_PX
-    this.#stage.tree.root.add(this.#escapePacket)
+    this.#root.add(this.#escapePacket)
 
     // Seed trail so the ribbon is anchored to the hex on frame 1.
     this.#escapeTrail.setLiveHead(0, 0)
@@ -430,7 +428,7 @@ export class GameOverScene {
     )
     this.#borderLine.transform.x = this.#escapeDirX * BORDER_LINE_OFFSET_WORLD
     this.#borderLine.transform.y = this.#escapeDirY * BORDER_LINE_OFFSET_WORLD
-    this.#stage.tree.root.add(this.#borderLine)
+    this.#root.add(this.#borderLine)
 
     // Wait for `tickEscape` to detect the crossing (sets
     // `this.borderCrossed = true` and calls `onBorderCrossed`), then
@@ -460,7 +458,7 @@ export class GameOverScene {
           outlineFill: EYE_OUTLINE_FILL,
           irisFill: EYE_IRIS_FILL,
         })
-        this.#stage.tree.root.add(eye)
+        this.#root.add(eye)
         this.#eyes.push(eye)
       }
 
@@ -517,7 +515,7 @@ export class GameOverScene {
     this.#spawnImpactFlash(at)
     // Border-breach shrapnel along the escape heading, same config the live
     // game uses.
-    spawnBorderBreachDebris(this.#stage.tree.root, at, this.#escapeHeadingRad)
+    spawnBorderBreachDebris(this.#root, at, this.#escapeHeadingRad)
 
     // Fade the border line out.
     const line = this.#borderLine
@@ -542,11 +540,11 @@ export class GameOverScene {
   // The loss visuals are shared with the live round (see `lossVisuals.ts`).
   // These wrappers pin them to this scene's own stage tree.
   #spawnCollisionDebris(at: Vec2): void {
-    spawnCollisionDebris(this.#stage.tree.root, at)
+    spawnCollisionDebris(this.#root, at)
   }
 
   #spawnImpactFlash(at: Vec2): void {
-    spawnImpactFlash(this.#stage.tree.root, at, this.#impactFlashPath)
+    spawnImpactFlash(this.#root, at, this.#impactFlashPath)
   }
 
   /**

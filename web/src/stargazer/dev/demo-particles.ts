@@ -104,7 +104,7 @@ const runDemo: DemoFn = async ({ canvas, signal, attach }) => {
   const spinBurstRef: ParticleEmitterNode = spinBurst
   host.start()
 
-  // Track pointer position → trail origin.
+  // Track pointer position -> trail origin.
   const setOriginFromEvent = (e: PointerEvent): void => {
     const rect = canvas.getBoundingClientRect()
     const cssX = e.clientX - rect.left

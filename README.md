@@ -22,7 +22,7 @@ Two terminals for dev:
 # back end (mock printer, listens on :9110)
 cargo run -p printer-daemon
 
-# front end (Vite dev server, proxies /api/printer → :9110)
+# front end (Vite dev server, proxies /api/printer -> :9110)
 npm --prefix web install
 npm --prefix web run dev
 ```
@@ -32,7 +32,7 @@ before `cargo build` because `rust-embed` reads `web/dist/` at compile time:
 
 ```bash
 npm --prefix web ci
-npm --prefix web run build              # → web/dist/
+npm --prefix web run build              # -> web/dist/
 cargo build --release -p printer-daemon --features embed-web
 ./target/release/barnguard-server       # open http://localhost:9110/
 ```

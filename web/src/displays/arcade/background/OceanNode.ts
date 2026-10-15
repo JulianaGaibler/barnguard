@@ -40,7 +40,7 @@ export class OceanNode extends Node2D {
 
     gfx.fillRect(x0, top, vr.width, bottom - top, rgbaStr(p.oceanBase))
 
-    // Vertical waterline glow: bright at the top of the band → transparent.
+    // Vertical waterline glow: bright at the top of the band -> transparent.
     const g = p.oceanGlow
     const bright = g.stops[0]
     const fade = g.stops[g.stops.length - 1]

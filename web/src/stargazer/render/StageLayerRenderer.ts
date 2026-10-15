@@ -10,6 +10,14 @@ import type { RenderLayer, Node2D } from '../scene/Node2D'
 import type { Gfx2D } from './gfx/Gfx2D'
 import type { Renderer } from './Renderer'
 import { isEffectivelyVisible } from '../scene/traverse'
+import { hasClipNodes } from '../scene/Node2D'
+import { GfxPath } from './gfx/GfxPath'
+import type { Rect } from '../math/Rect'
+import {
+  InsetCameraView,
+  InsetViewNode,
+  hasInsets,
+} from '../nodes/InsetViewNode'
 
 /**
  * World-unit slack on viewport cull, on top of stroke half-width. Covers AA
@@ -25,6 +33,20 @@ export class StageLayerRenderer {
   // Scratch for the per-layer viewport-cull bounds, reused each frame.
   readonly #cullTL: Vec2 = { x: 0, y: 0 }
   readonly #cullBR: Vec2 = { x: 0, y: 0 }
+  /**
+   * One reusable camera view per inset, so drawing inside one allocates
+   * nothing.
+   */
+  readonly #insetViews = new WeakMap<InsetViewNode, InsetCameraView>()
+  /** Clip-owning ancestors of the node being drawn, outermost first. */
+  readonly #chain: Node2D[] = []
+  /** The clips currently pushed, outermost first. */
+  readonly #active: Node2D[] = []
+  /** Cached path of a node whose clip is a rect. */
+  readonly #rectPaths = new WeakMap<
+    Node2D,
+    { path: GfxPath; x: number; y: number; w: number; h: number }
+  >()
 
   drawLayer(
     scene: SceneTree,
@@ -52,6 +74,8 @@ export class StageLayerRenderer {
     const strokeScale = camera.strokeSpaceScale()
 
     const layerNodes = scene.getLayerNodes(layer)
+    const anyInsets = hasInsets(scene)
+    const anyClips = hasClipNodes()
     for (let i = 0; i < layerNodes.length; i++) {
       const node = layerNodes[i]
       if (!isEffectivelyVisible(node)) continue
@@ -71,6 +95,30 @@ export class StageLayerRenderer {
       ) {
         continue
       }
+      if (anyClips || this.#active.length > 0) {
+        this.#syncClips(node, anyClips, gfx, render)
+      }
+      // A node inside an inset draws clipped to the inset's rounded rect and
+      // sees the inset's camera, so its screen-space strokes keep their size.
+      const inset = anyInsets ? insetAncestor(node) : null
+      let view = camera
+      if (inset) {
+        setFinalTransform(gfx, render, inset.transform.world)
+        gfx.setClip({
+          kind: 'roundRect',
+          x: 0,
+          y: 0,
+          w: inset.width,
+          h: inset.height,
+          radius: inset.radius,
+        })
+        let insetView = this.#insetViews.get(inset)
+        if (!insetView) {
+          insetView = new InsetCameraView()
+          this.#insetViews.set(inset, insetView)
+        }
+        view = insetView.bind(camera, inset)
+      }
       const w = node.transform.world
       // final = render · node.world (full 2×3 matmul, the camera affine may be
       // rotated/skewed via a transformed or parented camera). For an identity
@@ -87,14 +135,81 @@ export class StageLayerRenderer {
       const id = marks ? node.id : ''
       const startMark = marks ? `draw-${id}:start` : ''
       if (marks) performance.mark(startMark)
-      node.draw(gfx, camera, dt)
+      node.draw(gfx, view, dt)
+      if (inset) gfx.setClip(null)
       if (marks) {
         const endMark = `draw-${id}:end`
         performance.mark(endMark)
         performance.measure(`draw ${id}`, startMark, endMark)
       }
     }
+    this.#syncClips(null, false, gfx, render)
     gfx.setAlpha(1)
+  }
+
+  /**
+   * Make the pushed clips match the clip ancestors of `node` (none when `node`
+   * is null). Clips shared with the previous node stay, the rest are popped and
+   * the new ones pushed.
+   */
+  #syncClips(
+    node: Node2D | null,
+    collect: boolean,
+    gfx: Gfx2D,
+    render: Affine2x3,
+  ): void {
+    const chain = this.#chain
+    chain.length = 0
+    if (node && collect) {
+      for (let n: Node2D | null = node; n; n = parent2D(n)) {
+        if (n.clip) chain.push(n)
+      }
+      chain.reverse()
+    }
+    const active = this.#active
+    let k = 0
+    while (k < active.length && k < chain.length && active[k] === chain[k]) k++
+    while (active.length > k) {
+      active.pop()
+      gfx.restore()
+    }
+    for (let j = k; j < chain.length; j++) {
+      const owner = chain[j]
+      gfx.save()
+      setFinalTransform(gfx, render, owner.transform.world)
+      gfx.clipPath(this.#clipPathOf(owner))
+      active.push(owner)
+    }
+  }
+
+  /** The owner's clip as a path, building and caching one for a rect. */
+  #clipPathOf(owner: Node2D): GfxPath {
+    const clip = owner.clip as GfxPath | Rect
+    if (clip instanceof GfxPath) return clip
+    let cached = this.#rectPaths.get(owner)
+    if (!cached) {
+      cached = { path: new GfxPath(), x: NaN, y: 0, w: 0, h: 0 }
+      this.#rectPaths.set(owner, cached)
+    }
+    if (
+      cached.x !== clip.x ||
+      cached.y !== clip.y ||
+      cached.w !== clip.width ||
+      cached.h !== clip.height
+    ) {
+      cached.x = clip.x
+      cached.y = clip.y
+      cached.w = clip.width
+      cached.h = clip.height
+      cached.path
+        .clear()
+        .moveTo(clip.x, clip.y)
+        .lineTo(clip.x + clip.width, clip.y)
+        .lineTo(clip.x + clip.width, clip.y + clip.height)
+        .lineTo(clip.x, clip.y + clip.height)
+        .close()
+    }
+    return cached.path
   }
 
   /**
@@ -119,7 +234,7 @@ export class StageLayerRenderer {
     const y0 = b.y
     const x1 = b.x + b.width
     const y1 = b.y + b.height
-    // Four local corners → world.
+    // Four local corners -> world.
     const wx0 = w.a * x0 + w.c * y0 + w.e
     const wy0 = w.b * x0 + w.d * y0 + w.f
     const wx1 = w.a * x1 + w.c * y0 + w.e
@@ -162,4 +277,36 @@ export class StageLayerRenderer {
       minY > visBottom + m
     )
   }
+}
+
+/** The nearest {@link InsetViewNode} above `node`, or `null`. */
+function insetAncestor(node: Node2D): InsetViewNode | null {
+  let p = node.parent
+  while (p) {
+    if (p instanceof InsetViewNode) return p
+    p = p.parent
+  }
+  return null
+}
+
+/** Set `gfx`'s base transform to `render · world`. */
+function setFinalTransform(gfx: Gfx2D, render: Affine2x3, w: DOMMatrix): void {
+  gfx.setBaseTransform(
+    render.a * w.a + render.c * w.b,
+    render.b * w.a + render.d * w.b,
+    render.a * w.c + render.c * w.d,
+    render.b * w.c + render.d * w.d,
+    render.a * w.e + render.c * w.f + render.e,
+    render.b * w.e + render.d * w.f + render.f,
+  )
+}
+
+/** The nearest `Node2D` ancestor, skipping other node kinds. */
+function parent2D(n: Node2D): Node2D | null {
+  let p = n.parent
+  while (p) {
+    if ('transform' in p) return p as Node2D
+    p = p.parent
+  }
+  return null
 }

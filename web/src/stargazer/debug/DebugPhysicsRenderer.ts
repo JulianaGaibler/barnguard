@@ -1,6 +1,6 @@
 // Physics overlay for the debug HUD. Pure function of a physics world + camera,
 // no controller state. Draws in screen space, projecting each body's coords
-// through an optional `space` transform (physics space → world) and then
+// through an optional `space` transform (physics space -> world) and then
 // `cam.worldToScreen`, same screen-space convention as the grid/outline
 // overlays. Every layer is gated by a flag so an all-off overlay costs one
 // early return.
@@ -48,10 +48,10 @@ const CONTACT_DOT_PX = 3
 // Vec2 that `cam.worldToScreen` returns (matches the other debug renderers).
 const polyPts = new Float32Array(64)
 
-/** Per-call transform context so points map physics space → world → screen. */
+/** Per-call transform context so points map physics space -> world -> screen. */
 interface Ctx {
   cam: CameraView2D
-  /** Physics-space → world affine, or null when physics is in world space. */
+  /** Physics-space -> world affine, or null when physics is in world space. */
   space: DOMMatrix | null
   /** Linear scale of `space` (1 when null), for radii and vector lengths. */
   spaceScale: number

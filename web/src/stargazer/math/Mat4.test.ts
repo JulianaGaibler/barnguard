@@ -114,7 +114,7 @@ describe('mat4Ortho', () => {
 })
 
 describe('projection clip-depth conventions', () => {
-  it('perspective zero-to-one maps near→0, far→1 (WebGPU depth)', () => {
+  it('perspective zero-to-one maps near->0, far->1 (WebGPU depth)', () => {
     const m = mat4Perspective(mat4(), HALF_PI, 1, 1, 100, 'zero-to-one')
     const near = mat4TransformPoint(vec3(), m, 0, 0, -1)
     const far = mat4TransformPoint(vec3(), m, 0, 0, -100)
@@ -140,7 +140,7 @@ describe('projection clip-depth conventions', () => {
     expect(deep.z).toBeGreaterThan(0.99)
   })
 
-  it('ortho zero-to-one maps near→0, far→1', () => {
+  it('ortho zero-to-one maps near->0, far->1', () => {
     const m = mat4Ortho(mat4(), -2, 2, -1, 1, 1, 10, 'zero-to-one')
     const min = mat4TransformPoint(vec3(), m, -2, -1, -1)
     const max = mat4TransformPoint(vec3(), m, 2, 1, -10)

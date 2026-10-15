@@ -4,7 +4,7 @@ import type { Rect } from '../math/Rect'
 export interface BitmapMaskOptions {
   /** The shape filled to produce the mask. */
   path: Path2D
-  /** World-space rect the path fills. Used to map world → pixel. */
+  /** World-space rect the path fills. Used to map world -> pixel. */
   worldRect: Rect
   /** Longest edge of the mask in pixels. Default 1024. */
   resolution?: number
@@ -81,7 +81,7 @@ export async function buildBitmapMask(
   ctx.fill(opts.path)
 
   // Yield so the browser can paint whatever else is queued before the
-  // (potentially GPU→CPU) readback stall.
+  // (potentially GPU->CPU) readback stall.
   await new Promise((resolve) => setTimeout(resolve, 0))
 
   const imageData = ctx.getImageData(0, 0, w, h)

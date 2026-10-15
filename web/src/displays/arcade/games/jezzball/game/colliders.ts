@@ -31,7 +31,7 @@ function isSolid(g: Grid, col: number, row: number): boolean {
 export function mergeSolidCells(g: Grid): CellRect[] {
   const { cols, rows } = g
   const rects: CellRect[] = []
-  // Span key ("c0:c1") → index of the still-open rect from the previous row.
+  // Span key ("c0:c1") -> index of the still-open rect from the previous row.
   let prev = new Map<string, number>()
 
   for (let r = 0; r < rows; r++) {

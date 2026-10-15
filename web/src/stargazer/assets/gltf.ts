@@ -476,7 +476,7 @@ function decomposeMatrix(node: Node3D, m: number[]): void {
   const r20 = m[2] / sx,
     r21 = m[6] / sy,
     r22 = m[10] / sz
-  // Rotation matrix → quaternion.
+  // Rotation matrix -> quaternion.
   const trace = r00 + r11 + r22
   let qx: number, qy: number, qz: number, qw: number
   if (trace > 0) {
@@ -509,7 +509,7 @@ function decomposeMatrix(node: Node3D, m: number[]): void {
   node.transform.setScale(sx, sy, sz)
 }
 
-/** GlTF interpolation string → the clip's {@link Interpolation}. */
+/** GlTF interpolation string -> the clip's {@link Interpolation}. */
 function interpolationOf(s: string | undefined): Interpolation {
   if (s === 'STEP') return 'STEP'
   if (s === 'CUBICSPLINE') return 'CUBICSPLINE'

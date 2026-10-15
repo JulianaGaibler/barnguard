@@ -85,7 +85,7 @@ describe('DraggableBehavior', () => {
     const s = setup({ onDragStart })
     // Card origin world is (10, 20). Grab offset becomes (5, 8).
     down(s, 15, 28)
-    move(s, 50, 60) // 40px travel → a drag
+    move(s, 50, 60) // 40px travel -> a drag
     expect(onDragStart).toHaveBeenCalledTimes(1)
     expect(s.card.parent).toBe(s.drag)
     const origin = s.card.localToWorld(0, 0)
@@ -99,7 +99,7 @@ describe('DraggableBehavior', () => {
     down(s, 15, 28)
     move(s, 50, 60) // over nothing (x < 100): target null, no change from null
     move(s, 120, 60) // enters column 1
-    move(s, 150, 60) // still column 1 (fresh object, equal by c) → no fire
+    move(s, 150, 60) // still column 1 (fresh object, equal by c) -> no fire
     move(s, 260, 60) // enters column 2
     move(s, 50, 60) // leaves to nothing
     expect(onDragMove.mock.calls.map((c) => c[0])).toEqual([
@@ -178,7 +178,7 @@ describe('DraggableBehavior', () => {
   it('re-grabs during a snap-back, aborting it and reusing the original home', () => {
     const onDrop = vi.fn()
     const s = setup({ onDrop })
-    // First drag, released off-target → snap in flight, node in the drag layer.
+    // First drag, released off-target -> snap in flight, node in the drag layer.
     down(s, 15, 28)
     move(s, 50, 60)
     up(s, 50, 60)

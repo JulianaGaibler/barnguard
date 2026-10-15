@@ -2,7 +2,7 @@
 // round-rects, and textured quads (text + atlas sprites). A per-instance
 // `shapeType` picks the vertex positioning + fragment math. The atlas + label
 // page bind at fixed units, so texture identity leaves the batch key and the
-// common fill→text→shape interleave collapses to a single blend-only batch.
+// common fill->text->shape interleave collapses to a single blend-only batch.
 //
 // This is the sole path for circles, round-rects, and page-backed text/sprites.
 // A per-source image or an oversized dedicated label has its own texture, which
@@ -50,6 +50,7 @@ import type {
   VertexBufferLayout,
 } from '../GfxDevice'
 import { unitQuadLayout, UboRing, warmupBlendPipelines } from './programCommon'
+import { CLIP_DEPTH_SHIFT } from '../stencilRecipe'
 import type { ShaderReflection } from '../GfxDevice'
 import type { TransformOut } from '../TransformStack'
 import shapeWgsl from '../shaders/shape.wgsl?raw'
@@ -74,8 +75,8 @@ const W_PAINT = 24 // fill gradient: (scaleDirX, scaleDirY, startOffset, rampRow
 
 /**
  * `style.align` resolved to a signed `strokeOffset` (0 center, `-width/2`
- * inside, `+width/2` outside), clamped so an inside stroke wider than the
- * box can't push past its center and invert the band.
+ * inside, `+width/2` outside), clamped so an inside stroke wider than the box
+ * can't push past its center and invert the band.
  */
 function strokeOffsetFor(
   style: SolidStrokeStyle,
@@ -92,6 +93,8 @@ function strokeOffsetFor(
   return Math.max(-maxOffset, Math.min(maxOffset, raw))
 }
 
+let warnedRadial = false
+
 export class ShapeProgram implements GpuProgram {
   readonly kind = 'shape' as const
 
@@ -100,15 +103,27 @@ export class ShapeProgram implements GpuProgram {
   #pipelines: Map<string, Pipeline> = new Map()
   #vertexLayout: VertexBufferLayout[] = []
   #materialLayout!: BindGroupLayout
-  /** (atlas → (label → (ramp atlas → bind group))), the fixed textures this program binds. */
+  #device!: GfxDevice
+  /** Ring generation the bind-group cache was built against. */
+  #paramsGen = 0
+  /**
+   * (atlas -> (label -> (ramp atlas -> bind group))), the fixed textures this
+   * program binds.
+   */
   #bindGroups = new WeakMap<
     Texture,
     WeakMap<Texture, WeakMap<Texture, BindGroup>>
   >()
-  /** Per-run debug-mode override (dynamic-offset ring), see `ShapeParams` in shape.wgsl. */
+  /**
+   * Per-run debug-mode override (dynamic-offset ring), see `ShapeParams` in
+   * shape.wgsl.
+   */
   #paramsRing!: UboRing
   readonly #paramsStaging = new Float32Array(SHAPE_PARAMS_BYTES / 4)
-  /** `flags` is a `vec4<u32>`; same dual-view trick as `RingStream`/`coloredTri`. */
+  /**
+   * `flags` is a `vec4<u32>`; same dual-view trick as
+   * `RingStream`/`coloredTri`.
+   */
   readonly #paramsStagingU32 = new Uint32Array(this.#paramsStaging.buffer)
 
   get stream(): RingStream {
@@ -116,6 +131,7 @@ export class ShapeProgram implements GpuProgram {
   }
 
   init(device: GfxDevice, _ctx: GpuBatchContext): void {
+    this.#device = device
     this.#shader = device.createShaderModule({
       glsl: { vertex: shapeVertSrc, fragment: shapeFragSrc },
       wgsl: {
@@ -147,6 +163,8 @@ export class ShapeProgram implements GpuProgram {
       SHAPE_PARAMS_BYTES,
       2048,
       'shapeParams',
+      true,
+      true,
     )
     this.#bindGroups = new WeakMap()
     const s = SHAPE_INSTANCE_STRIDE
@@ -179,25 +197,17 @@ export class ShapeProgram implements GpuProgram {
     })
   }
 
-  resetFrame(): void {
-    this.#paramsRing.reset()
+  uboSlices(): number {
+    return this.#paramsRing.pushes
   }
 
-  drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+  resetFrame(): void {
+    this.#paramsRing.reset(this.#device)
+  }
+
+  prepareRun(_ctx: GpuBatchContext, run: DrawRun): void {
     const words = SHAPE_INSTANCE_STRIDE / 4
-    const instCount = (run.endWord - run.startWord) / words
-    if (instCount === 0) return
-
-    // Fixed-unit textures: atlas on 0, label page on 1, ramp atlas on 2.
-    // Non-textured shapes ignore the first two; a shape with no gradient
-    // ignores the third. A placeholder fills a slot before its texture
-    // exists.
-    const atlas = ctx.textureManager.getAtlasTexture() ?? ctx.placeholderTexture
-    const label =
-      ctx.textureManager.getLabelPageTexture() ?? ctx.placeholderTexture
-    const ramp =
-      ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
-
+    if ((run.endWord - run.startWord) / words === 0) return
     const debugModeInt =
       run.debugMode === 'overdraw' ? 1 : run.debugMode === 'batch-color' ? 2 : 0
     const s = this.#paramsStaging
@@ -218,20 +228,52 @@ export class ShapeProgram implements GpuProgram {
     su[5] = 0
     su[6] = 0
     su[7] = 0
-    const dynOffset = this.#paramsRing.push(ctx.device, s)
-    if (dynOffset < 0) return
+    run.paramsOffset = this.#paramsRing.push(this.#device, s)
+  }
+
+  flushRings(device: GfxDevice): void {
+    this.#paramsRing.flush(device)
+  }
+
+  drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    const words = SHAPE_INSTANCE_STRIDE / 4
+    const instCount = (run.endWord - run.startWord) / words
+    if (instCount === 0) return
+
+    // Fixed-unit textures: atlas on 0, label page on 1, ramp atlas on 2.
+    // Non-textured shapes ignore the first two; a shape with no gradient
+    // ignores the third. A placeholder fills a slot before its texture
+    // exists.
+    const atlas = ctx.textureManager.getAtlasTexture() ?? ctx.placeholderTexture
+    const label =
+      ctx.textureManager.getLabelPageTexture() ?? ctx.placeholderTexture
+    const ramp =
+      ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
+
+    const debugModeInt =
+      run.debugMode === 'overdraw' ? 1 : run.debugMode === 'batch-color' ? 2 : 0
+    const dynOffset = run.paramsOffset
+    if (dynOffset === undefined || dynOffset < 0) return
 
     // Overdraw forces additive blend so the constant red accumulates as a
     // heatmap instead of painting opaque, same as `coloredTri`.
     const blend = debugModeInt === 1 ? 'lighter' : run.blend
-    const pipeline = this.#pipelines.get(blend)
+    const clipDepth = run.stencilDepth ?? 0
+    const pipeline = this.#pipelines.get(
+      clipDepth > 0 ? `${blend}|clipTest` : blend,
+    )
     if (!pipeline) return
 
     ctx.device.draw({
       pipeline,
+      stencilReference:
+        clipDepth > 0 ? clipDepth << CLIP_DEPTH_SHIFT : undefined,
       vertexBuffers: [
         { buffer: ctx.unitQuadBuffer, offset: 0 },
-        { buffer: this.#stream.buffers[ctx.curSlot], offset: run.startWord * 4 },
+        {
+          buffer: this.#stream.buffers[ctx.curSlot],
+          offset: run.startWord * 4,
+        },
       ],
       bindGroups: [
         ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
@@ -253,6 +295,10 @@ export class ShapeProgram implements GpuProgram {
     label: Texture,
     ramp: Texture,
   ): BindGroup {
+    if (this.#paramsGen !== this.#paramsRing.generation) {
+      this.#paramsGen = this.#paramsRing.generation
+      this.#bindGroups = new WeakMap()
+    }
     let byLabel = this.#bindGroups.get(atlas)
     if (!byLabel) {
       byLabel = new WeakMap()
@@ -289,10 +335,10 @@ export class ShapeProgram implements GpuProgram {
 
   /**
    * Resolve `fill` against the already-read current transform `t`: a packed
-   * fill color plus the four `a_paint` words (zero when solid, so a
-   * §2.2-zeroed record reads as "no gradient"). `null` only when a gradient
-   * needs a ramp row and the atlas cannot give it (headless, no 2D context);
-   * the caller should then skip the draw rather than fill with garbage.
+   * fill color plus the four `a_paint` words (zero when solid, so a §2.2-zeroed
+   * record reads as "no gradient"). `null` only when a gradient needs a ramp
+   * row and the atlas cannot give it (headless, no 2D context) and the stops
+   * are empty. An exhausted atlas falls back to a solid color.
    */
   #resolveFillPaint(
     ctx: GpuBatchContext,
@@ -305,10 +351,28 @@ export class ShapeProgram implements GpuProgram {
       return { packedFill: resolved.packedColor, paint: [0, 0, 0, 0] }
     }
     const g = resolved.paint
-    const rampRow = ctx.textureManager.ensureStopsRow(g.stops, () =>
-      ctx.forceMidFrameSubmit(),
-    )
-    if (rampRow < 0) return null
+    if (g.kind === 'radial') {
+      // The shape shader has a linear ramp only. A radial fill draws as its
+      // middle stop.
+      if (!warnedRadial) {
+        warnedRadial = true
+        console.warn(
+          'GpuGfx: radial gradients are not supported on rects and circles, drawing a flat color',
+        )
+      }
+      const mid = resolvePaint(g.stops[g.stops.length >> 1].color, alpha)
+      return mid.kind === 'solid'
+        ? { packedFill: mid.packedColor, paint: [0, 0, 0, 0] }
+        : null
+    }
+    const rampRow = ctx.textureManager.ensureStopsRow(g.stops)
+    if (rampRow < 0) {
+      const mid = g.stops[g.stops.length >> 1].color
+      const solid = resolvePaint(mid, alpha)
+      return solid.kind === 'solid'
+        ? { packedFill: solid.packedColor, paint: [0, 0, 0, 0] }
+        : null
+    }
     const dx0 = t.a * g.x0 + t.c * g.y0 + t.e
     const dy0 = t.b * g.x0 + t.d * g.y0 + t.f
     const dx1 = t.a * g.x1 + t.c * g.y1 + t.e
@@ -325,7 +389,7 @@ export class ShapeProgram implements GpuProgram {
     }
   }
 
-  // --- high-level emitters (CPU-side transform math → shape records) --------
+  // --- high-level emitters (CPU-side transform math -> shape records) --------
 
   /** `Gfx2D.fillCircle` via the shape record (device-space center + radius). */
   fillCircle(
@@ -387,9 +451,9 @@ export class ShapeProgram implements GpuProgram {
   }
 
   /**
-   * `fillCircle` + `strokeCircle` in one record, for a node that sets both:
-   * see `fillAndStrokeRoundRect`'s doc for why that matters for a
-   * translucent stroke.
+   * `fillCircle` + `strokeCircle` in one record, for a node that sets both: see
+   * `fillAndStrokeRoundRect`'s doc for why that matters for a translucent
+   * stroke.
    */
   fillAndStrokeCircle(
     ctx: GpuBatchContext,
@@ -440,8 +504,8 @@ export class ShapeProgram implements GpuProgram {
   /**
    * `Gfx2D.strokeRoundRect` via the shape record. `style.align` becomes a
    * per-instance `strokeOffset` (0 center, `-width/2` inside, `+width/2`
-   * outside), clamped so an inside stroke wider than the box can't invert
-   * the band.
+   * outside), clamped so an inside stroke wider than the box can't invert the
+   * band.
    */
   strokeRoundRect(
     ctx: GpuBatchContext,
@@ -604,7 +668,7 @@ export class ShapeProgram implements GpuProgram {
   }
 
   /**
-   * A rounded rect (fill and/or stroke). `affine` is the local→device columns +
+   * A rounded rect (fill and/or stroke). `affine` is the local->device columns +
    * translate, and extents/feather/radii are local units.
    */
   roundRect(
@@ -713,11 +777,10 @@ export class ShapeProgram implements GpuProgram {
 
   /**
    * A drop shadow for a rounded rect's (or, via uniform radii, a circle's)
-   * border box. `affine` is the local→device columns + translate (same as
-   * `roundRect`), `halfW`/`halfH`/`radii` describe the TRUE border box (for
-   * the outset knockout / inset guard), and `sigma`/`spread`/`offsetX`/
-   * `offsetY` are already in the same local units, pre-converted by the
-   * caller.
+   * border box. `affine` is the local->device columns + translate (same as
+   * `roundRect`), `halfW`/`halfH`/`radii` describe the TRUE border box (for the
+   * outset knockout / inset guard), and `sigma`/`spread`/`offsetX`/ `offsetY`
+   * are already in the same local units, pre-converted by the caller.
    */
   shadow(
     ctx: GpuBatchContext,
@@ -778,10 +841,9 @@ export class ShapeProgram implements GpuProgram {
    * ingredients `shadow` needs, converting back to local units (the shadow
    * geometry, like round-rect, is evaluated in local space via the affine).
    * `halfW`/`halfH` are local; everything on `style` already follows
-   * `strokeSpace` (same convention as `GfxStrokeStyle.width`), hence device
-   * px, which is why the sigma clamp (deliberately a CSS deviation: past it
-   * the integral cannot resolve the shape) happens before the conversion
-   * back.
+   * `strokeSpace` (same convention as `GfxStrokeStyle.width`), hence device px,
+   * which is why the sigma clamp (deliberately a CSS deviation: past it the
+   * integral cannot resolve the shape) happens before the conversion back.
    */
   #resolveShadow(
     t: TransformOut,

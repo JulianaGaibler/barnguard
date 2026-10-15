@@ -36,7 +36,7 @@ export const enterpriseTheme: Theme = {
     // Pre-boot fallback only: the engine's own backdrop stage paints over
     // this the moment it renders its first frame (see
     // `background/Backdrop.svelte`).
-    appBackdrop: '#FDCC9B',
+    appBackdrop: '#D1C3F4',
     shadowCard:
       '0 0.3125rem 2.5rem #0000001a, inset 0 0.125rem 0 -0.0625rem #ffffff80',
     gradientResult:

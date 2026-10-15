@@ -37,6 +37,12 @@ export interface ParseSvgPathsOptions {
    * a pixel at 1:1 render scale.
    */
   flattenTol?: number
+  /**
+   * Uniform scale applied to every path and to the `viewBox` as the SVG is
+   * read, so the result comes out in units other than the artwork's own.
+   * Default `1`. `flattenTol` is in the scaled units.
+   */
+  scale?: number
 }
 
 /**
@@ -92,11 +98,21 @@ export function parseSvgPaths(
     throw new Error('parseSvgPaths: no <svg> root element')
   }
 
-  const viewBox = parseViewBox(
+  const scale = opts.scale ?? 1
+  const sourceViewBox = parseViewBox(
     root.getAttribute('viewBox'),
     root.getAttribute('width'),
     root.getAttribute('height'),
   )
+  const viewBox =
+    scale === 1
+      ? sourceViewBox
+      : rect(
+          sourceViewBox.x * scale,
+          sourceViewBox.y * scale,
+          sourceViewBox.width * scale,
+          sourceViewBox.height * scale,
+        )
 
   const tessellate = opts.tessellate === true
   const flattenTol = opts.flattenTol ?? 0.5
@@ -104,8 +120,9 @@ export function parseSvgPaths(
   const paths = new Map<string, SvgPathEntry>()
   const pathEls = doc.querySelectorAll('path')
   pathEls.forEach((el, idx) => {
-    const d = el.getAttribute('d')
-    if (!d) return
+    const source = el.getAttribute('d')
+    if (!source) return
+    const d = scale === 1 ? source : scaleSvgPath(source, scale)
     const key = el.getAttribute('id') ?? nearestAncestorId(el) ?? `path-${idx}`
     const subBounds = computePathBounds(d)
     const existing = paths.get(key)
@@ -209,6 +226,45 @@ export function tokenizeSvgPath(d: string): string[] {
   return tokens
 }
 
+/** How many numbers each SVG path command takes per repeat. */
+const ARG_COUNTS: Record<string, number> = {
+  M: 2,
+  L: 2,
+  T: 2,
+  H: 1,
+  V: 1,
+  C: 6,
+  S: 4,
+  Q: 4,
+  A: 7,
+  Z: 0,
+}
+
+/**
+ * Scale every coordinate and length in a raw SVG `d` string by `s` about the
+ * origin. An arc's rotation and its two flags are left as they are.
+ */
+export function scaleSvgPath(d: string, s: number): string {
+  const tokens = tokenizeSvgPath(d)
+  const out: string[] = []
+  let cmd = ''
+  let argIndex = 0
+  for (const tok of tokens) {
+    if (/^[a-zA-Z]$/.test(tok)) {
+      cmd = tok.toUpperCase()
+      argIndex = 0
+      out.push(tok)
+      continue
+    }
+    const count = ARG_COUNTS[cmd] ?? 0
+    const slot = count > 0 ? argIndex % count : 0
+    argIndex++
+    const keep = cmd === 'A' && slot >= 2 && slot <= 4
+    out.push(keep ? tok : String(parseFloat(tok) * s))
+  }
+  return out.join(' ')
+}
+
 /**
  * Approximate axis-aligned bounds for a raw SVG `d` string. The result is
  * always ≥ the true AABB (Bézier and arc segments are bounded conservatively),
@@ -257,7 +313,7 @@ export function computePathBounds(d: string): Rect {
         startX = x
         startY = y
         include(x, y)
-        // Implicit continuation: M → L, m → l
+        // Implicit continuation: M -> L, m -> l
         cmd = abs ? 'L' : 'l'
         break
       }

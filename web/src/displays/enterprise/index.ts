@@ -17,7 +17,7 @@ import { enterpriseLocales, ENTERPRISE_DEFAULT_LANGUAGE } from './i18n'
 import { renderLabel, type LabelInput } from './label'
 import type { EnterpriseMessages } from './i18n/types'
 import { squarePxFrom } from '@src/core/print/canvas'
-import { DEFAULT_MAP_ID } from './game'
+import { LEGACY_MAP_ID } from './game'
 
 /**
  * Translate a persisted `GameRecord` (server shape) into a `LabelInput` (the
@@ -31,7 +31,7 @@ async function recordToLabelInput(record: GameRecord): Promise<LabelInput> {
     stateId: narrow.stateId,
     // The record's own map, so a reprint names the region the same way the
     // original badge did even while another map is loaded.
-    mapId: narrow.mapId ?? DEFAULT_MAP_ID,
+    mapId: narrow.mapId ?? LEGACY_MAP_ID,
     score: narrow.score,
     isOverallHigh: narrow.wasOverallHigh,
     isStateHigh: narrow.wasStateHigh,
@@ -65,6 +65,8 @@ export const enterprise: DisplayManifest = {
   theme: enterpriseTheme,
   root: GameScreen,
   attendantPanel: SelectedStatePreview,
+  // One board per map, so the attendant can moderate both.
+  leaderboardIds: ['enterprise-eu', 'enterprise-de'],
   locales: enterpriseLocales,
   defaultLanguage: ENTERPRISE_DEFAULT_LANGUAGE,
 
@@ -85,15 +87,15 @@ export const enterprise: DisplayManifest = {
   async renderPreviewLabel(ctx: PreviewLabelContext): Promise<Blob> {
     const input: LabelInput = {
       reason: 'exitedGermany',
-      mapId: DEFAULT_MAP_ID,
+      mapId: LEGACY_MAP_ID,
       stateId: 'BE',
       score: 42,
       isOverallHigh: ctx.highScore,
       isStateHigh: ctx.highScore,
       highScores: {
         display: DISPLAY_ID,
-        byMap: { [DEFAULT_MAP_ID]: 42 },
-        byState: { [DEFAULT_MAP_ID]: { BE: 42 } },
+        byMap: { [LEGACY_MAP_ID]: 42 },
+        byState: { [LEGACY_MAP_ID]: { BE: 42 } },
       },
     }
     return renderLabel(input, {

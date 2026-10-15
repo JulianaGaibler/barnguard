@@ -1,6 +1,7 @@
 /**
  * Gameplay pacing / feel constants, centralised for playtesting. World-space
- * distances are in SVG-viewBox units (Germany is 661 × 888).
+ * distances are in map units. Every map loads at the scale that makes them read
+ * the same size on screen (see `maps/playScale`), and Germany is 661 × 888.
  */
 export const TUNING = {
   packet: {
@@ -8,7 +9,7 @@ export const TUNING = {
     radius: 8,
     /** Extra hit-target padding beyond `radius`. ~4.5 mm at kiosk fit scale. */
     hitPadding: 18,
-    /** Duration of the scale 0 → 1 grow before travel starts. */
+    /** Duration of the scale 0 -> 1 grow before travel starts. */
     spawnGrowSec: 1.0,
     /**
      * Delay before the grow tween starts. `spawnBurst` particles are already
@@ -24,9 +25,9 @@ export const TUNING = {
     pressFeedback: {
       /** Peak scale multiplier at the top of the pop. */
       scaleTo: 1.4,
-      /** 1 → scaleTo grow phase (seconds). */
+      /** 1 -> scaleTo grow phase (seconds). */
       upSec: 0.05,
-      /** ScaleTo → 1 settle phase (seconds). */
+      /** ScaleTo -> 1 settle phase (seconds). */
       downSec: 0.25,
     },
     /** Time to accelerate from stationary to current travel speed. */
@@ -119,7 +120,7 @@ export const TUNING = {
       /** Peak world size at end of life. Particles start at scale 0. */
       sizeMaxWorld: 2.7,
       /**
-       * Fraction of life spent ramping alpha 0 → 1. After this, quick-fades to
+       * Fraction of life spent ramping alpha 0 -> 1. After this, quick-fades to
        * 0 for the remainder.
        */
       alphaGrowFraction: 0.72,
@@ -133,7 +134,7 @@ export const TUNING = {
     spawnPulse: {
       /** Total duration (seconds). */
       durationSec: 0.55,
-      /** Scale at t=0 → t=1. */
+      /** Scale at t=0 -> t=1. */
       scaleFrom: 0.6,
       scaleTo: 4.0,
       /** Alpha at t=0. Fades to 0 over `durationSec`. */
@@ -301,6 +302,8 @@ export const TUNING = {
        * into thousands of state changes per frame on the kiosk.
        */
       cellSizeWorld: 12,
+      /** Diameter of a fully grown dot as a fraction of its cell. */
+      dotSize: 0.7,
     },
     pulse: {
       /** Wave speed. 400 wu/s covers Germany's 888 wu height in ~2.2 s. */
@@ -309,33 +312,37 @@ export const TUNING = {
       riseSec: 0.12,
       /** Fall on each cell. */
       fallSec: 0.5,
-      /** Peak alpha per cell. */
-      peakAlpha: 0.275,
-      /** Warm cream, reads against dim state fills without clashing with red. */
-      color: '#fdf6e3',
+      /** Dot size a pulse reaches at its peak, where `1` is a full dot. */
+      peakScale: 1,
+      /** Opacity of a pulse dot. */
+      dotAlpha: 0.55,
+      /** Dot color. */
+      color: '#15141A',
       /** Max concurrent pulses. Extras overwrite the oldest. */
       maxConcurrent: 4,
     },
     warn: {
-      /** Yellow tint color. */
-      color: '#f2c94c',
+      /** Dot color. */
+      color: '#15141A',
       /** Mask inset for danger 1.0 (very close to border). */
       insetNearWorld: 22,
       /** Mask inset for danger 0.5 (getting close). */
       insetFarWorld: 48,
-      /** Two packets closer than this ramp pair-danger 0 → 1. */
+      /** Two packets closer than this ramp pair-danger 0 -> 1. */
       pairRadiusWorld: 55,
       /**
-       * How far a packet's warn contribution spreads. Alpha falls linearly with
-       * distance to the cell centroid.
+       * How far a packet's warn contribution spreads. Dot size falls linearly
+       * with distance to the cell centroid.
        */
       spreadRadiusWorld: 70,
       /**
-       * Ceiling on final warn alpha per cell. Every contribution is scaled by
-       * this before max-blending in.
+       * Ceiling on a warn dot's size, where `1` is a full dot. Every
+       * contribution is scaled by this before max-blending in.
        */
-      peakAlpha: 0.5,
-      /** Warn integrator response rate. 8 → ~125 ms to reach 63 % of a step. */
+      peakScale: 1,
+      /** Opacity of a warn dot. */
+      dotAlpha: 0.8,
+      /** Warn integrator response rate. 8 -> ~125 ms to reach 63 % of a step. */
       smoothingRatePerSec: 8,
     },
   },
@@ -355,8 +362,8 @@ export const TUNING = {
     shockwaveDepth: 3,
     /**
      * White sparkle-star at the collision point. SVG pre-scaled at load so its
-     * max dim equals `worldSize`, then this tweens scale from `scaleFrom` →
-     * `scaleTo` in parallel with alpha 1 → 0.
+     * max dim equals `worldSize`, then this tweens scale from `scaleFrom` ->
+     * `scaleTo` in parallel with alpha 1 -> 0.
      */
     impactFlash: {
       durationSec: 0.25,
@@ -377,7 +384,7 @@ export const TUNING = {
       triangleFraction: 0.35,
       /**
        * Random outward speed range. Under `dampingPerSec: 4.4`, settle
-       * distances span ~30 → ~45 world units.
+       * distances span ~30 -> ~45 world units.
        */
       initialSpeedWorld: [130, 200] as readonly [number, number],
       /** Translational drag. Pieces coast noticeably before settling. */
@@ -412,7 +419,7 @@ export const TUNING = {
       triangleFraction: 0,
       /**
        * Wide range so pieces settle at clearly different distances. Under
-       * `dampingPerSec: 4`, travelled distance ≈ speed / damping, giving ~14 →
+       * `dampingPerSec: 4`, travelled distance ≈ speed / damping, giving ~14 ->
        * ~54 wu spread.
        */
       initialSpeedWorld: [20, 280] as readonly [number, number],

@@ -18,8 +18,14 @@ import {
   type Vec2,
 } from '@src/stargazer'
 import { loadGameAssets } from './assets'
-import { findRegion, type MapDescriptor, type RegionId } from './maps'
+import {
+  findRegion,
+  type MapDescriptor,
+  type RegionId,
+  type RegionInfo,
+} from './maps'
 import { rippleLayers } from './maps/ripple'
+import { overviewView, PICKER_MAP_HEIGHT_OVER_VIEW } from './maps/overviewView'
 import { EpicenterNode } from './nodes/EpicenterNode'
 import { PacketNode } from './nodes/PacketNode'
 import {
@@ -33,6 +39,9 @@ import { PacketBehavior } from './behaviors/PacketBehavior'
 import { spawnPacketInSession } from './spawnPacketInSession'
 import { fireStateRipple } from './animations/stateRipple'
 import { GridOverlayNode } from './nodes/GridOverlayNode'
+import { SmallRegionDiscNode, discDiameter } from './nodes/SmallRegionDiscNode'
+import { AttractPilot } from './attract/AttractPilot'
+import type { PacketMask } from './behaviors/PacketBehavior'
 import { SpawnController } from './spawn/SpawnController'
 import {
   emptyHighScores,
@@ -120,8 +129,32 @@ export interface GameSession {
   readonly state: SessionState
   readonly selectedStateId: RegionId | null
   readonly score: number
+  /**
+   * Seconds the current round has run, counted in fixed steps so a pause
+   * freezes it. It holds its value once the round ends and resets when the next
+   * starts.
+   */
+  readonly elapsedSec: number
   /** True while the session is in a state where a state can be tapped. */
   acceptsStateTap(): boolean
+  /**
+   * Allow or refuse a tap on a region. Off by default, so the map is scenery
+   * until a screen that wants a pick turns it on.
+   */
+  setTapsEnabled(enabled: boolean): void
+  /**
+   * Fade the whole map, fills and borders, to a low opacity so a screen over it
+   * reads clearly, or bring it back. Animated.
+   */
+  setMapDimmed(dimmed: boolean): void
+  /**
+   * Play a round by itself on the full map until stopped, restarting on a new
+   * region after each loss. Records nothing and raises no screen. Ignored while
+   * a round or selection is live.
+   */
+  startAttract(): void
+  /** End the self-playing round and clear what it left. */
+  stopAttract(): void
   /**
    * Select `id` as though it had been tapped, for a UI that offers regions the
    * map cannot practically be tapped on. Ignored once a round is live.
@@ -132,6 +165,11 @@ export interface GameSession {
    * card).
    */
   startRound(): Promise<void>
+  /**
+   * After a loss, put the same region back up as the pending selection without
+   * moving the camera. Ignored unless a round has just ended.
+   */
+  returnToSelection(): void
   /** Drop the pending selection and animate back to the idle map. */
   cancelSelection(): Promise<void>
   /** End any in-progress round and return to the idle map. */
@@ -222,7 +260,21 @@ function glowFor(shape: SvgPathEntry): readonly GfxShadowStyle[] {
   ]
 }
 
+/** The muted fill every region takes while one is picked. */
+const HIGHLIGHT_ALPHA = 0.35
+/** The map's opacity under the result screen. */
+const MAP_DIMMED_ALPHA = 0.3
+const MAP_DIM_SEC = 0.5
+
+/** Cells the splash round's dot grid fades over at its edges. */
+const ATTRACT_GRID_FEATHER_CELLS = 6
+
+/** A boundary nothing crosses, for a round that only a collision can end. */
+const NEVER_LOST: PacketMask = { contains: () => true }
+
 const CAMERA_TWEEN_SEC = 0.6
+/** How long a lost attract round stays on screen after the impact finishes. */
+const ATTRACT_LINGER_SEC = 1.2
 
 /**
  * A region narrower or shorter than this on screen, at the idle framing, goes
@@ -263,10 +315,11 @@ function fitScale(host: EngineHost, view: Rect): number {
  * together warm the same masks and collapse to one request there.
  */
 function playZoomFactors(host: EngineHost, map: MapDescriptor): number[] {
-  const idle = fitScale(host, map.idleView)
-  if (idle <= 0) return []
   const aspect = canvasAspect(host)
-  const factors = new Set<number>()
+  const idle = fitScale(host, overviewView(map.idleView, aspect))
+  if (idle <= 0) return []
+  const picker = overviewView(map.idleView, aspect, PICKER_MAP_HEIGHT_OVER_VIEW)
+  const factors = new Set<number>([fitScale(host, picker) / idle])
   for (const region of map.regions) {
     if (!region.selectable) continue
     const factor = fitScale(host, map.playViewFor(region, aspect)) / idle
@@ -321,6 +374,16 @@ export async function startGame(
 ): Promise<GameSession> {
   const events = createEmitter<GameEvents>()
   const assets = await loadGameAssets()
+  /** The picker's framing, which shows the whole map, fitted to the live canvas. */
+  const pickerView = (): Rect =>
+    overviewView(map.idleView, canvasAspect(host), PICKER_MAP_HEIGHT_OVER_VIEW)
+  /** The splash's framing, fitted to the live canvas. */
+  const splashView = (): Rect => overviewView(map.idleView, canvasAspect(host))
+  /**
+   * The framing with no region chosen: the splash's while it plays, else the
+   * picker's.
+   */
+  const overview = (): Rect => (attractWanted ? splashView() : pickerView())
   // The failure boundary, which the map owns. Germany reads its coastline,
   // Europe bounds the view's left and right edges.
   const playAreaMask = map.playAreaMask({
@@ -342,13 +405,27 @@ export async function startGame(
   const pathLayer = new Node2D('path-layer')
   const handleLayer = new Node2D('handle-layer')
   const activePackets: PacketNode[] = []
+  /**
+   * What the round is lost across. The splash round is lost by a collision, and
+   * across the border too only on a map whose border is a real edge.
+   */
+  const lossMask = (): PacketMask =>
+    attractMode && !map.previewLostAtBorder ? NEVER_LOST : playAreaMask
+  /**
+   * The rect packets spawn in and turn back at. The splash round stays over the
+   * map itself, so a packet never wanders out beneath the text beside it.
+   */
+  const playViewport = (): Rect =>
+    attractMode ? map.idleView : (camera?.viewport ?? map.idleView)
+
   const gridOverlay = new GridOverlayNode({
-    mask: map.geometry.landMask,
+    bounds: map.gridMask?.worldRect ?? map.idleView,
+    mask: map.gridMask,
     cellSizeWorld: map.gridCellWorld,
   })
   gridOverlay.attachWarnSource({
     activePackets: () => activePackets,
-    mask: () => map.geometry.landMask,
+    mask: lossMask,
     isPlaying: () => sessionState === 'playing',
   })
   // Register the mask with the debug controller so the `'clip-mask'` HUD
@@ -358,6 +435,49 @@ export async function startGame(
   host.debug.setInspectedMask(map.geometry.landMask)
 
   let sessionState: SessionState = 'loading'
+  /**
+   * Whether a tap on a region selects it. Off on the splash, where the map is
+   * scenery, and on while the player is picking.
+   */
+  let tapsEnabled = false
+  /** Whether the map is faded under the result screen. */
+  let mapDimmed = false
+  /** Whether a region is picked, so every fill sits at the muted alpha. */
+  let highlighted = false
+  /** Seconds of play this round, summed from fixed steps so a pause freezes it. */
+  let elapsedSec = 0
+  /** A disc for each region too small to tap, in the order the map lists them. */
+  const discs: SmallRegionDiscNode[] = []
+  /** Whether the splash's self-playing round is running. */
+  let attractMode = false
+  /** Asked for while the session was busy, to start once it is idle again. */
+  let attractWanted = false
+  let lastAttractId: RegionId | null = null
+  const attractScope = new AbortScope()
+  /** The region whose disc covers a world point, nearest centre first. */
+  function discAt(x: number, y: number): RegionId | null {
+    let best: SmallRegionDiscNode | null = null
+    let bestDistSq = Infinity
+    for (const disc of discs) {
+      if (!disc.visible || !disc.contains(x, y)) continue
+      const dx = x - disc.transform.x
+      const dy = y - disc.transform.y
+      const d = dx * dx + dy * dy
+      if (d < bestDistSq) {
+        best = disc
+        bestDistSq = d
+      }
+    }
+    return best?.regionId ?? null
+  }
+  function syncDiscs(): void {
+    const css = host.engine.primaryStage.renderer.cssSize
+    for (const disc of discs) {
+      disc.diameterCssPx = discDiameter(css.w, css.h)
+      disc.visible = tapsEnabled
+      disc.selected = disc.regionId === selectedStateId
+    }
+  }
   let selectedStateId: RegionId | null = null
   let score = 0
   let epicenter: EpicenterNode | null = null
@@ -384,7 +504,7 @@ export async function startGame(
       // which half the camera frames would let packets grow outside the
       // visible area. Rejection sampling still trims out the
       // letterbox-inside-country via `mask.contains(pt, inset=minDistFromBorder)`.
-      spawnBounds: () => camera?.viewport ?? map.idleView,
+      spawnBounds: playViewport,
       spawnPacket,
     },
     (seconds, signal) => host.engine.wait(seconds, signal),
@@ -405,7 +525,7 @@ export async function startGame(
    * would rot the next time the map is redrawn.
    */
   function smallRegionIdsNow(): RegionId[] {
-    const view = map.idleView
+    const view = pickerView()
     const size = host.engine.primaryStage.renderer.cssSize
     if (view.width <= 0 || view.height <= 0 || size.h <= 0) return []
     // The idle framing is fit into the canvas, so the scale is whichever axis
@@ -425,7 +545,8 @@ export async function startGame(
   await host.loadScene((scene) => {
     // The game's 2D camera, framing the full 661×888 country.
     const cam = new CameraNode2D('enterprise-camera')
-    cam.setViewport(map.idleView)
+    // The display opens on the splash.
+    cam.setViewport(splashView())
     scene.root.add(cam)
     cam.makeCurrent()
     camera = cam
@@ -478,7 +599,9 @@ export async function startGame(
       })
       node.renderLayer = 'static'
       if (info.selectable) {
-        node.addBehavior(new StateSelectionBehavior(info.id, onStateTap))
+        node.addBehavior(
+          new StateSelectionBehavior(info.id, onStateTap, discAt),
+        )
       }
       mapGroup.add(node)
       stateNodes.set(info.id, node)
@@ -498,6 +621,20 @@ export async function startGame(
     // packet positions each frame).
     scene.root.add(gridOverlay)
 
+    // A disc for each region too small to tap, shown while the player picks.
+    const small = new Set(smallRegionIdsNow())
+    for (const info of map.regions) {
+      if (!small.has(info.id)) continue
+      const disc = new SmallRegionDiscNode(
+        info.id,
+        info.startPoint.x,
+        info.startPoint.y,
+      )
+      disc.visible = false
+      discs.push(disc)
+      scene.root.add(disc)
+    }
+
     // Dynamic-layer groups, paths draw under packets so trails don't
     // occlude the finger's target. Endpoint handles draw on top so the
     // player can grab them.
@@ -507,6 +644,24 @@ export async function startGame(
   })
 
   host.start()
+  // Refit the camera when the window changes shape, since every framing is built
+  // to the canvas aspect. A tween already in flight finishes on its old target
+  // and the next resize or move corrects it.
+  const offResize = host.engine.events.on('resize', () => {
+    syncDiscs()
+    if (!camera) return
+    if (
+      attractMode ||
+      sessionState === 'idle' ||
+      sessionState === 'zoomingOut'
+    ) {
+      camera.setViewport(overview())
+      return
+    }
+    const info =
+      selectedStateId !== null ? findRegion(map, selectedStateId) : undefined
+    if (info) camera.setViewport(map.playViewFor(info, canvasAspect(host)))
+  })
   // Bake the region glows' masks for the framings a tap can zoom to, while the
   // map is still idle. A path shadow's mask is cached per camera scale, so
   // otherwise the first zoom into a map arrives with a hundred masks to bake, a
@@ -525,6 +680,11 @@ export async function startGame(
     'pointerDown',
     (e) => {
       if (e.pointer.capturedBy !== null) return
+      const disc = discAt(e.pointer.world.x, e.pointer.world.y)
+      if (disc !== null) {
+        onStateTap(disc)
+        return
+      }
       if (sessionState !== 'preGame') return
       void cancelSelection()
     },
@@ -532,13 +692,14 @@ export async function startGame(
 
   // --- Tap handler --------------------------------------------------------
   function onStateTap(id: RegionId): void {
+    if (!tapsEnabled) return
     // From idle, always start a fresh selection.
     if (sessionState === 'idle') {
       void selectState(id)
       return
     }
     // Mid-selection (zoom in-flight OR card shown), allow retargeting to
-    // a different state. Same state → no-op, avoids re-triggering the
+    // a different state. Same state -> no-op, avoids re-triggering the
     // zoom + fade + epicenter build on an accidental double-tap.
     if (sessionState === 'zoomingIn' || sessionState === 'preGame') {
       if (id !== selectedStateId) void selectState(id)
@@ -557,6 +718,7 @@ export async function startGame(
     disposeEpicenter()
 
     selectedStateId = id
+    syncDiscs()
     sessionState = 'zoomingIn'
     events.emit('stateSelected', { stateId: id })
     highlightState(id)
@@ -565,32 +727,36 @@ export async function startGame(
     // here outward". Fire-and-forget, pulses self-clean.
     fireStateRipple(rippleLayers(map, id), stateNodes)
 
-    // Show the epicenter at the region's start point, breathing. The cone
-    // opens toward the midpoint of the idle view (the map's own centre) so the
-    // axis always points into the interior.
-    {
-      const mapCentre: Vec2 = {
-        x: map.idleView.x + map.idleView.width / 2,
-        y: map.idleView.y + map.idleView.height / 2,
-      }
-      epicenter = new EpicenterNode({
-        center: info.startPoint,
-        approachReference: mapCentre,
-        apexIcon: assets.firefoxLogo,
-      })
-      epicenter.transform.alpha = 0
-      epicenter.renderLayer = 'dynamic'
-      epicenter.addBehavior(new EpicenterBehavior())
-      host.engine.tree.root.add(epicenter)
-      // Fade the epicenter in as the camera zooms.
-      void epicenter
-        .tween({ alpha: 1 }, { duration: 0.5, easing: easings.outCubic })
-        .catch(ignoreAbort)
-    }
+    showEpicenter(info)
 
     const target = map.playViewFor(info, canvasAspect(host))
     await animateCameraTo(target)
     if (sessionState === 'zoomingIn') sessionState = 'preGame'
+  }
+
+  /**
+   * Show the epicenter at the region's start point, breathing. The cone opens
+   * toward the midpoint of the idle view (the map's own centre) so the axis
+   * always points into the interior.
+   */
+  function showEpicenter(info: RegionInfo): void {
+    const mapCentre: Vec2 = {
+      x: map.idleView.x + map.idleView.width / 2,
+      y: map.idleView.y + map.idleView.height / 2,
+    }
+    epicenter = new EpicenterNode({
+      center: info.startPoint,
+      approachReference: mapCentre,
+      apexIcon: assets.firefoxLogo,
+    })
+    epicenter.transform.alpha = 0
+    epicenter.renderLayer = 'dynamic'
+    epicenter.addBehavior(new EpicenterBehavior())
+    host.engine.tree.root.add(epicenter)
+    // Fade the epicenter in as the camera zooms.
+    void epicenter
+      .tween({ alpha: 1 }, { duration: 0.5, easing: easings.outCubic })
+      .catch(ignoreAbort)
   }
 
   async function animateCameraTo(target: Rect): Promise<void> {
@@ -639,19 +805,42 @@ export async function startGame(
   function highlightState(id: RegionId): void {
     // Every state dims to the same muted alpha. The selected one gets a
     // brighter gradient so it reads distinctly by color, not by opacity.
+    highlighted = true
     for (const [otherId, node] of stateNodes) {
       const gradients = stateFillGradients.get(otherId)
       if (gradients)
         node.fill = otherId === id ? gradients.selected : gradients.normal
-      tweenStaticAlpha(node, 0.35, 0.4)
+      tweenStaticAlpha(node, HIGHLIGHT_ALPHA * mapAlpha(), 0.4)
     }
   }
 
   function clearHighlight(): void {
+    highlighted = false
     for (const [id, node] of stateNodes) {
       const gradients = stateFillGradients.get(id)
       if (gradients) node.fill = gradients.normal
-      tweenStaticAlpha(node, 1, 0.35)
+      tweenStaticAlpha(node, mapAlpha(), 0.35)
+    }
+  }
+
+  /** The whole map's opacity on top of the highlight, faded under a result. */
+  function mapAlpha(): number {
+    return mapDimmed ? MAP_DIMMED_ALPHA : 1
+  }
+
+  /**
+   * Fade the whole map, fills and borders alike, so the cards over it read
+   * clearly, or bring it back.
+   */
+  function setMapDimmed(dimmed: boolean): void {
+    if (dimmed === mapDimmed) return
+    mapDimmed = dimmed
+    const fill = (highlighted ? HIGHLIGHT_ALPHA : 1) * mapAlpha()
+    for (const node of stateNodes.values()) {
+      tweenStaticAlpha(node, fill, MAP_DIM_SEC)
+    }
+    for (const border of [stateBorderNode, inertBorderNode]) {
+      if (border) tweenStaticAlpha(border, mapAlpha(), MAP_DIM_SEC)
     }
   }
 
@@ -662,9 +851,11 @@ export async function startGame(
     events.emit('selectionCanceled', undefined)
     disposeEpicenter()
     clearHighlight()
-    await animateCameraTo(map.idleView)
+    await animateCameraTo(overview())
     if (sessionState === 'zoomingOut') sessionState = 'idle'
     selectedStateId = null
+    syncDiscs()
+    if (attractWanted) startAttract()
   }
 
   async function startRound(): Promise<void> {
@@ -672,14 +863,117 @@ export async function startGame(
     const stateId = selectedStateId
     sessionState = 'playing'
     score = 0
+    elapsedSec = 0
     roundStartedAtMs = performance.now()
     events.emit('roundStarted', { stateId })
+    beginPlaying()
+  }
+
+  /** Start spawning packets and watching them for collisions. */
+  function beginPlaying(): void {
     spawnController.start()
     // Collision loop on the fixed-step ticker. O(N²) but N is tiny.
-    offCollision = host.engine.ticker.onFixedStep(() => {
+    offCollision = host.engine.ticker.onFixedStep((fixedDt) => {
       if (sessionState !== 'playing') return
       checkPacketPacketCollisions()
+      if (attractMode) pilot.update(performance.now() / 1000)
+      else elapsedSec += fixedDt
     })
+  }
+
+  // --- Attract mode --------------------------------------------------------
+  //
+  // The splash plays a round by itself on the full map: a random region, a
+  // pilot drawing the routes, and on a loss the next region. Nothing is
+  // recorded and no screen is raised, it only ends a round the way a player's
+  // would.
+
+  const pilot = new AttractPilot({
+    packets: () => activePackets,
+    epicenter: () => epicenter,
+    pathLayerAdd: (node) => pathLayer.add(node),
+    bindTrailToPacket: (target, trail) => {
+      target.getBehavior(PacketBehavior)?.setTrail(trail)
+    },
+  })
+
+  /** Pick a region other than the last and play it. */
+  function playAttractRound(): void {
+    if (!attractMode || sessionState !== 'idle') return
+    const ids = selectableIds().filter((id) => id !== lastAttractId)
+    const id = ids[Math.floor(Math.random() * ids.length)]
+    const info = id === undefined ? undefined : findRegion(map, id)
+    if (!info) return
+    lastAttractId = id
+    selectedStateId = id
+    highlightState(id)
+    showEpicenter(info)
+    sessionState = 'playing'
+    score = 0
+    beginPlaying()
+  }
+
+  /**
+   * Clear a finished or abandoned attract round and return to idle. Between two
+   * rounds the map stays dimmed, since clearing the highlight and setting it
+   * again in the same tick leaves the clearing tween running and the map
+   * bright.
+   */
+  function clearAttractRound(keepHighlight: boolean): void {
+    spawnController.stop()
+    offCollision?.()
+    offCollision = null
+    clearGameplayNodes()
+    disposeEpicenter()
+    if (!keepHighlight) clearHighlight()
+    gridOverlay.reset()
+    selectedStateId = null
+    sessionState = 'idle'
+  }
+
+  /**
+   * Move to the framing for no region chosen, when the splash starts or stops
+   * while no region is chosen. Already there, the camera stays still.
+   */
+  function reframeOverview(): void {
+    if (sessionState === 'idle' || sessionState === 'zoomingOut') {
+      void animateCameraTo(overview())
+    }
+  }
+
+  function startAttract(): void {
+    attractWanted = true
+    reframeOverview()
+    if (attractMode || sessionState !== 'idle') return
+    attractMode = true
+    gridOverlay.setFeather(
+      map.previewLostAtBorder ? 0 : ATTRACT_GRID_FEATHER_CELLS,
+    )
+    playAttractRound()
+  }
+
+  function stopAttract(): void {
+    attractWanted = false
+    if (attractMode) {
+      attractMode = false
+      gridOverlay.setFeather(0)
+      attractScope.abort()
+      if (sessionState !== 'idle') clearAttractRound(false)
+    }
+    reframeOverview()
+  }
+
+  /** After a loss, let the impact play out, then start the next region. */
+  function queueNextAttractRound(): void {
+    const signal = attractScope.reset()
+    host.engine
+      .wait(TUNING.lossAnim.endScreenGraceSec + ATTRACT_LINGER_SEC, signal)
+      .then(() => {
+        if (!attractMode) return
+        clearAttractRound(true)
+        playAttractRound()
+      })
+      .catch(ignoreAbort)
   }
 
   function spawnPacket(
@@ -696,8 +990,8 @@ export async function startGame(
         hooks: {
           isPlaying: () => sessionState === 'playing',
           epicenter: () => epicenter,
-          gameViewport: () => camera?.viewport ?? map.idleView,
-          mask: () => playAreaMask,
+          gameViewport: playViewport,
+          mask: lossMask,
           onExitedGermany: (p, exitPos, exitHeading) =>
             onPacketExited(p, exitPos, exitHeading),
           onCaptured: (p) => onPacketCaptured(p),
@@ -752,7 +1046,7 @@ export async function startGame(
       return
     }
     score++
-    events.emit('packetScored', { total: score })
+    if (!attractMode) events.emit('packetScored', { total: score })
     packet.destroy()
   }
 
@@ -830,6 +1124,11 @@ export async function startGame(
     pathLayer.destroyChildren()
     handleLayer.destroyChildren()
 
+    if (attractMode) {
+      queueNextAttractRound()
+      return
+    }
+
     // Persist to the server as soon as the round ends, in parallel with the
     // grace animation. The overlay awaits the same promise, so the record id
     // is guaranteed to be present when the card renders (or explicitly null
@@ -888,6 +1187,32 @@ export async function startGame(
       .catch(ignoreAbort)
   }
 
+  /**
+   * After a loss, clear the round and stand the same region up again as the
+   * pending selection: epicenter back, map highlighted, camera where it is. The
+   * player can start another round from the selected card without the map
+   * zooming out and back in.
+   */
+  function returnToSelection(): void {
+    if (sessionState !== 'gameOver' || selectedStateId === null) return
+    const info = findRegion(map, selectedStateId)
+    if (!info) return
+    spawnController.stop()
+    offCollision?.()
+    offCollision = null
+    graceScope.abort()
+    clearGameplayNodes()
+    disposeEpicenter()
+    gridOverlay.reset()
+    highlightState(info.id)
+    showEpicenter(info)
+    score = 0
+    elapsedSec = 0
+    sessionState = 'preGame'
+    syncDiscs()
+    events.emit('stateSelected', { stateId: info.id })
+  }
+
   async function reset(): Promise<void> {
     if (sessionState === 'idle') return
     sessionState = 'zoomingOut'
@@ -903,11 +1228,13 @@ export async function startGame(
     // round. `warnAlpha` is an integrated state array, must be cleared
     // explicitly, `clearGameplayNodes` only walks layers.
     gridOverlay.reset()
-    await animateCameraTo(map.idleView)
+    await animateCameraTo(overview())
     if (sessionState === 'zoomingOut') sessionState = 'idle'
     selectedStateId = null
+    syncDiscs()
     score = 0
     events.emit('reset', undefined)
+    if (attractWanted) startAttract()
   }
 
   function clearGameplayNodes(): void {
@@ -929,11 +1256,13 @@ export async function startGame(
 
   function destroy(): void {
     cameraScope.dispose()
+    attractScope.dispose()
     spawnController.stop()
     offCollision?.()
     offCollision = null
     graceScope.dispose()
     offBackgroundTap()
+    offResize()
     clearGameplayNodes()
     disposeEpicenter()
     gridOverlay.reset()
@@ -958,11 +1287,27 @@ export async function startGame(
     get score() {
       return score
     },
+    get elapsedSec() {
+      return elapsedSec
+    },
     acceptsStateTap(): boolean {
-      return sessionState === 'idle'
+      return (
+        tapsEnabled &&
+        (sessionState === 'idle' ||
+          sessionState === 'zoomingIn' ||
+          sessionState === 'preGame')
+      )
+    },
+    startAttract,
+    stopAttract,
+    setMapDimmed,
+    setTapsEnabled(enabled: boolean): void {
+      tapsEnabled = enabled
+      syncDiscs()
     },
     selectRegion: onStateTap,
     startRound,
+    returnToSelection,
     cancelSelection,
     reset,
     destroy,

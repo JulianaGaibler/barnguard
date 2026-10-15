@@ -8,7 +8,7 @@ export const TUNING = {
     radius: 8,
     /** Extra hit-target padding beyond `radius`. ~4.5 mm at kiosk fit scale. */
     hitPadding: 18,
-    /** Duration of the scale 0 → 1 grow before travel starts. */
+    /** Duration of the scale 0 -> 1 grow before travel starts. */
     spawnGrowSec: 1.0,
     /**
      * Delay before the grow tween starts. `spawnBurst` particles are already
@@ -24,9 +24,9 @@ export const TUNING = {
     pressFeedback: {
       /** Peak scale multiplier at the top of the pop. */
       scaleTo: 1.4,
-      /** 1 → scaleTo grow phase (seconds). */
+      /** 1 -> scaleTo grow phase (seconds). */
       upSec: 0.05,
-      /** ScaleTo → 1 settle phase (seconds). */
+      /** ScaleTo -> 1 settle phase (seconds). */
       downSec: 0.25,
     },
     /** Time to accelerate from stationary to current travel speed. */
@@ -119,7 +119,7 @@ export const TUNING = {
       /** Peak world size at end of life. Particles start at scale 0. */
       sizeMaxWorld: 2.7,
       /**
-       * Fraction of life spent ramping alpha 0 → 1. After this, quick-fades to
+       * Fraction of life spent ramping alpha 0 -> 1. After this, quick-fades to
        * 0 for the remainder.
        */
       alphaGrowFraction: 0.72,
@@ -133,7 +133,7 @@ export const TUNING = {
     spawnPulse: {
       /** Total duration (seconds). */
       durationSec: 0.55,
-      /** Scale at t=0 → t=1. */
+      /** Scale at t=0 -> t=1. */
       scaleFrom: 0.6,
       scaleTo: 4.0,
       /** Alpha at t=0. Fades to 0 over `durationSec`. */
@@ -323,7 +323,7 @@ export const TUNING = {
       insetNearWorld: 22,
       /** Mask inset for danger 0.5 (getting close). */
       insetFarWorld: 48,
-      /** Two packets closer than this ramp pair-danger 0 → 1. */
+      /** Two packets closer than this ramp pair-danger 0 -> 1. */
       pairRadiusWorld: 55,
       /**
        * How far a packet's warn contribution spreads. Alpha falls linearly with
@@ -335,7 +335,7 @@ export const TUNING = {
        * this before max-blending in.
        */
       peakAlpha: 0.5,
-      /** Warn integrator response rate. 8 → ~125 ms to reach 63 % of a step. */
+      /** Warn integrator response rate. 8 -> ~125 ms to reach 63 % of a step. */
       smoothingRatePerSec: 8,
     },
   },
@@ -355,8 +355,8 @@ export const TUNING = {
     shockwaveDepth: 3,
     /**
      * White sparkle-star at the collision point. SVG pre-scaled at load so its
-     * max dim equals `worldSize`, then this tweens scale from `scaleFrom` →
-     * `scaleTo` in parallel with alpha 1 → 0.
+     * max dim equals `worldSize`, then this tweens scale from `scaleFrom` ->
+     * `scaleTo` in parallel with alpha 1 -> 0.
      */
     impactFlash: {
       durationSec: 0.25,
@@ -377,7 +377,7 @@ export const TUNING = {
       triangleFraction: 0.35,
       /**
        * Random outward speed range. Under `dampingPerSec: 4.4`, settle
-       * distances span ~30 → ~45 world units.
+       * distances span ~30 -> ~45 world units.
        */
       initialSpeedWorld: [130, 200] as readonly [number, number],
       /** Translational drag. Pieces coast noticeably before settling. */
@@ -412,7 +412,7 @@ export const TUNING = {
       triangleFraction: 0,
       /**
        * Wide range so pieces settle at clearly different distances. Under
-       * `dampingPerSec: 4`, travelled distance ≈ speed / damping, giving ~14 →
+       * `dampingPerSec: 4`, travelled distance ≈ speed / damping, giving ~14 ->
        * ~54 wu spread.
        */
       initialSpeedWorld: [20, 280] as readonly [number, number],

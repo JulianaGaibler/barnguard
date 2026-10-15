@@ -9,7 +9,7 @@ export interface RGBA {
 
 const BLACK: RGBA = { r: 0, g: 0, b: 0, a: 1 }
 
-// Small string → RGBA cache. Bounded so a pathological caller can't blow up
+// Small string -> RGBA cache. Bounded so a pathological caller can't blow up
 // the working set. The game realistically visits <100 distinct strings.
 const CACHE_MAX = 256
 const cache = new Map<string, RGBA>()

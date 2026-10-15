@@ -27,7 +27,7 @@ export interface PacketMotionTrailOptions {
  * hex despite the sample distance filter and rAF vs fixed-step drift.
  *
  * Rendering builds a closed teardrop path in a single `ctx.fill` per frame:
- * width tapers head → tail with a `pow(1 - t, 0.7)` curve, and the fill is a
+ * width tapers head -> tail with a `pow(1 - t, 0.7)` curve, and the fill is a
  * linear gradient from opaque `color` at the head to fully transparent at the
  * tail. Zero allocations after construction, all scratch state lives in
  * typed-array fields sized to `capacity + 1`.
@@ -190,8 +190,8 @@ export class PacketMotionTrailNode extends Node2D {
       hw[i] = this.maxHalfWidthWorld * Math.pow(1 - t, 0.7)
     }
 
-    // Build the closed ribbon outline into scratch: left edge head → tail,
-    // then right edge tail → head. Perpendicular of (tx, ty) is (-ty, tx).
+    // Build the closed ribbon outline into scratch: left edge head -> tail,
+    // then right edge tail -> head. Perpendicular of (tx, ty) is (-ty, tx).
     const outline = this.#_outline
     let o = 0
     for (let i = 0; i < n; i++) {
@@ -203,7 +203,7 @@ export class PacketMotionTrailNode extends Node2D {
       outline[o++] = ys[i] - tx[i] * hw[i]
     }
 
-    // Linear gradient head → tail. On broadly-curved paths this reads
+    // Linear gradient head -> tail. On broadly-curved paths this reads
     // correctly. On hairpin U-turns the gradient may cut across the loop,
     // an accepted tradeoff. A segmented-fill fallback could replace this
     // if artifacts start showing in practice.

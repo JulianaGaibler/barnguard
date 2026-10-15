@@ -18,7 +18,7 @@ import type { Quat } from './Quat'
  * `world` is `local` pre-multiplied by the parent chain, filled by the scene
  * walk. Treat both matrices as read-only.
  *
- * Composition order (applied to a point right-to-left): scale → rotate →
+ * Composition order (applied to a point right-to-left): scale -> rotate ->
  * translate. Matches {@link mat4Compose} and glTF's TRS convention.
  *
  * @example

@@ -9,10 +9,10 @@ import { visibleWorldRect } from './util'
 import type { PaletteSource } from './BackgroundController'
 
 /**
- * The sky: one diagonal 2-stop linear gradient (bottom-right `skyBottom` →
+ * The sky: one diagonal 2-stop linear gradient (bottom-right `skyBottom` ->
  * top-left `skyTop`) mapped across the VISIBLE rect, so every screen shows the
  * full range on any aspect. The axis tracks the view each frame, so the fill
- * always spans a complete `skyTop`→`skyBottom` gradient with no seam during the
+ * always spans a complete `skyTop`->`skyBottom` gradient with no seam during the
  * camera pan.
  */
 export class SkyGradientNode extends Node2D {
@@ -45,7 +45,7 @@ export class SkyGradientNode extends Node2D {
     pts[5] = y1
     pts[6] = x0
     pts[7] = y1
-    // Gradient axis = the visible rect's diagonal (bottom-right `skyBottom` →
+    // Gradient axis = the visible rect's diagonal (bottom-right `skyBottom` ->
     // top-left `skyTop`), so the full range maps across whatever is on screen.
     gfx.fillPolyLinearGradient(
       pts,

@@ -8,11 +8,11 @@ import type { DemoFn } from './types'
 
 // Minimal 3D diagnostic scene: solid-color primitive boxes that each isolate
 // one variable, so a WebGPU-vs-WebGL2 difference points at a specific uniform.
-//   - red box    flat + lit         wrong brightness → frame light/ambient
-//   - green box  flat + UNLIT       shaded or off-color → per-object flags/color
+//   - red box    flat + lit         wrong brightness -> frame light/ambient
+//   - green box  flat + UNLIT       shaded or off-color -> per-object flags/color
 //   - blue box   PBR                per-object PBR color / path
 //   - white box  floating, lit      casts a shadow on the ground (shadow check)
-//   - ground     flat + lit, grey   washed toward the clear color → frame "fog"
+//   - ground     flat + lit, grey   washed toward the clear color -> frame "fog"
 // No textures at all, so texture-origin / mipmap issues are out of the picture.
 // Boxes sit at distinct x positions, so a wrong model matrix shows as a
 // mis-placed box. Force the backend with `?gfx=webgpu`. Debug HUD is on.

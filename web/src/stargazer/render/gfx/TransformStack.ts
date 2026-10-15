@@ -46,6 +46,27 @@ export class TransformStack {
     this.#buf[o + 5] = f
   }
 
+  /**
+   * Replace the matrix at the top of the stack without touching its depth, so
+   * the matching `pop` still restores the previous one.
+   */
+  setTop(
+    a: number,
+    b: number,
+    c: number,
+    d: number,
+    e: number,
+    f: number,
+  ): void {
+    const o = this.#top * 6
+    this.#buf[o] = a
+    this.#buf[o + 1] = b
+    this.#buf[o + 2] = c
+    this.#buf[o + 3] = d
+    this.#buf[o + 4] = e
+    this.#buf[o + 5] = f
+  }
+
   push(): void {
     const from = this.#top * 6
     const to = (this.#top + 1) * 6

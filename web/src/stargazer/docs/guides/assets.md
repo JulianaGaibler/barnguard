@@ -54,6 +54,17 @@ if (france) {
 Each entry carries `path`, `bounds` (its local AABB), and, with `tessellate: true`,
 `contours` and `triangles`.
 
+Pass `scale` to read the artwork in other units. Every path, its bounds and the
+`viewBox` come out multiplied by it, which suits two maps drawn at different
+sizes that the game wants measured on one scale.
+
+```ts
+const { viewBox, paths } = parseSvgPaths(svgText, {
+  tessellate: true,
+  scale: 0.5,
+})
+```
+
 ## Tessellation is not optional
 
 The GPU renderer draws triangles. It cannot triangulate a `Path2D` at draw time,

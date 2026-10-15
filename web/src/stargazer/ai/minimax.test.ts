@@ -80,7 +80,7 @@ describe('searchBestMove (negamax + alpha-beta)', () => {
   })
 
   it('blocks the opponent immediate win', () => {
-    // X (1) to move with no win of its own. O (2) threatens 3,4,5 → must play 5.
+    // X (1) to move with no win of its own. O (2) threatens 3,4,5 -> must play 5.
     const state = board('1..22....', 1)
     const { move } = searchBestMove(ttt, state, { depth: 9 })
     expect(move).toBe(5)

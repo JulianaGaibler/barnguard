@@ -47,6 +47,16 @@ import type {
   VertexBufferLayout,
 } from '../GfxDevice'
 import { UboRing, warmupBlendPipelines } from './programCommon'
+import {
+  CLIP_DEPTH_SHIFT,
+  STENCIL_ROWS,
+  coverRow,
+  fanRow,
+  stencilReferenceFor,
+  type FillRule,
+  type StencilRow,
+} from '../stencilRecipe'
+import type { FlatPath } from '../GfxPath'
 import type { ShaderReflection } from '../GfxDevice'
 import type { GfxFill } from '../Gfx2D'
 import earcut from 'earcut'
@@ -83,6 +93,29 @@ const MASK_BINDING = 4
 const RETAINED_RAMP_ATLAS_BINDING = 4
 const RETAINED_MASK_BINDING = 5
 
+/** Device-pixel bounds of a pushed clip, kept to pop it again. */
+export interface ClipBounds {
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+}
+
+/** Corner selection (0 = min, 1 = max) of the cover quad's two triangles. */
+const COVER_CORNER_X = [0, 1, 1, 0, 1, 0]
+const COVER_CORNER_Y = [0, 0, 1, 0, 1, 1]
+
+/** The recipe rows `coloredTri` draws fills with. */
+const FILL_ROWS: StencilRow[] = [
+  'fanNonzero',
+  'fanEvenOdd',
+  'coverNonzero',
+  'coverEvenOdd',
+  'clipApplyNonzero',
+  'clipApplyEvenOdd',
+  'clipPop',
+]
+
 export class ColoredTriProgram implements GpuProgram {
   readonly kind = 'coloredTri' as const
 
@@ -93,8 +126,11 @@ export class ColoredTriProgram implements GpuProgram {
   /** Group 1: per-run DrawParams UBO (dynamic) + the clip-mask sampler. */
   #materialLayout!: BindGroupLayout
   #drawParamsRing!: UboRing
+  /** Ring generations the bind-group caches were built against. */
+  #paramsGen = 0
+  #modelGen = 0
   /**
-   * Bind groups keyed by (clip texture → ramp atlas texture → mask texture).
+   * Bind groups keyed by (clip texture -> ramp atlas texture -> mask texture).
    * Nested because all three vary independently: the clip is a placeholder
    * until `setClipMask`, the atlas is a placeholder until the first gradient,
    * the mask is a placeholder until the first inset path shadow, and each flips
@@ -121,7 +157,7 @@ export class ColoredTriProgram implements GpuProgram {
   #retainedLayout!: VertexBufferLayout[]
   #retainedBindGroupLayout!: BindGroupLayout
   /**
-   * Bind groups keyed by (ramp atlas texture → mask texture), the same
+   * Bind groups keyed by (ramp atlas texture -> mask texture), the same
    * placeholder-until-first-use scheme as `#clipBindGroups`, minus the clip
    * dimension: the retained pipeline has no bitmap clip mask.
    */
@@ -136,6 +172,9 @@ export class ColoredTriProgram implements GpuProgram {
     this.#modelColorStaging.buffer,
   )
   #device!: GfxDevice
+  /** Device-space copy of a path's points, grown in place and reused. */
+  #devPts = new Float32Array(512)
+  readonly #uvScratch = [0, 0]
   #retainedHandles = new Set<GeometryHandle>()
 
   get stream(): RingStream {
@@ -186,6 +225,8 @@ export class ColoredTriProgram implements GpuProgram {
       DRAWPARAMS_BYTES,
       2048,
       'drawParams',
+      true,
+      true,
     )
     this.#clipBindGroups = new WeakMap()
 
@@ -226,6 +267,8 @@ export class ColoredTriProgram implements GpuProgram {
       MODELCOLOR_BYTES,
       2048,
       'modelColor',
+      true,
+      true,
     )
     this.#retainedBindGroups = new WeakMap()
 
@@ -240,6 +283,15 @@ export class ColoredTriProgram implements GpuProgram {
       shader: this.#shader,
       vertexLayout: this.#streamLayout,
       bindGroupLayouts: [ctx.frameBindGroupLayout, this.#materialLayout],
+      // The stencil fill rows. Only worth building where a stencil buffer
+      // exists to use them.
+      variants: ctx.targetHasStencil
+        ? FILL_ROWS.map((row) => ({
+            suffix: row,
+            stencil: STENCIL_ROWS[row].state,
+            colorWrite: STENCIL_ROWS[row].colorWrite,
+          }))
+        : [],
     })
     this.#retainedPipelines = await warmupBlendPipelines(device, ctx, {
       shader: this.#retainedShader,
@@ -251,9 +303,13 @@ export class ColoredTriProgram implements GpuProgram {
     })
   }
 
+  uboSlices(): number {
+    return this.#drawParamsRing.pushes + this.#modelColorRing.pushes
+  }
+
   resetFrame(): void {
-    this.#drawParamsRing.reset()
-    this.#modelColorRing.reset()
+    this.#drawParamsRing.reset(this.#device)
+    this.#modelColorRing.reset(this.#device)
   }
 
   /**
@@ -282,10 +338,15 @@ export class ColoredTriProgram implements GpuProgram {
    * break the batch rather than merge into the gradient's run and draw with its
    * `DrawParams` slice.
    */
-  begin(ctx: GpuBatchContext, paint: ResolvedRunPaint | null = null): void {
+  begin(
+    ctx: GpuBatchContext,
+    paint: ResolvedRunPaint | null = null,
+    stencilRow: StencilRow | null = null,
+  ): void {
     ctx.beginBatch('coloredTri', {
       clipMask: ctx.stateStack.getClipMask(),
       paint,
+      stencilRow,
     })
   }
 
@@ -309,10 +370,43 @@ export class ColoredTriProgram implements GpuProgram {
       return { packedColor: resolved.packedColor, paint: null }
     }
     const g = resolved.paint
-    const rampRow = ctx.textureManager.ensureStopsRow(g.stops, () =>
-      ctx.forceMidFrameSubmit(),
-    )
-    if (rampRow < 0) return null
+    const rampRow = ctx.textureManager.ensureStopsRow(g.stops)
+    if (rampRow < 0) {
+      const mid = g.stops[g.stops.length >> 1].color
+      const solid = resolvePaint(mid, ctx.stateStack.getAlpha())
+      return solid.kind === 'solid'
+        ? { packedColor: solid.packedColor, paint: null }
+        : null
+    }
+    if (g.kind === 'radial') {
+      const scale = Math.sqrt(Math.abs(t.a * t.d - t.b * t.c))
+      const dcx = t.a * g.cx + t.c * g.cy + t.e
+      const dcy = t.b * g.cx + t.d * g.cy + t.f
+      // Keep the focal point inside the circle, where the rings are defined.
+      let lfx = (g.fx ?? g.cx) - g.cx
+      let lfy = (g.fy ?? g.cy) - g.cy
+      const maxF = g.r * 0.99
+      const flen = Math.hypot(lfx, lfy)
+      if (flen > maxF && flen > 0) {
+        lfx *= maxF / flen
+        lfy *= maxF / flen
+      }
+      const dfx = t.a * (g.cx + lfx) + t.c * (g.cy + lfy) + t.e
+      const dfy = t.b * (g.cx + lfx) + t.d * (g.cy + lfy) + t.f
+      return {
+        packedColor: 0,
+        paint: {
+          kind: 'radial',
+          fx: dfx,
+          fy: dfy,
+          ex: dcx - dfx,
+          ey: dcy - dfy,
+          r: g.r * scale,
+          rampRow,
+          opacity: ctx.stateStack.getAlpha(),
+        },
+      }
+    }
     const dx0 = t.a * g.x0 + t.c * g.y0 + t.e
     const dy0 = t.b * g.x0 + t.d * g.y0 + t.f
     const dx1 = t.a * g.x1 + t.c * g.y1 + t.e
@@ -781,7 +875,7 @@ export class ColoredTriProgram implements GpuProgram {
     const t = ctx.txOut
     const resolved = this.#resolvePaintForDraw(ctx, fill, t)
     if (!resolved) return
-    // 2D affine → column-major mat3 for `u_model`. Fresh array per draw: the
+    // 2D affine -> column-major mat3 for `u_model`. Fresh array per draw: the
     // command list holds it by reference until replay.
     const model = new Float32Array([t.a, t.b, 0, t.c, t.d, 0, t.e, t.f, 1])
     if (resolved.paint?.kind === 'gradient') {
@@ -930,15 +1024,278 @@ export class ColoredTriProgram implements GpuProgram {
     this.#stream.commit(slot, wordsNeeded, vertCount)
   }
 
-  drawRun(ctx: GpuBatchContext, run: DrawRun): void {
-    // Retained geometry: GPU-transform a pre-uploaded static buffer with a
-    // per-draw model matrix + flat color. Recorded into the same command list,
-    // so painter order with streamed runs holds.
+  /**
+   * Fill the flattened contours of `flat` with the stencil-then-cover recipe.
+   * The fan counts winding into the stencil bits with color writes off, then a
+   * device-space quad over the path's bounds paints where the count is set and
+   * clears it. The two are recorded back to back from one reservation, so the
+   * winding bits are never left set. `rule` picks the recipe row.
+   *
+   * Returns false when nothing was drawn.
+   */
+  fillStencilPath(
+    ctx: GpuBatchContext,
+    flat: FlatPath,
+    rule: FillRule,
+    fill: GfxFill,
+    viewW: number,
+    viewH: number,
+  ): boolean {
+    ctx.txStack.read(ctx.txOut)
+    const t = ctx.txOut
+    const n = flat.pointCount
+    if (n < 3) return false
+    // Device-space copy of the points and their bounds.
+    if (this.#devPts.length < n * 2) this.#devPts = new Float32Array(n * 4)
+    const dev = this.#devPts
+    const src = flat.points
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let i = 0; i < n; i++) {
+      const x = src[i * 2]
+      const y = src[i * 2 + 1]
+      const dx = t.a * x + t.c * y + t.e
+      const dy = t.b * x + t.d * y + t.f
+      dev[i * 2] = dx
+      dev[i * 2 + 1] = dy
+      if (dx < minX) minX = dx
+      if (dx > maxX) maxX = dx
+      if (dy < minY) minY = dy
+      if (dy > maxY) maxY = dy
+    }
+    // The cover only needs to span what is visible.
+    const cx0 = Math.max(0, Math.floor(minX))
+    const cy0 = Math.max(0, Math.floor(minY))
+    const cx1 = Math.min(viewW, Math.ceil(maxX))
+    const cy1 = Math.min(viewH, Math.ceil(maxY))
+    if (cx1 <= cx0 || cy1 <= cy0) return false
+
+    const resolved = this.#resolvePaintForDraw(ctx, fill, t)
+    if (!resolved) return false
+
+    let triCount = 0
+    for (let c = 0; c < flat.contourCount; c++) {
+      const len = flat.starts[c + 1] - flat.starts[c]
+      if (len >= 3) triCount += len - 2
+    }
+    if (triCount === 0) return false
+    const fanWords = triCount * 3 * COLORED_TRI_WORDS
+    const coverWords = 6 * COLORED_TRI_WORDS
+    const slot = ctx.curSlot
+    const maskPresent = ctx.stateStack.getClipMask() !== null
+
+    this.begin(ctx, null, fanRow(rule))
+    const off = ctx.reserveVerts(
+      this.#stream,
+      fanWords + coverWords,
+      triCount * 3 + 6,
+    )
+    if (off < 0) return false
+    const f = this.#stream.floatView
+    const u = this.#stream.uintView
+    let cursor = off
+    for (let c = 0; c < flat.contourCount; c++) {
+      const s0 = flat.starts[c]
+      const len = flat.starts[c + 1] - s0
+      if (len < 3) continue
+      const p0x = dev[s0 * 2]
+      const p0y = dev[s0 * 2 + 1]
+      for (let i = 1; i < len - 1; i++) {
+        const a = (s0 + i) * 2
+        writeColoredVert(f, u, cursor, p0x, p0y, 0, 0, 0)
+        writeColoredVert(
+          f,
+          u,
+          cursor + COLORED_TRI_WORDS,
+          dev[a],
+          dev[a + 1],
+          0,
+          0,
+          0,
+        )
+        writeColoredVert(
+          f,
+          u,
+          cursor + 2 * COLORED_TRI_WORDS,
+          dev[a + 2],
+          dev[a + 3],
+          0,
+          0,
+          0,
+        )
+        cursor += 3 * COLORED_TRI_WORDS
+      }
+    }
+    this.#stream.commit(slot, fanWords, triCount * 3)
+
+    this.begin(ctx, resolved.paint, coverRow(rule))
+    // Mask UVs are in local space, so a bitmap clip needs the device corners
+    // mapped back through the inverse transform.
+    const det = t.a * t.d - t.b * t.c
+    const mask = ctx.curClipMask
+    const uvAt = (px: number, py: number, out: number[]): void => {
+      if (!mask || !maskPresent || det === 0) {
+        out[0] = 0
+        out[1] = 0
+        return
+      }
+      const lx = (t.d * (px - t.e) - t.c * (py - t.f)) / det
+      const ly = (-t.b * (px - t.e) + t.a * (py - t.f)) / det
+      const r = mask.worldRect
+      out[0] = (lx - r.x) / r.width
+      out[1] = (ly - r.y) / r.height
+    }
+    const uv = this.#uvScratch
+    const color = resolved.packedColor
+    for (let i = 0; i < 6; i++) {
+      const px = COVER_CORNER_X[i] ? cx1 : cx0
+      const py = COVER_CORNER_Y[i] ? cy1 : cy0
+      uvAt(px, py, uv)
+      writeColoredVert(f, u, cursor, px, py, color, uv[0], uv[1])
+      cursor += COLORED_TRI_WORDS
+    }
+    this.#stream.commit(slot, coverWords, 6)
+    return true
+  }
+
+  /**
+   * Raise the clip one level to the inside of `flat` (by `rule`). A fan counts
+   * winding where the current clip holds, then a device-space quad over the
+   * path's bounds writes the deeper level wherever the count is set. The caller
+   * increments `ctx.clipDepth` afterwards. Returns the quad's device bounds for
+   * the matching {@link ColoredTriProgram.clipPop}, or `null` when the path is
+   * empty or off screen, in which case nothing was recorded and the clip would
+   * be empty.
+   */
+  clipPush(
+    ctx: GpuBatchContext,
+    flat: FlatPath,
+    rule: FillRule,
+    viewW: number,
+    viewH: number,
+  ): ClipBounds | null {
+    ctx.txStack.read(ctx.txOut)
+    const t = ctx.txOut
+    const n = flat.pointCount
+    if (n < 3) return null
+    if (this.#devPts.length < n * 2) this.#devPts = new Float32Array(n * 4)
+    const dev = this.#devPts
+    const src = flat.points
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (let i = 0; i < n; i++) {
+      const x = src[i * 2]
+      const y = src[i * 2 + 1]
+      const dx = t.a * x + t.c * y + t.e
+      const dy = t.b * x + t.d * y + t.f
+      dev[i * 2] = dx
+      dev[i * 2 + 1] = dy
+      if (dx < minX) minX = dx
+      if (dx > maxX) maxX = dx
+      if (dy < minY) minY = dy
+      if (dy > maxY) maxY = dy
+    }
+    const bounds: ClipBounds = {
+      x0: Math.max(0, Math.floor(minX)),
+      y0: Math.max(0, Math.floor(minY)),
+      x1: Math.min(viewW, Math.ceil(maxX)),
+      y1: Math.min(viewH, Math.ceil(maxY)),
+    }
+    if (bounds.x1 <= bounds.x0 || bounds.y1 <= bounds.y0) return null
+    let triCount = 0
+    for (let c = 0; c < flat.contourCount; c++) {
+      const len = flat.starts[c + 1] - flat.starts[c]
+      if (len >= 3) triCount += len - 2
+    }
+    if (triCount === 0) return null
+    const fanWords = triCount * 3 * COLORED_TRI_WORDS
+    const quadWords = 6 * COLORED_TRI_WORDS
+    const slot = ctx.curSlot
+    this.begin(ctx, null, fanRow(rule))
+    const off = ctx.reserveVerts(
+      this.#stream,
+      fanWords + quadWords,
+      triCount * 3 + 6,
+    )
+    if (off < 0) return null
+    const f = this.#stream.floatView
+    const u = this.#stream.uintView
+    let cursor = off
+    for (let c = 0; c < flat.contourCount; c++) {
+      const s0 = flat.starts[c]
+      const len = flat.starts[c + 1] - s0
+      if (len < 3) continue
+      const p0x = dev[s0 * 2]
+      const p0y = dev[s0 * 2 + 1]
+      for (let i = 1; i < len - 1; i++) {
+        const a = (s0 + i) * 2
+        writeColoredVert(f, u, cursor, p0x, p0y, 0, 0, 0)
+        writeColoredVert(
+          f,
+          u,
+          cursor + COLORED_TRI_WORDS,
+          dev[a],
+          dev[a + 1],
+          0,
+          0,
+          0,
+        )
+        writeColoredVert(
+          f,
+          u,
+          cursor + 2 * COLORED_TRI_WORDS,
+          dev[a + 2],
+          dev[a + 3],
+          0,
+          0,
+          0,
+        )
+        cursor += 3 * COLORED_TRI_WORDS
+      }
+    }
+    this.#stream.commit(slot, fanWords, triCount * 3)
+    this.begin(
+      ctx,
+      null,
+      rule === 'nonzero' ? 'clipApplyNonzero' : 'clipApplyEvenOdd',
+    )
+    this.#writeQuad(f, u, cursor, bounds)
+    this.#stream.commit(slot, quadWords, 6)
+    return bounds
+  }
+
+  /**
+   * Lower the clip one level over `bounds`, undoing a
+   * {@link ColoredTriProgram.clipPush}.
+   */
+  clipPop(ctx: GpuBatchContext, bounds: ClipBounds): void {
+    const quadWords = 6 * COLORED_TRI_WORDS
+    this.begin(ctx, null, 'clipPop')
+    const off = ctx.reserveVerts(this.#stream, quadWords, 6)
+    if (off < 0) return
+    this.#writeQuad(this.#stream.floatView, this.#stream.uintView, off, bounds)
+    this.#stream.commit(ctx.curSlot, quadWords, 6)
+  }
+
+  #writeQuad(f: Float32Array, u: Uint32Array, at: number, b: ClipBounds): void {
+    let cursor = at
+    for (let i = 0; i < 6; i++) {
+      const px = COVER_CORNER_X[i] ? b.x1 : b.x0
+      const py = COVER_CORNER_Y[i] ? b.y1 : b.y0
+      writeColoredVert(f, u, cursor, px, py, 0, 0, 0)
+      cursor += COLORED_TRI_WORDS
+    }
+  }
+
+  prepareRun(ctx: GpuBatchContext, run: DrawRun): void {
     if (run.geometry) {
-      this.#drawRetained(ctx, run)
+      this.#prepareRetained(run)
       return
     }
-    const firstVert = run.startWord / COLORED_TRI_WORDS
     const vertCount = (run.endWord - run.startWord) / COLORED_TRI_WORDS
     if (vertCount === 0) return
 
@@ -949,12 +1306,7 @@ export class ColoredTriProgram implements GpuProgram {
     const clipMaskTex = run.clipMask
       ? ctx.textureManager.ensureMaskTexture(run.clipMask)
       : null
-    const clipTex = clipMaskTex ?? ctx.placeholderTexture
-    const atlasTex =
-      ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
     const paint = run.paint
-    const shadowMaskTex =
-      paint?.kind === 'mask' ? paint.maskTex : ctx.placeholderTexture
     const s = this.#drawParamsStaging
     const su = this.#drawParamsStagingU32
     if (debugModeInt === 2) {
@@ -976,6 +1328,12 @@ export class ColoredTriProgram implements GpuProgram {
       s[5] = paint.scaleDirY
       s[6] = paint.startOffset
       s[7] = paint.rampRow
+    } else if (paint?.kind === 'radial') {
+      paintMode = 3
+      s[4] = paint.fx
+      s[5] = paint.fy
+      s[6] = paint.ex
+      s[7] = paint.ey
     } else if (paint?.kind === 'mask') {
       paintMode = 2
       s[4] = paint.originX
@@ -985,32 +1343,75 @@ export class ColoredTriProgram implements GpuProgram {
     } else {
       s[4] = s[5] = s[6] = s[7] = 0
     }
-    s[8] = 0
-    s[9] = paint?.kind === 'gradient' ? paint.opacity : 0 // misc.y: gradient alpha multiplier
-    s[10] = 0
+    s[8] = paint?.kind === 'radial' ? paint.r : 0 // misc.x: radial radius
+    // misc.y: gradient alpha multiplier
+    s[9] =
+      paint?.kind === 'gradient' || paint?.kind === 'radial' ? paint.opacity : 0
+    s[10] = paint?.kind === 'radial' ? paint.rampRow : 0 // misc.z: radial ramp row
     s[11] = 0
     su[12] = clipMaskTex ? 1 : 0 // flags.x: clipEnabled
     su[13] = debugModeInt // flags.y: debugMode
-    su[14] = paintMode // flags.z: paintMode (0 none, 1 gradient, 2 inset mask)
+    su[14] = paintMode // flags.z: paintMode (0 none, 1 linear, 2 inset mask, 3 radial)
     // flags.w: dither. Never under `lighter` (the per-draw offset sums
     // instead of averaging out) and never with nothing ramping.
     su[15] =
-      paint?.kind === 'gradient' &&
+      (paint?.kind === 'gradient' || paint?.kind === 'radial') &&
       run.blend !== 'lighter' &&
       ctx.vectorQuality.dither
         ? 1
         : 0
-    const dynOffset = this.#drawParamsRing.push(ctx.device, s)
-    if (dynOffset < 0) return
+    run.paramsOffset = this.#drawParamsRing.push(ctx.device, s)
+  }
+
+  flushRings(device: GfxDevice): void {
+    this.#drawParamsRing.flush(device)
+    this.#modelColorRing.flush(device)
+  }
+
+  drawRun(ctx: GpuBatchContext, run: DrawRun): void {
+    // Retained geometry: GPU-transform a pre-uploaded static buffer with a
+    // per-draw model matrix + flat color. Recorded into the same command list,
+    // so painter order with streamed runs holds.
+    if (run.geometry) {
+      this.#drawRetained(ctx, run)
+      return
+    }
+    const firstVert = run.startWord / COLORED_TRI_WORDS
+    const vertCount = (run.endWord - run.startWord) / COLORED_TRI_WORDS
+    if (vertCount === 0) return
+
+    const debugModeInt =
+      run.debugMode === 'overdraw' ? 1 : run.debugMode === 'batch-color' ? 2 : 0
+    const clipMaskTex = run.clipMask
+      ? ctx.textureManager.ensureMaskTexture(run.clipMask)
+      : null
+    const clipTex = clipMaskTex ?? ctx.placeholderTexture
+    const atlasTex =
+      ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
+    const paint = run.paint
+    const shadowMaskTex =
+      paint?.kind === 'mask' ? paint.maskTex : ctx.placeholderTexture
+    const dynOffset = run.paramsOffset
+    if (dynOffset === undefined || dynOffset < 0) return
 
     // Overdraw forces additive blend so the constant red accumulates as a
     // heatmap instead of painting opaque. Otherwise it's the run's own blend.
     const blend = debugModeInt === 1 ? 'lighter' : run.blend
-    const pipeline = this.#pipelines.get(blend)
+    const row = run.stencilRow ?? null
+    const depth = run.stencilDepth ?? 0
+    const clipped = row === null && depth > 0
+    const pipeline = this.#pipelines.get(
+      row ? `${blend}|${row}` : clipped ? `${blend}|clipTest` : blend,
+    )
     if (!pipeline) return
 
     ctx.device.draw({
       pipeline,
+      stencilReference: row
+        ? stencilReferenceFor(row, depth)
+        : clipped
+          ? stencilReferenceFor('clipTest', depth)
+          : undefined,
       vertexBuffers: [{ buffer: this.#stream.buffers[ctx.curSlot], offset: 0 }],
       bindGroups: [
         ctx.frameBindGroupEntry(ctx.clipOffsetForRun(run)),
@@ -1032,14 +1433,13 @@ export class ColoredTriProgram implements GpuProgram {
   }
 
   /**
-   * Replay one retained run: write its ModelColor slice (model matrix, color,
-   * and whichever paint mode it recorded) and draw indexed.
+   * Stage a retained run's ModelColor slice: model matrix, color, and whichever
+   * paint mode it recorded.
    */
-  #drawRetained(ctx: GpuBatchContext, run: DrawRun): void {
-    const gpu = run.geometry
+  #prepareRetained(run: DrawRun): void {
     const model = run.model
     const color = run.colorRgba
-    if (!gpu || !model || !color) return
+    if (!run.geometry || !model || !color) return
     // Stage the mat3 as std140 (3 vec4-aligned columns) + color vec4.
     const s = this.#modelColorStaging
     const su = this.#modelColorStagingU32
@@ -1075,9 +1475,20 @@ export class ColoredTriProgram implements GpuProgram {
     }
     su[20] = paintMode
     su[21] = su[22] = su[23] = 0
-    const dynOffset = this.#modelColorRing.push(ctx.device, s)
-    if (dynOffset < 0) return
-    const pipeline = this.#retainedPipelines.get(run.blend)
+    run.paramsOffset = this.#modelColorRing.push(this.#device, s)
+  }
+
+  /** Replay one retained run and draw it indexed. */
+  #drawRetained(ctx: GpuBatchContext, run: DrawRun): void {
+    const gpu = run.geometry
+    if (!gpu) return
+    const paint = run.paint
+    const dynOffset = run.paramsOffset
+    if (dynOffset === undefined || dynOffset < 0) return
+    const clipDepth = run.stencilDepth ?? 0
+    const pipeline = this.#retainedPipelines.get(
+      clipDepth > 0 ? `${run.blend}|clipTest` : run.blend,
+    )
     if (!pipeline) return
     const atlasTex =
       ctx.textureManager.getRampAtlasTexture() ?? ctx.placeholderTexture
@@ -1085,6 +1496,8 @@ export class ColoredTriProgram implements GpuProgram {
       paint?.kind === 'mask' ? paint.maskTex : ctx.placeholderTexture
     ctx.device.draw({
       pipeline,
+      stencilReference:
+        clipDepth > 0 ? clipDepth << CLIP_DEPTH_SHIFT : undefined,
       vertexBuffers: [{ buffer: gpu.vbo, offset: 0 }],
       indexBuffer: gpu.ibo,
       bindGroups: [
@@ -1112,6 +1525,10 @@ export class ColoredTriProgram implements GpuProgram {
     atlasTex: Texture,
     maskTex: Texture,
   ): BindGroup {
+    if (this.#modelGen !== this.#modelColorRing.generation) {
+      this.#modelGen = this.#modelColorRing.generation
+      this.#retainedBindGroups = new WeakMap()
+    }
     let byMask = this.#retainedBindGroups.get(atlasTex)
     if (!byMask) {
       byMask = new WeakMap()
@@ -1151,6 +1568,10 @@ export class ColoredTriProgram implements GpuProgram {
     atlasTex: Texture,
     maskTex: Texture,
   ): BindGroup {
+    if (this.#paramsGen !== this.#drawParamsRing.generation) {
+      this.#paramsGen = this.#drawParamsRing.generation
+      this.#clipBindGroups = new WeakMap()
+    }
     let byAtlas = this.#clipBindGroups.get(clipTex)
     if (!byAtlas) {
       byAtlas = new WeakMap()

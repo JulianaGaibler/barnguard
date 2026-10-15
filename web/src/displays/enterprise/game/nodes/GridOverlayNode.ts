@@ -1,13 +1,33 @@
 import {
+  DataTexture,
   Node2D,
+  ShaderQuad,
+  parseColor,
+  quadShader,
   type BitmapMask,
   type CameraView2D,
   type Gfx2D,
+  type Rect,
+  type ShaderReflection,
   type Vec2,
 } from '@src/stargazer'
 import type { PacketNode } from './PacketNode'
 import type { PacketMask } from '../behaviors/PacketBehavior'
 import { TUNING } from '../data/tuning'
+import dotGridWgsl from './dotGrid.wgsl?raw'
+import dotGridVert from './dotGrid.gen.vert.glsl?raw'
+import dotGridFrag from './dotGrid.gen.frag.glsl?raw'
+import dotGridReflect from './dotGrid.reflect.json'
+
+const DOT_GRID_SHADER = quadShader(
+  dotGridVert,
+  dotGridFrag,
+  dotGridWgsl,
+  dotGridReflect as ShaderReflection,
+)
+
+/** Bytes in the shader's `Params` block: three vec4s. */
+const PARAMS_BYTES = 48
 
 /**
  * Session-facing accessors the overlay pulls each render frame. Accessors (not
@@ -23,8 +43,13 @@ export interface GridWarnSource {
 }
 
 export interface GridOverlayOptions {
-  /** Country outline. Used at construction to filter cells outside Germany. */
-  mask: BitmapMask
+  /** World rectangle the grid covers, laid out from its top left corner. */
+  bounds: Rect
+  /**
+   * Keeps only the cells whose centre falls inside the outline. `null` keeps
+   * every cell in `bounds`.
+   */
+  mask: BitmapMask | null
   /** Cell edge length in world units. */
   cellSizeWorld: number
 }
@@ -37,64 +62,62 @@ interface PulseSlot {
   wavefrontDelay: Float32Array
 }
 
-const MIN_DRAW_ALPHA = 0.02
+/** Values below this count as unlit. */
+const MIN_LIT_VALUE = 0.02
 
 /**
- * Per-cell brightness variance. Final alpha *= `(1 + variance[i])` with
+ * Per-cell size variance. A cell's value is scaled by `(1 + variance[i])` with
  * `variance ∈ [-VARIANCE_AMP, +VARIANCE_AMP]`. Deterministic index hash so the
  * pattern is stable across reloads. Multiplicative so `0` stays `0`.
  */
 const VARIANCE_AMP = 0.1
 
 /**
- * Alpha buckets for draw batching. Each cell's alpha quantises into a bucket,
- * every non-empty bucket is one `globalAlpha` write + `fillRect` loop. 12 keeps
- * the quantisation step (~8 %) below the ±10 % variance so it's imperceptible,
- * while collapsing ~500 state changes to ≤ 12 per pass.
- */
-const NUM_ALPHA_BUCKETS = 12
-
-/**
- * Uniform grid of squares clipped to the country outline. Sits on
- * `'above-static'` so alpha changes don't invalidate the map's static bake.
+ * A grid of dots whose size shows how lit each cell is: nothing at 0, a dot a
+ * fixed fraction of the cell at 1, never touching its neighbours. The whole
+ * grid is one shader quad, so a frame costs a single draw however many cells
+ * are lit. Sits on the dynamic layer, above the map and under the packets. It
+ * stays off `'above-static'`, where the quad draws alongside the promoted
+ * region fills and the WebGPU backend floods their inset glows solid white.
  *
  * Per-frame state:
  *
- * - `pulseAlpha[]`, event-driven ripples. `pulseFrom(worldPos)` fires a wave
+ * - `pulseValue[]`, event-driven ripples. `pulseFrom(worldPos)` fires a wave
  *   spreading at `propagationSpeedWorld`, each cell lights when the wavefront
  *   reaches its centroid. Concurrent pulses combine via `max`.
- * - `warnAlpha[]`, smoothed toward `warnTarget[]` resampled from packet positions
- *   each `onUpdate`. Yellow tint with linear falloff around packets in danger.
+ * - `warnValue[]`, smoothed toward `warnTarget[]` resampled from packet positions
+ *   each `onUpdate`. Dots with linear falloff around packets in danger.
  *
- * Cells precomputed at construction by iterating the mask's bounding box on
- * `cellSizeWorld` steps and keeping centre-or-corner hits.
+ * Both packed into a `cols × rows` texture (R warn, G pulse) the shader reads.
+ * Cells are precomputed at construction on `cellSizeWorld` steps across
+ * `bounds`, keeping the ones whose centre is inside the mask when there is one.
+ * Nothing draws while every value is zero.
  */
 export class GridOverlayNode extends Node2D {
   readonly #cellSize: number
-  readonly #cellHalf: number
-  /**
-   * Country outline. `draw` wraps its passes in `gfx.setClipMask(this.mask)` so
-   * coastal cells clip to the outline.
-   */
-  readonly #mask: BitmapMask
+  readonly #bounds: Rect
+  readonly #cols: number
+  readonly #rows: number
   /** Interleaved (x, y) cell centres, length `2 × count`. */
   readonly #centroids: Float32Array
+  /** Byte offset into the texture of each kept cell. */
+  readonly #texel: Uint32Array
   readonly #count: number
 
-  readonly #pulseAlpha: Float32Array
+  readonly #pulseValue: Float32Array
   readonly #warnTarget: Float32Array
-  readonly #warnAlpha: Float32Array
+  readonly #warnValue: Float32Array
   /**
-   * Per-cell brightness multiplier in `[1 - VARIANCE_AMP, 1 + VARIANCE_AMP]`.
-   * Breaks up grid uniformity without hiding the wavefront.
+   * Per-cell size multiplier in `[1 - VARIANCE_AMP, 1 + VARIANCE_AMP]`. Breaks
+   * up grid uniformity without hiding the wavefront.
    */
   readonly #varianceFactor: Float32Array
   readonly #pulses: PulseSlot[]
 
-  /** Per-bucket cell-index scratch, pre-allocated. */
-  readonly #buckets: Uint16Array[]
-  /** Live count per bucket for the current pass, reset each pass. */
-  readonly #bucketCounts: Uint16Array
+  readonly #cells: DataTexture
+  readonly #quad: ShaderQuad
+  /** Whether the texture holds only zeros, so the draw can be skipped. */
+  #textureClear = true
 
   #elapsed = 0
   #warnSource: GridWarnSource | null = null
@@ -103,60 +126,65 @@ export class GridOverlayNode extends Node2D {
 
   constructor(opts: GridOverlayOptions) {
     super('grid-overlay')
-    this.renderLayer = 'above-static'
+    this.renderLayer = 'dynamic'
 
-    this.#mask = opts.mask
     const step = opts.cellSizeWorld
     this.#cellSize = step
-    this.#cellHalf = step * 0.5
+    this.#bounds = { ...opts.bounds }
+    const cols = Math.max(1, Math.ceil(opts.bounds.width / step))
+    const rows = Math.max(1, Math.ceil(opts.bounds.height / step))
+    this.#cols = cols
+    this.#rows = rows
 
-    // Keep any cell whose centre OR any corner sits inside the outline.
-    // Interior-only would drop the coastal ring as visible gaps, corner
-    // hits render as glow spilling into the water when lit, no missing
-    // edge. Build in a growable array then copy into the fixed Float32Array.
-    const rect = opts.mask.worldRect
-    const cols = Math.ceil(rect.width / step)
-    const rows = Math.ceil(rect.height / step)
-    const scratch: number[] = []
     const mask = opts.mask
-    const half = this.#cellHalf
+    const scratch: number[] = []
+    const texels: number[] = []
     for (let r = 0; r < rows; r++) {
-      const cy = rect.y + (r + 0.5) * step
+      const cy = opts.bounds.y + (r + 0.5) * step
       for (let c = 0; c < cols; c++) {
-        const cx = rect.x + (c + 0.5) * step
-        if (
-          mask.contains(cx, cy, 0) ||
-          mask.contains(cx - half, cy - half, 0) ||
-          mask.contains(cx + half, cy - half, 0) ||
-          mask.contains(cx - half, cy + half, 0) ||
-          mask.contains(cx + half, cy + half, 0)
-        ) {
-          scratch.push(cx, cy)
-        }
+        const cx = opts.bounds.x + (c + 0.5) * step
+        if (mask && !mask.contains(cx, cy, 0)) continue
+        scratch.push(cx, cy)
+        texels.push((r * cols + c) * 4)
       }
     }
     this.#centroids = new Float32Array(scratch)
-    this.#count = scratch.length / 2
+    this.#texel = new Uint32Array(texels)
+    this.#count = texels.length
 
-    this.#pulseAlpha = new Float32Array(this.#count)
+    this.#pulseValue = new Float32Array(this.#count)
     this.#warnTarget = new Float32Array(this.#count)
-    this.#warnAlpha = new Float32Array(this.#count)
+    this.#warnValue = new Float32Array(this.#count)
     this.#varianceFactor = new Float32Array(this.#count)
     // Deterministic per-index hash (Knuth's multiplicative constant). Same
     // variance pattern every reload, no `Math.random` footgun.
     for (let i = 0; i < this.#count; i++) {
       const h = ((i * 2654435761) >>> 0) / 4294967296
-      // h ∈ [0, 1) → variance factor ∈ [1 - VARIANCE_AMP, 1 + VARIANCE_AMP].
+      // h ∈ [0, 1) -> variance factor ∈ [1 - VARIANCE_AMP, 1 + VARIANCE_AMP].
       this.#varianceFactor[i] = 1 + (h * 2 - 1) * VARIANCE_AMP
     }
 
-    // One Uint16Array per bucket, worst-case sized to `count`. ~60 KB for
-    // ~2500 cells. Zero per-frame allocation.
-    this.#buckets = new Array(NUM_ALPHA_BUCKETS)
-    for (let b = 0; b < NUM_ALPHA_BUCKETS; b++) {
-      this.#buckets[b] = new Uint16Array(this.#count)
-    }
-    this.#bucketCounts = new Uint16Array(NUM_ALPHA_BUCKETS)
+    this.#cells = new DataTexture(cols, rows, { filter: 'nearest' })
+    this.#quad = new ShaderQuad({
+      shader: DOT_GRID_SHADER,
+      paramsBytes: PARAMS_BYTES,
+      textures: [this.#cells],
+      label: 'dotGrid',
+    })
+    const p = this.#quad.params
+    p[0] = cols
+    p[1] = rows
+    p[2] = TUNING.wahlkreise.grid.dotSize
+    const warn = parseColor(TUNING.wahlkreise.warn.color)
+    p[4] = warn.r
+    p[5] = warn.g
+    p[6] = warn.b
+    p[7] = TUNING.wahlkreise.warn.dotAlpha
+    const pulse = parseColor(TUNING.wahlkreise.pulse.color)
+    p[8] = pulse.r
+    p[9] = pulse.g
+    p[10] = pulse.b
+    p[11] = TUNING.wahlkreise.pulse.dotAlpha
 
     const maxConcurrent = TUNING.wahlkreise.pulse.maxConcurrent
     this.#pulses = []
@@ -169,6 +197,14 @@ export class GridOverlayNode extends Node2D {
         wavefrontDelay: new Float32Array(this.#count),
       })
     }
+  }
+
+  /**
+   * Fade the dots out over this many cells at the grid's four edges, so the
+   * grid has no visible rim. `0` draws every dot full size to the edge.
+   */
+  setFeather(cells: number): void {
+    this.#quad.params[3] = Math.max(0, cells)
   }
 
   /** Live cell count after outline filtering. */
@@ -193,7 +229,7 @@ export class GridOverlayNode extends Node2D {
     const cfg = TUNING.wahlkreise.pulse
     slot.active = true
     slot.startTime = this.#elapsed
-    slot.amplitude = amplitudeOverride ?? cfg.peakAlpha
+    slot.amplitude = amplitudeOverride ?? cfg.peakScale
     const invSpeed = 1 / cfg.propagationSpeedWorld
     let maxDelay = 0
     const n = this.#count
@@ -207,23 +243,30 @@ export class GridOverlayNode extends Node2D {
     slot.maxWavefrontDelay = maxDelay
   }
 
-  /** Test/dev only: read a pulse-alpha cell (the buffer is private state). */
-  _pulseAlphaAt(i: number): number {
-    return this.#pulseAlpha[i]
+  /** Test/dev only: read a pulse value (the buffer is private state). */
+  _pulseValueAt(i: number): number {
+    return this.#pulseValue[i]
   }
 
-  /** Clear all alpha buffers and pulse slots. Called from `session.reset()`. */
+  /** Test/dev only: read a cell's packed texel as `[warn, pulse]` bytes. */
+  _texelAt(i: number): readonly [number, number] {
+    const at = this.#texel[i]
+    return [this.#cells.data[at], this.#cells.data[at + 1]]
+  }
+
+  /** Clear all value buffers and pulse slots. Called from `session.reset()`. */
   reset(): void {
     this.#elapsed = 0
-    this.#pulseAlpha.fill(0)
+    this.#pulseValue.fill(0)
     this.#warnTarget.fill(0)
-    this.#warnAlpha.fill(0)
+    this.#warnValue.fill(0)
     for (const slot of this.#pulses) {
       slot.active = false
       slot.startTime = 0
       slot.amplitude = 0
       slot.maxWavefrontDelay = 0
     }
+    this.#pack()
   }
 
   override onUpdate(dt: number): void {
@@ -231,68 +274,45 @@ export class GridOverlayNode extends Node2D {
     this.#elapsed += dt
     this.#updatePulses()
     this.#updateWarn(dt)
+    this.#pack()
   }
 
   override draw(gfx: Gfx2D, _camera: CameraView2D): void {
-    if (this.#count === 0) return
-    gfx.save()
-    // Clip both passes so coastal cells don't spill into the sea.
-    gfx.setClipMask(this.#mask)
-    // Warn under pulse, game-over ripple wins visually over lingering warn.
-    this.#drawPassBucketed(gfx, this.#warnAlpha, TUNING.wahlkreise.warn.color)
-    this.#drawPassBucketed(gfx, this.#pulseAlpha, TUNING.wahlkreise.pulse.color)
-    gfx.setClipMask(null)
-    gfx.restore()
+    if (this.#count === 0 || this.#textureClear) return
+    gfx.drawShaderQuad(
+      this.#quad,
+      this.#bounds.x,
+      this.#bounds.y,
+      this.#cols * this.#cellSize,
+      this.#rows * this.#cellSize,
+    )
   }
 
   /**
-   * Draw one alpha buffer as filled cells. Scatter bins lit cells into alpha
-   * buckets, per-bucket loop issues one `globalAlpha` + tight `fillRect`s.
-   * `variance[i]` applied in the scatter so warn and pulse share jitter.
+   * Write the cells' values into the texture (R warn, G pulse), scaled by each
+   * cell's variance. Marks the texture dirty only when something is lit or the
+   * last frame left something lit that has now gone out.
    */
-  #drawPassBucketed(gfx: Gfx2D, src: Float32Array, color: string): void {
-    const n = this.#count
+  #pack(): void {
+    const data = this.#cells.data
+    const texel = this.#texel
     const variance = this.#varianceFactor
-    const bucketCounts = this.#bucketCounts
-    const buckets = this.#buckets
-
-    bucketCounts.fill(0)
-
-    // Scatter, one entry per lit cell into its alpha bucket.
-    for (let i = 0; i < n; i++) {
-      const raw = src[i]
-      if (raw < MIN_DRAW_ALPHA) continue
-      let a = raw * variance[i]
-      if (a > 1) a = 1
-      else if (a < 0) a = 0
-      if (a < MIN_DRAW_ALPHA) continue
-      let b = (a * NUM_ALPHA_BUCKETS) | 0
-      if (b >= NUM_ALPHA_BUCKETS) b = NUM_ALPHA_BUCKETS - 1
-      buckets[b][bucketCounts[b]++] = i
+    const warn = this.#warnValue
+    const pulse = this.#pulseValue
+    let lit = false
+    for (let i = 0; i < this.#count; i++) {
+      const at = texel[i]
+      const w =
+        warn[i] >= MIN_LIT_VALUE ? Math.min(1, warn[i] * variance[i]) : 0
+      const p =
+        pulse[i] >= MIN_LIT_VALUE ? Math.min(1, pulse[i] * variance[i]) : 0
+      if (w > 0 || p > 0) lit = true
+      data[at] = w * 255
+      data[at + 1] = p * 255
     }
-
-    // One `globalAlpha` per non-empty bucket, tight `fillRect` loop.
-    const centroids = this.#centroids
-    const size = this.#cellSize
-    const half = this.#cellHalf
-    const invBuckets = 1 / NUM_ALPHA_BUCKETS
-    for (let b = 0; b < NUM_ALPHA_BUCKETS; b++) {
-      const bcount = bucketCounts[b]
-      if (bcount === 0) continue
-      // Bucket midpoint alpha, quantisation step is `1 / NUM_ALPHA_BUCKETS`.
-      gfx.setAlpha((b + 0.5) * invBuckets)
-      const bucket = buckets[b]
-      for (let j = 0; j < bcount; j++) {
-        const i = bucket[j]
-        gfx.fillRect(
-          centroids[i * 2] - half,
-          centroids[i * 2 + 1] - half,
-          size,
-          size,
-          color,
-        )
-      }
-    }
+    if (!lit && this.#textureClear) return
+    this.#textureClear = !lit
+    this.#cells.markDirty()
   }
 
   #pickPulseSlot(): PulseSlot {
@@ -354,8 +374,8 @@ export class GridOverlayNode extends Node2D {
     const fall = cfg.fallSec
     const totalLife = rise + fall
     const n = this.#count
-    const pulseAlpha = this.#pulseAlpha
-    pulseAlpha.fill(0)
+    const pulseValue = this.#pulseValue
+    pulseValue.fill(0)
     for (const slot of this.#pulses) {
       if (!slot.active) continue
       // Expire once every cell has finished its pulse envelope.
@@ -370,19 +390,19 @@ export class GridOverlayNode extends Node2D {
       for (let i = 0; i < n; i++) {
         const localT = elapsed - startTime - delay[i]
         if (localT < 0 || localT > totalLife) continue
-        // Triangular envelope: 0 → amp over `rise`, then amp → 0 over `fall`.
+        // Triangular envelope: 0 -> amp over `rise`, then amp -> 0 over `fall`.
         const value =
           localT < rise
             ? (localT / rise) * amp
             : (1 - (localT - rise) / fall) * amp
-        if (value > pulseAlpha[i]) pulseAlpha[i] = value
+        if (value > pulseValue[i]) pulseValue[i] = value
       }
     }
   }
 
   #updateWarn(dt: number): void {
     const warnTarget = this.#warnTarget
-    const warnAlpha = this.#warnAlpha
+    const warnValue = this.#warnValue
     warnTarget.fill(0)
 
     const src = this.#warnSource
@@ -393,7 +413,7 @@ export class GridOverlayNode extends Node2D {
       const spread = cfg.spreadRadiusWorld
       const spreadSq = spread * spread
       const invSpread = 1 / spread
-      const peakAlpha = cfg.peakAlpha
+      const peakScale = cfg.peakScale
       const pairR = cfg.pairRadiusWorld
       const pairRsq = pairR * pairR
       const invPairR = 1 / pairR
@@ -432,7 +452,7 @@ export class GridOverlayNode extends Node2D {
             const d2 = dx * dx + dy * dy
             if (d2 >= spreadSq) continue
             const d = Math.sqrt(d2)
-            const contribution = borderDanger * (1 - d * invSpread) * peakAlpha
+            const contribution = borderDanger * (1 - d * invSpread) * peakScale
             if (contribution > warnTarget[i]) warnTarget[i] = contribution
           }
         }
@@ -461,7 +481,7 @@ export class GridOverlayNode extends Node2D {
           const d2 = dx * dx + dy * dy
           if (d2 >= spreadSq) continue
           const d = Math.sqrt(d2)
-          const contribution = pairDanger * (1 - d * invSpread) * peakAlpha
+          const contribution = pairDanger * (1 - d * invSpread) * peakScale
           if (contribution > warnTarget[i]) warnTarget[i] = contribution
         }
       }
@@ -472,7 +492,7 @@ export class GridOverlayNode extends Node2D {
     const step = 1 - Math.exp(-rate * dt)
     const n = this.#count
     for (let i = 0; i < n; i++) {
-      warnAlpha[i] += (warnTarget[i] - warnAlpha[i]) * step
+      warnValue[i] += (warnTarget[i] - warnValue[i]) * step
     }
   }
 }

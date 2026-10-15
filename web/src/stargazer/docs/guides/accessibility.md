@@ -116,7 +116,7 @@ toggle, for example:
 muteNode.a11y({
   role: 'button',
   label: 'Mute',
-  states: { pressed: false }, // a toggle button → aria-pressed
+  states: { pressed: false }, // a toggle button -> aria-pressed
   onActivate: toggleMute,
 })
 
