@@ -12,6 +12,9 @@ Writing the age verification story:
 [`docs/writing-a-story.md`](docs/writing-a-story.md) covers the story module,
 its screens and flags, and the checks that run on it.
 
+Dithering art with the brand's bitmap look: [`docs/dither.md`](docs/dither.md)
+covers the effect, its presets and settings, and how it runs on each backend.
+
 ## Text
 
 All user-facing text lives in `src/i18n/`. Components read from `$t.*`
@@ -36,6 +39,7 @@ Engine-wide:
 | `?msaa=` | `0`, `2`, `4`, `8` | Multisample count, default 4. |
 | `?gfx=` | `webgpu`, `webgl2` | Forces a backend instead of picking one. |
 | `?demo=<name>` | | Boots a sandbox scene instead of a display. |
+| `?dither` | `?dither&preset=halftoneSphere&source=sphere` | Opens the dither tuning page instead of a display. See [`docs/dither.md`](docs/dither.md). |
 
 Arcade launcher sky. The background tracks the real sun over the booth, so
 these pin it to a point in the cycle you would otherwise have to wait for:

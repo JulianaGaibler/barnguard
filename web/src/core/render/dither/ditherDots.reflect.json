@@ -1,0 +1,23 @@
+{
+  "attributes": [],
+  "uniformBlocks": [
+    {
+      "binding": 6,
+      "glslName": "DitherParams_block_0Fragment"
+    }
+  ],
+  "samplers": [
+    {
+      "binding": 0,
+      "glslName": "_group_0_binding_0_fs"
+    },
+    {
+      "binding": 1,
+      "glslName": "_group_0_binding_1_fs"
+    },
+    {
+      "binding": 2,
+      "glslName": "_group_0_binding_2_fs"
+    }
+  ]
+}

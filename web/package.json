@@ -14,6 +14,7 @@
     "lint": "eslint src/",
     "check:wgsl": "node scripts/checkWgsl.mjs",
     "gen:squircle": "node scripts/genSquircleField.mjs",
+    "gen:blue-noise": "node scripts/genBlueNoise.mjs",
     "gen:shaders": "cargo build --release -p shader-gen --manifest-path ../Cargo.toml && ../target/release/shader-gen src",
     "prettier": "prettier --write --check 'src/**/*.*'",
     "test": "vitest",

@@ -36,6 +36,8 @@ const isFontRun = params.has('fonts')
 // `?backdrop` previews the Enterprise brand background composite (blur,
 // slice shift, grain) in isolation. Also not a display.
 const isBackdropRun = params.has('backdrop')
+// `?dither` previews the dither effect on a few sources, with every setting.
+const isDitherRun = params.has('dither')
 const displayId = params.get('display')
 
 function knownDisplayLinks(): DisplayLink[] {
@@ -66,6 +68,13 @@ async function boot(): Promise<void> {
     const { default: BackdropPreview } =
       await import('@src/displays/enterprise/background/BackdropPreview.svelte')
     mount(BackdropPreview, { target: target! })
+    return
+  }
+  if (isDitherRun) {
+    startUiScale()
+    const { default: DitherPreview } =
+      await import('@src/dev/DitherPreview.svelte')
+    mount(DitherPreview, { target: target! })
     return
   }
   if (isDemoRun) {

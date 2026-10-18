@@ -1,4 +1,4 @@
-// Compiles every WGSL file under src/stargazer with Chrome's WGSL compiler
+// Compiles every WGSL file under src with Chrome's WGSL compiler
 // (Tint) and prints its errors. Tint is stricter than naga and Firefox's
 // compiler, so a file that passes here also passes there.
 //
@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 
-const root = new URL('../src/stargazer', import.meta.url).pathname
+const root = new URL('../src', import.meta.url).pathname
 const chrome =
   process.env.CHROME ??
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
