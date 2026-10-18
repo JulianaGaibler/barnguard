@@ -1,0 +1,28 @@
+/**
+ * When the display gives up on the person in front of it.
+ *
+ * A visitor can walk off mid-story, leaving the next one to land in the middle
+ * of someone else's path. After {@link IDLE_RESET_MS} without input on a story
+ * screen the display returns to the splash and forgets the run. The last
+ * {@link IDLE_WARN_MS} of that show a notice, so someone still reading can
+ * cancel it with a touch. The splash itself never times out.
+ */
+
+/** No input for this long on a story screen returns to the splash. */
+export const IDLE_RESET_MS = 90_000
+
+/** How long the notice counts down before the reset. */
+export const IDLE_WARN_MS = 15_000
+
+/** How often the display reads the idle clock. */
+export const IDLE_POLL_MS = 250
+
+/** True once the countdown notice belongs on screen. */
+export function isWarning(idleMs: number): boolean {
+  return idleMs >= IDLE_RESET_MS - IDLE_WARN_MS
+}
+
+/** True once the display should reset itself. */
+export function isExpired(idleMs: number): boolean {
+  return idleMs >= IDLE_RESET_MS
+}
