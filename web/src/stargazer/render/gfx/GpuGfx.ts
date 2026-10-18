@@ -70,7 +70,11 @@ import { DashBuffer } from './dash'
 import { SurfacePool, type Surface } from './OffscreenSurfaces'
 import { RenderTargetPool } from './RenderTargetPool'
 import { PostChain } from '../postfx/PostChain'
-import type { PostEffect } from '../postfx/PostEffect'
+import {
+  UNPLACED,
+  type PostEffect,
+  type PostPlacement,
+} from '../postfx/PostEffect'
 import {
   PASS_GPU_GRACE_FRAMES,
   PostProgramCache,
@@ -256,6 +260,28 @@ interface SurfaceEffectsJob {
   signatureLength: number
   x: number
   y: number
+  /** Where the surface sits, for the passes' context. */
+  placement: PostPlacement
+}
+
+/**
+ * Where a surface at (`x0`, `y0`) sits, given its owner's local space in device
+ * pixels. Without `units`, one local unit is one device pixel and the origin is
+ * the surface's own corner.
+ */
+export function placementOf(
+  units: GfxSurfaceEffects['units'],
+  x0: number,
+  y0: number,
+): PostPlacement {
+  if (!units) return { ...UNPLACED, originX: x0, originY: y0 }
+  return {
+    originX: x0,
+    originY: y0,
+    pxPerUnit: Math.hypot(units.a, units.b),
+    unitOriginX: units.e - x0,
+    unitOriginY: units.f - y0,
+  }
 }
 
 /**
@@ -1097,6 +1123,7 @@ export class GpuGfx implements Gfx2D {
       requested && PostChain.hasWork(requested.effects) ? requested : null
     if (requested?.cache) requested.cache.hit = false
     const job = fx ? this.#prepareSurfaceEffects(fx) : null
+    if (job && fx) job.placement = placementOf(fx.units, x0, y0)
     if (opts.effects && !fx) opts.effects.applied = opts.retain !== true
     const alpha = this.#ctx.stateStack.getAlpha() * (opts.opacity ?? 1)
     const blend = opts.blend ?? this.#ctx.stateStack.getBlend()
@@ -1319,6 +1346,7 @@ export class GpuGfx implements Gfx2D {
           signatureLength: 0,
           x: 0,
           y: 0,
+          placement: { ...UNPLACED },
         }
       : null
   }
@@ -1343,7 +1371,7 @@ export class GpuGfx implements Gfx2D {
     // Asked every frame, even when the answer is a hit, so the effects' own
     // record of what they last wrote stays current.
     const paramsChanged = job.chain.paramsChanged(
-      { width: w, height: h },
+      { width: w, height: h, placement: job.placement },
       fx.effects,
     )
     const key = state.layers.keyFor(fx.owner, 'layer')
@@ -1415,7 +1443,12 @@ export class GpuGfx implements Gfx2D {
     if (!job) return
     this.#fxJobs.delete(surface)
     job.chain.run(
-      { texture: surface.tex, width: surface.w, height: surface.h },
+      {
+        texture: surface.tex,
+        width: surface.w,
+        height: surface.h,
+        placement: job.placement,
+      },
       job.effects,
       this.#target.colorSpace,
       job.out,

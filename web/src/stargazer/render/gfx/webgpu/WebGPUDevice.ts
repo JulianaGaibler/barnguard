@@ -27,6 +27,7 @@ import type {
   BindGroupLayoutEntry,
   BlitOpts,
   ColorFormat,
+  Readback,
   CompareFn,
   ComputeDispatch,
   ComputePipeline,
@@ -269,6 +270,7 @@ export class WebGPUDevice implements GfxDevice {
   readonly backend = 'webgpu' as const
 
   readonly supportsCompute = true
+  readonly supportsReadback = false
 
   /**
    * WebGPU conventions: `[0,1]` clip depth and top-down sampled render-target
@@ -1604,6 +1606,20 @@ export class WebGPUDevice implements GfxDevice {
 
   endFrame(): void {
     this.#flush()
+  }
+
+  beginReadback(_target: RenderTarget): Readback {
+    throw new Error(
+      'WebGPUDevice: pixel readback is unsupported (check device.supportsReadback)',
+    )
+  }
+
+  pollReadback(_readback: Readback): Uint8Array | null {
+    throw new Error('WebGPUDevice: pixel readback is unsupported')
+  }
+
+  cancelReadback(_readback: Readback): void {
+    throw new Error('WebGPUDevice: pixel readback is unsupported')
   }
 
   /**

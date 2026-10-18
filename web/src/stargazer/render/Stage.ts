@@ -663,6 +663,7 @@ export class Stage implements CameraHost {
         canvasW: this.canvas.width,
         canvasH: this.canvas.height,
         dt,
+        pxPerUnit: this.renderer.dpr,
       })
       screen.device.endFrame()
     }

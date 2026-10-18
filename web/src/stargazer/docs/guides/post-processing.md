@@ -233,6 +233,8 @@ The `ctx` that {@link PostPassContext} describes holds these fields:
 - `uvYDown`: the texture direction, see above
 - `time`: seconds since the pipeline started
 - `dt`: the current frame's delta in seconds
+- `source`: the size of the texture the whole chain reads and where it sits, see
+  [Placement](#placement)
 
 **Give a `Params` block `vec4<f32>` members only.** `f32`, `vec2<f32>` and
 `vec3<f32>` lay out the same way under std140 (what the generated GLSL uses) and
@@ -252,6 +254,98 @@ an exact fraction at every level without rounding errors adding up.
 `DualKawaseBlur` is the reference: its down passes shrink and its up passes grow
 back to `scale: 1`. `ctx.inputWidth` and `ctx.inputHeight` differ from `width`
 and `height` exactly where `scale` changes the size.
+
+### Exact sizes and extra inputs
+
+[`size`](/module/render/postpass#size) gives a pass an exact target size in
+device pixels and wins over `scale`. It runs every frame with the chain's
+source, so the size can follow a parameter. A pass that reduces the frame to one
+texel per cell of a grid uses it:
+
+```ts
+size: (source) => ({
+  width: Math.ceil(source.width / cellPx),
+  height: Math.ceil(source.height / cellPx),
+}),
+```
+
+A pass reads the previous pass's output at `u_tex` by default. Set
+[`input`](/module/render/postpass#input) to `'source'` to read the texture the
+chain started from, or to an earlier pass to read that pass's output.
+
+[`textures`](/module/render/postpass#textures) binds up to four more textures at
+bindings 1 to 4, sampled as `u_tex1` to `u_tex4` with their samplers at the
+binding plus 16. Each entry is one of:
+
+- a `DataTexture`, whose texels the CPU owns. It uploads when its version
+  changes, so a lookup table or a noise tile costs one upload.
+- `'source'`, the chain's source
+- an earlier pass, whose output stays alive until the pass that reads it has
+  drawn
+
+Reading a pass that does not run before the reader throws when the effect is
+prepared.
+
+### Placement
+
+`ctx.source` tells a pass where the chain's source sits:
+
+- `width`, `height`: its size in device pixels
+- `originX`, `originY`: its top-left corner in the render target, in device
+  pixels from the top
+- `pxPerUnit`: device pixels in one unit of the owner's local space. A layer's
+  unit is a unit of its own space, so a layer with a 1920 by 1080 frame has the
+  same unit on every screen. The stage's pipeline counts CSS pixels.
+- `unitOriginX`, `unitOriginY`: where the owner's origin falls on the source, in
+  device pixels from its top-left corner
+
+A pattern that should keep its size on every screen multiplies its size in units
+by `pxPerUnit`. A pattern that should stay put under moving content starts at
+`unitOrigin`, because a `'content'` region changes size and corner as its
+content changes, and a pattern anchored to the corner crawls with it. The
+values go through `writeParams`, so a cached layer renders again when they
+change.
+
+### Passes that make data
+
+Some work cannot be one fragment per pixel, such as an algorithm that must visit
+the pixels in order. A {@link PostDataPass} makes a texture from its input
+instead of drawing one. Later passes read the texture through their `textures`,
+and it keeps its contents between frames.
+
+```ts
+const prefixSums: PostDataPass = {
+  kind: 'data',
+  size: (source) => ({ width: source.width / 8, height: source.height / 8 }),
+  paramsBytes: 16,
+  writeParams: (ctx, out) => {
+    out[0] = ctx.width
+  },
+  compute: { wgsl: sumsWgsl, workgroups: (ctx) => [1, ctx.height, 1] },
+  cpu: (input, output, ctx) => sumRows(input, output, ctx),
+}
+```
+
+Give the pass a `compute` shader for devices that have compute and a `cpu`
+function for the rest. The chain picks by `device.supportsCompute`.
+
+- **`compute`** is a WGSL module with a `cs_main` entry point. It binds the input
+  texture at 0, the output as a write-only `rgba8unorm` storage texture at 1,
+  and the params at 6. It runs every frame.
+- **`cpu`** receives the input's pixels and fills the output's. The chain asks
+  the device to copy the input to the CPU, polls for it each frame, and calls
+  `cpu` when it arrives. Nothing waits for the GPU, so the result lands a few
+  frames after the input first draws, and until then the texture is all zero.
+
+`cpu` runs again only when the input pixels or the params differ from the last
+result. A cached layer draws again when a result arrives, and not before. An
+animated input starts a new read as soon as the last one is done, so an effect
+that changes every frame pays a read and a `cpu` call per result.
+
+Rows in the input and output are in the texture's own order. `ctx.uvYDown` is
+true when row 0 is the top. The last step of an effect must be a drawing pass.
+Every WebGPU device offers at least 16 KiB of workgroup memory, so a compute
+shader should not need more.
 
 ### Color in a shader
 

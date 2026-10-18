@@ -28,6 +28,7 @@ import type {
   BindingType,
   BlitOpts,
   ColorFormat,
+  Readback,
   CompareFn,
   StencilOp,
   StencilState,
@@ -255,6 +256,13 @@ function pixelFormatGl(
 
 // --- device -----------------------------------------------------------------
 
+/** The GL objects behind a {@link Readback}. */
+interface WebGL2Readback {
+  buffer: WebGLBuffer
+  sync: WebGLSync
+  byteLength: number
+}
+
 export class WebGL2Device implements GfxDevice {
   readonly #gl: WebGL2RenderingContext
   readonly #canvas: HTMLCanvasElement
@@ -330,6 +338,7 @@ export class WebGL2Device implements GfxDevice {
 
   /** WebGL2 has no compute stage. Features branch to a fragment off-ramp. */
   readonly supportsCompute = false
+  readonly supportsReadback = true
 
   /** WebGL conventions: `[-1,1]` depth, CCW front faces, bottom-up textures. */
   readonly ndc: NdcConventions = {
@@ -1634,6 +1643,64 @@ export class WebGL2Device implements GfxDevice {
 
   endFrame(): void {
     // No device-level end work. `present` blits the frame to the canvas.
+  }
+
+  // --- readback -------------------------------------------------------------
+
+  beginReadback(target: RenderTarget): Readback {
+    const gl = this.#gl
+    const source = target as WebGL2RenderTarget
+    if (source.fbo === null || source.samples > 1) {
+      throw new Error(
+        'WebGL2Device.beginReadback: the target must be a single-sample render target',
+      )
+    }
+    const byteLength = source.width * source.height * 4
+    const buffer = gl.createBuffer()
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer)
+    gl.bufferData(gl.PIXEL_PACK_BUFFER, byteLength, gl.STREAM_READ)
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, source.fbo)
+    gl.readBuffer(gl.COLOR_ATTACHMENT0)
+    // With a pack buffer bound, the last argument is an offset into it, so the
+    // read is queued and the CPU does not wait.
+    gl.readPixels(
+      0,
+      0,
+      source.width,
+      source.height,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      0,
+    )
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.#curFbo)
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)
+    // The fence only signals once the commands reach the GPU.
+    gl.flush()
+    return { buffer, sync, byteLength } as unknown as Readback
+  }
+
+  pollReadback(readback: Readback): Uint8Array | null {
+    const gl = this.#gl
+    const { buffer, sync, byteLength } = readback as unknown as WebGL2Readback
+    const status = gl.clientWaitSync(sync, 0, 0)
+    if (status === gl.TIMEOUT_EXPIRED) return null
+    let bytes: Uint8Array | null = null
+    if (status !== gl.WAIT_FAILED) {
+      bytes = new Uint8Array(byteLength)
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer)
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, bytes)
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null)
+    }
+    this.cancelReadback(readback)
+    return bytes
+  }
+
+  cancelReadback(readback: Readback): void {
+    const gl = this.#gl
+    const { buffer, sync } = readback as unknown as WebGL2Readback
+    gl.deleteSync(sync)
+    gl.deleteBuffer(buffer)
   }
 
   // --- draw -----------------------------------------------------------------

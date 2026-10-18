@@ -1,5 +1,10 @@
 import type { ColorFormat, GfxDevice, RenderTarget } from '../gfx/GfxDevice'
-import type { PostEffect, PostPass } from './PostEffect'
+import {
+  UNPLACED,
+  isDataPass,
+  type PostEffect,
+  type PostStep,
+} from './PostEffect'
 import { RenderTargetPool } from '../gfx/RenderTargetPool'
 import { PostChain } from './PostChain'
 import { PostProgramCache } from './PostProgramCache'
@@ -88,7 +93,7 @@ export class PostProcessPipeline {
   warm(
     colorSpaces: readonly ColorFormat[] = ['linear', 'srgb', 'canvas'],
   ): void {
-    const passes: PostPass[] = []
+    const passes: PostStep[] = []
     for (const effect of this.#effects) passes.push(...effect.passes)
     this.#programs.warm(passes, colorSpaces)
   }
@@ -109,7 +114,13 @@ export class PostProcessPipeline {
    */
   run(
     source: RenderTarget,
-    opts: { canvasW: number; canvasH: number; dt: number },
+    opts: {
+      canvasW: number
+      canvasH: number
+      dt: number
+      /** Device pixels per CSS pixel. Default 1. */
+      pxPerUnit?: number
+    },
   ): void {
     if (!this.active) return
     const device = this.#device
@@ -127,12 +138,18 @@ export class PostProcessPipeline {
     // The last pass writes the canvas when it can, which saves copying its
     // result there. That needs a source drawn in the canvas format, and a last
     // pass at the source's size.
-    let last: PostPass | null = null
+    let last: PostStep | null = null
     for (const effect of this.#effects) {
       if (!effect.enabled) continue
-      for (const pass of effect.passes) last = pass
+      for (const step of effect.passes) last = step
     }
-    const toCanvas = cs === 'canvas' && last !== null && (last.scale ?? 1) === 1
+    // A pass with its own size is not at the source's size.
+    const toCanvas =
+      cs === 'canvas' &&
+      last !== null &&
+      !isDataPass(last) &&
+      !last.size &&
+      (last.scale ?? 1) === 1
     const dest = toCanvas ? device.canvasTarget() : null
 
     const result = chain.run(
@@ -140,6 +157,7 @@ export class PostProcessPipeline {
         texture: device.colorTexture(source),
         width: source.width,
         height: source.height,
+        placement: this.#placement(opts.pxPerUnit ?? 1),
       },
       this.#effects,
       cs,
@@ -154,6 +172,13 @@ export class PostProcessPipeline {
     }
     this.#programs.endFrame()
     this.#rtPool.endFrame()
+  }
+
+  readonly #placed = { ...UNPLACED }
+
+  #placement(pxPerUnit: number) {
+    this.#placed.pxPerUnit = pxPerUnit
+    return this.#placed
   }
 
   destroy(): void {

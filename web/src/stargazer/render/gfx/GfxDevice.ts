@@ -71,6 +71,15 @@ export interface ComputePipeline {
   readonly __gfxComputePipeline: unique symbol
 }
 
+/**
+ * A read of a render target's pixels that is still on its way to the CPU. Made
+ * by {@link GfxDevice.beginReadback}, finished by
+ * {@link GfxDevice.pollReadback}.
+ */
+export interface Readback {
+  readonly __gfxReadback: unique symbol
+}
+
 /** GPU-side vertex/instance data buffer (`GL_ARRAY_BUFFER` on WebGL2). */
 export interface VBuffer {
   readonly __gfxBuffer: unique symbol
@@ -853,6 +862,11 @@ export interface GfxDevice {
    * fragment off-ramp when it is `false`.
    */
   readonly supportsCompute: boolean
+  /**
+   * Whether {@link beginReadback} works. `true` on WebGL2, `false` on WebGPU,
+   * where a feature that has compute does not need to read pixels back.
+   */
+  readonly supportsReadback: boolean
 
   // Shaders / pipelines / bind groups ---------------------------------------
   createShaderModule(desc: ShaderModuleDesc): ShaderModule
@@ -1016,6 +1030,21 @@ export interface GfxDevice {
   endComputePass(): void
   /** Submit the frame's recorded work. */
   endFrame(): void
+  /**
+   * Start copying the pixels of a single-sample color target to the CPU,
+   * without waiting for the GPU. The copy covers the work already recorded for
+   * `target`. Finish it with {@link pollReadback}. Throws when
+   * {@link supportsReadback} is `false`.
+   */
+  beginReadback(target: RenderTarget): Readback
+  /**
+   * The bytes of a readback once the GPU has produced them, or `null` while it
+   * has not. A returned readback is finished and must not be polled again. Rows
+   * come in the target's own order, 4 bytes a pixel, RGBA.
+   */
+  pollReadback(readback: Readback): Uint8Array | null
+  /** Drop a readback whose result is no longer wanted. */
+  cancelReadback(readback: Readback): void
 
   // Draw --------------------------------------------------------------------
   /** Record a draw into the current render pass. */

@@ -1,13 +1,22 @@
 import type {
   BindGroupLayout,
+  BindGroupLayoutEntry,
+  ComputePipeline,
   ColorFormat,
   GfxDevice,
   Pipeline,
   ShaderModule,
   VBuffer,
 } from '../gfx/GfxDevice'
-import type { PostPass } from './PostEffect'
+import {
+  isDataPass,
+  type PostDataPass,
+  type PostPass,
+  type PostStep,
+} from './PostEffect'
 import { POST_PARAMS_UBO_BINDING } from '../gfx/batchLayout'
+import { DataTexture } from '../gfx/ShaderQuad'
+import type { Texture } from '../gfx/GfxDevice'
 
 /** Attribute location the fullscreen vertex shader forces for `a_pos`. */
 const LOC_POS = 0
@@ -17,6 +26,10 @@ const LOC_UV = 1
 const VERTEX_STRIDE = 16
 /** Sampler unit for the input texture `u_tex`. */
 export const POST_U_TEX = 0
+/** Binding of a data pass's output storage texture. */
+export const POST_DATA_OUTPUT = 1
+/** Binding of the first extra texture. The rest follow it in order. */
+export const POST_FIRST_EXTRA_TEX = 1
 
 /**
  * Frames a pass's GPU resources survive after the last effect stopped listing
@@ -75,6 +88,22 @@ interface PassProgram {
   seen: number
 }
 
+/** GPU resources compiled for one {@link PostDataPass}'s compute shader. */
+interface DataProgram {
+  shader: ShaderModule
+  layout: BindGroupLayout
+  pipeline: ComputePipeline | null
+  pending: boolean
+  seen: number
+}
+
+/** The GPU copy of a {@link DataTexture}, kept while a live pass lists it. */
+interface UploadedData {
+  texture: Texture
+  version: number
+  seen: number
+}
+
 /**
  * The compiled shader, bind group layout and pipelines of every {@link PostPass}
  * on one device, plus the fullscreen triangle they all draw. Shared by every
@@ -99,6 +128,8 @@ interface PassProgram {
 export class PostProgramCache {
   readonly #device: GfxDevice
   readonly #programs = new Map<PostPass, PassProgram>()
+  readonly #uploads = new Map<DataTexture, UploadedData>()
+  readonly #dataPrograms = new Map<PostDataPass, DataProgram>()
   readonly #offRestore: () => void
   #vbo: VBuffer | null = null
   readonly #compiling = new Set<Promise<unknown>>()
@@ -112,6 +143,8 @@ export class PostProgramCache {
       // use rebuild the vertex buffer and the shaders and pipelines lazily.
       this.#vbo = null
       this.#programs.clear()
+      this.#uploads.clear()
+      this.#dataPrograms.clear()
       this.#generation++
     })
   }
@@ -150,14 +183,19 @@ export class PostProgramCache {
         reflection: pass.shader.reflection,
         label: 'postfx',
       })
-      const layout = device.createBindGroupLayout(
-        pass.paramsBytes > 0
-          ? [
-              { binding: POST_U_TEX, type: 'texture-2d' },
-              { binding: POST_PARAMS_UBO_BINDING, type: 'uniform-buffer' },
-            ]
-          : [{ binding: POST_U_TEX, type: 'texture-2d' }],
-      )
+      const entries: BindGroupLayoutEntry[] = [
+        { binding: POST_U_TEX, type: 'texture-2d' },
+      ]
+      for (let i = 0; i < (pass.textures?.length ?? 0); i++) {
+        entries.push({ binding: POST_FIRST_EXTRA_TEX + i, type: 'texture-2d' })
+      }
+      if (pass.paramsBytes > 0) {
+        entries.push({
+          binding: POST_PARAMS_UBO_BINDING,
+          type: 'uniform-buffer',
+        })
+      }
+      const layout = device.createBindGroupLayout(entries)
       program = {
         shader,
         layout,
@@ -208,6 +246,66 @@ export class PostProgramCache {
     return null
   }
 
+  /** The bind group layout of a data pass's compute shader. */
+  dataLayout(pass: PostDataPass): BindGroupLayout {
+    return this.#dataPrograms.get(pass)!.layout
+  }
+
+  /**
+   * Make sure a data pass has its compute shader and return its pipeline, or
+   * `null` while it compiles. Also `null` for a pass that has no compute shader
+   * or a device that has no compute, which the chain runs on the CPU.
+   */
+  computePipeline(pass: PostDataPass): ComputePipeline | null {
+    const device = this.#device
+    if (!pass.compute || !device.supportsCompute) return null
+    let program = this.#dataPrograms.get(pass)
+    if (!program) {
+      const entries: BindGroupLayoutEntry[] = [
+        { binding: POST_U_TEX, type: 'texture-2d' },
+        { binding: POST_DATA_OUTPUT, type: 'storage-texture-2d' },
+      ]
+      if (pass.paramsBytes > 0) {
+        entries.push({
+          binding: POST_PARAMS_UBO_BINDING,
+          type: 'uniform-buffer',
+        })
+      }
+      program = {
+        shader: device.createShaderModule({
+          wgsl: { code: pass.compute.wgsl, computeEntry: 'cs_main' },
+          reflection: { attributes: [], uniformBlocks: [], samplers: [] },
+          label: 'postfx-data',
+        }),
+        layout: device.createBindGroupLayout(entries),
+        pipeline: null,
+        pending: false,
+        seen: this.#epoch,
+      }
+      this.#dataPrograms.set(pass, program)
+    }
+    if (program.pipeline) return program.pipeline
+    if (program.pending) return null
+    program.pending = true
+    const p = program
+    const compile = device
+      .createComputePipeline({
+        shader: p.shader,
+        bindGroupLayouts: [p.layout],
+        label: 'postfx-data',
+      })
+      .then((pipeline) => {
+        if (this.#dataPrograms.get(pass) !== p) return
+        p.pipeline = pipeline
+        p.pending = false
+      })
+    this.#compiling.add(compile)
+    void compile
+      .catch(() => undefined)
+      .finally(() => this.#compiling.delete(compile))
+    return null
+  }
+
   /** Whether any pipeline is still compiling. */
   get compiling(): boolean {
     return this.#compiling.size > 0
@@ -225,17 +323,59 @@ export class PostProgramCache {
    * Compile the pipelines of `passes` for every color space in `colorSpaces`.
    * Idempotent, an already compiled pass is skipped.
    */
-  warm(passes: Iterable<PostPass>, colorSpaces: readonly ColorFormat[]): void {
+  warm(steps: Iterable<PostStep>, colorSpaces: readonly ColorFormat[]): void {
     this.vbo()
-    for (const pass of passes) {
-      for (const cs of colorSpaces) this.pipeline(pass, cs)
+    for (const step of steps) {
+      if (isDataPass(step)) {
+        this.computePipeline(step)
+        continue
+      }
+      for (const cs of colorSpaces) this.pipeline(step, cs)
     }
   }
 
   /** Record that a live effect lists `pass`, which keeps it from being freed. */
-  noteLive(pass: PostPass): void {
+  noteLive(step: PostStep): void {
+    if (isDataPass(step)) {
+      const data = this.#dataPrograms.get(step)
+      if (data) data.seen = this.#epoch
+      return
+    }
+    const pass = step
     const program = this.#programs.get(pass)
     if (program) program.seen = this.#epoch
+    for (const texture of pass.textures ?? []) {
+      if (!(texture instanceof DataTexture)) continue
+      const up = this.#uploads.get(texture)
+      if (up) up.seen = this.#epoch
+    }
+  }
+
+  /**
+   * The GPU texture holding `data`, uploaded again when its version changed. It
+   * lives while a live pass lists `data`.
+   */
+  dataTexture(data: DataTexture): Texture {
+    let up = this.#uploads.get(data)
+    if (!up) {
+      up = {
+        texture: this.#device.createTexture2D({
+          width: data.width,
+          height: data.height,
+          filter: data.filter,
+          wrap: 'clamp',
+        }),
+        version: -1,
+        seen: this.#epoch,
+      }
+      this.#uploads.set(data, up)
+    }
+    if (up.version !== data.version) {
+      this.#device.updateTexture2DData(up.texture, data.data)
+      up.version = data.version
+    }
+    up.seen = this.#epoch
+    return up.texture
   }
 
   /**
@@ -255,11 +395,29 @@ export class PostProgramCache {
       this.#device.deleteShaderModule(program.shader)
       this.#programs.delete(pass)
     }
+    for (const [pass, program] of this.#dataPrograms) {
+      if (this.#epoch - program.seen <= PASS_GPU_GRACE_FRAMES) continue
+      this.#device.deleteShaderModule(program.shader)
+      this.#dataPrograms.delete(pass)
+    }
+    for (const [data, up] of this.#uploads) {
+      if (this.#epoch - up.seen <= PASS_GPU_GRACE_FRAMES) continue
+      this.#device.deleteTexture(up.texture)
+      this.#uploads.delete(data)
+    }
     this.#epoch++
   }
 
   /** Free a pass's shader module now. */
-  release(pass: PostPass): void {
+  release(step: PostStep): void {
+    if (isDataPass(step)) {
+      const data = this.#dataPrograms.get(step)
+      if (!data) return
+      this.#device.deleteShaderModule(data.shader)
+      this.#dataPrograms.delete(step)
+      return
+    }
+    const pass = step
     const program = this.#programs.get(pass)
     if (!program) return
     this.#device.deleteShaderModule(program.shader)
@@ -272,6 +430,14 @@ export class PostProgramCache {
       this.#device.deleteShaderModule(program.shader)
     }
     this.#programs.clear()
+    for (const program of this.#dataPrograms.values()) {
+      this.#device.deleteShaderModule(program.shader)
+    }
+    this.#dataPrograms.clear()
+    for (const up of this.#uploads.values()) {
+      this.#device.deleteTexture(up.texture)
+    }
+    this.#uploads.clear()
     if (this.#vbo) {
       this.#device.deleteBuffer(this.#vbo)
       this.#vbo = null

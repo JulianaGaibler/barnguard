@@ -458,6 +458,7 @@ export class ComposeWalk {
     if (layer) {
       layer._fx.effects = this.#effectsOf(layer)
       layer._fx.dt = f.dt
+      layer._fx.units = this.#unitsOf(layer, f)
       if (layer.cache === 'raster') {
         this.#signLayer(layer, f, view)
         layer._fx.cache = layer._cacheState
@@ -485,6 +486,20 @@ export class ComposeWalk {
     if (bounds) Object.assign(entry.bounds, bounds)
     this.#reapplyClip(f)
     return true
+  }
+
+  /** `layer`'s local space in device pixels, in a record the layer keeps. */
+  #unitsOf(layer: Layer, f: WalkFrame): NonNullable<Layer['_fx']['units']> {
+    const world = layer.transform.world
+    const render = f.render
+    const out = (layer._fx.units ??= { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 })
+    out.a = render.a * world.a + render.c * world.b
+    out.b = render.b * world.a + render.d * world.b
+    out.c = render.a * world.c + render.c * world.d
+    out.d = render.b * world.c + render.d * world.d
+    out.e = render.a * world.e + render.c * world.f + render.e
+    out.f = render.b * world.e + render.d * world.f + render.f
+    return out
   }
 
   /** What each cached layer's output depends on, rebuilt every frame. */

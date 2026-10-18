@@ -12,6 +12,7 @@ import type {
   BindGroupLayout,
   BindGroupLayoutEntry,
   BlitOpts,
+  Readback,
   CompareFn,
   ComputeDispatch,
   ComputePipeline,
@@ -173,6 +174,8 @@ export class MockGfxDevice implements GfxDevice {
   readonly backend: GfxBackend
   /** Mirrors the emulated backend: WebGPU exposes compute, WebGL2 does not. */
   readonly supportsCompute: boolean
+  /** True on the WebGL2 mock, like the real device. */
+  readonly supportsReadback: boolean
   readonly computePipelines: MockComputePipeline[] = []
   readonly computeDispatches: {
     pipeline: ComputePipeline
@@ -217,6 +220,7 @@ export class MockGfxDevice implements GfxDevice {
   constructor(backend: GfxBackend = 'webgl2') {
     this.backend = backend
     this.supportsCompute = backend === 'webgpu'
+    this.supportsReadback = backend !== 'webgpu'
     this.ndc =
       backend === 'webgpu'
         ? { clipDepth: 'zero-to-one', frontFace: 'ccw', textureTopDown: true }
@@ -268,9 +272,12 @@ export class MockGfxDevice implements GfxDevice {
   endComputePass(): void {
     this.computePassEnds++
   }
-  createBindGroupLayout(_entries: BindGroupLayoutEntry[]): BindGroupLayout {
+  /** The entries of every layout created, parallel to {@link bindGroupLayouts}. */
+  readonly layoutEntries: BindGroupLayoutEntry[][] = []
+  createBindGroupLayout(entries: BindGroupLayoutEntry[]): BindGroupLayout {
     const l = { __gfxBindGroupLayout: undefined as never }
     this.bindGroupLayouts.push(l)
+    this.layoutEntries.push(entries.map((e) => ({ ...e })))
     return l
   }
   createBindGroup(
@@ -685,6 +692,44 @@ export class MockGfxDevice implements GfxDevice {
       texture,
     })
     if (this.#curPass) this.#curPass.drawCount++
+  }
+
+  /** Every readback started, with the target it read and its pixels. */
+  readonly readbacks: Array<{
+    target: RenderTarget
+    bytes: Uint8Array
+    ready: boolean
+    cancelled: boolean
+  }> = []
+  /**
+   * Polls a readback must see unfinished before it completes. Set before the
+   * readback starts.
+   */
+  readbackLatency = 1
+  /** What a readback of `target` returns. Default is all zero bytes. */
+  readbackSource: (target: RenderTarget) => Uint8Array = (target) =>
+    new Uint8Array(target.width * target.height * 4)
+  beginReadback(target: RenderTarget): Readback {
+    const entry = {
+      target,
+      bytes: this.readbackSource(target),
+      ready: false,
+      cancelled: false,
+      waits: this.readbackLatency,
+    }
+    this.readbacks.push(entry)
+    return entry as unknown as Readback
+  }
+  pollReadback(readback: Readback): Uint8Array | null {
+    const entry = readback as unknown as (typeof this.readbacks)[number] & {
+      waits: number
+    }
+    if (entry.waits-- > 0) return null
+    entry.ready = true
+    return entry.bytes
+  }
+  cancelReadback(readback: Readback): void {
+    ;(readback as unknown as { cancelled: boolean }).cancelled = true
   }
 
   /** Alias for {@link shaders}, for tests that refer to created programs. */

@@ -102,6 +102,13 @@ export interface GfxSurfaceEffects {
   /** Seconds since the last frame, for effects that animate. */
   dt: number
   /**
+   * The owner's local space in device pixels, as an affine matrix in the layout
+   * of `Affine2x3`. Passes read it through their context's `source`, to size a
+   * pattern in the owner's units and to anchor it to the owner's origin. Left
+   * out, a unit is one device pixel and the origin is the surface's corner.
+   */
+  units?: { a: number; b: number; c: number; d: number; e: number; f: number }
+  /**
    * Output. True when the surface will have the effects applied, false while a
    * pass is still compiling and the surface composites unprocessed.
    */

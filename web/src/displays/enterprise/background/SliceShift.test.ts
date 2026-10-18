@@ -15,6 +15,15 @@ function ctx(uvYDown: boolean): PostPassContext {
     uvYDown,
     time: 0,
     dt: 0,
+    source: {
+      width: 100,
+      height: 50,
+      originX: 0,
+      originY: 0,
+      pxPerUnit: 1,
+      unitOriginX: 0,
+      unitOriginY: 0,
+    },
   }
 }
 

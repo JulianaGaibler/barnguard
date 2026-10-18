@@ -378,6 +378,15 @@ describe('FilmGrain', () => {
     uvYDown: true,
     time: 0,
     dt: 0,
+    source: {
+      width: 1,
+      height: 1,
+      originX: 0,
+      originY: 0,
+      pxPerUnit: 1,
+      unitOriginX: 0,
+      unitOriginY: 0,
+    },
   }
 
   it('writes cellPx, density, opacity, and tint into params', async () => {
@@ -444,6 +453,15 @@ describe('DualKawaseBlur', () => {
       uvYDown: true,
       time: 0,
       dt: 0,
+      source: {
+        width: 10,
+        height: 20,
+        originX: 0,
+        originY: 0,
+        pxPerUnit: 1,
+        unitOriginX: 0,
+        unitOriginY: 0,
+      },
     }
     const downOut = new Float32Array(4)
     blur.passes[0].writeParams!(ctx, downOut)

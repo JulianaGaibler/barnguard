@@ -57,11 +57,17 @@ export {
 export { Fog } from '../render/Fog'
 export type { FogOptions, FogMode } from '../render/Fog'
 export { PostProcessPipeline } from '../render/postfx/PostProcessPipeline'
-export { postShader } from '../render/postfx/PostEffect'
+export { isDataPass, postShader } from '../render/postfx/PostEffect'
 export type {
+  PostDataInput,
+  PostDataPass,
   PostEffect,
   PostPass,
   PostPassContext,
+  PostPassTexture,
+  PostPlacement,
+  PostSourceInfo,
+  PostStep,
   PostShaderSource,
 } from '../render/postfx/PostEffect'
 export { ChromaticAberration } from '../render/postfx/effects/ChromaticAberration'
