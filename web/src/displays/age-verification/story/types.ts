@@ -6,6 +6,8 @@
  * and later routing and paragraphs read them.
  */
 
+import type { DitherPresetName, DitherSettings } from '@src/core/render/dither'
+
 export type NodeId = string
 export type Flag = string
 
@@ -35,7 +37,16 @@ export type Next<Id extends string = NodeId> = Id | readonly Route<Id>[]
 export interface Illustration {
   src: string
   alt: string
+  /**
+   * How the image is dithered: the name of a preset, or settings laid over the
+   * display's own. A preset brings its colors with it. Left out, the display's
+   * look applies.
+   */
+  dither?: IllustrationDither
 }
+
+/** A way to dither one illustration. See {@link Illustration.dither}. */
+export type IllustrationDither = DitherPresetName | Partial<DitherSettings>
 
 /** Text with a Continue button, such as the opening scenario. */
 export interface SceneNode<Id extends string = NodeId> {
@@ -79,6 +90,13 @@ export interface EndingNode {
 
 export type StoryNode<Id extends string = NodeId> =
   SceneNode<Id> | MomentNode<Id> | ChoiceNode<Id> | EndingNode
+
+/** The picture a screen shows, or `null` for a screen with none. */
+export function illustrationOf<Id extends string>(
+  node: StoryNode<Id>,
+): Illustration | null {
+  return node.kind === 'choice' ? null : (node.illustration ?? null)
+}
 
 export interface Story<Id extends string = NodeId> {
   start: Id

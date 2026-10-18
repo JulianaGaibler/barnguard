@@ -1,16 +1,17 @@
 <script lang="ts">
   /**
-   * The display's root: one canvas for the splash animation and whatever the
-   * engine draws later, with the screens' HTML over it in the 1920 by 1080
-   * design frame. Switches between the splash and the story, and returns to the
-   * splash when a visitor walks off.
+   * The display's root: one canvas for the background, the pictures and the
+   * splash animation, with the screens' HTML over it. The screens are laid out
+   * in design pixels against the visible area, which is the 1920 by 1080 design
+   * on a 16:9 window and larger on one axis on any other. Switches between the
+   * splash and the story, and returns to the splash when a visitor walks off.
    */
   import { onDestroy, onMount } from 'svelte'
   import {
+    CameraNode2D,
     domAnchor,
     Layer,
     mountEngine,
-    Node2D,
     type EngineHost,
   } from '@src/stargazer'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
@@ -24,6 +25,10 @@
   import { story } from '../story/story'
   import { Run } from '../story/run'
   import { runFromQuery } from '../story/devJump'
+  import { createBackground, type Background } from './backgroundLayer'
+  import BackgroundFit from './BackgroundFit.svelte'
+  import { IllustrationLayer } from './IllustrationLayer'
+  import { splashDither } from './ditherLook'
   import SplashScreen from './SplashScreen.svelte'
   import StoryScreen from './StoryScreen.svelte'
 
@@ -46,8 +51,10 @@
 
   let host = $state.raw<EngineHost | null>(null)
   let uiLayer = $state.raw<Layer | null>(null)
-  /** The design frame's top left, which the screens' HTML pins to. */
-  let frameNode = $state.raw<Node2D | null>(null)
+  /** Holds the splash animation, dithered. */
+  let mediaLayer = $state.raw<Layer | null>(null)
+  let illustrations = $state.raw<IllustrationLayer | null>(null)
+  let background = $state.raw<Background | null>(null)
   let offFontChange: (() => void) | null = null
 
   // In development, `?node=` opens the story at any screen.
@@ -65,17 +72,36 @@
 
   function onEngineReady(h: EngineHost): void {
     offFontChange = invalidateTextOnFontLoad(h.engine)
-    const ui = new Layer({
-      id: 'ui',
-      space: {
-        frame: { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT },
-      },
+    const frame = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT }
+    // The engine draws nothing without a current camera. The layers carry their
+    // own view of the frame, so this one only has to exist.
+    const camera = new CameraNode2D('camera')
+    camera.setViewport(frame)
+    h.engine.tree.root.add(camera)
+    camera.makeCurrent()
+    // Back to front: the background, the art, then the UI the HTML hangs on.
+    const backdrop = createBackground()
+    const media = new Layer({
+      id: 'splash-media',
+      space: { frame },
+      region: { x: 0, y: 0, width: 0, height: 0 },
+      effects: [splashDither()],
+      persistent: true,
     })
-    h.engine.tree.root.add(ui)
-    const node = new Node2D('design-frame')
-    ui.add(node)
+    // Hidden until the animation is there, so an empty layer takes no surface.
+    media.visible = false
+    const art = new IllustrationLayer()
+    const ui = new Layer({ id: 'ui', space: { frame } })
+    for (const layer of [backdrop.layer, media, art.layer, ui]) {
+      h.engine.tree.root.add(layer)
+    }
+    backdrop.layer.warm()
+    media.warm()
+    art.layer.warm()
     uiLayer = ui
-    frameNode = node
+    mediaLayer = media
+    illustrations = art
+    background = backdrop
     host = h
     h.start()
   }
@@ -83,8 +109,11 @@
   function onEngineDestroy(): void {
     offFontChange?.()
     offFontChange = null
-    frameNode = null
+    illustrations?.destroy()
+    background = null
     uiLayer = null
+    mediaLayer = null
+    illustrations = null
     host = null
   }
 
@@ -118,29 +147,35 @@
       }}
     ></canvas>
 
-    {#if host && uiLayer && frameNode}
+    {#if host && uiLayer && mediaLayer && illustrations && background}
       <UiLayer engine={host.engine} layer={uiLayer}>
-        <div
-          class="av__frame"
-          use:domAnchor={{
-            engine: host!.engine,
-            node: frameNode!,
-            size: { width: DESIGN_WIDTH, height: DESIGN_HEIGHT },
-          }}
-        >
-          <SplashScreen
-            engine={host!.engine}
-            layer={uiLayer!}
-            active={view === 'splash'}
-            onStart={() => (view = 'story')}
-          />
-          <StoryScreen
-            engine={host!.engine}
-            {start}
-            active={view === 'story'}
-            onHome={goHome}
-          />
-        </div>
+        {#snippet children(region)}
+          <BackgroundFit {region} background={background!} />
+          <div
+            class="av__frame"
+            use:domAnchor={{
+              engine: host!.engine,
+              node: region.anchor,
+              size: { width: region.rect.width, height: region.rect.height },
+            }}
+          >
+            <SplashScreen
+              engine={host!.engine}
+              {region}
+              layer={mediaLayer!}
+              active={view === 'splash'}
+              onStart={() => (view = 'story')}
+            />
+            <StoryScreen
+              engine={host!.engine}
+              {region}
+              illustrations={illustrations!}
+              {start}
+              active={view === 'story'}
+              onHome={goHome}
+            />
+          </div>
+        {/snippet}
       </UiLayer>
     {/if}
   {/key}

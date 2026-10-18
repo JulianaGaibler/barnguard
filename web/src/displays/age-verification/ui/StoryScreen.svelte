@@ -1,7 +1,7 @@
 <!--
   The story itself: the progress row, the current screen's text on the left,
   its answers or illustration on the right, and the buttons along the bottom.
-  Laid out in the 1920 by 1080 design frame.
+  Laid out in design pixels against the region's visible area, by `layoutFor`.
 
   The screen owns the run while it's showing. Moving on hides the text and the
   right column, swaps the screen, and brings them back, while the progress row
@@ -11,19 +11,25 @@
   import { onDestroy } from 'svelte'
   import { ignoreAbort, type Engine } from '@src/stargazer'
   import { Reveal } from '@src/core/ui/reveal.svelte'
+  import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
   import { t } from '../i18n'
   import { Run } from '../story/run'
+  import { illustrationOf } from '../story/types'
+  import type { IllustrationLayer } from './IllustrationLayer'
+  import { inWorld, layoutFor } from './layout'
   import ChoiceList from './ChoiceList.svelte'
   import NavBar from './NavBar.svelte'
   import ProgressTrail from './ProgressTrail.svelte'
 
-  /** Width of the content row, and so of the progress row. */
-  const ROW_WIDTH = 1664
   /** How long a picked answer shows before the screen moves on. */
   const PICK_HOLD_SEC = 0.3
 
   interface Props {
     engine: Engine
+    /** The visible area the screen is laid out in. */
+    region: UiRegion
+    /** Draws the illustration of the screen showing, in the right column. */
+    illustrations: IllustrationLayer
     /** Where a run begins. Each entrance starts a fresh run from here. */
     start: Run
     /** Whether the screen is showing. Flipping it plays the entrance or exit. */
@@ -31,7 +37,14 @@
     /** Leave the story for the splash screen. */
     onHome: () => void
   }
-  const { engine, start, active, onHome }: Props = $props()
+  const { engine, region, illustrations, start, active, onHome }: Props =
+    $props()
+
+  const layout = $derived(layoutFor(region.rect.width, region.rect.height))
+  // The picture goes in the right column, wherever the window puts it.
+  $effect(() => {
+    illustrations.place(inWorld(layout.right, region.rect))
+  })
 
   // The engine is fixed for the screen's life.
   /* svelte-ignore state_referenced_locally */
@@ -55,11 +68,18 @@
       picked = null
       busy = false
       frame.show()
-      content.show()
+      void illustrations.show(illustrationOf(start.current)).then(() => {
+        if (active) content.show()
+      })
     } else {
       void frame.hide()
       void content.hide()
     }
+  })
+
+  // The illustration fades with the right column.
+  $effect(() => {
+    illustrations.alpha = content.items[1]!.v
   })
 
   onDestroy(() => {
@@ -76,6 +96,9 @@
       if (!active) return
       run = next()
       picked = null
+      // The art is drawn before the content comes back, so it fades in whole.
+      await illustrations.show(illustrationOf(run.current))
+      if (!active) return
       content.show()
     } finally {
       busy = false
@@ -104,11 +127,14 @@
   class="story"
   class:story--hidden={!frame.visible}
   aria-hidden={!active}
+  style="--row-x: {layout.rowX}px; --row-width: {layout.rowWidth}px; --trail-y: {layout.trailY}px; --content-y: {layout
+    .content.y}px; --content-height: {layout.content
+    .height}px; --nav-y: {layout.navY}px"
 >
   <div class="story__trail" style={part(frame, 0)}>
     <ProgressTrail
       marks={run.progress()}
-      maxWidth={ROW_WIDTH}
+      maxWidth={layout.rowWidth}
       label={$t.story.progressLabel(run.history.length)}
     />
   </div>
@@ -144,11 +170,12 @@
           onPick={(id) => void pick(id)}
         />
       {:else if node.illustration}
-        <img
+        <!-- The engine draws the picture. This holds its place and its name. -->
+        <div
           class="story__illustration"
-          src={node.illustration.src}
-          alt={node.illustration.alt}
-        />
+          role="img"
+          aria-label={node.illustration.alt}
+        ></div>
       {/if}
     </div>
   </div>
@@ -183,20 +210,22 @@
   .story--hidden
     visibility: hidden
 
+  // The row, the progress row and the buttons are placed by the layout, which
+  // sets these properties on the section.
   .story__trail
     position: absolute
-    inset-inline-start: 128px
-    inset-block-start: 63px
+    inset-inline-start: var(--row-x)
+    inset-block-start: var(--trail-y)
 
   .story__content
     position: absolute
-    inset-inline-start: 128px
-    inset-block-start: 159px
+    inset-inline-start: var(--row-x)
+    inset-block-start: var(--content-y)
     display: grid
     grid-template-columns: 1fr 1fr
     gap: 128px
-    width: 1664px
-    height: 760px
+    width: var(--row-width)
+    height: var(--content-height)
 
   .story__text,
   .story__side
@@ -227,14 +256,12 @@
     fill: var(--color-accent)
 
   .story__illustration
-    display: block
-    max-width: 100%
-    max-height: 100%
-    object-fit: contain
+    width: 100%
+    height: 100%
 
   .story__nav
     position: absolute
-    inset-inline-start: 128px
-    inset-block-start: 951px
-    width: 1664px
+    inset-inline-start: var(--row-x)
+    inset-block-start: var(--nav-y)
+    width: var(--row-width)
 </style>

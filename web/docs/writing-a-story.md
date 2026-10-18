@@ -67,6 +67,17 @@ import courtroom from '../assets/courtroom.svg?url'
 illustration: { src: courtroom, alt: 'A judge reading a ruling' },
 ```
 
+The display draws the image dithered. To change how, add `dither` to the
+illustration, as the name of a preset or as settings laid over the display's own:
+
+```ts
+illustration: { src: courtroom, alt: 'A judge reading a ruling', dither: 'halftoneSphere' },
+illustration: { src: courtroom, alt: 'A judge reading a ruling', dither: { cellSize: 8, dot: 'circle' } },
+```
+
+A preset brings its own colors. [`dither.md`](dither.md) lists the presets and
+settings.
+
 The splash screen isn't part of the story. Its title and intro are in
 `i18n/en.ts`, and its animation is set in `assets.ts`.
 
@@ -177,6 +188,16 @@ The left column has room for about fourteen lines of body text. An answer has
 room for about three lines when a choice has three answers, and two lines when
 it has four. The tests don't measure text. Open every changed screen with
 `?node=` and check that it fits.
+
+### Window shape
+
+The screens are designed for 16:9 and adapt to any other window, such as a
+browser with dev tools open. The progress row stays near the top, the buttons
+near the bottom, and the content row stays 1664 design pixels wide in the
+middle. A wider window adds margin. A taller one adds space to the content,
+whose columns center their contents, so the line counts above hold at every
+shape. The background and the pictures follow the window's corners and the right
+column. `src/displays/age-verification/ui/layout.ts` has the numbers.
 
 ## See also
 

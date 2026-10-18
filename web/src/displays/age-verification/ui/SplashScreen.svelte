@@ -1,7 +1,8 @@
 <!--
   The first screen: the title, what the visitor is in for, and a button to
-  begin, beside the splash animation. Laid out in the 1920 by 1080 design
-  frame. The animation is a stargazer node on the UI layer, under the HTML.
+  begin, beside the splash animation. Laid out in design pixels against the
+  region's visible area, by `layoutFor`. The animation is a stargazer node on a
+  layer of its own, dithered, under the HTML.
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
@@ -12,21 +13,25 @@
     type Layer,
   } from '@src/stargazer'
   import { Reveal } from '@src/core/ui/reveal.svelte'
+  import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
   import { t } from '../i18n'
   import { SPLASH_ANIMATION_URL } from '../assets'
-
-  /** The box the animation is fitted into, in design pixels. */
-  const ANIMATION_BOX = { x: 1024, y: 159, width: 768, height: 760 }
+  import { inWorld, layoutFor } from './layout'
 
   interface Props {
     engine: Engine
-    /** The UI layer, for the animation. */
+    /** The visible area the screen is laid out in. */
+    region: UiRegion
+    /** The layer the animation goes on. Its region is the right column. */
     layer: Layer
     /** Whether the screen is showing. Flipping it plays the entrance or exit. */
     active: boolean
     onStart: () => void
   }
-  const { engine, layer, active, onStart }: Props = $props()
+  const { engine, region, layer, active, onStart }: Props = $props()
+
+  const layout = $derived(layoutFor(region.rect.width, region.rect.height))
+  const media = $derived(inWorld(layout.right, region.rect))
 
   // The engine and layer are fixed for the screen's life.
   /* svelte-ignore state_referenced_locally */
@@ -41,11 +46,9 @@
         const node = new LottieNode({
           id: 'splash-animation',
           animation: parsed,
-          width: ANIMATION_BOX.width,
-          height: ANIMATION_BOX.height,
+          width: media.width,
+          height: media.height,
         })
-        node.transform.x = ANIMATION_BOX.x
-        node.transform.y = ANIMATION_BOX.y
         node.transform.alpha = 0
         layer.add(node)
         animation = node
@@ -58,6 +61,16 @@
       })
   }
 
+  // The animation fills the right column, wherever the window puts it.
+  $effect(() => {
+    layer.region = { ...media }
+    if (!animation) return
+    animation.transform.x = media.x
+    animation.transform.y = media.y
+    animation.width = media.width
+    animation.height = media.height
+  })
+
   $effect(() => {
     if (active) reveal.show()
     else void reveal.hide()
@@ -68,6 +81,8 @@
     if (!animation) return
     const v = reveal.items[3]!.v
     animation.transform.alpha = v
+    // A layer nobody can see should not take a surface.
+    layer.visible = v > 0
     if (v > 0) animation.play()
     else animation.pause()
   })
@@ -86,6 +101,9 @@
   class="splash"
   class:splash--hidden={!reveal.visible}
   aria-hidden={!active}
+  style="--row-x: {layout.rowX}px; --content-y: {layout.content
+    .y}px; --content-height: {layout.content.height}px; --column-width: {layout
+    .left.width}px"
 >
   <div class="splash__column">
     <h1 class="splash__title" style={part(0)}>{$t.splash.title}</h1>
@@ -114,15 +132,15 @@
 
   .splash__column
     position: absolute
-    inset-inline-start: 128px
-    inset-block-start: 159px
+    inset-inline-start: var(--row-x)
+    inset-block-start: var(--content-y)
     display: flex
     flex-direction: column
     justify-content: center
     align-items: flex-start
     gap: 64px
-    width: 768px
-    height: 760px
+    width: var(--column-width)
+    height: var(--content-height)
 
   .splash__title
     @include type.headline
