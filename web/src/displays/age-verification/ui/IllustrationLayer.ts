@@ -63,6 +63,12 @@ export class IllustrationLayer {
     this.layer.visible = value > 0
   }
 
+  /** Slides the layer sideways and sets how visible it is, as a screen moves. */
+  move(offsetX: number, alpha: number): void {
+    this.layer.transform.x = offsetX
+    this.alpha = alpha
+  }
+
   /**
    * Draws `illustration` fitted inside the box, or nothing for `null`. Settles
    * once it is drawn, and settles without drawing it when a newer call came in

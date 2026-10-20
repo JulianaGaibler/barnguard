@@ -137,11 +137,14 @@ export class Run {
     return visibleText(this.current.body, this.flags)
   }
 
-  /** One mark per screen shown, the last one current. */
+  /**
+   * One mark per screen shown after the opening one, the last one current. The
+   * opening screen sets the scene and is not part of the journey.
+   */
   progress(): ProgressMark[] {
-    return this.history.map((step, i) => ({
+    return this.history.slice(1).map((step, i) => ({
       kind: this.#node(step.node).kind === 'moment' ? 'moment' : 'step',
-      current: i === this.history.length - 1,
+      current: i === this.history.length - 2,
     }))
   }
 

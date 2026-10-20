@@ -109,10 +109,10 @@ describe('Run', () => {
     expect(new Run(story).continue().choose('b').atEnd).toBe(true)
   })
 
-  it('marks each screen shown, with moments as their own kind', () => {
+  it('marks each screen after the opening one, with moments as their own kind', () => {
     const run = new Run(story).continue().choose('a')
+    expect(new Run(story).progress()).toEqual([])
     expect(run.progress()).toEqual([
-      { kind: 'step', current: false },
       { kind: 'step', current: false },
       { kind: 'moment', current: true },
     ])

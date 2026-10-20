@@ -11,6 +11,7 @@
     type Rect,
   } from '@src/stargazer'
   import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
+  import { stopGameHandle } from '@src/stores/gameSelection'
   import {
     debugHudVisible,
     setDebugHudVisible,
@@ -319,6 +320,15 @@
       else launcher?.reset()
     }, IDLE_POLL_MS)
     return () => clearInterval(id)
+  })
+
+  // The booth menu's "Stop game" quits the game in front of the booth, the
+  // same way the game's own exit does. It is offered only while a game shows,
+  // since a pan in flight has to finish before another can start.
+  $effect(() => {
+    if (screen !== 'ingame') return
+    stopGameHandle.set(() => void exit())
+    return () => stopGameHandle.set(null)
   })
 
   async function exit(): Promise<void> {

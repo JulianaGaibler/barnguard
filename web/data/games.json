@@ -63,5 +63,41 @@
     "escapeHeadingRad": -1.019265,
     "wasOverallHigh": false,
     "wasStateHigh": true
+  },
+  {
+    "id": "9571d9f0-bc30-482d-9693-eb856a712b1d",
+    "tsMs": 1792348199516,
+    "score": 18,
+    "durationMs": 63707,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "DEU",
+    "reason": "collision",
+    "wasOverallHigh": true,
+    "wasStateHigh": true
+  },
+  {
+    "id": "03944e1e-a515-40aa-8452-406afae2fa17",
+    "tsMs": 1792348843133,
+    "score": 15,
+    "durationMs": 55842,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "ROU",
+    "reason": "collision",
+    "wasOverallHigh": false,
+    "wasStateHigh": true
+  },
+  {
+    "id": "492deb6e-5d1b-4e54-a051-e08e2a0dc8d1",
+    "tsMs": 1792349397763,
+    "score": 17,
+    "durationMs": 77598,
+    "display": "enterprise",
+    "mapId": "eu",
+    "stateId": "DEU",
+    "reason": "collision",
+    "wasOverallHigh": false,
+    "wasStateHigh": false
   }
 ]

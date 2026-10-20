@@ -5,17 +5,24 @@
    * in design pixels against the visible area, which is the 1920 by 1080 design
    * on a 16:9 window and larger on one axis on any other. Switches between the
    * splash and the story, and returns to the splash when a visitor walks off.
+   * The attendant can also stop the story from the booth menu, which starts the
+   * screens over even when one is stuck.
    */
-  import { onDestroy, onMount } from 'svelte'
+  import { onDestroy, onMount, untrack } from 'svelte'
   import {
     CameraNode2D,
-    domAnchor,
     Layer,
     mountEngine,
     type EngineHost,
   } from '@src/stargazer'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
   import { msSinceInput, pokeActivity } from '@src/core/activity'
+  import {
+    debugHudVisible,
+    setDebugHudVisible,
+  } from '@src/core/attendant/boothMenuToggle'
+  import { stopGameHandle } from '@src/stores/gameSelection'
+  import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
   import { DESIGN_HEIGHT, DESIGN_WIDTH } from '@src/core/ui/designRegion'
   import UiLayer from '@src/core/ui/UiLayer.svelte'
   import IdleNotice from '@src/core/ui/IdleNotice.svelte'
@@ -27,6 +34,7 @@
   import { runFromQuery } from '../story/devJump'
   import { createBackground, type Background } from './backgroundLayer'
   import BackgroundFit from './BackgroundFit.svelte'
+  import { SPLASH_POSE } from './motion'
   import { IllustrationLayer } from './IllustrationLayer'
   import { splashDither } from './ditherLook'
   import SplashScreen from './SplashScreen.svelte'
@@ -70,6 +78,47 @@
     start = new Run(story)
   }
 
+  /** Bumped to remount the screens, which throws away whatever state they hold. */
+  let screensKey = $state(0)
+
+  /**
+   * The attendant's "Stop game". Home, and more: the screens are built again
+   * from nothing, so a transition that never finished, a button that stopped
+   * answering or a half-faded picture cannot outlive it.
+   */
+  function stopStory(): void {
+    // A paused engine runs no tweens, so the entrance of the new screens would
+    // never play.
+    host?.engine.setPaused(false)
+    screensKey++
+    goHome()
+    void illustrations?.show(null)
+    idleWarning = false
+    // The idle clock starts over, so the reset that follows is not due at once.
+    pokeActivity()
+  }
+
+  // The booth menu calls this. It is safe on the splash, where it only starts
+  // the screens over.
+  $effect(() => {
+    if (!host) return
+    stopGameHandle.set(stopStory)
+    return () => stopGameHandle.set(null)
+  })
+
+  // The booth menu's Stargazer toggle drives the engine's debug controller,
+  // and a keyboard toggle (Y) is reflected back so the menu stays in step.
+  $effect(() => {
+    if (!host) return
+    host.debug.setHudVisible($debugHudVisible)
+  })
+  $effect(() => {
+    if (!host) return
+    return host.debug.events.on('toggle', ({ hud }) => {
+      if (hud !== $debugHudVisible) setDebugHudVisible(hud)
+    })
+  })
+
   function onEngineReady(h: EngineHost): void {
     offFontChange = invalidateTextOnFontLoad(h.engine)
     const frame = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT }
@@ -80,7 +129,7 @@
     h.engine.tree.root.add(camera)
     camera.makeCurrent()
     // Back to front: the background, the art, then the UI the HTML hangs on.
-    const backdrop = createBackground()
+    const backdrop = createBackground(h.engine)
     const media = new Layer({
       id: 'splash-media',
       space: { frame },
@@ -92,10 +141,17 @@
     media.visible = false
     const art = new IllustrationLayer()
     const ui = new Layer({ id: 'ui', space: { frame } })
-    for (const layer of [backdrop.layer, media, art.layer, ui]) {
+    for (const layer of [
+      backdrop.layer,
+      backdrop.accent,
+      media,
+      art.layer,
+      ui,
+    ]) {
       h.engine.tree.root.add(layer)
     }
     backdrop.layer.warm()
+    backdrop.accent.warm()
     media.warm()
     art.layer.warm()
     uiLayer = ui
@@ -116,6 +172,14 @@
     illustrations = null
     host = null
   }
+
+  // The background rests in the splash's pose, and returns to it from the story.
+  // The story moves it itself while it plays.
+  $effect(() => {
+    if (!background || view !== 'splash') return
+    const pose = SPLASH_POSE
+    untrack(() => background!.to(pose, { swell: true }))
+  })
 
   let idleWarning = $state(false)
 
@@ -151,14 +215,7 @@
       <UiLayer engine={host.engine} layer={uiLayer}>
         {#snippet children(region)}
           <BackgroundFit {region} background={background!} />
-          <div
-            class="av__frame"
-            use:domAnchor={{
-              engine: host!.engine,
-              node: region.anchor,
-              size: { width: region.rect.width, height: region.rect.height },
-            }}
-          >
+          {#key screensKey}
             <SplashScreen
               engine={host!.engine}
               {region}
@@ -170,11 +227,12 @@
               engine={host!.engine}
               {region}
               illustrations={illustrations!}
+              backdrop={background}
               {start}
               active={view === 'story'}
               onHome={goHome}
             />
-          </div>
+          {/key}
         {/snippet}
       </UiLayer>
     {/if}
@@ -186,6 +244,10 @@
     durationMs={IDLE_WARN_MS}
   />
 </main>
+
+{#if host}
+  <DebugHud debug={host.debug} />
+{/if}
 
 <style lang="sass">
   .av
@@ -205,11 +267,4 @@
     user-select: none
     -webkit-user-select: none
     outline: none
-
-  .av__frame
-    position: absolute
-    inset-block-start: 0
-    inset-inline-start: 0
-    user-select: none
-    -webkit-user-select: none
 </style>

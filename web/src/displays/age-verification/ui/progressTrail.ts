@@ -41,3 +41,26 @@ export function trailGeometry(
     })),
   }
 }
+
+/** The distance from one mark's left edge to the next one's. */
+export const MARK_STEP = MARK_SIZE + LINK_LENGTH
+
+/**
+ * Where the mark at `index` of a row of `count` sits, as its center and its
+ * size, measured from the row's top left corner. The row scales down to fit
+ * `maxWidth`, so the slot does too. A flying mark aims for the slot of a mark
+ * that does not exist yet.
+ */
+export function markSlot(
+  count: number,
+  index: number,
+  maxWidth: number,
+): { x: number; y: number; size: number } {
+  const natural = count > 0 ? count * MARK_SIZE + (count - 1) * LINK_LENGTH : 0
+  const scale = natural > maxWidth && natural > 0 ? maxWidth / natural : 1
+  return {
+    x: (index * MARK_STEP + MARK_SIZE / 2) * scale,
+    y: (MARK_SIZE / 2) * scale,
+    size: MARK_SIZE * scale,
+  }
+}

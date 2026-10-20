@@ -7,7 +7,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import {
+    domAnchor,
     LottieNode,
+    ignoreAbort,
     loadLottie,
     type Engine,
     type Layer,
@@ -17,6 +19,7 @@
   import { t } from '../i18n'
   import { SPLASH_ANIMATION_URL } from '../assets'
   import { inWorld, layoutFor } from './layout'
+  import { MOTION, slideOffset } from './motion'
 
   interface Props {
     engine: Engine
@@ -71,9 +74,20 @@
     animation.height = media.height
   })
 
+  // Coming back from the story, the splash waits for the story to clear.
+  let shownBefore = false
   $effect(() => {
-    if (active) reveal.show()
-    else void reveal.hide()
+    const waiting = new AbortController()
+    if (!active) void reveal.hide()
+    else if (!shownBefore) reveal.show()
+    else {
+      engine
+        .wait(MOTION.handoff, waiting.signal)
+        .then(() => reveal.show())
+        .catch(ignoreAbort)
+    }
+    shownBefore = true
+    return () => waiting.abort()
   })
 
   // The animation fades with the last part and only plays while it shows.
@@ -93,14 +107,21 @@
     animation?.destroy()
   })
 
+  // The splash comes from the left and leaves to the left, so starting the
+  // story moves on to the right, and stepping back to the splash comes back.
   const part = (i: number): string =>
-    `opacity: ${reveal.items[i]!.v}; transform: translateY(${(1 - reveal.items[i]!.v) * 48}px)`
+    `opacity: ${reveal.items[i]!.v}; transform: translateX(${slideOffset(-1, reveal.items[i]!.v, MOTION.slideDistance)}px)`
 </script>
 
 <section
   class="splash"
   class:splash--hidden={!reveal.visible}
   aria-hidden={!active}
+  use:domAnchor={{
+    engine,
+    node: region.anchor,
+    size: { width: region.rect.width, height: region.rect.height },
+  }}
   style="--row-x: {layout.rowX}px; --content-y: {layout.content
     .y}px; --content-height: {layout.content.height}px; --column-width: {layout
     .left.width}px"
@@ -122,10 +143,14 @@
 <style lang="sass">
   @use './type'
 
+  // The engine sizes and places the section on the canvas.
   .splash
     position: absolute
-    inset: 0
+    inset-block-start: 0
+    inset-inline-start: 0
     color: var(--color-text)
+    user-select: none
+    -webkit-user-select: none
 
   .splash--hidden
     visibility: hidden

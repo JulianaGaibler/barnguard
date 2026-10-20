@@ -3,26 +3,29 @@
   its answers or illustration on the right, and the buttons along the bottom.
   Laid out in design pixels against the region's visible area, by `layoutFor`.
 
-  The screen owns the run while it's showing. Moving on hides the text and the
-  right column, swaps the screen, and brings them back, while the progress row
-  and the buttons stay put.
+  The screen owns the run while it's showing. A `StoryDirector` plays every
+  move between screens: the markup only reads the numbers it animates, and the
+  progress row, the answers' squares and the picture are engine nodes.
 -->
 <script lang="ts">
-  import { onDestroy } from 'svelte'
-  import { ignoreAbort, type Engine } from '@src/stargazer'
-  import { Reveal } from '@src/core/ui/reveal.svelte'
+  import { onDestroy, tick, untrack } from 'svelte'
+  import { domAnchor, type Engine } from '@src/stargazer'
   import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
   import { t } from '../i18n'
   import { Run } from '../story/run'
   import { illustrationOf } from '../story/types'
   import type { IllustrationLayer } from './IllustrationLayer'
   import { inWorld, layoutFor } from './layout'
-  import ChoiceList from './ChoiceList.svelte'
+  import type { AnswerRow } from './answerRow'
+  import ChoiceStage from './ChoiceStage.svelte'
   import NavBar from './NavBar.svelte'
-  import ProgressTrail from './ProgressTrail.svelte'
-
-  /** How long a picked answer shows before the screen moves on. */
-  const PICK_HOLD_SEC = 0.3
+  import { MOTION, slideOffset } from './motion'
+  import {
+    StoryDirector,
+    type Backdrop,
+    type DirectorMotion,
+  } from './storyDirector'
+  import { MarkNode, TrailView } from './trailView'
 
   interface Props {
     engine: Engine
@@ -30,6 +33,8 @@
     region: UiRegion
     /** Draws the illustration of the screen showing, in the right column. */
     illustrations: IllustrationLayer
+    /** The background, which moves as the story does. */
+    backdrop: Backdrop | null
     /** Where a run begins. Each entrance starts a fresh run from here. */
     start: Run
     /** Whether the screen is showing. Flipping it plays the entrance or exit. */
@@ -37,8 +42,15 @@
     /** Leave the story for the splash screen. */
     onHome: () => void
   }
-  const { engine, region, illustrations, start, active, onHome }: Props =
-    $props()
+  const {
+    engine,
+    region,
+    illustrations,
+    backdrop,
+    start,
+    active,
+    onHome,
+  }: Props = $props()
 
   const layout = $derived(layoutFor(region.rect.width, region.rect.height))
   // The picture goes in the right column, wherever the window puts it.
@@ -46,11 +58,23 @@
     illustrations.place(inWorld(layout.right, region.rect))
   })
 
-  // The engine is fixed for the screen's life.
+  // The progress row is drawn by the engine, on the region's anchor so that its
+  // coordinates are the layout's.
   /* svelte-ignore state_referenced_locally */
-  const frame = new Reveal(engine, 2)
+  const trail = new TrailView(engine)
   /* svelte-ignore state_referenced_locally */
-  const content = new Reveal(engine, 2)
+  region.anchor.add(trail)
+  // The moment's big star is the same mark as in the progress row, twice the
+  // size. Its place comes from the text column, which the browser lays out.
+  const star = new MarkNode('moment', 1)
+  star.visible = false
+  /* svelte-ignore state_referenced_locally */
+  region.anchor.add(star)
+  let starSlot = $state<HTMLElement | null>(null)
+  /** Where the star's top left goes, in the layout's coordinates. */
+  let starAt = $state({ x: 0, y: 0 })
+  /** The answers of the choice showing, for the director to animate. */
+  let rows: readonly AnswerRow[] = []
 
   // Each entrance resets the run to `start`, in the effect below.
   /* svelte-ignore state_referenced_locally */
@@ -59,117 +83,192 @@
   /** True while a screen change runs, so a second tap can't skip a screen. */
   let busy = $state(false)
 
+  /** How far each part of the screen is in, which the director animates. */
+  const motion: DirectorMotion = $state({
+    text: 0,
+    side: 0,
+    nav: 0,
+    trail: 0,
+    sign: 1,
+  })
+
+  /* svelte-ignore state_referenced_locally */
+  const director = new StoryDirector({
+    engine,
+    motion,
+    trail,
+    rows: () => rows,
+    trailOrigin: () => ({ x: layout.rowX, y: layout.trailY }),
+    rowWidth: () => layout.rowWidth,
+    setRun: async (next) => {
+      run = next
+      // The answers of a new choice are built when the markup catches up.
+      await tick()
+    },
+    setPicked: (id) => (picked = id),
+    showPicture: (next) => illustrations.show(illustrationOf(next.current)),
+    movePicture: (offsetX, alpha) => illustrations.move(offsetX, alpha),
+    backdrop,
+  })
+
   const node = $derived(run.current)
   const paragraphs = $derived(run.text())
 
-  $effect(() => {
-    if (active) {
-      run = start
-      picked = null
-      busy = false
-      frame.show()
-      void illustrations.show(illustrationOf(start.current)).then(() => {
-        if (active) content.show()
-      })
-    } else {
-      void frame.hide()
-      void content.hide()
-    }
-  })
-
-  // The illustration fades with the right column.
-  $effect(() => {
-    illustrations.alpha = content.items[1]!.v
-  })
-
-  onDestroy(() => {
-    frame.destroy()
-    content.destroy()
-  })
-
-  /** Hide the content, move to `next`, and bring the content back. */
-  async function moveTo(next: () => Run): Promise<void> {
+  /** Runs one transition, and keeps taps from starting another meanwhile. */
+  async function transition(play: () => Promise<void>): Promise<void> {
     if (busy || !active) return
     busy = true
     try {
-      await content.hide()
-      if (!active) return
-      run = next()
-      picked = null
-      // The art is drawn before the content comes back, so it fades in whole.
-      await illustrations.show(illustrationOf(run.current))
-      if (!active) return
-      content.show()
+      await play()
     } finally {
       busy = false
     }
   }
 
-  async function pick(optionId: string): Promise<void> {
-    if (busy || !active) return
-    picked = optionId
-    busy = true
-    await engine.wait(PICK_HOLD_SEC).catch(ignoreAbort)
-    busy = false
-    void moveTo(() => run.choose(optionId))
+  $effect(() => {
+    if (active) {
+      untrack(() => {
+        picked = null
+        busy = true
+        void director.enter(start).finally(() => (busy = false))
+      })
+    } else {
+      untrack(() => {
+        void director.exit()
+      })
+    }
+  })
+
+  // The progress row is placed by the layout and slides down as the screen comes in.
+  $effect(() => {
+    const v = motion.trail
+    trail.transform.alpha = v
+    trail.transform.x = layout.rowX
+    trail.transform.y = layout.trailY - (1 - v) * MOTION.trailDistance
+  })
+
+  // One mark per screen shown. Resizing the window only refits the row, and
+  // the first showing and a new run are built without motion.
+  let trailShown = false
+  $effect(() => {
+    trail.sync(run.progress(), layout.rowWidth, { animate: trailShown })
+    trailShown = true
+  })
+
+  // The browser lays out the text column, so the star waits for it and then
+  // reads where its placeholder landed.
+  $effect(() => {
+    void node
+    void paragraphs
+    void layout
+    const slot = starSlot
+    if (!slot) return
+    void tick().then(() => {
+      starAt = {
+        x: layout.content.x + slot.offsetLeft,
+        y: layout.content.y + slot.offsetTop,
+      }
+    })
+  })
+
+  // The star comes in with the text: it slides, grows and turns into place.
+  const STAR_SIZE = 72
+  $effect(() => {
+    const lead = node.kind === 'moment'
+    star.visible = lead
+    if (!lead) return
+    const v = motion.text
+    const grown = STAR_SIZE / 36
+    star.transform.x =
+      starAt.x +
+      STAR_SIZE / 2 +
+      slideOffset(motion.sign, v, MOTION.slideDistance)
+    star.transform.y = starAt.y + STAR_SIZE / 2
+    star.transform.alpha = v
+    star.transform.scaleX = star.transform.scaleY = grown * (0.4 + 0.6 * v)
+    star.transform.rotation = (1 - v) * -0.9 * motion.sign
+  })
+
+  onDestroy(() => {
+    director.destroy()
+    trail.destroy()
+    star.destroy()
+  })
+
+  function pick(optionId: string): void {
+    if (node.kind !== 'choice') return
+    const index = node.options.findIndex((o) => o.id === optionId)
+    void transition(() =>
+      director.forward(run.choose(optionId), { index, id: optionId }),
+    )
   }
 
   function back(): void {
     if (run.atStart) onHome()
-    else void moveTo(() => run.back())
+    else void transition(() => director.back(run.back()))
   }
 
-  const part = (reveal: Reveal, i: number): string =>
-    `opacity: ${reveal.items[i]!.v}; transform: translateY(${(1 - reveal.items[i]!.v) * 48}px)`
+  function forward(): void {
+    void transition(() => director.forward(run.continue(), null))
+  }
+
+  /** The text column moves as one unit, the title and paragraphs together. */
+  const textStyle = $derived(
+    `opacity: ${motion.text}; transform: translateX(${slideOffset(motion.sign, motion.text, MOTION.slideDistance)}px)`,
+  )
+
+  const navStyle = $derived(
+    `opacity: ${motion.nav}; transform: translateX(${slideOffset(motion.sign, motion.nav, MOTION.navDistance)}px)`,
+  )
+
+  const hidden = $derived(
+    motion.text < 0.001 &&
+      motion.side < 0.001 &&
+      motion.nav < 0.001 &&
+      motion.trail < 0.001,
+  )
 </script>
 
 <section
   class="story"
-  class:story--hidden={!frame.visible}
+  class:story--hidden={hidden}
   aria-hidden={!active}
-  style="--row-x: {layout.rowX}px; --row-width: {layout.rowWidth}px; --trail-y: {layout.trailY}px; --content-y: {layout
+  use:domAnchor={{
+    engine,
+    node: region.anchor,
+    size: { width: region.rect.width, height: region.rect.height },
+  }}
+  style="--row-x: {layout.rowX}px; --row-width: {layout.rowWidth}px; --content-y: {layout
     .content.y}px; --content-height: {layout.content
     .height}px; --nav-y: {layout.navY}px"
 >
-  <div class="story__trail" style={part(frame, 0)}>
-    <ProgressTrail
-      marks={run.progress()}
-      maxWidth={layout.rowWidth}
-      label={$t.story.progressLabel(run.history.length)}
-    />
-  </div>
+  <!-- The engine draws the progress row. This is its name for screen readers. -->
+  <span
+    class="story__trail-label"
+    role="img"
+    aria-label={$t.story.progressLabel(run.progress().length)}
+  ></span>
 
   <div class="story__content">
-    <div
-      class="story__text"
-      class:story__text--moment={node.kind === 'moment'}
-      style={part(content, 0)}
-    >
+    <div class="story__text" class:story__text--moment={node.kind === 'moment'}>
       {#if node.kind === 'moment'}
-        <svg class="story__moment-mark" viewBox="0 0 36 36" aria-hidden="true">
-          <path
-            d="M18 0L24.364 11.636L36 18L24.364 24.364L18 36L11.636 24.364L0 18L11.636 11.636Z"
-          />
-        </svg>
+        <span class="story__moment-slot" bind:this={starSlot} aria-hidden="true"
+        ></span>
       {/if}
       {#if node.kind === 'ending' && node.title}
-        <h1 class="story__title">{node.title}</h1>
+        <h1 class="story__title" style={textStyle}>
+          {node.title}
+        </h1>
       {/if}
       {#each paragraphs as paragraph, i (i)}
-        <p class="story__paragraph">{paragraph}</p>
+        <p class="story__paragraph" style={textStyle}>
+          {paragraph}
+        </p>
       {/each}
     </div>
 
-    <div class="story__side" style={part(content, 1)}>
-      {#if node.kind === 'choice'}
-        <ChoiceList
-          options={node.options}
-          {picked}
-          disabled={busy || !active}
-          ariaLabel={$t.story.optionLabel}
-          onPick={(id) => void pick(id)}
-        />
-      {:else if node.illustration}
+    <div class="story__side">
+      {#if node.kind !== 'choice' && node.illustration}
         <!-- The engine draws the picture. This holds its place and its name. -->
         <div
           class="story__illustration"
@@ -180,15 +279,12 @@
     </div>
   </div>
 
-  <div class="story__nav" style={part(frame, 1)}>
+  <div class="story__nav" style={navStyle}>
     <NavBar
       disabled={busy || !active}
       back={{ label: $t.story.back, onPress: back }}
       forward={node.kind === 'scene' || node.kind === 'moment'
-        ? {
-            label: $t.story.continue,
-            onPress: () => void moveTo(() => run.continue()),
-          }
+        ? { label: $t.story.continue, onPress: forward }
         : node.kind === 'ending'
           ? { label: $t.story.startOver, onPress: onHome }
           : undefined}
@@ -199,23 +295,47 @@
   </div>
 </section>
 
+<!-- A sibling of the section, not inside it: the answers' text anchors to the
+     engine's rows, and an anchored element cannot sit in another one. -->
+{#if node.kind === 'choice'}
+  {#key run.currentId}
+    <ChoiceStage
+      {engine}
+      {region}
+      box={layout.right}
+      options={node.options}
+      {picked}
+      disabled={busy || !active}
+      ariaLabel={$t.story.optionLabel}
+      onPick={pick}
+      onRows={(next) => (rows = next)}
+    />
+  {/key}
+{/if}
+
 <style lang="sass">
   @use './type'
 
+  // The engine sizes and places the section on the canvas.
   .story
     position: absolute
-    inset: 0
+    inset-block-start: 0
+    inset-inline-start: 0
     color: var(--color-text)
+    user-select: none
+    -webkit-user-select: none
 
   .story--hidden
     visibility: hidden
 
-  // The row, the progress row and the buttons are placed by the layout, which
-  // sets these properties on the section.
-  .story__trail
+  // The row and the buttons are placed by the layout, which sets these
+  // properties on the section.
+  .story__trail-label
     position: absolute
-    inset-inline-start: var(--row-x)
-    inset-block-start: var(--trail-y)
+    width: 1px
+    height: 1px
+    overflow: hidden
+    clip-path: inset(50%)
 
   .story__content
     position: absolute
@@ -250,10 +370,12 @@
     @include type.letter
     margin: 0
 
-  .story__moment-mark
+  // Holds the star's place in the column. The engine draws the star.
+  .story__moment-slot
+    display: block
+    flex: none
     width: 72px
     height: 72px
-    fill: var(--color-accent)
 
   .story__illustration
     width: 100%

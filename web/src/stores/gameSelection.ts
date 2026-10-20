@@ -16,10 +16,11 @@ import { writable } from 'svelte/store'
 export const selectedStateId = writable<string | null>(null)
 
 /**
- * Attendant-facing "stop the game" handle. `GameScreen` registers a callback
- * once the session is ready. The booth menu's Debug section invokes it to force
- * the game back to idle from any state (mid-round, mid-selection, gameOver
- * overlay showing). `null` while the session is booting or after teardown, so
- * the button hides in that case.
+ * Attendant-facing "stop the game" handle. A display registers a callback once
+ * it is ready, and the booth menu's Debug section invokes it to put the display
+ * back where a visitor starts, from any state: mid-round, mid-selection, with a
+ * result card showing, or with a screen that has stopped answering. `null`
+ * while the display is booting, after teardown, or when it has nothing to stop,
+ * and the button is disabled then.
  */
 export const stopGameHandle = writable<(() => void) | null>(null)

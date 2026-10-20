@@ -26,6 +26,23 @@ export function backgroundDither(): Dither {
 }
 
 /**
+ * The orange spot a moment lights, over the red field. It draws only its dots
+ * and leaves the ground clear, so the red shows through between them.
+ */
+export function accentDither(): Dither {
+  return new Dither(
+    ditherPreset('stippleCloud', {
+      cellSize: 8,
+      dotScale: 0.8,
+      invert: true,
+      gamma: 1.3,
+      paper: 'rgba(255, 255, 255, 0)',
+      ink: PALETTE.orange,
+    }),
+  )
+}
+
+/**
  * An illustration: ordered dither in red on a clear ground, so only the art is
  * drawn and the background shows between its dots.
  */

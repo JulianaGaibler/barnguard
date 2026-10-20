@@ -5,7 +5,8 @@
    * time the splash comes up, so a map best nobody named heads the card as it
    * heads the game over board. The card stays away while nobody has put a name
    * on the board, while the backend is unreachable, or while an attendant has
-   * switched it off. A reconnect fetches the board again.
+   * switched it off. A reconnect fetches the board again. Tapping the card
+   * opens the whole board over the splash.
    */
   import { onDestroy } from 'svelte'
   import type { Engine } from '@src/stargazer'
@@ -16,6 +17,7 @@
   import { fetchEnterpriseHighScores } from '@src/displays/enterprise/game-log'
   import { splashBoardEnabled } from '@src/displays/enterprise/attendant/splashBoard'
   import BoardRow from './BoardRow.svelte'
+  import SplashFullBoard from './SplashFullBoard.svelte'
   import {
     boardDisplay,
     leaderboardRows,
@@ -39,6 +41,7 @@
   /* svelte-ignore state_referenced_locally */
   const reveal = new Reveal(engine, 1)
   let rows = $state<LeaderboardRow[]>([])
+  let open = $state(false)
 
   $effect(() => {
     if (!active) return
@@ -70,6 +73,10 @@
   })
 
   $effect(() => {
+    if (!active) open = false
+  })
+
+  $effect(() => {
     const online = $printerLive.connection === 'online'
     if (active && online && $splashBoardEnabled && rows.length > 0) {
       reveal.show()
@@ -92,7 +99,16 @@
         <BoardRow {row} {mapId} />
       {/each}
     </ol>
+    <button
+      class="board__hit"
+      aria-label={$t.game.leaderboardTitle}
+      onclick={() => (open = true)}
+    ></button>
   </section>
+{/if}
+
+{#if open}
+  <SplashFullBoard {mapId} onClose={() => (open = false)} />
 {/if}
 
 <style lang="sass">
@@ -109,6 +125,18 @@
     backdrop-filter: blur(13.2px)
     color: #010612
     transform-origin: top right
+    pointer-events: auto
+
+  // The whole card is the tap target, over its rows.
+  .board__hit
+    position: absolute
+    inset: 0
+    appearance: none
+    border: 0
+    padding: 0
+    background: transparent
+    border-radius: inherit
+    cursor: pointer
 
   .board__rows
     margin: 0

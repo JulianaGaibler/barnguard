@@ -205,3 +205,7 @@ column. `src/displays/age-verification/ui/layout.ts` has the numbers.
 - `src/displays/age-verification/story/validate.ts`, the checks the tests run
 - [`adding-a-game.md`](adding-a-game.md), for the shared kiosk pieces such as
   the idle reset
+
+## Motion
+
+Screen transitions are tuned in one file, `src/displays/age-verification/ui/motion.ts`. It holds every duration, distance and stagger, and the background poses. The text, the right column and the buttons arrive together and the answers follow closely, so raise `spread` and `tileStagger` only a little.

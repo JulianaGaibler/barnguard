@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { LINK_LENGTH, MARK_SIZE, trailGeometry } from './progressTrail'
+import {
+  LINK_LENGTH,
+  MARK_SIZE,
+  trailGeometry,
+  markSlot,
+} from './progressTrail'
 import type { ProgressMark } from '../story/run'
 
 function marks(n: number): ProgressMark[] {
@@ -41,5 +46,34 @@ describe('trailGeometry', () => {
     const g = trailGeometry([], 1664)
     expect(g.width).toBe(0)
     expect(g.links).toEqual([])
+  })
+})
+
+describe('markSlot', () => {
+  it('centers the first mark half a mark in', () => {
+    expect(markSlot(1, 0, 1664)).toEqual({ x: 18, y: 18, size: 36 })
+  })
+
+  it('steps one mark and one link along the row', () => {
+    expect(markSlot(3, 2, 1664).x - markSlot(3, 1, 1664).x).toBe(52)
+  })
+
+  it('scales with the row when it outgrows its width', () => {
+    const count = 60
+    const natural = count * 36 + (count - 1) * 16
+    const slot = markSlot(count, count - 1, 1664)
+    expect(slot.size).toBeCloseTo(36 * (1664 / natural))
+    // The last mark's far edge is at the row's width.
+    expect(slot.x + slot.size / 2).toBeCloseTo(1664)
+  })
+
+  it('agrees with the geometry the row is drawn from', () => {
+    const marks = Array.from({ length: 5 }, (_, i) => ({
+      kind: 'step' as const,
+      current: i === 4,
+    }))
+    const geometry = trailGeometry(marks, 1664)
+    const slot = markSlot(5, 4, 1664)
+    expect(geometry.marks[4].x + 18).toBe(slot.x)
   })
 })

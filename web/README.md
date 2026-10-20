@@ -15,6 +15,20 @@ its screens and flags, and the checks that run on it.
 Dithering art with the brand's bitmap look: [`docs/dither.md`](docs/dither.md)
 covers the effect, its presets and settings, and how it runs on each backend.
 
+## Attendant controls
+
+The booth menu (`Ctrl+Shift+D`, or a double tap in a bottom corner) has two
+controls a display has to wire up itself:
+
+- **Stop game** calls the handle in `stopGameHandle`
+  (`src/stores/gameSelection.ts`). A display registers a function that does
+  what Home does and more, because it is for a screen that has stopped
+  answering. Age verification remounts its screens. Enterprise resets its
+  session. The arcade quits the game, and offers it only while one is showing.
+  The button is disabled while no handle is registered.
+- **Stargazer (GFX)** toggles `debugHudVisible`. A display mirrors that store
+  into `host.debug.setHudVisible` and renders `<DebugHud>`.
+
 ## Text
 
 All user-facing text lives in `src/i18n/`. Components read from `$t.*`
