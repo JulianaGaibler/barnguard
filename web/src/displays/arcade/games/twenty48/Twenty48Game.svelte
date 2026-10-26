@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { domAnchor, Node2D, type Rect } from '@src/stargazer'
+  import { domAnchor, Node2D, type Rect } from 'stargazer'
   import { GradientBackgroundNode } from '../common/GradientBackgroundNode'
   import HowToPlay from '@src/displays/arcade/tutorial/HowToPlay.svelte'
   import LeaderboardModal from '@src/displays/arcade/leaderboard/LeaderboardModal.svelte'

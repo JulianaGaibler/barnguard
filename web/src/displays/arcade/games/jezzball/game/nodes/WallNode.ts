@@ -6,7 +6,7 @@
  * anchored side is pinned at the seed center, giving the placed wall its
  * two-tone split there (primary on one half, variant on the other).
  */
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import type { Bounds, Orientation } from '../types'
 
 export class WallSegmentNode extends Node2D {

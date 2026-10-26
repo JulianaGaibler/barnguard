@@ -1,4 +1,4 @@
-import { Node2D, definePaintProps, easings, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, easings, type Canvas } from 'stargazer'
 import { ANIM, WIN } from '../tuning'
 
 interface Point {

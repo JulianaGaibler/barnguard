@@ -17,7 +17,7 @@ import {
   VectorParticleNode,
   type VectorParticleNodeOptions,
   type VectorParticleSpawnInit,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** One shard's worth of state, staged immediately before `release()`. */
 export interface ShardStage {

@@ -12,7 +12,7 @@
  * owning session's own clock every frame and cannot drift from what a clear
  * will actually pay.
  */
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { COLORS, PROGRESS_ACCENT, SCORING } from '../tuning'
 import { font } from '../../fonts'
 

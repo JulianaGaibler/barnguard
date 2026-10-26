@@ -9,7 +9,7 @@
  * weight, which is the whole typographic system: what a thing is recedes, what
  * it says comes forward.
  */
-import { Node2D, textAdvance, withAlpha, type Canvas } from '@src/stargazer'
+import { Node2D, textAdvance, withAlpha, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { formatClock, isUrgent, START_SECONDS } from '../countdown'
 import { textFloor } from '../layout'

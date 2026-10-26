@@ -1,4 +1,4 @@
-import { parseColor, type PostSourceInfo } from '@src/stargazer'
+import { parseColor, type PostSourceInfo } from 'stargazer'
 
 /** How a cell's tone decides between ink and paper. */
 export type DitherPattern =

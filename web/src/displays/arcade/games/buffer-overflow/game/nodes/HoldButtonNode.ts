@@ -14,7 +14,7 @@ import {
   Node2D,
   definePaintProps,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { font } from '../../fonts'
 import { textFloor } from '../layout'
 import { accentForLevel, COLORS, FRAME } from '../tuning'

@@ -14,7 +14,7 @@
  * seat drops the stamp and keeps the label, because which event fired is the
  * information and when it fired is not.
  */
-import { Node2D, textAdvance, type Canvas } from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import {
   formatEntry,

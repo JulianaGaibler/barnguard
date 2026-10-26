@@ -5,18 +5,16 @@ import {
   SceneTree,
   createEmitter,
   type Engine,
+  type LayerFrame,
   type Stage,
-} from '@src/stargazer'
-import {
-  DESIGN_HEIGHT,
-  DESIGN_WIDTH,
-  visibleRect,
-  worldPerCssPx,
-} from './designRegion'
+} from 'stargazer'
+import { DESIGN_HEIGHT, DESIGN_WIDTH, visibleRect } from './designRegion'
 import { UiRegion } from './uiRegion.svelte'
 
-/** A scene with a UI layer fitted to the design region, over a canvas size. */
-function rig(css: { w: number; h: number }) {
+const DESIGN_FRAME = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT }
+
+/** A scene with a UI layer fitted to `frame`, over a canvas size. */
+function rig(css: { w: number; h: number }, frame: LayerFrame = DESIGN_FRAME) {
   const events = createEmitter<{ resize: { cssW: number; cssH: number } }>()
   const stage = {
     renderer: { cssSize: css },
@@ -25,11 +23,7 @@ function rig(css: { w: number; h: number }) {
   const engine = { events, stageForScene: () => stage } as unknown as Engine
   const scene = new SceneTree(new Node2D('scene-root'))
   scene.engine = engine
-  const layer = new Layer({
-    space: {
-      frame: { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT },
-    },
-  })
+  const layer = new Layer({ space: { frame } })
   scene.root.add(layer)
   const resize = (w: number, h: number): void => {
     stage.renderer.cssSize = { w, h }
@@ -62,8 +56,28 @@ describe('UiRegion', () => {
       expect(region.rect.y).toBeCloseTo(want.y, 6)
       expect(region.rect.width).toBeCloseTo(want.width, 6)
       expect(region.rect.height).toBeCloseTo(want.height, 6)
-      expect(region.cssPxInWorld).toBeCloseTo(worldPerCssPx(w, h), 6)
+      expect(region.cssPxInWorld).toBeCloseTo(
+        1 / Math.min(w / DESIGN_WIDTH, h / DESIGN_HEIGHT),
+        6,
+      )
+      expect(region.frame).toEqual(DESIGN_FRAME)
     }
+  })
+
+  it('follows a frame that the layer picks from the canvas size', () => {
+    const tall = { x: 0, y: 0, width: 960, height: 1600 }
+    const { engine, layer, resize } = rig({ w: 1280, h: 720 }, (w, h) =>
+      w >= h ? DESIGN_FRAME : tall,
+    )
+    const region = new UiRegion(engine, layer)
+    expect(region.frame).toEqual(DESIGN_FRAME)
+    expect(region.cssPxInWorld).toBeCloseTo(1.5, 6)
+
+    resize(480, 800)
+    expect(region.frame).toEqual(tall)
+    expect(region.cssPxInWorld).toBeCloseTo(2, 6)
+    expect(region.rect.width).toBeCloseTo(960, 6)
+    expect(region.rect.height).toBeCloseTo(1600, 6)
   })
 
   it('puts the anchor at the top left of the visible rect', () => {

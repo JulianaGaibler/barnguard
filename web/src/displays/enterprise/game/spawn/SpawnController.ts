@@ -1,4 +1,4 @@
-import { ignoreAbort, type BitmapMask, type Vec2 } from '@src/stargazer'
+import { ignoreAbort, type BitmapMask, type Vec2 } from 'stargazer'
 import type { PacketNode } from '../nodes/PacketNode'
 import type { EpicenterNode } from '../nodes/EpicenterNode'
 import { PacketBehavior } from '../behaviors/PacketBehavior'

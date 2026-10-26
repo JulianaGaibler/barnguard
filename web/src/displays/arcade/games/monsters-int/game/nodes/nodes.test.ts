@@ -4,7 +4,7 @@ import {
   Node3D,
   type Node,
   type PointerEvent2D,
-} from '@src/stargazer'
+} from 'stargazer'
 import { BlinkNode, ButtonNode } from './ButtonNode'
 import { TableNode, createMouthNode, createWordNode } from './TableNode'
 import { groundDepthForScreenHeight, layoutFromWorld } from '../project'

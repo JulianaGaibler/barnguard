@@ -1,5 +1,5 @@
 import { get } from 'svelte/store'
-import { Node2D, type EngineHost } from '@src/stargazer'
+import { Node2D, type EngineHost } from 'stargazer'
 import { daemonConfig } from '@src/stores/daemonConfig'
 import cloudUrl from '../assets/arcade-cloud.svg?url'
 import { REGION_HEIGHT } from '../world'

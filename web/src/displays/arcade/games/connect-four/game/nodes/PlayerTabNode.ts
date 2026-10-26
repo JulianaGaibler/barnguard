@@ -1,4 +1,4 @@
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { FAMILIES, fontFor, fontWith } from '@src/core/theme'
 import { CONNECT_FOUR_FONTS } from '../../fonts'
 import { TAB } from '../tuning'

@@ -13,11 +13,12 @@ export const DISPLAY_ID = 'age-verification'
  * A choose-your-own-adventure about age verification laws. It records nothing
  * and prints nothing.
  */
-export const ageVerification: DisplayManifest = {
+const ageVerification: DisplayManifest = {
   id: DISPLAY_ID,
   name: 'Age Verification',
   theme: ageVerificationTheme,
   root: AgeVerificationScreen,
+  install: {},
   locales: ageVerificationLocales,
   defaultLanguage: AGE_VERIFICATION_DEFAULT_LANGUAGE,
   // The display never logs a game, so the Games panel never has one to show.
@@ -28,3 +29,5 @@ export const ageVerification: DisplayManifest = {
     reprintMeta: { highScore: false },
   }),
 }
+
+export default ageVerification

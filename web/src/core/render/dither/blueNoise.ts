@@ -1,4 +1,4 @@
-import { DataTexture } from '@src/stargazer'
+import { DataTexture } from 'stargazer'
 import { BLUE_NOISE_BASE64 } from './blueNoise64.gen'
 import { BLUE_NOISE_SIZE } from './blueNoiseGenerator'
 

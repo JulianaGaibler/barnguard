@@ -4,7 +4,7 @@
  * blunder chance for the easy level. The search runs make/unmake straight on a
  * scratch board, so a decision clones the live board once, never per node.
  */
-import { searchBestMove, type AdversarialGame } from '@src/stargazer'
+import { searchBestMove, type AdversarialGame } from 'stargazer'
 import {
   COLS,
   ROWS,

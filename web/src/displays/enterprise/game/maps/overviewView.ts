@@ -1,4 +1,4 @@
-import type { Rect } from '@src/stargazer'
+import type { Rect } from 'stargazer'
 
 /**
  * The splash draws the map a little taller than the view. It bleeds past the

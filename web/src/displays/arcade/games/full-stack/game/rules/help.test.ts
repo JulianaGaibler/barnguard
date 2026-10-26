@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { richText } from '@src/stargazer'
+import { richText } from 'stargazer'
 import { CONCEPTS, explainCard, type ConceptId, type HelpBlock } from './help'
 import { DECK } from './deck'
 

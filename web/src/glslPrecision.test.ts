@@ -11,7 +11,7 @@ const shaders = import.meta.glob('/src/**/*.gen.{vert,frag}.glsl', {
 describe('generated GLSL', () => {
   it('declares high precision floats and ints', () => {
     const names = Object.keys(shaders)
-    expect(names.length).toBeGreaterThan(10)
+    expect(names.length).toBeGreaterThan(0)
     for (const name of names) {
       expect(shaders[name], name).toContain('precision highp float;')
       expect(shaders[name], name).toContain('precision highp int;')

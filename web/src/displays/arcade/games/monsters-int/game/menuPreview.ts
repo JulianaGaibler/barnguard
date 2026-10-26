@@ -28,7 +28,7 @@ import {
   type Canvas,
   type EngineHost,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { seededRandom } from '../../common/rng'
 import type { MenuPreview } from '../../../menu/types'
 import { loadCardImages, type CardImages } from './art/cardTextures'

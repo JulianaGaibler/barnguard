@@ -21,10 +21,9 @@
  *   rather than in any card, so it belongs next to the index.
  */
 import { describe, expect, it } from 'vitest'
-import { CameraNode2D } from '@src/stargazer/camera/CameraNode2D'
-import { Engine } from '@src/stargazer/engine/Engine'
-import { MockGfxDevice } from '@src/stargazer/render/gfx/webgl2/mockGfxDevice'
-import type { EngineHost, Stage } from '@src/stargazer'
+import { CameraNode2D, Engine } from 'stargazer'
+import type { EngineHost, Stage } from 'stargazer'
+import { MockGfxDevice } from 'stargazer/testing'
 import type { DemoBuilder } from '@src/displays/arcade/tutorial/types'
 import {
   buildFlushDemo,

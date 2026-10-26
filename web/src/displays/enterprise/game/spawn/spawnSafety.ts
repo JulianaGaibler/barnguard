@@ -13,7 +13,7 @@
  * Pure geometry with no engine state, so `SpawnController` feeds it plain
  * numbers and the tests drive it directly.
  */
-import type { Vec2 } from '@src/stargazer'
+import type { Vec2 } from 'stargazer'
 
 /** Predicted positions at `stepSec` intervals, from step 0 to `steps - 1`. */
 export interface Track {

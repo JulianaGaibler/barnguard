@@ -21,7 +21,7 @@
  * span the full width and its verticals stop short of them rather than meeting
  * corner to corner.
  */
-import { clamp, textAdvance, textMetrics, type Canvas } from '@src/stargazer'
+import { clamp, textAdvance, textMetrics, type Canvas } from 'stargazer'
 import { ANIM, FRAME } from '../tuning'
 import type { Bounds } from '../types'
 

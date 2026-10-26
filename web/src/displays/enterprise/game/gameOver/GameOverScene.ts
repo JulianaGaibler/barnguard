@@ -10,7 +10,7 @@ import {
   type Rect,
   type InsetViewNode,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { PacketNode } from '../nodes/PacketNode'
 import { PacketMotionTrailNode } from '../nodes/PacketMotionTrailNode'
 import {

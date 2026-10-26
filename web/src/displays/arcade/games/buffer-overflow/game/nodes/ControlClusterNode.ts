@@ -25,7 +25,7 @@ import {
   Node2D,
   definePaintProps,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { computeControlRects, type ControlId } from '../layout'
 import { accentForLevel, COLORS, DAS, FRAME } from '../tuning'
 import type { Action, Bounds } from '../types'

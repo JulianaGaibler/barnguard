@@ -5,7 +5,7 @@
  * well. All six are drawn from primitives rather than a font or an SVG, so they
  * batch with the cells they sit on and stay crisp at any board size.
  */
-import type { Canvas } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 import { GEOM, type GlyphKind } from '../tuning'
 
 /** Reused vertex scratch, so drawing a board of glyphs allocates nothing. */

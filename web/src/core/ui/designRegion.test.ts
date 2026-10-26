@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  DESIGN_HEIGHT,
-  DESIGN_WIDTH,
-  visibleRect,
-  worldPerCssPx,
-} from './designRegion'
+import { DESIGN_HEIGHT, DESIGN_WIDTH, visibleRect } from './designRegion'
 
 describe('visibleRect', () => {
   it('is the design region at 16:9, at any size', () => {
@@ -47,20 +42,5 @@ describe('visibleRect', () => {
       width: DESIGN_WIDTH,
       height: DESIGN_HEIGHT,
     })
-  })
-})
-
-describe('worldPerCssPx', () => {
-  it('is 1 at the design size and halves as the window doubles', () => {
-    expect(worldPerCssPx(1920, 1080)).toBeCloseTo(1, 6)
-    expect(worldPerCssPx(3840, 2160)).toBeCloseTo(0.5, 6)
-  })
-
-  it('follows the constraining axis', () => {
-    expect(worldPerCssPx(1400, 600)).toBeCloseTo(1080 / 600, 6)
-  })
-
-  it('returns 1 for an empty canvas', () => {
-    expect(worldPerCssPx(0, 0)).toBe(1)
   })
 })

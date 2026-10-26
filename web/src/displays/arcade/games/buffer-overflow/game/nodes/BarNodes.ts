@@ -10,7 +10,7 @@
  * rather than clipping them, which is the same contract the rest of the chrome
  * follows.
  */
-import { Node2D, textAdvance, type Canvas } from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { stamp } from '../eventLog'
 import { textFloor } from '../layout'

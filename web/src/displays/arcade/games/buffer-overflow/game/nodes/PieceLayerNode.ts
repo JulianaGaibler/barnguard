@@ -9,7 +9,7 @@
  * spawns in a hidden band two rows deep, and the part still up there has not
  * entered play yet.
  */
-import { easings, Node2D, type Canvas } from '@src/stargazer'
+import { easings, Node2D, type Canvas } from 'stargazer'
 import { pieceCells } from '../pieces'
 import { VISIBLE_TOP } from '../board'
 import type { ActivePiece } from '../rules'

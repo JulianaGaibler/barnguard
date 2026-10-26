@@ -1,4 +1,4 @@
-import type { Versioned } from '@src/stargazer'
+import type { Versioned } from 'stargazer'
 
 /**
  * The shared reveal fraction of the play field (0 = hidden, 1 = fully open).

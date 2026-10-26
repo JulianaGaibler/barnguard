@@ -9,7 +9,7 @@ import {
   withAlpha,
   type EngineHost,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { PacketNode } from './nodes/PacketNode'
 import { PacketMotionTrailNode } from './nodes/PacketMotionTrailNode'
 import { PacketSpawnConvergeNode } from './nodes/PacketSpawnConvergeNode'

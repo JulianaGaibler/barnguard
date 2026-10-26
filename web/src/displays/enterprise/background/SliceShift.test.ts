@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PostPassContext } from '@src/stargazer'
+import type { PostPassContext } from 'stargazer'
 import { SliceShift } from './SliceShift'
 
 function ctx(uvYDown: boolean): PostPassContext {

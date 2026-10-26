@@ -19,7 +19,7 @@ import {
   SizedBox,
   edgeInsets,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 
 export const CARD_WIDTH = 392
 export const CARD_HEIGHT = 516

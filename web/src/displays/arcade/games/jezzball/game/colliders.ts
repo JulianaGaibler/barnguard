@@ -9,7 +9,7 @@
  * unit boxes. Balls only ever occupy open space, so internal faces of a merged
  * rect never matter. Only its outer faces (bordering open cells) are hit.
  */
-import { clamp } from '@src/stargazer'
+import { clamp } from 'stargazer'
 import { CELL_FILLED, CELL_WALL, type Bounds } from './types'
 import type { Grid } from './grid'
 import type { FieldGeom } from './layout'

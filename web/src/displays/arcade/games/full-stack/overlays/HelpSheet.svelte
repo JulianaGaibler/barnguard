@@ -11,7 +11,7 @@
   import Surface from '@src/core/ui/Surface.svelte'
   import IconButton from '@src/core/ui/IconButton.svelte'
   import closeIcon from '@src/assets/icons/close-16.svg?raw'
-  import type { Rect } from '@src/stargazer'
+  import type { Rect } from 'stargazer'
   import { FS_STRINGS as t } from '../strings'
   import { CONCEPTS, explainCard } from '../game/rules/help'
   import type { Card } from '../game'

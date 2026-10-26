@@ -3,7 +3,7 @@
  * a frame margin, and map between grid cells and world coordinates. Row 0 is
  * the bottom row (world y grows downward, so it has the largest y).
  */
-import { alignWithin } from '@src/stargazer'
+import { alignWithin } from 'stargazer'
 import { COLS, ROWS } from './board'
 
 export interface Bounds {

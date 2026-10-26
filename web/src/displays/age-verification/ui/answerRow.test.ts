@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { AnswerRow, RESTING_POSE } from './answerRow'
+import { TILE_SIZE } from './rowLayout'
+
+const HALF = TILE_SIZE / 2
 
 describe('AnswerRow', () => {
   it('puts the slot at the row corner and the tile on the square center', () => {
     const row = new AnswerRow('A')
     row.place(1024, 300)
     expect([row.slot.transform.x, row.slot.transform.y]).toEqual([1024, 300])
-    expect([row.tile.transform.x, row.tile.transform.y]).toEqual([1088, 364])
-    expect(row.center).toEqual({ x: 1088, y: 364 })
+    expect([row.tile.transform.x, row.tile.transform.y]).toEqual([
+      1024 + HALF,
+      300 + HALF,
+    ])
+    expect(row.center).toEqual({ x: 1024 + HALF, y: 300 + HALF })
   })
 
   it('draws a black square and a white letter at rest', () => {
@@ -32,7 +38,10 @@ describe('AnswerRow', () => {
     row.pose.offsetY = -20
     row.apply()
     expect([row.slot.transform.x, row.slot.transform.y]).toEqual([150, 180])
-    expect([row.tile.transform.x, row.tile.transform.y]).toEqual([214, 244])
+    expect([row.tile.transform.x, row.tile.transform.y]).toEqual([
+      100 + 50 + HALF,
+      200 - 20 + HALF,
+    ])
   })
 
   it('adds the flight to the tile alone', () => {
@@ -42,8 +51,8 @@ describe('AnswerRow', () => {
     row.pose.flightY = -150
     row.apply()
     expect(row.slot.transform.x).toBe(100)
-    expect(row.tile.transform.x).toBe(164 - 300)
-    expect(row.tile.transform.y).toBe(264 - 150)
+    expect(row.tile.transform.x).toBe(100 + HALF - 300)
+    expect(row.tile.transform.y).toBe(200 + HALF - 150)
   })
 
   it('fades the label and the tile separately', () => {
@@ -69,19 +78,19 @@ describe('AnswerRow', () => {
 
   it('turns into a circle and goes red', () => {
     const row = new AnswerRow('A')
-    row.pose.radius = 64
+    row.pose.radius = HALF
     row.pose.red = 1
     row.apply()
-    expect(row.square.geometry).toMatchObject({ kind: 'rect', radii: 64 })
+    expect(row.square.geometry).toMatchObject({ kind: 'rect', radii: HALF })
     expect(row.square.fill).toBe('rgb(255, 69, 63)')
   })
 
   it('never rounds the corners past a circle', () => {
     const row = new AnswerRow('A')
     // An overshooting ease can go past half the side.
-    row.pose.radius = 90
+    row.pose.radius = TILE_SIZE
     row.apply()
-    expect(row.square.geometry).toMatchObject({ radii: 64 })
+    expect(row.square.geometry).toMatchObject({ radii: HALF })
   })
 
   it('mixes the fill between black and red', () => {

@@ -11,7 +11,7 @@ import {
   createTexture,
   rasterizeSvg,
   type MaterialTexture,
-} from '@src/stargazer'
+} from 'stargazer'
 import { displayFont } from '../../fonts'
 import mouthSvg from '../../assets/mouth.svg?raw'
 

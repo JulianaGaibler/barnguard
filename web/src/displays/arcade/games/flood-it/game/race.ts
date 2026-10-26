@@ -7,7 +7,7 @@
  * finished first is what keeps it a puzzle contest: thinking longer costs
  * nothing, playing worse costs the match.
  */
-import { createEmitter, type Emitter, type EngineHost } from '@src/stargazer'
+import { createEmitter, type Emitter, type EngineHost } from 'stargazer'
 import type { Random } from '../../common/rng'
 import { cloneBoard } from './board'
 import { dealBoard } from './generate'

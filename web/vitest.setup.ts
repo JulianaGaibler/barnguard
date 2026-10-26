@@ -1,19 +1,13 @@
 // Vitest setup: minimal shims for browser APIs happy-dom doesn't ship
 // but that stargazer needs at construction time. The shims are structural
 // no-ops. Anything that actually rasterises (isPointInPath, getImageData) is
-// verified visually in `?demo=…` sandbox scenes, not here.
+// verified visually in the app, not here.
 
-import { vi } from 'vitest'
+import { setSmoothCornerFieldLoader } from 'stargazer/testing'
 
-// There is no server to fetch the smooth-corner field from, so it is never
-// loaded and smoothed corners draw circular. A test that needs the field mocks
-// `loadField` itself.
-vi.mock('./src/stargazer/render/gfx/squircleField', async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import('./src/stargazer/render/gfx/squircleField')
-  >()),
-  loadField: () => Promise.resolve(null),
-}))
+// There is no server to fetch the smooth-corner field from, so smoothed corners
+// draw circular.
+setSmoothCornerFieldLoader(() => Promise.resolve(null))
 
 // happy-dom does not always attach `localStorage` in the current Node
 // version. Install a tiny in-memory shim so tests that persist scores /

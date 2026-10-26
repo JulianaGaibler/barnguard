@@ -16,7 +16,7 @@ import {
   moveToward,
   Node2D,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { swatchRect } from '../layout'
 import { ANIM, CELL_COLORS, CELL_GLYPHS, GEOM, GLYPH_INKS } from '../tuning'
 import type { Bounds, Color } from '../types'

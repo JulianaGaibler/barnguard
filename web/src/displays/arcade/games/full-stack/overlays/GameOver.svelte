@@ -11,7 +11,7 @@
   import { fade } from 'svelte/transition'
   import Button from '@src/core/ui/Button.svelte'
   import Surface from '@src/core/ui/Surface.svelte'
-  import type { Rect } from '@src/stargazer'
+  import type { Rect } from 'stargazer'
   import { t as arcadeT } from '@src/displays/arcade/i18n'
   import { FS_STRINGS as t } from '../strings'
   import type { GameMode, GameOverView } from '../game'

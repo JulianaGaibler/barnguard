@@ -3,7 +3,7 @@ import {
   type EngineHost,
   type Rect,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { DemoBuilder, DemoHandle, DemoStageController } from './types'
 import { DEMO_DEBUG, demoLog } from './demoDebug'
 

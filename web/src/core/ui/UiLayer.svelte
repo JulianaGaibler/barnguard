@@ -9,7 +9,7 @@
    * through to the canvas except where an element inside opts back in.
    */
   import { onDestroy, type Snippet } from 'svelte'
-  import type { Engine, Layer } from '@src/stargazer'
+  import type { Engine, Layer } from 'stargazer'
   import { UiRegion } from './uiRegion.svelte'
 
   interface Props {

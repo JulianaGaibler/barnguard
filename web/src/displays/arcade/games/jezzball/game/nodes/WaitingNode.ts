@@ -3,7 +3,7 @@
  * overlay: an ink headline chip over an accent sub chip, fading in over 150ms
  * like the original `transition:fade`.
  */
-import { Node2D, textMetrics, type Canvas } from '@src/stargazer'
+import { Node2D, textMetrics, type Canvas } from 'stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
 import { font, headingFont } from '../../fonts'
 

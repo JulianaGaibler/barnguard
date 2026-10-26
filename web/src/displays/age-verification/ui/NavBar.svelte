@@ -62,7 +62,7 @@
     display: flex
     align-items: center
     justify-content: center
-    height: 64px
+    height: var(--nav-height, 64px)
     padding: 20px 32px
     border: 2px solid var(--color-accent)
     color: var(--color-accent)

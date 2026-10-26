@@ -11,7 +11,7 @@
 // before the rasteriser resolves, and a card whose text reflows once the icons
 // arrive is worse than one that leaves the holes for a frame.
 
-import type { Gfx2D, InlineBox } from '@src/stargazer'
+import type { Gfx2D, InlineBox } from 'stargazer'
 import { drawIcon, iconSvg, icons, type IconId } from './icons'
 import type { Area, Floor, Group, Region } from '../game/rules/deck'
 import { ALL_GROUPS } from '../game/rules/deck'

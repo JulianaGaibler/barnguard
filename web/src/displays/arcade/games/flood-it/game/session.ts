@@ -17,7 +17,7 @@ import {
   ignoreAbort,
   type Emitter,
   type EngineHost,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { Random } from '../../common/rng'
 import {
   applyMove,

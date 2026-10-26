@@ -13,7 +13,7 @@
  * separate ordinal counters, so a player who has made more moves is simply
  * further along the same sequence.
  */
-import { createEmitter, type Emitter, type EngineHost } from '@src/stargazer'
+import { createEmitter, type Emitter, type EngineHost } from 'stargazer'
 import { BoardSession } from './session'
 import { createSpawnStream } from './spawn'
 import { TWENTY48_STRINGS as S } from '../strings'

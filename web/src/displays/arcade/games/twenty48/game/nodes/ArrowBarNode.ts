@@ -15,7 +15,7 @@ import {
   Node2D,
   withAlpha,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { Bounds, Direction } from '../types'
 import { COLORS } from '../tuning'
 

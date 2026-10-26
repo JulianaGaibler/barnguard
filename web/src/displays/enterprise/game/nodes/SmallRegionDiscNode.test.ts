@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paintCalls } from '@src/stargazer'
+import { paintCalls } from 'stargazer'
 import {
   DISC_DIAMETER_CSS_PX,
   DISC_MIN_DIAMETER_CSS_PX,

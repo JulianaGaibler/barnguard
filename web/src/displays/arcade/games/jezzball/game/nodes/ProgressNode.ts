@@ -9,7 +9,7 @@ import {
   definePaintProps,
   textAdvance,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { COLORS, PROGRESS_ACCENT } from '../tuning'
 import { font } from '../../fonts'
 

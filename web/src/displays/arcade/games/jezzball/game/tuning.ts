@@ -4,7 +4,7 @@
  * Geometry is expressed in fractions where possible so the board scales to the
  * arcade bounds. Absolute values are world units unless noted.
  */
-import { withAlpha } from '@src/stargazer'
+import { withAlpha } from 'stargazer'
 import type { PlayerId } from './types'
 
 /** Grid resolution. Square by default. Both configurable. */

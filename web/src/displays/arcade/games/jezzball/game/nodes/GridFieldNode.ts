@@ -6,7 +6,7 @@
  * a parallel buffer so a freshly-captured region animates without touching the
  * logical grid.
  */
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import type { Grid } from '../grid'
 import type { FieldGeom } from '../layout'
 import { CELL_FILLED, type CellRef } from '../types'

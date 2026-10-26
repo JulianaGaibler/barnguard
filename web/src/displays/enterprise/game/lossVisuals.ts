@@ -4,7 +4,7 @@
 // every `TUNING.lossAnim.*` knob live here once. Each takes the parent node to
 // attach to, so the caller controls which layer/tree the visual lands in.
 
-import { Path2DNode, easings, type Node, type Vec2 } from '@src/stargazer'
+import { Path2DNode, easings, type Node, type Vec2 } from 'stargazer'
 import { DebrisBurstNode } from './nodes/DebrisBurstNode'
 import { TUNING } from './data/tuning'
 

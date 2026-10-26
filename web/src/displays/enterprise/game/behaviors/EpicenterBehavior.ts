@@ -1,4 +1,4 @@
-import { Behavior, easings } from '@src/stargazer'
+import { Behavior, easings } from 'stargazer'
 import type { EpicenterNode } from '../nodes/EpicenterNode'
 import { TUNING } from '../data/tuning'
 

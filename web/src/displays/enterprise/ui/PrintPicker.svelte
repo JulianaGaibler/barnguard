@@ -6,7 +6,7 @@
    * those slots move the HTML with them. The screen that hosts it owns every
    * value here and renders the previews, which arrive through {@link show}.
    */
-  import { domAnchor, type Engine } from '@src/stargazer'
+  import { domAnchor, type Engine } from 'stargazer'
   import { displayName } from '@src/core/leaderboard/displayName'
   import { t } from '@src/displays/enterprise/i18n'
   import { LABEL_VARIANTS, type LabelVariant } from '../label'

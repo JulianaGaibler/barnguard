@@ -1,4 +1,4 @@
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 
 /**
  * A small horizontal capsule above the board that marks the active drop column.

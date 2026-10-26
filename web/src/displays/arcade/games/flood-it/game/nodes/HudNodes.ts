@@ -15,7 +15,7 @@ import {
   textAdvance,
   withAlpha,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
 import { font, numberFont } from '../../fonts'
 import { ACCENT, ANIM, COLORS } from '../tuning'

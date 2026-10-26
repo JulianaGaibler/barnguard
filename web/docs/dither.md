@@ -6,7 +6,7 @@ error diffusion. It is a stargazer post effect, so it runs over a `Layer` and
 works in every display.
 
 The effect lives in `src/core/render/dither/`. The age verification display uses
-it for its background, its illustrations and its splash animation.
+it for its background and its illustrations.
 
 ## Basic usage
 
@@ -14,7 +14,7 @@ Put a `Dither` in the `effects` of a layer. Everything under the layer is
 dithered, and nothing else is.
 
 ```ts
-import { Layer } from '@src/stargazer'
+import { Layer } from 'stargazer'
 import { Dither, ditherPreset } from '@src/core/render/dither'
 
 const art = new Layer({
@@ -78,6 +78,13 @@ A dither is a grid of cells. Each cell takes the average color of the pixels it
 covers, and one dot is drawn in it. `cellSize` is in the layer's own units, so a
 layer with a 1920 by 1080 frame has the same cells on every screen. The presets
 are tuned for that frame.
+
+A layer whose frame changes size with the screen scales its cells with it. To
+keep a cell the same size on screen, multiply `cellSize` by the layer units in
+one CSS pixel, which is `UiRegion.cssPxInWorld`. The age verification display
+does this with `FixedCells`, and also makes its background cells up to half as
+big on windows narrower than 1100 CSS pixels, since a phone shows the same field
+on far fewer pixels.
 
 `anchor` decides what the grid is fixed to:
 
@@ -143,7 +150,7 @@ pattern is a new case in `cellThreshold` in `ditherDots.wgsl` and a new name in
 
 ## See also
 
-- [`post-processing.md`](../src/stargazer/docs/guides/post-processing.md), for
+- `post-processing.md` in the stargazer repository, for
   data passes, extra textures and placement
 - `src/core/render/dither/params.ts`, the settings and their defaults
 - `src/dev/DitherPreview.svelte`, the page at `/?dither`

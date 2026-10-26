@@ -24,7 +24,7 @@ import {
   Node2D,
   type Canvas,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import {
   cellCenter,
   cellOrigin,

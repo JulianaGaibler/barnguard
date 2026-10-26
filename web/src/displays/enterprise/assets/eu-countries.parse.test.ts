@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSvgPaths, deepestInteriorPoint } from '@src/stargazer'
+import { parseSvgPaths, deepestInteriorPoint } from 'stargazer'
 
 /**
  * The Europe map carries identity on a wrapping `<g id>` for every country

@@ -3,28 +3,24 @@ import { DEFAULT_DITHER, ditherPreset } from '@src/core/render/dither'
 import { PALETTE } from '../theme'
 import {
   backgroundDither,
+  cellShare,
+  FixedCells,
   illustrationDither,
   illustrationSettings,
-  splashDither,
 } from './ditherLook'
 
 describe('the display looks', () => {
   it('use only palette colors for ink', () => {
     const palette: string[] = Object.values(PALETTE)
-    for (const dither of [
-      backgroundDither(),
-      illustrationDither(),
-      splashDither(),
-    ]) {
+    for (const dither of [backgroundDither(), illustrationDither()]) {
       expect(palette).toContain(dither.settings.ink)
     }
   })
 
   it('leave the ground of art clear so the background shows through', () => {
-    for (const dither of [illustrationDither(), splashDither()]) {
-      expect(dither.settings.paper).toBe('rgba(255, 255, 255, 0)')
-      expect(dither.settings.alphaThreshold).toBeGreaterThan(0)
-    }
+    const dither = illustrationDither()
+    expect(dither.settings.paper).toBe('rgba(255, 255, 255, 0)')
+    expect(dither.settings.alphaThreshold).toBeGreaterThan(0)
   })
 
   it('give each use its own effect, so one cannot change another', () => {
@@ -58,5 +54,29 @@ describe('illustrationSettings', () => {
     expect(settings.dot).toBe('circle')
     expect(settings.ink).toBe(PALETTE.black)
     expect(settings.pattern).toBe(base.pattern)
+  })
+})
+
+describe('cellShare', () => {
+  it('keeps full cells on a monitor and shrinks them toward a phone', () => {
+    expect(cellShare(1920)).toBe(1)
+    expect(cellShare(1100)).toBe(1)
+    expect(cellShare(390)).toBe(0.5)
+    expect(cellShare(750)).toBeGreaterThan(0.5)
+    expect(cellShare(750)).toBeLessThan(1)
+  })
+})
+
+describe('FixedCells', () => {
+  it('sizes the cells by the window width and keeps that when the design changes', () => {
+    const fx = backgroundDither()
+    const cells = new FixedCells(fx)
+    cells.setDesign(12)
+    cells.apply(2, 390)
+    expect(fx.settings.cellSize).toBe(12 * 0.5 * 2)
+    cells.setDesign(10)
+    expect(fx.settings.cellSize).toBe(10 * 0.5 * 2)
+    cells.apply(1)
+    expect(fx.settings.cellSize).toBe(5)
   })
 })

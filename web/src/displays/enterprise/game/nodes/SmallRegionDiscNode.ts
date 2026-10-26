@@ -4,7 +4,7 @@ import {
   type Canvas,
   type GfxFill,
   type GfxLinearGradient,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** Diameter of a disc on a 1080 pixel tall canvas, in CSS pixels. */
 export const DISC_DIAMETER_CSS_PX = 56

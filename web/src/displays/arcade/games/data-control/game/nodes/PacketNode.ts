@@ -3,7 +3,7 @@ import {
   registerPathTessellation,
   tessellateContours,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 const HEX_STROKE_DEFAULT = '#01CA05'

@@ -5,7 +5,7 @@
  * it. It mirrors its `OrbNode`'s placement (position + bounce scale) and owns
  * the animated ring width, which the orb tweens.
  */
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import type { OrbNode } from './OrbNode'
 import { RING } from '../tuning'
 

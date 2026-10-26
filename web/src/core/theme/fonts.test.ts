@@ -107,8 +107,8 @@ describe('DEFAULT_FONTS', () => {
 
 describe('declared families', () => {
   const declared = new Set(
-    [...read('styles/fonts.scss').matchAll(/font-family:\s*'([^']+)'/g)].map(
-      (m) => m[1],
+    ['styles/fonts.scss', 'styles/fonts-extra.scss'].flatMap((sheet) =>
+      [...read(sheet).matchAll(/font-family:\s*'([^']+)'/g)].map((m) => m[1]),
     ),
   )
 
@@ -117,7 +117,7 @@ describe('declared families', () => {
       const family = raw.trim().replace(/^['"]|['"]$/g, '')
       expect(
         declared.has(family) || SYSTEM_FAMILIES.has(family),
-        `${where}: "${family}" is neither declared in fonts.scss nor a system family`,
+        `${where}: "${family}" is neither declared in a font sheet nor a system family`,
       ).toBe(true)
     }
   }
@@ -140,7 +140,7 @@ describe('declared families', () => {
     }
   })
 
-  it('every catalogue family is declared in fonts.scss', () => {
+  it('every catalogue family is declared in a font sheet', () => {
     for (const entry of FONT_CATALOGUE) {
       expect(declared, entry.family).toContain(entry.family)
     }

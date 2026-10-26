@@ -21,7 +21,7 @@ import {
   definePaintProps,
   withAlpha,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { drawPauseGlyph } from './pauseGlyph'
 
 export interface PauseButtonOptions {

@@ -11,7 +11,7 @@
  * Only alpha and position move, both on the transform, so the label is painted
  * once.
  */
-import { easings, Node2D, type Canvas } from '@src/stargazer'
+import { easings, Node2D, type Canvas } from 'stargazer'
 import { headingFont } from '../../fonts'
 import { ANIM, COLORS } from '../tuning'
 

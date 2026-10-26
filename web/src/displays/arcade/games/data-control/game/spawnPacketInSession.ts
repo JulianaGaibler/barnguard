@@ -10,7 +10,7 @@ import {
   type EngineHost,
   type Rect,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { RectMask } from './tutorial/RectMask'
 import { PacketNode } from './nodes/PacketNode'
 import { PacketMotionTrailNode } from './nodes/PacketMotionTrailNode'

@@ -17,7 +17,7 @@ import {
   Row,
   SizedBox,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { BUTTONS_HEIGHT, BUTTONS_WIDTH } from './gameOverLayout'
 
 export const NAME_FIELD_WIDTH = 600

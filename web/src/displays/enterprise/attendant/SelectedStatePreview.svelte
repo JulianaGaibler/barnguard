@@ -7,7 +7,7 @@
     DebugSelect,
     ToggleButton,
     type DebugSelectItem,
-  } from '@src/stargazer/debug/ui'
+  } from 'stargazer/debug-ui'
   import {
     coverScreen,
     setCoverMode,

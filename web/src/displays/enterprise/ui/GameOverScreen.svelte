@@ -32,7 +32,7 @@
     Node2D,
     type Engine,
     type EngineHost,
-  } from '@src/stargazer'
+  } from 'stargazer'
   import OnScreenKeyboardField from '@src/core/ui/OnScreenKeyboardField.svelte'
   import { NameEntry } from '@src/core/leaderboard/nameEntry.svelte'
   import { printerLive } from '@src/core/print/printerClient'

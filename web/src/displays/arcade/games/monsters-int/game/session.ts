@@ -21,7 +21,7 @@ import {
   ignoreAbort,
   type Emitter,
   type EngineHost,
-} from '@src/stargazer'
+} from 'stargazer'
 import { createDeck, discardCards, type DeckState } from './rules/deck'
 import {
   applyRoundScores,

@@ -1,4 +1,4 @@
-import { PolylineNode, type Canvas, type Vec2 } from '@src/stargazer'
+import { PolylineNode, type Canvas, type Vec2 } from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 /**

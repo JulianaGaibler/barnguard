@@ -11,7 +11,7 @@
  * Taking a point from the middle of the same ramp keeps the menu and the pause
  * card in the family without pretending to be live.
  */
-import { mixColor, withAlpha } from '@src/stargazer'
+import { mixColor, withAlpha } from 'stargazer'
 import type { ThemePalette } from '@src/core/theme'
 import { ACCENT_CHROME, COLORS } from './game/tuning'
 

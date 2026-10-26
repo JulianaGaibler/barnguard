@@ -12,7 +12,7 @@
  * knobs a decoration needs: how long to hold between moves, when to stop, how
  * to restyle the board, and whether to carve its left edge away.
  */
-import { ignoreAbort, Node2D, type EngineHost } from '@src/stargazer'
+import { ignoreAbort, Node2D, type EngineHost } from 'stargazer'
 import { seededRandom } from '../../common/rng'
 import {
   absorbGains,

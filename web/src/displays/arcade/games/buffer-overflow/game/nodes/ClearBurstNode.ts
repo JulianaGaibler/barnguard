@@ -8,7 +8,7 @@
  * Additive, because the buffer behind it is near-black and a source-over spark
  * on that reads as grey rather than as light.
  */
-import { ParticleEmitterNode } from '@src/stargazer'
+import { ParticleEmitterNode } from 'stargazer'
 import { PIECE_COLORS } from '../tuning'
 import type { Bounds } from '../types'
 

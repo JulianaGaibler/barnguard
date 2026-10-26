@@ -6,7 +6,7 @@
  * Only the alpha animates, which never repaints. The label is set while the
  * veil is transparent, so changing it repaints nothing that is on screen.
  */
-import { definePaintProps, Node2D, type Canvas } from '@src/stargazer'
+import { definePaintProps, Node2D, type Canvas } from 'stargazer'
 import { headingFont } from '../../fonts'
 import type { BoardGeom } from '../layout'
 import { ANIM, COLORS, inkAlpha } from '../tuning'

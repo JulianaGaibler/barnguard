@@ -37,13 +37,31 @@ export interface PreviewLabelContext extends LabelRenderContext {
 }
 
 /**
+ * How a display installs to a home screen. Each one also needs
+ * `manifest-<id>.webmanifest` and `icons/<id>-*.png` in `public/`, and `npm run
+ * build:display` only builds a display that has them.
+ */
+export interface DisplayInstall {
+  /**
+   * The iOS status bar style, when not the page's default (black text on a
+   * white bar). `black` is a bar with white text, drawn in the page's own
+   * background color, which suits a dark display. `black-translucent` would let
+   * the page run under the bar, but an iPad then lays the page out a bar's
+   * height short and leaves that much of the screen at the bottom undrawn. iOS
+   * never hides the bar in an installed app, and reads the style when the app
+   * is added.
+   */
+  statusBarStyle?: 'black'
+}
+
+/**
  * A "display" is one event's variant of the kiosk: a theme, a viewport, and,
  * for a booth with a printer, a label renderer. A display without one prints
- * nothing and the attendant UI leaves the printer out. Each display module
- * exports a `DisplayManifest` and is registered in `displayRegistry.ts` under a
- * stable id. `main.ts` resolves the manifest from the `?display=` URL
- * parameter, applies the theme, sets the active-display store, and hands the
- * manifest to `App.svelte`.
+ * nothing and the attendant UI leaves the printer out. Each display is a folder
+ * in `displays/` whose `index.ts` default-exports a `DisplayManifest`, and the
+ * folder name is its id. `main.ts` resolves the manifest (the one the build
+ * carries, or the `?display=` URL parameter's), applies the theme, sets the
+ * active-display store, and hands the manifest to `App.svelte`.
  */
 export interface DisplayManifest {
   /** Stable id, matches the URL parameter and the server `display` tag. */
@@ -65,6 +83,18 @@ export interface DisplayManifest {
    * pause).
    */
   root: Component
+  /**
+   * Set for a display that runs without the server and can be added to a home
+   * screen. It then links its web manifest and registers the service worker
+   * that keeps it working offline.
+   */
+  install?: DisplayInstall
+  /**
+   * Faces beyond the ones every display ships, for the boot gate to wait for.
+   * Set it to `EXTRA_FONT_SPECS` from `core/fonts/extra`, whose import also
+   * loads their sheet.
+   */
+  fontSpecs?: readonly string[]
   /**
    * The `display` ids this kiosk display submits to `/api/leaderboard` under,
    * not the manifest's own `id`. For the arcade that's every board declared by

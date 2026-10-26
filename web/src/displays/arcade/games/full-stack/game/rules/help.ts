@@ -11,7 +11,7 @@
 // followed by its mark. Nothing else is, because a paragraph with a picture
 // beside every noun is no easier to read than the card already was.
 
-import type { TextRun, TextSpan } from '@src/stargazer'
+import type { TextRun, TextSpan } from 'stargazer'
 import { GROUP_NAMES, AREA_NAMES, money } from './text'
 import { glyphSpan } from '../../art/glyphs'
 import type { Glyph } from '../../art/glyphs'

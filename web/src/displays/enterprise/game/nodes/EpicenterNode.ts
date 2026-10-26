@@ -8,7 +8,7 @@ import {
   type Canvas,
   type ShaderReflection,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { TUNING } from '../data/tuning'
 import coneDotsWgsl from './coneDots.wgsl?raw'
 import coneDotsVert from './coneDots.gen.vert.glsl?raw'

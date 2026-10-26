@@ -15,7 +15,7 @@ import {
   type Canvas,
   type Vec2,
   type VectorParticleSpawnInit,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** Reused scratch for the per-piece equilateral triangle (draw is synchronous). */
 const TRI_SCRATCH = new Float32Array(6)

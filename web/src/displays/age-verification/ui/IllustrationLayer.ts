@@ -1,7 +1,11 @@
-import { ImageNode, Layer } from '@src/stargazer'
-import { DESIGN_HEIGHT, DESIGN_WIDTH } from '@src/core/ui/designRegion'
+import { ImageNode, Layer } from 'stargazer'
 import type { Illustration } from '../story/types'
-import { illustrationDither, illustrationSettings } from './ditherLook'
+import {
+  FixedCells,
+  illustrationDither,
+  illustrationSettings,
+} from './ditherLook'
+import { pickFrame } from './frame'
 import type { Box } from './layout'
 
 /** Decoded images by address, so going back to a screen draws at once. */
@@ -34,6 +38,9 @@ export class IllustrationLayer {
   readonly #dither = illustrationDither()
   /** The display's look, which each illustration's own choice goes over. */
   readonly #base = { ...this.#dither.settings }
+  /** The dither's cells, which keep their size on screen. */
+  readonly cells = new FixedCells(this.#dither)
+  #cssPxInWorld = 1
   #node: ImageNode | null = null
   #image: HTMLImageElement | null = null
   /** Where the picture goes, until `place` says otherwise. */
@@ -44,9 +51,7 @@ export class IllustrationLayer {
   constructor() {
     this.layer = new Layer({
       id: 'illustration',
-      space: {
-        frame: { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT },
-      },
+      space: { frame: pickFrame },
       region: { x: 0, y: 0, width: 0, height: 0 },
       cache: 'raster',
       effects: [this.#dither],
@@ -94,10 +99,18 @@ export class IllustrationLayer {
       this.#dither.settings,
       illustrationSettings(this.#base, illustration.dither),
     )
+    this.cells.setDesign(this.#dither.settings.cellSize)
+    this.cells.apply(this.#cssPxInWorld)
     this.#image = image
     this.#node = new ImageNode({ id: 'illustration-image', image })
     this.#fit()
     this.layer.add(this.#node)
+  }
+
+  /** Sizes the dither's cells for `cssPxInWorld` design pixels per CSS pixel. */
+  setScale(cssPxInWorld: number): void {
+    this.#cssPxInWorld = cssPxInWorld
+    this.cells.apply(cssPxInWorld)
   }
 
   /** Sets the box, in world units, the picture is fitted inside. */

@@ -5,7 +5,7 @@ import {
   type PointerEvent2D,
   type PointerHandlers,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { PacketNode } from '../nodes/PacketNode'
 import { PathTrailNode } from '../nodes/PathTrailNode'
 import type { EpicenterNode } from '../nodes/EpicenterNode'

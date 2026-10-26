@@ -8,7 +8,7 @@ import {
   Node2D,
   definePaintProps,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { COLORS } from '../tuning'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
 

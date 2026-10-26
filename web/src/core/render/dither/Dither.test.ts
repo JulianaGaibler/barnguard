@@ -1,18 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { MockGfxDevice } from '@src/stargazer/render/gfx/webgl2/mockGfxDevice'
-import { RenderTargetPool } from '@src/stargazer/render/gfx/RenderTargetPool'
-import { PostChain } from '@src/stargazer/render/postfx/PostChain'
-import { PostProgramCache } from '@src/stargazer/render/postfx/PostProgramCache'
+import { MockGfxDevice, createPostChain } from 'stargazer/testing'
 import { Dither } from './Dither'
 import { gridFor } from './params'
 import { ditherPreset } from './presets'
 
 async function chainFor(device: MockGfxDevice, dither: Dither) {
-  const chain = new PostChain(
-    device,
-    new PostProgramCache(device),
-    new RenderTargetPool(device),
-  )
+  const chain = createPostChain(device)
   for (let i = 0; i < 80; i++) {
     if (chain.prepare([dither], 'linear')) return chain
     await Promise.resolve()

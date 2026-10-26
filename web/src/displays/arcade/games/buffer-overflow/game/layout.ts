@@ -29,7 +29,7 @@
 import { COLS, VISIBLE_ROWS } from './board'
 import { RULES } from './tuning'
 import type { Bounds } from './types'
-import { clamp } from '@src/stargazer'
+import { clamp } from 'stargazer'
 
 /** Margin left and right of the whole region, as a fraction of its short side. */
 const OUTER_PAD_FRAC = 0.028

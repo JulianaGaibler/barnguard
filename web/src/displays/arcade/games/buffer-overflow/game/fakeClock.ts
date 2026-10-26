@@ -6,7 +6,7 @@
  * the `dt` handed to `Session.step`. Between the two, a test drives the whole
  * state machine with no canvas and no real timers.
  */
-import { abortError, type EngineHost } from '@src/stargazer'
+import { abortError, type EngineHost } from 'stargazer'
 
 export interface FakeClock {
   host: EngineHost

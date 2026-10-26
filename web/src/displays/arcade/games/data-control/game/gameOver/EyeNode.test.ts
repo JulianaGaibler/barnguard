@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paintCalls } from '@src/stargazer'
+import { paintCalls } from 'stargazer'
 import { EyeNode } from './EyeNode'
 
 function build(): EyeNode {

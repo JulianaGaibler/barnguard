@@ -5,10 +5,10 @@ import {
   easings,
   ignoreAbort,
   type Rect,
-} from '@src/stargazer'
-import { DESIGN_HEIGHT, DESIGN_WIDTH } from '@src/core/ui/designRegion'
+} from 'stargazer'
 import { PALETTE } from '../theme'
-import { accentDither, backgroundDither } from './ditherLook'
+import { accentDither, backgroundDither, FixedCells } from './ditherLook'
+import { pickFrame } from './frame'
 import {
   MOTION,
   SPLASH_POSE,
@@ -36,6 +36,8 @@ export interface Background {
   readonly layer: Layer
   /** The orange spot, lit only for a moment. Add it just above `layer`. */
   readonly accent: Layer
+  /** The dithers' cells, which keep their size on screen. */
+  readonly cells: readonly FixedCells[]
   /** Fits the spots to the corners of `area`, the world the window shows. */
   fit(area: Rect): void
   /**
@@ -90,25 +92,27 @@ const toPose = (state: PoseState): Pose => ({
  * else.
  */
 export function createBackground(engine: Tweener): Background {
-  const frame = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT }
   const baseDither = backgroundDither()
   const accentFx = accentDither()
+  const cells = [new FixedCells(baseDither), new FixedCells(accentFx)]
   const layer = new Layer({
     id: 'background',
-    space: { frame },
+    space: { frame: pickFrame },
     region: 'view',
     cache: 'raster',
     clearColor: PALETTE.white,
     effects: [baseDither],
+    holdUntilEffects: true,
     persistent: true,
   })
   const accent = new Layer({
     id: 'background-accent',
-    space: { frame },
+    space: { frame: pickFrame },
     region: 'view',
     cache: 'raster',
     clearColor: PALETTE.white,
     effects: [accentFx],
+    holdUntilEffects: true,
     persistent: true,
   })
   accent.visible = false
@@ -125,7 +129,7 @@ export function createBackground(engine: Tweener): Background {
 
   const scope = new AbortScope()
   const state = toState(SPLASH_POSE)
-  let area: Rect = { ...frame }
+  let area: Rect = pickFrame(0, 0)
   const dotScale = baseDither.settings.dotScale
   const gamma = baseDither.settings.gamma
 
@@ -205,6 +209,7 @@ export function createBackground(engine: Tweener): Background {
   return {
     layer,
     accent,
+    cells,
     fit(next) {
       area = { ...next }
       render()

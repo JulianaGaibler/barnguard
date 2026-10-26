@@ -4,7 +4,7 @@
 // it is meant to be lifting out. This one is a scene node, drawn between the
 // board and the focus layer.
 
-import { Node2D, type Canvas, type Rect } from '@src/stargazer'
+import { Node2D, type Canvas, type Rect } from 'stargazer'
 import { COLORS } from '../tuning'
 
 export class ScrimNode extends Node2D {

@@ -26,7 +26,7 @@ import {
   Row,
   rect,
   rectInflate,
-} from '@src/stargazer'
+} from 'stargazer'
 import { GEOM } from './tuning'
 import type { Bounds, CellRef } from './types'
 

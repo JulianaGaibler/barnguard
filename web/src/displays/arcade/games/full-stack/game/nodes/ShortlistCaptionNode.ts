@@ -7,7 +7,7 @@
 // here where a card needs a veil, because there is only one thing drawn, so
 // nothing shows through anything else.
 
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import {
   drawIcon,
   floorMark,

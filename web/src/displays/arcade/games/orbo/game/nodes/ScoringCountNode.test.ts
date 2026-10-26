@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { paintCalls } from '@src/stargazer'
+import { paintCalls } from 'stargazer'
 import { ScoringCountNode } from './ScoringCountNode'
 
 function textCalls(node: ScoringCountNode) {

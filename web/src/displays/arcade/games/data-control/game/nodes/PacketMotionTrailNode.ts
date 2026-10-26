@@ -3,7 +3,7 @@ import {
   definePaintProps,
   withAlpha,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 export interface PacketMotionTrailOptions {

@@ -7,7 +7,7 @@
 // The faces are drawn bare, with no disc under them and no crop: on the card a
 // portrait is a headshot on a badge, and here it is just the person.
 
-import { Behavior, Node2D, type Canvas, type Rect } from '@src/stargazer'
+import { Behavior, Node2D, type Canvas, type Rect } from 'stargazer'
 import { seededRandom, type Random } from '../../../common/rng'
 import { PORTRAIT_SIZE, portraitImage } from '../../art/portraits'
 import { DECK } from '../rules/deck'

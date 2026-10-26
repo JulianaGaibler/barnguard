@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paintCalls, type GfxPath } from '@src/stargazer'
+import { paintCalls, type GfxPath } from 'stargazer'
 import { PacketMotionTrailNode } from './PacketMotionTrailNode'
 
 describe('PacketMotionTrailNode', () => {

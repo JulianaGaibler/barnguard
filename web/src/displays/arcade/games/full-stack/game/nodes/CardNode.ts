@@ -25,7 +25,7 @@ import {
   type Canvas,
   type Rect,
   type RichBlock,
-} from '@src/stargazer'
+} from 'stargazer'
 import { ANIM, COLORS, FADED_ALPHA, GROUP_COLORS } from '../tuning'
 import {
   BODY_SIZE_FRACS,

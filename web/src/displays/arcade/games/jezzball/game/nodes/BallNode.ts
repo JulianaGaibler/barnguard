@@ -4,7 +4,7 @@
  * between the body's last two fixed-step positions by the ticker's `fixedAlpha`
  * so motion stays smooth regardless of display rate vs the 120 Hz simulation.
  */
-import { Node2D, lerp, type Body, type Canvas } from '@src/stargazer'
+import { Node2D, lerp, type Body, type Canvas } from 'stargazer'
 
 export class BallNode extends Node2D {
   readonly body: Body

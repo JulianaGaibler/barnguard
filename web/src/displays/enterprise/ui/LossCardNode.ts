@@ -14,7 +14,7 @@ import {
   wrapText,
   type EngineHost,
   type Node2D,
-} from '@src/stargazer'
+} from 'stargazer'
 import { FAMILIES } from '@src/core/theme/fonts'
 import { loadGameAssets } from '../game/assets'
 import { GameOverScene } from '../game/gameOver/GameOverScene'

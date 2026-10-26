@@ -13,7 +13,7 @@ import {
   type SvgPathEntry,
   type SvgPathMap,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /**
  * Merge every path in `map` into a single `Path2D` plus union AABB, carrying

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PostSourceInfo } from '@src/stargazer'
+import type { PostSourceInfo } from 'stargazer'
 import {
   DEFAULT_DITHER,
   DITHER_PARAMS_BYTES,

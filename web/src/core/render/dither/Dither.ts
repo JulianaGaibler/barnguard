@@ -7,7 +7,7 @@ import {
   type PostStep,
   type PostPassContext,
   type ShaderReflection,
-} from '@src/stargazer'
+} from 'stargazer'
 import cellsWgsl from './ditherCells.gen.wgsl?raw'
 import cellsVertex from './ditherCells.gen.vert.glsl?raw'
 import cellsFragment from './ditherCells.gen.frag.glsl?raw'

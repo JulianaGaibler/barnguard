@@ -19,7 +19,7 @@ import {
   VersionedRef,
   rasterizeSvg,
   type Gfx2D,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { Floor, Group } from '../game/rules/deck'
 import approval from '../assets/icons/approval.svg?raw'
 import budget from '../assets/icons/budget.svg?raw'

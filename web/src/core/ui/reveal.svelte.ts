@@ -7,7 +7,7 @@
  * animator and the markup only reads the result.
  */
 import { untrack } from 'svelte'
-import { AbortScope, easings, ignoreAbort, type Engine } from '@src/stargazer'
+import { AbortScope, easings, ignoreAbort, type Engine } from 'stargazer'
 
 /** Seconds between one part starting and the next. */
 const STAGGER_SEC = 0.12

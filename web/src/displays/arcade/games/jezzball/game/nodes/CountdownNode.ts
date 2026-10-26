@@ -2,7 +2,7 @@
  * The big countdown digit/GO text, engine port of the `.count` overlay, fading
  * in/out over 120ms exactly like the original `transition:fade`.
  */
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { COLORS } from '../tuning'
 import { headingFont } from '../../fonts'
 

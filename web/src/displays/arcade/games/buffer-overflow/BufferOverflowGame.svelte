@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { domAnchor, Node2D, Vignette, type Rect } from '@src/stargazer'
+  import { domAnchor, Node2D, Vignette, type Rect } from 'stargazer'
   import { coverView, REGION_HEIGHT, REGION_WIDTH } from '../../world'
   import { GradientBackgroundNode } from '../common/GradientBackgroundNode'
   import { randomSeed } from '../common/rng'

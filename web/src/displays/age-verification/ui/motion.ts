@@ -52,12 +52,19 @@ export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t
 
 /**
  * A point on the curve a flying mark follows from `from` to `to` at `t` in
- * 0..1. The curve is a quadratic Bezier that leaves `from` straight up and
- * arrives `to` straight along the row, which reads as a swoosh rather than a
- * diagonal.
+ * 0..1. The curve is a quadratic Bezier, which reads as a swoosh rather than a
+ * diagonal. With `'up-first'` it leaves `from` straight up and arrives `to`
+ * straight along the row. With `'across-first'`, for a one column screen, it
+ * leaves `from` straight across and arrives `to` straight up.
  */
-export function flightPoint(from: Point, to: Point, t: number): Point {
-  const control = { x: from.x, y: to.y }
+export function flightPoint(
+  from: Point,
+  to: Point,
+  t: number,
+  order: 'up-first' | 'across-first' = 'up-first',
+): Point {
+  const control =
+    order === 'up-first' ? { x: from.x, y: to.y } : { x: to.x, y: from.y }
   const u = 1 - t
   return {
     x: u * u * from.x + 2 * u * t * control.x + t * t * to.x,
@@ -212,11 +219,14 @@ export function spotCenter(u: number, width: number, height: number): Point {
 const TOP_RIGHT = 1
 const BOTTOM_LEFT = 3
 
-/** Where the splash screen's spots sit. */
+/**
+ * Where the splash screen's spots sit. They are out, since the splash has its
+ * panel, and light up as the story starts.
+ */
 export const SPLASH_POSE: Pose = {
   spots: [
-    { u: TOP_RIGHT, radius: 470, strength: 1 },
-    { u: BOTTOM_LEFT, radius: 360, strength: 1 },
+    { u: TOP_RIGHT, radius: 470, strength: 0 },
+    { u: BOTTOM_LEFT, radius: 360, strength: 0 },
   ],
   accent: { u: 2, radius: 300, strength: 0 },
 }

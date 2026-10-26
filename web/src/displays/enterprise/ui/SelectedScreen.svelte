@@ -15,7 +15,7 @@
     ignoreAbort,
     Node2D,
     type Engine,
-  } from '@src/stargazer'
+  } from 'stargazer'
   import {
     t,
     regionName,

@@ -5,8 +5,8 @@ import {
   ignoreAbort,
   type Rect,
   type Vec2,
-} from '@src/stargazer'
-import type { ParticleEmitterNode } from '@src/stargazer'
+} from 'stargazer'
+import type { ParticleEmitterNode } from 'stargazer'
 import type { PacketNode } from '../nodes/PacketNode'
 import type { PathTrailNode } from '../nodes/PathTrailNode'
 import type { EpicenterNode } from '../nodes/EpicenterNode'

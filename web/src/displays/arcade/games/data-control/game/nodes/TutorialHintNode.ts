@@ -6,7 +6,7 @@ import {
   registerPathTessellation,
   type Canvas,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 
 // -----------------------------------------------------------------------------
 // Tuning, kept module-local. Promote to `TUNING.tutorial.hint` if the demo

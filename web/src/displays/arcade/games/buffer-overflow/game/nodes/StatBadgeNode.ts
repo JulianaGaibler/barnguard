@@ -19,7 +19,7 @@
  * every frame while one is live, which is under a second after a change, and
  * rests otherwise.
  */
-import { Node2D, easings, textAdvance, type Canvas } from '@src/stargazer'
+import { Node2D, easings, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { textFloor, valueFloor } from '../layout'
 import { accentForLevel, ANIM, COLORS, FRAME } from '../tuning'

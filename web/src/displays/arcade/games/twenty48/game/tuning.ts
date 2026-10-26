@@ -9,7 +9,7 @@
  * properties back, so one module feeding both surfaces is what keeps the DOM
  * chrome and the board in step.
  */
-import { mixColor, parseColor, withAlpha } from '@src/stargazer'
+import { mixColor, parseColor, withAlpha } from 'stargazer'
 import { prefersDarkInk, type Rgba } from '../../../background/palette'
 import type { PlayerId } from './types'
 

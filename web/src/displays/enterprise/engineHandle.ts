@@ -5,7 +5,7 @@
  * across the remount after a lost WebGPU device.
  */
 import { get, writable } from 'svelte/store'
-import type { Engine } from '@src/stargazer'
+import type { Engine } from 'stargazer'
 
 export const enterpriseEngine = writable<Engine | null>(null)
 

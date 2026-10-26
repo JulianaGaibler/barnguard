@@ -14,7 +14,7 @@
     ignoreAbort,
     Node2D,
     type Engine,
-  } from '@src/stargazer'
+  } from 'stargazer'
   import { formatElapsed } from '@src/displays/enterprise/format/formatElapsed'
   import {
     monoChars,

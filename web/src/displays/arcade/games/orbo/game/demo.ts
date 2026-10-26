@@ -20,7 +20,7 @@ import {
   type EngineHost,
   type PhysicsWorld,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { DemoHandle } from '@src/displays/arcade/tutorial/types'
 import { FingerHintNode } from '@src/displays/arcade/tutorial/FingerHintNode'
 import { Orb } from './Orb'

@@ -1,4 +1,4 @@
-import { AbortScope, easings, ignoreAbort, type Engine } from '@src/stargazer'
+import { AbortScope, easings, ignoreAbort, type Engine } from 'stargazer'
 import type { Run } from '../story/run'
 import type { AnswerRow } from './answerRow'
 import {
@@ -44,6 +44,8 @@ export interface DirectorDeps {
   /** The progress row's top left, and the width it may fill. */
   trailOrigin: () => Point
   rowWidth: () => number
+  /** Whether the screen is one column. A pick then flies across before up. */
+  stacked?: () => boolean
   /** Shows `run` and settles once the markup has caught up. */
   setRun: (run: Run) => Promise<void>
   setPicked: (id: string | null) => void
@@ -218,11 +220,12 @@ export class StoryDirector {
       swell: true,
     })
     const flight = { t: 0 }
+    const order = this.#d.stacked?.() ? 'across-first' : 'up-first'
     await this.#tween(flight, { t: 1 }, signal, {
       duration: MOTION.fly,
       easing: easings.inOutCubic,
       onUpdate: () => {
-        const at = flightPoint(from, to, flight.t)
+        const at = flightPoint(from, to, flight.t, order)
         picked.pose.flightX = at.x - from.x
         picked.pose.flightY = at.y - from.y
         picked.pose.scale = lerp(1, slot.size / TILE_SIZE, flight.t)

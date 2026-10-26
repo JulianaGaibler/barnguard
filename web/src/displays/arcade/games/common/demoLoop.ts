@@ -21,7 +21,7 @@
  *     if (!alive()) return
  *   })
  */
-import { isAbortError, type Node2D } from '@src/stargazer'
+import { isAbortError, type Node2D } from 'stargazer'
 import { demoLogFirst } from '../../tutorial/demoDebug'
 
 /** What a card's body is handed to pace itself and to bail out cleanly. */

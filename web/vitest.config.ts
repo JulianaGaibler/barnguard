@@ -12,6 +12,8 @@ export default defineConfig({
     alias: {
       '@src': src,
     },
+    // One Svelte runtime, even for the linked `stargazer` package.
+    dedupe: ['svelte'],
     // Svelte's browser build, which is the one with the client runtime.
     conditions: ['browser'],
   },

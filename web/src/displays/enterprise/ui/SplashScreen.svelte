@@ -6,7 +6,7 @@
    * visible rect.
    */
   import { onDestroy } from 'svelte'
-  import { domAnchor, Node2D, type Engine } from '@src/stargazer'
+  import { domAnchor, Node2D, type Engine } from 'stargazer'
   import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
   import { Reveal } from '@src/core/ui/reveal.svelte'
   import SplashBoard from './SplashBoard.svelte'

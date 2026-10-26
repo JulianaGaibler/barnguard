@@ -35,7 +35,7 @@
  *     band,
  *   })
  */
-import type { Canvas } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 
 /** One slab. All measurements are world units. */
 export interface Slab {

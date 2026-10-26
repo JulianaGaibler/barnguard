@@ -16,7 +16,7 @@ import {
   ignoreAbort,
   type Emitter,
   type EngineHost,
-} from '@src/stargazer'
+} from 'stargazer'
 import { BoardSession } from './session'
 import { ACCENT_VS, ANIM } from './tuning'
 import type { Bounds } from './types'

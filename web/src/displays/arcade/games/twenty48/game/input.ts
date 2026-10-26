@@ -7,7 +7,7 @@
  * position: each board binds its own gesture over its own plate, and each bar
  * is a node with its own hit rect.
  */
-import { bindRegionGesture, type Engine } from '@src/stargazer'
+import { bindRegionGesture, type Engine } from 'stargazer'
 import { containsWorld, type BoardGeom } from './layout'
 import { GESTURE } from './tuning'
 import type { Direction } from './types'

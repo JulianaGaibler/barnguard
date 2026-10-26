@@ -6,7 +6,7 @@
  * reaches in. The shell computes it once and every game reads the same values,
  * rather than each one repeating the arithmetic and the anchor bookkeeping.
  */
-import { Node2D, type Engine, type Rect } from '@src/stargazer'
+import { Node2D, type Engine, type Rect } from 'stargazer'
 import {
   REGION_HEIGHT,
   REGION_WIDTH,

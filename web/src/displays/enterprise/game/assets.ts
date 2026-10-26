@@ -6,7 +6,7 @@ import {
   tessellateContours,
   type SvgPathEntry,
   type SvgPathMap,
-} from '@src/stargazer'
+} from 'stargazer'
 import eyeSvgRaw from '@src/displays/enterprise/assets/eye.svg?raw'
 import impactFlashSvgRaw from '@src/displays/enterprise/assets/impact-flash.svg?raw'
 import firefoxLogoUrl from '@src/displays/enterprise/assets/firefox-enterprise-symbol.png'

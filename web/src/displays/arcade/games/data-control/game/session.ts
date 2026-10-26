@@ -10,7 +10,7 @@ import {
   type Emitter,
   type Rect,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { gameView } from '../../../world'
 import { BLACK, BLUE } from '../palette'
 import type { ArcadeCamera } from '../../arcadeCamera'

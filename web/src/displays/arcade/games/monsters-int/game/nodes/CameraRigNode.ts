@@ -25,7 +25,7 @@ import {
   quat,
   quatFromAxisAngle,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { REGION_HEIGHT, REGION_WIDTH } from '../../../../world'
 import { ELEVATION, PX_TO_M } from '../project'
 

@@ -95,7 +95,10 @@ export function isVariableWeights(w: FontWeights): w is VariableWeights {
  */
 export interface FontFamilyEntry {
   id: FamilyId
-  /** The `font-family` name, exactly as declared in `styles/fonts.scss`. */
+  /**
+   * The `font-family` name, exactly as declared in `styles/fonts.scss` or
+   * `styles/fonts-extra.scss`.
+   */
   family: string
   weights: FontWeights
   /**

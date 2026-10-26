@@ -32,7 +32,7 @@
  *   pulse.fire()
  *   pulse.destroy()
  */
-import { ChromaticAberration, type EngineHost } from '@src/stargazer'
+import { ChromaticAberration, type EngineHost } from 'stargazer'
 
 /** How one pulse is shaped. Both belong in the calling game's tuning table. */
 export interface ScreenPulseOptions {

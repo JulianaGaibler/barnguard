@@ -11,7 +11,7 @@ import {
   Node2D,
   definePaintProps,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
 import { accentForLevel, COLORS, FRAME } from '../tuning'
 import type { Bounds } from '../types'

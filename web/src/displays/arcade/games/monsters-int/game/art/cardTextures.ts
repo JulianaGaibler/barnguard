@@ -21,7 +21,7 @@ import {
   createTexture,
   rasterizeSvg,
   type MaterialTexture,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { CardFaceId } from '../rules/cards'
 import { CARD } from '../tuning'
 

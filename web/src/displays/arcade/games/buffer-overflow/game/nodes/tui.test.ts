@@ -8,7 +8,7 @@
  * demos.
  */
 import { describe, expect, it } from 'vitest'
-import type { Canvas } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 import {
   cursorAlpha,
   drawCap,

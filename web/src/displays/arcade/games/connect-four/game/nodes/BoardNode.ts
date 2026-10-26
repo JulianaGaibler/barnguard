@@ -1,4 +1,4 @@
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { COLS, ROWS } from '../board'
 import { cellCenter, type BoardLayout } from '../layout'
 import { BOARD } from '../tuning'

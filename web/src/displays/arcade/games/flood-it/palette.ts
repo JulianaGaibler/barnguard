@@ -13,7 +13,7 @@
  * writes, so a role left out keeps the arcade shell's own value and would put
  * the launcher's light card shadow on this game's dark panels.
  */
-import { withAlpha } from '@src/stargazer'
+import { withAlpha } from 'stargazer'
 import type { ThemePalette } from '@src/core/theme'
 import { ACCENT, COLORS } from './game/tuning'
 

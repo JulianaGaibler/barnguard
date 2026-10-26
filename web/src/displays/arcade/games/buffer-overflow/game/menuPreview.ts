@@ -17,9 +17,9 @@ import {
   easings,
   type Canvas,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { MenuPreview } from '../../../menu/types'
-import type { EngineHost } from '@src/stargazer'
+import type { EngineHost } from 'stargazer'
 import { seededRandom } from '../../common/rng'
 import { PIECE_KINDS, pieceCells } from './pieces'
 import { COLORS } from './tuning'

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { Engine } from '@src/stargazer'
+import type { Engine } from 'stargazer'
 import { enterpriseEngine, whenEngine } from './engineHandle'
 
 const engine = { id: 'engine' } as unknown as Engine

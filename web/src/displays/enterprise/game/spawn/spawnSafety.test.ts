@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Vec2 } from '@src/stargazer'
+import type { Vec2 } from 'stargazer'
 import {
   isFairer,
   minSeparation,

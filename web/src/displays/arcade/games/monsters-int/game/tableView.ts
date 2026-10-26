@@ -15,7 +15,7 @@
  *   view.beginRound(round)
  *   view.apply({ type: 'dealt', seat: 1, card }, round)
  */
-import { ignoreAbort, Node3D } from '@src/stargazer'
+import { ignoreAbort, Node3D } from 'stargazer'
 import type { CardTextures } from './art/cardTextures'
 import { CARD_BACK } from './art/cardTextures'
 import {

@@ -1,4 +1,4 @@
-import { PointerBehavior, type PointerHandlers } from '@src/stargazer'
+import { PointerBehavior, type PointerHandlers } from 'stargazer'
 import type { RegionId } from '../maps/types'
 
 /**

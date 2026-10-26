@@ -4,7 +4,7 @@ import {
   tessellateContours,
   type Canvas,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 
 export interface PacketSpawnConvergeOptions {
   center: Vec2

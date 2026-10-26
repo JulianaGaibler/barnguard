@@ -14,7 +14,7 @@ import {
   type EngineHost,
   ignoreAbort,
   Node2D,
-} from '@src/stargazer'
+} from 'stargazer'
 import { type BoardGeom, cellCenter, computeBoardGeom } from './layout'
 import { ArrowBarNode } from './nodes/ArrowBarNode'
 import { BoardFrameNode } from './nodes/BoardFrameNode'

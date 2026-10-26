@@ -7,7 +7,7 @@
  * which is the case that has to rest.
  */
 import { describe, expect, it } from 'vitest'
-import { paintPicture, type Node2D } from '@src/stargazer'
+import { paintPicture, type Node2D } from 'stargazer'
 import { clearBuffer, createBuffer, lockPiece } from '../board'
 import { BufferNode } from './BufferNode'
 import { ClockNode, NextQueueNode } from './PanelNodes'

@@ -9,7 +9,7 @@ import {
   type SvgPathEntry,
   type SvgPathMap,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import statesSvgRaw from '../assets/de-states.svg?raw'
 import outlineSvgRaw from '../assets/de-outline.svg?raw'
 import citiesSvgRaw from '../assets/de-cities.svg?raw'

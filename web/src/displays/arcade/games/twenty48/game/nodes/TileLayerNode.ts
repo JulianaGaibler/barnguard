@@ -9,7 +9,7 @@
  * because a tile crossing rows has to hand over cleanly partway through its
  * slide instead of jumping the order the instant the model changes.
  */
-import { ignoreAbort, Node2D } from '@src/stargazer'
+import { ignoreAbort, Node2D } from 'stargazer'
 import { type BoardGeom, cellCenter } from '../layout'
 import { ANIM, GOAL } from '../tuning'
 import { type BoardState, type MoveResult, SIZE, type Tile } from '../types'

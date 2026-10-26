@@ -5,7 +5,7 @@ import {
   mixColor,
   Node2D,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { BEVEL, COLORS } from '../tuning'
 import { drawSlab } from '../../../common/bevel'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'

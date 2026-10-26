@@ -9,7 +9,7 @@
   } from '@src/core/game-log/gameLogClient'
   import { enqueuePrint, printerLive } from '@src/core/print/printerClient'
   import { activeDisplay } from '@src/core/display'
-  import { DebugSection, DraggableWindow } from '@src/stargazer/debug/ui'
+  import { DebugSection, DraggableWindow } from 'stargazer/debug-ui'
   import ConfirmButton, {
     createConfirmCoordinator,
   } from '@src/core/ui/ConfirmButton.svelte'

@@ -9,7 +9,7 @@ import {
   definePaintProps,
   parseSvgPaths,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import heartSvgRaw from '../../assets/heart.svg?raw'
 
 const HEART = Array.from(

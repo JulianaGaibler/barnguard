@@ -8,7 +8,7 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte'
   import { fade } from 'svelte/transition'
-  import type { EngineHost } from '@src/stargazer'
+  import type { EngineHost } from 'stargazer'
   import Button from '@src/core/ui/Button.svelte'
   import OnScreenKeyboardField from '@src/core/ui/OnScreenKeyboardField.svelte'
   import { formatScore } from '@src/displays/arcade/leaderboard/formatScore'

@@ -3,7 +3,7 @@ import {
   definePaintProps,
   type Canvas,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 
 export interface EyeNodeOptions {
   /**

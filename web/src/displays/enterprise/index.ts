@@ -43,7 +43,7 @@ async function recordToLabelInput(record: GameRecord): Promise<LabelInput> {
   }
 }
 
-export const enterprise: DisplayManifest = {
+const enterprise: DisplayManifest = {
   formatGameRecord(record) {
     const g = asEnterprise(record)
     const highScore = g.wasOverallHigh
@@ -109,3 +109,5 @@ export const enterprise: DisplayManifest = {
     })
   },
 }
+
+export default enterprise

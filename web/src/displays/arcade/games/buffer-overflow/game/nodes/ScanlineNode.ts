@@ -28,7 +28,7 @@
  * batch that holds the rest of the screen together, and two comparisons do the
  * same job.
  */
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { COLORS } from '../tuning'
 import type { Bounds } from '../types'
 import { ruleWidth, sameBounds } from './tui'

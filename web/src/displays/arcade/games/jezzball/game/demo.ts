@@ -19,7 +19,7 @@ import {
   TextNode,
   easings,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { DemoBuilder } from '@src/displays/arcade/tutorial/types'
 import {
   clearGrid,

@@ -22,7 +22,7 @@ import {
   type Emitter,
   type EngineHost,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { GradientBackgroundNode } from '../../common/GradientBackgroundNode'
 import { Orb } from './Orb'
 import {

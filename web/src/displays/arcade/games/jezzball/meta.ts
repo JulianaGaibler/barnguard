@@ -1,4 +1,4 @@
-import { withAlpha } from '@src/stargazer'
+import { withAlpha } from 'stargazer'
 import type { ThemePalette } from '@src/core/theme'
 import type { GameModule } from '../GameModule'
 import JezzBallGame from './JezzBallGame.svelte'

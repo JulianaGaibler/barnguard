@@ -6,7 +6,7 @@
     fetchLeaderboard,
     type LeaderboardEntry,
   } from '@src/core/leaderboard/leaderboardClient'
-  import { DebugSection, DraggableWindow } from '@src/stargazer/debug/ui'
+  import { DebugSection, DraggableWindow } from 'stargazer/debug-ui'
   import ConfirmButton, {
     createConfirmCoordinator,
   } from '@src/core/ui/ConfirmButton.svelte'

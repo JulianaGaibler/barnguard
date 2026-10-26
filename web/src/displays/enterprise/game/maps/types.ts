@@ -5,7 +5,7 @@
  * between maps lives behind this descriptor.
  */
 
-import type { BitmapMask, Rect, SvgPathEntry, Vec2 } from '@src/stargazer'
+import type { BitmapMask, Rect, SvgPathEntry, Vec2 } from 'stargazer'
 import type { PacketMask } from '../behaviors/PacketBehavior'
 
 /**

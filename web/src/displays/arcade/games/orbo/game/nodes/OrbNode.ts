@@ -29,7 +29,7 @@ import {
   hitTestCircle,
   definePaintProps,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { FieldLayout } from '../layout'
 import { isInOwnScoringBand, returnTeamForZone, zoneAtX } from '../layout'
 import type { Orb } from '../Orb'

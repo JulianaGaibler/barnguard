@@ -1,4 +1,4 @@
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import type { BoardLayout } from '../layout'
 import { FRAME } from '../tuning'
 

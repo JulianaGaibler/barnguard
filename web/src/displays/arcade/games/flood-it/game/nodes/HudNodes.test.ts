@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paintCalls } from '@src/stargazer'
+import { paintCalls } from 'stargazer'
 import { FAMILIES } from '@src/core/theme'
 import { counterLayout, NoticeNode } from './HudNodes'
 

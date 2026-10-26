@@ -9,6 +9,24 @@ The story lives in `src/displays/age-verification/story/story.ts`. It's plain
 TypeScript data, so the type checker and the tests catch most mistakes before
 the story reaches the booth.
 
+The `policy-story` display is a copy of this one, opened with
+`?display=policy-story`. Its story is in `src/displays/policy-story/story/story.ts`.
+It has no Back or Home button, and its answers have a small square with no
+letter. Its tests use a separate story in `story/fixture.ts`, so the story text
+can change without touching them. After the progress row goes, a choice's
+answers sit under the text, side by side when the screen is wide enough. The
+text, the answers and the Continue button are centered, and the answers and the
+button are plain text in the action color that underlines on hover. The next
+section lists what its story format adds. A screen can also set `agitation`, 0
+to 1, which scales how much a shaking mood such as the fight shakes. Start it at
+0 and raise it screen by screen, and the background moves slowly at first and
+quickly only at the top. Each mood can carry rects and circles drawn as halftone dots, in `ui/moods.ts`. They
+fade out and back in slowly and grow and shrink a little. A circle in the middle
+of the screen sits behind the text, and only the fight uses one.
+The attendant menu has a "Jump to section" list for the same display. Its entries
+are in `story/sections.ts`, and each opens the story by the shortest path to that
+screen, so flags it reads start at whatever that path sets.
+
 ## Basic usage
 
 A story is a set of screens, called nodes, each with an id. Every node except an
@@ -67,6 +85,11 @@ import courtroom from '../assets/courtroom.svg?url'
 illustration: { src: courtroom, alt: 'A judge reading a ruling' },
 ```
 
+On a portrait screen, such as a phone, the picture sits above the text in a wide
+box that is about 830 design pixels across and 40 percent of the content height
+tall. The display fits the image inside the box without cropping it. A picture
+that reads well in a square or a wide box works on both layouts.
+
 The display draws the image dithered. To change how, add `dither` to the
 illustration, as the name of a preset or as settings laid over the display's own:
 
@@ -78,8 +101,9 @@ illustration: { src: courtroom, alt: 'A judge reading a ruling', dither: { cellS
 A preset brings its own colors. [`dither.md`](dither.md) lists the presets and
 settings.
 
-The splash screen isn't part of the story. Its title and intro are in
-`i18n/en.ts`, and its animation is set in `assets.ts`.
+The splash screen isn't part of the story. Its title is in `i18n/en.ts`, one
+line per entry so it breaks where the design does, and its animation is set in
+`assets.ts`.
 
 ### Answer ids
 
@@ -184,10 +208,12 @@ the flags decide which conclusion follows.
 
 ### Text length
 
-The left column has room for about fourteen lines of body text. An answer has
-room for about three lines when a choice has three answers, and two lines when
-it has four. The tests don't measure text. Open every changed screen with
-`?node=` and check that it fits.
+The text is set in CSS pixels by the width of the window: 20 on a phone, 28 on
+a laptop and 32 on a 1920 pixel screen, and a few words alone on a screen are
+set larger. If the text does not fit its box, it shrinks, by up to a quarter,
+and then the box scrolls. Answers are set a little smaller than the text. The
+tests don't measure text. Open every changed screen with `?node=` and check that
+it fits, on a wide window and on a phone.
 
 ### Window shape
 
@@ -197,7 +223,17 @@ near the bottom, and the content row stays 1664 design pixels wide in the
 middle. A wider window adds margin. A taller one adds space to the content,
 whose columns center their contents, so the line counts above hold at every
 shape. The background and the pictures follow the window's corners and the right
-column. `src/displays/age-verification/ui/layout.ts` has the numbers.
+column. A screen with only text sets it in a wider column, 980 design pixels
+across. On a portrait window the answers get the height their text needs, and
+the text above them gets the rest. `src/displays/age-verification/ui/layout.ts`
+has the numbers.
+
+### Keeping the place
+
+The path so far is saved in the browser after every screen. Reloading the page
+opens the story on the screen the visitor reached, with a "Start over" button
+at the top. Going home, an ending, the idle reset and the attendant's Stop game
+all forget the place. A saved path that no longer fits the story is dropped.
 
 ## See also
 
@@ -209,3 +245,55 @@ column. `src/displays/age-verification/ui/layout.ts` has the numbers.
 ## Motion
 
 Screen transitions are tuned in one file, `src/displays/age-verification/ui/motion.ts`. It holds every duration, distance and stagger, and the background poses. The text, the right column and the buttons arrive together and the answers follow closely, so raise `spread` and `tileStagger` only a little.
+
+## The policy story format
+
+A screen of the `policy-story` story can carry more than the screens above. The
+fields are in `story/types.ts`.
+
+- `label` is a time marker above the text, such as `June. 5 months to the
+election.` It shows on its own for a moment before the text.
+- `reply` on an answer is what comes back for it. It shows above the text of the
+  next screen, set like the text and running into it. It can hold conditional
+  paragraphs. Where the
+  next screen opens with a new label, make the reply its own screen instead,
+  with `button` for its words.
+- `prompt` on a choice is an instruction under the text, such as `Choose who you
+meet first.`
+- `button` names the single button of a scene or a moment, and `sets` on it sets
+  flags when it is pressed. `buttonStyle` is `plain`, `small` or `thought`, which
+  is italic.
+- A flag written `key=value`, such as `name=June`, is a remembered choice with a
+  value. Text can read it as `{name}`, and a condition can test `name=June`.
+  Give each value its own flag and read it somewhere, because the tests fail
+  on a flag that nothing reads.
+- A paragraph can be a list of parts, which are joined with a space, so one
+  sentence can change with a flag.
+- To bring a screen back with an answer missing, write a second copy of it, as
+  `5.01b` is in the story. A story with a cycle does not validate.
+- `dropsTrail` on a screen removes the progress row for the rest of the story.
+
+### Moods and timing
+
+`mood` names a look from `ui/moods.ts`: the color behind the text, the color of
+the text and the buttons, and two fields of halftone dots. A mood holds until a
+later screen on the path names another, and the display blends between them.
+The tests keep the text readable on every background, in every mood and part of
+the way between any two.
+
+`pace` sets how a screen's lines arrive: `together` shows them all at once,
+`beats` shows them one after another, and `slow` leaves longer between them. A
+reply comes first, then a beat, then the text. `hold` is the seconds the button
+and the answers wait after the last line. `cut` shows a screen at once, with no
+slide or fade.
+
+An `ending` with `fadeOut` fades the display to black when its button is
+pressed, stays dark for a moment, and returns to the splash.
+
+### Looking at a screen
+
+`?node=` opens the story at a screen, and `?flags=` lists the flags the path
+must have set, as in
+`?display=policy-story&node=6.06&flags=snack=cookies,called`. The search covers
+every combination of a screen and its flags, so it finds a path however long the
+story is.

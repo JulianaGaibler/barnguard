@@ -6,7 +6,7 @@
  * allocation-free. Each shard carries its own color so a single pool serves
  * every tile value.
  */
-import { type Canvas } from '@src/stargazer'
+import { type Canvas } from 'stargazer'
 import { BURST, exponentOf, tileColor } from '../tuning'
 import { ShardNode } from './ShardNode'
 

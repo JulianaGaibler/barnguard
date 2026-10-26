@@ -1,4 +1,4 @@
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 
 export interface BackgroundStarsOptions {
   /** Star count. ~500 is a comfortable ceiling for a 4K kiosk canvas. */

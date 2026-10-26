@@ -18,7 +18,7 @@
  * Every wait and animation goes through {@link runDemoLoop}, which is what keeps
  * a card that stops from stopping silently.
  */
-import { Node2D, type Canvas, type ShapeNode, type Stage } from '@src/stargazer'
+import { Node2D, type Canvas, type ShapeNode, type Stage } from 'stargazer'
 import { DEMO_DEBUG, demoLog, demoLogFirst } from '../../../tutorial/demoDebug'
 import type { DemoBuilder, DemoHandle } from '../../../tutorial/types'
 import { runDemoLoop, type DemoLoopContext } from '../../common/demoLoop'

@@ -17,7 +17,7 @@ import {
   type EngineHost,
   type Rect,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { MenuPreview } from '../../../menu/types'
 import type { PacketNode } from './nodes/PacketNode'
 import { spawnDriftPacket } from './spawnPacketInSession'

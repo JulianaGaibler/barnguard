@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Node2D, domAnchor, type Rect } from '@src/stargazer'
+  import { Node2D, domAnchor, type Rect } from 'stargazer'
   import { coverView, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import type { GameProps } from '../GameModule'
   import { BoardSession, type SessionState } from './game/session'

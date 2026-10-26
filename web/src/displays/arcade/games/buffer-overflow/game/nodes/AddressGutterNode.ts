@@ -15,7 +15,7 @@
  * The rows the current piece is about to land on brighten, which reinforces the
  * ghost for the price of one alpha change.
  */
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { textFloor } from '../layout'
 import { COLORS } from '../tuning'

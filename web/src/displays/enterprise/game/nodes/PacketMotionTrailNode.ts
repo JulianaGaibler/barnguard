@@ -5,7 +5,7 @@ import {
   type Canvas,
   type GfxGradientStop,
   type GfxLinearGradient,
-} from '@src/stargazer'
+} from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 export interface PacketMotionTrailOptions {

@@ -22,7 +22,7 @@
  *     token.transform.setPosition(seat.anchor.x, 0, seat.anchor.z)
  *   }
  */
-import type { Vec3 } from '@src/stargazer'
+import type { Vec3 } from 'stargazer'
 import { groundFromLayout } from './project'
 import { CARD, CLEAR_COLUMN, SEAT_RING } from './tuning'
 import { REGION_WIDTH } from '../../../world'

@@ -31,7 +31,7 @@ import {
   type Engine,
   type GfxFill,
   type GfxShadowStyle,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { GameOverReason, RegionId } from './game'
 import type { EnterpriseHighScores as HighScores } from './game-log'
 import type { EnterpriseMessages } from './i18n/types'

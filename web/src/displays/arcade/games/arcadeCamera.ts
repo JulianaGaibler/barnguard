@@ -3,7 +3,7 @@ import {
   ignoreAbort,
   type CameraNode2D,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** Framing-tween options a game can pass through to the leased camera. */
 export interface ArcadeCameraAnimateOptions {

@@ -17,7 +17,7 @@ import {
   ignoreAbort,
   Node2D,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { headingFont } from '../../fonts'
 import {
   ANIM,

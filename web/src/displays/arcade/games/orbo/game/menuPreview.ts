@@ -21,7 +21,7 @@ import {
   type Canvas,
   type PhysicsWorld,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { MenuPreview } from '@src/displays/arcade/menu/types'
 import { createOrboPhysicsConfig } from './scene'
 import { Orb } from './Orb'

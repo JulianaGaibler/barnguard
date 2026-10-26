@@ -9,7 +9,7 @@
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { domAnchor, easings, ignoreAbort, type Engine } from '@src/stargazer'
+  import { domAnchor, easings, ignoreAbort, type Engine } from 'stargazer'
   import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
   import type { ChoiceOption } from '../story/types'
   import { AnswerRow } from './answerRow'
@@ -28,6 +28,10 @@
     picked: string | null
     disabled: boolean
     ariaLabel: (letter: string, label: string) => string
+    /** The font size of the answers' text, in design pixels. */
+    fontSize: number
+    /** The least height of an answer, so it is big enough to tap. */
+    minHeight: number
     onPick: (optionId: string) => void
     /** Hands the rows to whoever animates them, once they exist. */
     onRows: (rows: readonly AnswerRow[]) => void
@@ -40,6 +44,8 @@
     picked,
     disabled,
     ariaLabel,
+    fontSize,
+    minHeight,
     onPick,
     onRows,
   }: Props = $props()
@@ -89,7 +95,12 @@
   })
 </script>
 
-<ol class="answers" style:--answer-width="{box.width}px">
+<ol
+  class="answers"
+  style:--answer-width="{box.width}px"
+  style:--answer-size="{fontSize}px"
+  style:--answer-min-height="{minHeight}px"
+>
   {#each options as option, i (option.id)}
     <li>
       <button
@@ -120,7 +131,8 @@
     list-style: none
 
   // Anchored to the answer's slot, so the top left is the slot. The left
-  // padding clears the square, which the engine draws under it.
+  // padding clears the square, which the engine draws under it. The text starts
+  // at the top, so the extra height of a small screen is only tap area.
   .answer
     position: absolute
     inset-block-start: 0
@@ -131,8 +143,8 @@
     box-sizing: border-box
     // The anchor clears an inline width, so the column's width is a property.
     width: var(--answer-width)
-    min-height: 128px
-    padding: 0 0 0 128px
+    min-height: var(--answer-min-height)
+    padding: 0 0 0 56px
     border: 0
     background: none
     color: var(--color-text)
@@ -147,12 +159,14 @@
       cursor: default
 
   // The text is trimmed to its cap height and baseline, so the label is the
-  // block that carries the type and the padding.
+  // block that carries the type and the padding. The top padding keeps the
+  // first line's cap height on the middle of the 56px square, whatever the size.
   .answer__label
     @include type.option
+    font-size: var(--answer-size, 40px)
     display: block
     flex: 1
-    padding: 24px
+    padding: calc(28px - 0.35em) 24px 24px
 
   .answer--picked
     color: var(--color-accent)

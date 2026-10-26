@@ -3,7 +3,7 @@
  * per geometry. The short shake a big merge gives it moves the node's
  * transform, so it never repaints.
  */
-import { definePaintProps, mixColor, Node2D, type Canvas } from '@src/stargazer'
+import { definePaintProps, mixColor, Node2D, type Canvas } from 'stargazer'
 import { type BoardGeom, cellRect } from '../layout'
 import { BEVEL, COLORS } from '../tuning'
 import { CELLS } from '../types'

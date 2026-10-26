@@ -13,8 +13,8 @@
     DualKawaseBlur,
     FilmGrain,
     type EngineHost,
-  } from '@src/stargazer'
-  import { DebugSlider } from '@src/stargazer/debug/ui'
+  } from 'stargazer'
+  import { DebugSlider } from 'stargazer/debug-ui'
   import { SliceShift } from './SliceShift'
 
   const blur = new DualKawaseBlur()

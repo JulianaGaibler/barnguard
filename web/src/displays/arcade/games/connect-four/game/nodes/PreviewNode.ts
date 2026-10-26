@@ -1,4 +1,4 @@
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 
 /**
  * A translucent disc hovering above a column while the player is choosing where

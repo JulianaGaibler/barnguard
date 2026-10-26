@@ -13,7 +13,7 @@
  * The frame's title carries the seat's identity, which is why there is no
  * separate player label anywhere on the board.
  */
-import { Node2D, easings, withAlpha, type Canvas } from '@src/stargazer'
+import { Node2D, easings, withAlpha, type Canvas } from 'stargazer'
 import { VISIBLE_TOP, visibleRows, type Buffer } from '../board'
 import { font } from '../../fonts'
 import { textFloor } from '../layout'

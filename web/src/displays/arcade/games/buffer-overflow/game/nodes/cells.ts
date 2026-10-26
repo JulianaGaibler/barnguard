@@ -6,7 +6,7 @@
  * function means a piece looks the same everywhere it appears, which is what
  * lets a player read the queue at a glance.
  */
-import type { Canvas } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 import { pieceCells } from '../pieces'
 import { FRAME, PIECE_COLORS, pieceHighlight, pieceSkirt } from '../tuning'
 import type { PieceKind, Rotation } from '../types'

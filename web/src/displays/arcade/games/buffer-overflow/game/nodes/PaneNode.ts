@@ -9,7 +9,7 @@
  * section that the ladder dropped takes its divider with it and there is no
  * second list to keep in step.
  */
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { textFloor } from '../layout'
 import { accentForLevel, COLORS, FRAME } from '../tuning'

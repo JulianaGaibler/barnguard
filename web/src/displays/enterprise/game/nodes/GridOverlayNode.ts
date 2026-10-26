@@ -9,7 +9,7 @@ import {
   type Rect,
   type ShaderReflection,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { PacketNode } from './PacketNode'
 import type { PacketMask } from '../behaviors/PacketBehavior'
 import { TUNING } from '../data/tuning'

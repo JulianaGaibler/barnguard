@@ -1,4 +1,4 @@
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 
 /**
  * A green reference grid drawn on the black backdrop, behind the map. Lives at

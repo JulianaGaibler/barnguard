@@ -8,9 +8,9 @@ export const en: AgeVerificationMessages = {
     title: 'Age Verification',
   },
   splash: {
-    title: 'Age verification',
+    title: ['Configuring', 'age assurance'],
     intro:
-      'Laws around the world want websites and apps to check how old you are. Make the calls, and see where they lead.',
+      'Governments around the world are deciding whether apps and websites need to know your age.',
     start: 'Start',
   },
   story: {
@@ -18,6 +18,7 @@ export const en: AgeVerificationMessages = {
     home: 'Home',
     continue: 'Continue',
     startOver: 'Start over',
+    restart: 'Start over',
     optionLabel: (letter, label) => `Choice ${letter}: ${label}`,
     progressLabel: (step) => `Step ${step}`,
     idleReturning: 'Returning to the start',

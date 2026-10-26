@@ -9,7 +9,7 @@ import {
   parseSvgPaths,
   type Rect,
   type SvgPathMap,
-} from '@src/stargazer'
+} from 'stargazer'
 import countriesSvgRaw from '@src/displays/enterprise/assets/eu-countries.svg?raw'
 import { buildLandMask, findEnclosedRegions, mergeAllPaths } from '../geometry'
 import { TUNING } from '../../data/tuning'

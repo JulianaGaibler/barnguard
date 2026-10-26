@@ -9,7 +9,7 @@
  * The node is positioned at its anchor via its transform and draws the number
  * centered on the origin. A world-unit font keeps it in scale with the field.
  */
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { fontFor } from '@src/core/theme'
 import { SCORE_TEXT } from '../tuning'
 import { ORBO_FONTS } from '../../fonts'

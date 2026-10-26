@@ -1,4 +1,4 @@
-import { Node2D, type BitmapMask, type Canvas, type Vec2 } from '@src/stargazer'
+import { Node2D, type BitmapMask, type Canvas, type Vec2 } from 'stargazer'
 import type { PacketNode } from './PacketNode'
 import type { PacketMask } from '../behaviors/PacketBehavior'
 import { TUNING } from '../data/tuning'

@@ -12,7 +12,7 @@ import {
   definePaintProps,
   type Canvas,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { ANIM, COLORS } from '../tuning'
 import { drawIcon, iconWidth, icons, iconsRef } from '../../art/icons'
 import type { Floor } from '../rules/deck'

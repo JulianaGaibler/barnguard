@@ -1,4 +1,4 @@
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 
 /**
  * Solid backdrop for the game region. Fills the camera's visible world rect so

@@ -3,7 +3,7 @@
 // every legal seat gets a faint card-shaped placeholder and the one under the
 // pointer gets an accent outline.
 
-import { Node2D, type Canvas, type Rect } from '@src/stargazer'
+import { Node2D, type Canvas, type Rect } from 'stargazer'
 import { COLORS } from '../tuning'
 
 export type FrameCell = {

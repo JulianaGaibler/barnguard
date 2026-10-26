@@ -1,4 +1,4 @@
-import type { Vec2 } from '@src/stargazer'
+import type { Vec2 } from 'stargazer'
 
 export interface RouteInput {
   /** Where the packet is now. */

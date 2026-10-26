@@ -12,8 +12,8 @@ import {
   type Engine,
   type Layer,
   type Rect,
-} from '@src/stargazer'
-import { visibleRect, worldPerCssPx } from './designRegion'
+} from 'stargazer'
+import { visibleRect } from './designRegion'
 
 export class UiRegion {
   /** A node at the region's top left. HTML nodes pin to it. */
@@ -24,6 +24,9 @@ export class UiRegion {
 
   /** World units per canvas CSS pixel, for sizes that stay fixed on screen. */
   cssPxInWorld = $state(1)
+
+  /** The rect the layer fits into the canvas, which can change on resize. */
+  frame = $state.raw<Rect | null>(null)
 
   readonly #layer: Layer
   readonly #listeners: Array<(rect: Rect) => void> = []
@@ -57,10 +60,9 @@ export class UiRegion {
       height: rect.height,
     }
     this.rect = rect
-    this.cssPxInWorld = worldPerCssPx(
-      stage!.renderer.cssSize.w,
-      stage!.renderer.cssSize.h,
-    )
+    const scale = view.screenPxPerWorldUnit()
+    this.cssPxInWorld = scale > 0 ? 1 / scale : 1
+    this.frame = this.#layer.frame
     for (const fn of this.#listeners) fn(rect)
   }
 

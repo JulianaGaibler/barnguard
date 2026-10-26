@@ -9,7 +9,7 @@ import {
   mixColor,
   Node2D,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { font, headingFont } from '../../fonts'
 import { ANIM, BEVEL, COLORS } from '../tuning'
 import { drawSlab } from '../../../common/bevel'

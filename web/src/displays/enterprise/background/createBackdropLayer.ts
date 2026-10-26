@@ -1,4 +1,4 @@
-import { DualKawaseBlur, FilmGrain, Layer, type Rect } from '@src/stargazer'
+import { DualKawaseBlur, FilmGrain, Layer, type Rect } from 'stargazer'
 import { GradientBackdropNode } from './GradientBackdropNode'
 import { SliceShift } from './SliceShift'
 

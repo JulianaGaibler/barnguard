@@ -6,7 +6,7 @@
  * be, so everything scales with the arcade region instead of being pinned to
  * one resolution. Timings are seconds of engine time, so a paused game holds.
  */
-import { mixColor, withAlpha } from '@src/stargazer'
+import { mixColor, withAlpha } from 'stargazer'
 import type { PlayerId, PresetId } from './types'
 
 /** One board-size choice. */

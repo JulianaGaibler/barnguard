@@ -4,9 +4,13 @@ import App from './App.svelte'
 import { applyTheme } from '@src/core/theme'
 import { preloadFonts } from '@src/core/fonts'
 import { startUiScale } from '@src/core/ui/uiScale'
+import { isInstalledApp, keepAwake, lockGestures } from '@src/core/pwa/appMode'
+import { linkInstallMetadata } from '@src/core/pwa/installable'
+import { registerServiceWorker } from '@src/core/pwa/register'
 import { setActiveDisplay } from '@src/core/display'
 import { registerDisplayLocales } from '@src/i18n'
-import { displayRegistry } from '@src/displayRegistry'
+import { displayRegistry } from 'virtual:displays'
+import { bootDevSurface } from '@src/dev/boot'
 import {
   renderFatalError,
   renderLanding,
@@ -26,20 +30,6 @@ if (!target) {
 
 const params = new URLSearchParams(window.location.search)
 
-// `?demo=…` is the engine's demo stage, its own surface, not a kiosk display.
-// It has no theme, no locales and no booth chrome, so it bypasses `App`
-// entirely rather than borrowing a display to host it.
-const isDemoRun = params.has('demo')
-// `?fonts` is the type specimen: a dev surface for judging the shipped faces
-// and the role each is bound to. Like the demo stage, it is not a display.
-const isFontRun = params.has('fonts')
-// `?backdrop` previews the Enterprise brand background composite (blur,
-// slice shift, grain) in isolation. Also not a display.
-const isBackdropRun = params.has('backdrop')
-// `?dither` previews the dither effect on a few sources, with every setting.
-const isDitherRun = params.has('dither')
-const displayId = params.get('display')
-
 function knownDisplayLinks(): DisplayLink[] {
   return Object.keys(displayRegistry).map((id) => ({
     id,
@@ -48,46 +38,18 @@ function knownDisplayLinks(): DisplayLink[] {
 }
 
 /**
- * Pick the surface to mount: a dev surface (`?demo=`, `?fonts`, `?backdrop`)
- * when present, otherwise the display named by `?display=`. A missing or
- * unknown display id renders a landing / error page. There is no default
- * fallback, so a mis-configured kiosk fails loudly instead of quietly booting
- * into the wrong event.
+ * Pick the surface to mount. A single-display build always boots its display. A
+ * full build mounts a dev surface (`?fonts`, `?backdrop`, `?dither`) when one
+ * is asked for, otherwise the display named by `?display=`, and a missing or
+ * unknown id renders a landing / error page. There is no default fallback, so a
+ * mis-configured kiosk fails loudly instead of quietly booting into the wrong
+ * event.
  */
 async function boot(): Promise<void> {
-  if (isFontRun) {
-    startUiScale()
-    const { default: FontSpecimen } =
-      await import('@src/dev/FontSpecimen.svelte')
-    await preloadFonts()
-    mount(FontSpecimen, { target: target! })
-    return
-  }
-  if (isBackdropRun) {
-    startUiScale()
-    const { default: BackdropPreview } =
-      await import('@src/displays/enterprise/background/BackdropPreview.svelte')
-    mount(BackdropPreview, { target: target! })
-    return
-  }
-  if (isDitherRun) {
-    startUiScale()
-    const { default: DitherPreview } =
-      await import('@src/dev/DitherPreview.svelte')
-    mount(DitherPreview, { target: target! })
-    return
-  }
-  if (isDemoRun) {
-    startUiScale()
-    // Dynamic so a kiosk build never carries the demo stage or the debug HUD
-    // it pulls in.
-    const { default: DemoRouter } =
-      await import('@src/stargazer/dev/DemoRouter.svelte')
-    await preloadFonts()
-    mount(DemoRouter, { target: target! })
-    return
-  }
-  const id = displayId
+  if (!__SINGLE_DISPLAY__ && (await bootDevSurface(params, target!))) return
+  // A single build ignores `?display=`, so a copy installed from a full build
+  // with `./?display=<id>` as its start URL still opens.
+  const id = __SINGLE_DISPLAY__ ?? params.get('display')
   if (!id) {
     renderLanding(target!, knownDisplayLinks())
     return
@@ -102,11 +64,17 @@ async function boot(): Promise<void> {
   startUiScale()
   registerDisplayLocales(manifest.locales, manifest.defaultLanguage)
   setActiveDisplay(manifest)
+  lockGestures()
+  if (isInstalledApp()) keepAwake()
+  if (manifest.install) {
+    linkInstallMetadata(id, manifest.name, manifest.install)
+    registerServiceWorker()
+  }
   // Hold the mount until the webfonts have settled. The engine bakes canvas
   // text into a texture atlas on first draw and caches it by font string, so a
   // label drawn before its face arrives keeps the fallback glyphs. The fetch
   // overlaps the display-module import above, so this costs little in practice.
-  await preloadFonts()
+  await preloadFonts(manifest.fontSpecs)
   mount(App, { target: target!, props: { display: manifest } })
 }
 

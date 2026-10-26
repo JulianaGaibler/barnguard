@@ -1,4 +1,4 @@
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import foxTailUrl from '../assets/fox-tail.svg?url'
 
 /** The SVG's own intrinsic size (`viewBox="0 0 1161 1515"`). */

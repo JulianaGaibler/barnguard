@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paintCalls, type Node2D } from '@src/stargazer'
+import { paintCalls, type Node2D } from 'stargazer'
 import { EpicenterNode } from './EpicenterNode'
 
 function build(): { node: EpicenterNode; dots: Node2D } {

@@ -6,7 +6,7 @@ import {
   Path2DNode,
   ShapeNode,
   TextNode,
-} from '@src/stargazer'
+} from 'stargazer'
 import {
   buildLabelScene,
   ellipseOfMatrix,
@@ -27,8 +27,8 @@ import { en } from './i18n/en'
 
 // happy-dom has no text shaping, so a stand-in gives each character a fixed
 // share of the font size.
-vi.mock('@src/stargazer', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@src/stargazer')>()
+vi.mock('stargazer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('stargazer')>()
   return {
     ...actual,
     measureText: (text: string, style: { font: string }) => {

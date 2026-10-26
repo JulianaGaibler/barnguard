@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { paintCalls } from '@src/stargazer'
+import { paintCalls } from 'stargazer'
 import { CardNode } from './CardNode'
 import { BODY_SIZE_FRACS, cardFace } from '../cardFace'
 import { COLORS } from '../tuning'

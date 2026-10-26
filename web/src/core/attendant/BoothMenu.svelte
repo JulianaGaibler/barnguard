@@ -9,7 +9,7 @@
     DebugSection,
     DraggableWindow,
     ToggleButton,
-  } from '@src/stargazer/debug/ui'
+  } from 'stargazer/debug-ui'
   import {
     boothMenuState,
     closeBoothMenu,

@@ -1,4 +1,4 @@
-import { Path2DNode, easings, ignoreAbort } from '@src/stargazer'
+import { Path2DNode, easings, ignoreAbort } from 'stargazer'
 import type { RegionId } from '../maps/types'
 import { TUNING } from '../data/tuning'
 

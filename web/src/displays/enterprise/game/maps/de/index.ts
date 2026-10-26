@@ -3,7 +3,7 @@
  * coastline as the failure boundary.
  */
 
-import { parseSvgPaths, type Rect, type SvgPathMap } from '@src/stargazer'
+import { parseSvgPaths, type Rect, type SvgPathMap } from 'stargazer'
 import statesSvgRaw from '@src/displays/enterprise/assets/de-states.svg?raw'
 import outlineSvgRaw from '@src/displays/enterprise/assets/de-outline.svg?raw'
 import citiesSvgRaw from '@src/displays/enterprise/assets/de-cities.svg?raw'

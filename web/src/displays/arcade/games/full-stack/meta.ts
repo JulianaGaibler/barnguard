@@ -1,4 +1,4 @@
-import { withAlpha } from '@src/stargazer'
+import { withAlpha } from 'stargazer'
 import type { GameModule } from '../GameModule'
 import FullStackGame from './FullStackGame.svelte'
 import { COLORS } from './game/tuning'

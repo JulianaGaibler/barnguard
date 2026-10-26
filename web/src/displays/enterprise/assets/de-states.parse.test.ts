@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseSvgPaths } from '@src/stargazer'
+import { parseSvgPaths } from 'stargazer'
 
 /**
  * Regression: the Enterprise map SVG must parse to exactly the 16 Bundesländer,

@@ -1,4 +1,4 @@
-import { Node2D, withAlpha, type Canvas, type Vec2 } from '@src/stargazer'
+import { Node2D, withAlpha, type Canvas, type Vec2 } from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 /** Number of segments used to tessellate the cone's arc. */

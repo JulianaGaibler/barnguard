@@ -9,7 +9,7 @@
  * are `fixedRotation` with no contact friction. The arcade feel is pure
  * restitution plus exponential damping.
  */
-import { Body, BodyType, LAYER_ALL, circleShape } from '@src/stargazer'
+import { Body, BodyType, LAYER_ALL, circleShape } from 'stargazer'
 import type { OrbSize, TeamId } from './types'
 
 export interface OrbParams {

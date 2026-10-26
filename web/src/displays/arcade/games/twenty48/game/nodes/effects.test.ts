@@ -5,7 +5,7 @@ import {
   paintCalls,
   SceneTree,
   type Engine,
-} from '@src/stargazer'
+} from 'stargazer'
 import { BoardFrameNode } from './BoardFrameNode'
 import { FloatingScoreNode } from './FloatingScoreNode'
 import { MergeBurstNode } from './MergeBurstNode'

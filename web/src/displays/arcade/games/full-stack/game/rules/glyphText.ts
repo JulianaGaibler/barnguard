@@ -19,7 +19,7 @@
 // `text.ts` stays the prose form for everything with room for it, which is the
 // choice prompt and the end-of-game breakdown.
 
-import type { InlineBox, TextRun, TextSpan } from '@src/stargazer'
+import type { InlineBox, TextRun, TextSpan } from 'stargazer'
 import {
   type Card,
   type Condition,

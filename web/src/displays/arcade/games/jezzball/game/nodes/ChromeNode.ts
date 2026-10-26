@@ -9,7 +9,7 @@
  * painted once. Each `+` is a child node that the update turns, so a quarter
  * turn repaints nothing.
  */
-import { Node2D, definePaintProps, easings, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, easings, type Canvas } from 'stargazer'
 import type { Bounds } from '../types'
 import { COLORS } from '../tuning'
 

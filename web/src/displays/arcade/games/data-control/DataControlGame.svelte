@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { domAnchor, ignoreAbort, mixColor, type Rect } from '@src/stargazer'
+  import { domAnchor, ignoreAbort, mixColor, type Rect } from 'stargazer'
   import { coverView, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import { BLACK, GREEN } from './palette'
   import type { GameProps } from '../GameModule'

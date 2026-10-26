@@ -16,7 +16,7 @@
  * has the conversion backwards.
  */
 import { describe, expect, it } from 'vitest'
-import type { Canvas } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 import { ScanlineNode } from './ScanlineNode'
 import type { Bounds } from '../types'
 

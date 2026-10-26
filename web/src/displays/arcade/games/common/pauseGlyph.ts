@@ -13,7 +13,7 @@
  * @example
  *   drawPauseGlyph(gfx, size / 2, size / 2, size, COLORS.ink)
  */
-import type { Canvas } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 
 /** Bar width, as a fraction of the glyph box. */
 const BAR_W = 0.11

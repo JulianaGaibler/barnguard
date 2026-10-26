@@ -6,8 +6,9 @@ import type { CoreMessages } from '@src/i18n'
  */
 export interface AgeVerificationMessages extends CoreMessages {
   splash: {
-    title: string
-    /** One or two sentences under the title, on what the visitor is in for. */
+    /** The title, one line each, so it breaks where the design does. */
+    title: readonly string[]
+    /** The line under the title. */
     intro: string
     /** The call to begin. */
     start: string
@@ -21,6 +22,8 @@ export interface AgeVerificationMessages extends CoreMessages {
     continue: string
     /** Leaves an ending for the splash screen. */
     startOver: string
+    /** Drops a story resumed partway and starts again from the splash. */
+    restart: string
     /** Accessible name for one choice, as in "Choice A: …". */
     optionLabel: (letter: string, label: string) => string
     /** Accessible name for the row of progress marks. */

@@ -13,12 +13,12 @@
     ShapeNode,
     mountEngine,
     type EngineHost,
-  } from '@src/stargazer'
+  } from 'stargazer'
   import {
     DebugSelect,
     DebugSlider,
     ToggleButton,
-  } from '@src/stargazer/debug/ui'
+  } from 'stargazer/debug-ui'
   import { Dither } from '@src/core/render/dither/Dither'
   import {
     DITHER_PRESETS,

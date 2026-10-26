@@ -1,10 +1,16 @@
-import { describe, expect, it } from 'vitest'
-import { story } from '../story/story'
+import { describe, expect, it, vi } from 'vitest'
+import { fixtureStory as story } from '../story/fixture'
 import { Run } from '../story/run'
 import { AnswerRow } from './answerRow'
-import { ENDING_POSE, MOTION, stepPose, type Pose } from './motion'
+import { ROW_GAP, TILE_SIZE } from './rowLayout'
+import { ENDING_POSE, MOTION, flightPoint, stepPose, type Pose } from './motion'
 import { StoryDirector, poseOf, type DirectorMotion } from './storyDirector'
 import { TrailView, type Tweener } from './trailView'
+
+vi.mock('./motion', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./motion')>()
+  return { ...original, flightPoint: vi.fn(original.flightPoint) }
+})
 
 /**
  * An engine whose tweens finish at once, or wait until released. A released
@@ -52,12 +58,12 @@ function fakeEngine() {
   return engine
 }
 
-function setup() {
+function setup(opts: { stacked?: boolean } = {}) {
   const engine = fakeEngine()
   const motion: DirectorMotion = { text: 1, side: 1, nav: 1, trail: 1, sign: 1 }
   const trail = new TrailView(engine as unknown as Tweener)
   const rows = [new AnswerRow('A'), new AnswerRow('B'), new AnswerRow('C')]
-  rows.forEach((row, i) => row.place(1024, 284 + i * 191))
+  rows.forEach((row, i) => row.place(1024, 284 + i * (TILE_SIZE + ROW_GAP)))
   const log: string[] = []
   const poses: Array<{ pose: Pose; swell: boolean | undefined }> = []
   const pictures: number[] = []
@@ -70,6 +76,7 @@ function setup() {
     rows: () => rows,
     trailOrigin: () => ({ x: 128, y: 63 }),
     rowWidth: () => 1664,
+    stacked: () => opts.stacked ?? false,
     setRun: async (next) => {
       snapshots.push(rows.map((row) => ({ ...row.pose })))
       shown = next
@@ -177,18 +184,35 @@ describe('StoryDirector.forward', () => {
     await t.director.forward(next, { index: 0, id: 'strict' })
     const picked = t.snapshots[0]![0]!
     // Round and red, with its letter gone.
-    expect(picked.radius).toBe(64)
+    expect(picked.radius).toBe(TILE_SIZE / 2)
     expect(picked.red).toBe(1)
     expect(picked.letterAlpha).toBe(0)
     // It flew from where it sat to the slot of the third mark, shrunk to its size.
-    const from = { x: 1088, y: 348 }
+    const from = { x: 1024 + TILE_SIZE / 2, y: 284 + TILE_SIZE / 2 }
     expect(picked.flightX).toBeCloseTo(128 + 18 + 52 - from.x)
     expect(picked.flightY).toBeCloseTo(63 + 18 - from.y)
-    expect(picked.scale).toBeCloseTo(36 / 128)
+    expect(picked.scale).toBeCloseTo(36 / TILE_SIZE)
     // The mark took its place, visible, and the circle is gone.
     expect(t.trail.count).toBe(2)
     expect(t.trail.markAt(1)?.visible).toBe(true)
     expect(picked.alpha).toBe(0)
+  })
+
+  it('flies up first on two columns and across first on one', async () => {
+    for (const stacked of [false, true]) {
+      vi.mocked(flightPoint).mockClear()
+      const t = setup({ stacked })
+      t.trail.sync(atChoice.progress(), 1664, { animate: false })
+      await t.director.forward(atChoice.choose('strict'), {
+        index: 0,
+        id: 'strict',
+      })
+      const orders = vi.mocked(flightPoint).mock.calls.map((call) => call[3])
+      expect(orders.length).toBeGreaterThan(0)
+      expect(new Set(orders)).toEqual(
+        new Set([stacked ? 'across-first' : 'up-first']),
+      )
+    }
   })
 
   it('names the picked answer before anything moves, and clears it for the next screen', async () => {

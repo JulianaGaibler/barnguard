@@ -52,6 +52,8 @@
 html, body
   height: 100%
   margin: 0
+  // No pull to refresh and no rubber band at the edges of the screen.
+  overscroll-behavior: none
 
 // Kiosk defaults: fill the screen, suppress text selection and the touch
 // highlight so the installation feels like an appliance, not a web page.
@@ -60,6 +62,7 @@ body
   user-select: none
   -webkit-user-select: none
   -webkit-tap-highlight-color: transparent
+  -webkit-touch-callout: none
   touch-action: manipulation
 
 #app

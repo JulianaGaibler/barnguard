@@ -9,7 +9,7 @@ import {
   withAlpha,
   type Canvas,
   type Engine,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { ProgressMark } from '../story/run'
 import { PALETTE } from '../theme'
 import { MOTION } from './motion'

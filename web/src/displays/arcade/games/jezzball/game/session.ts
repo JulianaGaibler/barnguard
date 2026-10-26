@@ -22,7 +22,7 @@ import {
   ignoreAbort,
   type EngineHost,
   type Emitter,
-} from '@src/stargazer'
+} from 'stargazer'
 import { BoardController, type BoardColors } from './board'
 import { eliminationPoints, fillBonus, livesBonus, timeBonus } from './scoring'
 import { ANIM, RULES } from './tuning'

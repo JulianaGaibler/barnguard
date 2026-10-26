@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ROW_GAP, TILE_SIZE, rowTops } from './rowLayout'
+import { MIN_ROW_GAP, ROW_GAP, TILE_SIZE, rowTops } from './rowLayout'
 
 const box = { x: 1024, y: 159, width: 768, height: 760 }
 
@@ -22,9 +22,9 @@ describe('rowTops', () => {
   })
 
   it('reproduces the design for three two-line answers', () => {
-    // Three rows of 144 with 63 between: 3 * 144 + 2 * 63 = 558, in a 760 box.
     const tops = rowTops([144, 144, 144], box)
-    expect(tops[0]).toBeCloseTo(159 + (760 - 558) / 2)
+    const stack = 3 * 144 + 2 * ROW_GAP
+    expect(tops[0]).toBeCloseTo(159 + (760 - stack) / 2)
   })
 
   it('centers a single answer', () => {
@@ -33,5 +33,27 @@ describe('rowTops', () => {
 
   it('gives no rows for no answers', () => {
     expect(rowTops([], box)).toEqual([])
+  })
+})
+
+describe('rowTops in a box that is too short', () => {
+  const short = { x: 0, y: 0, width: 832, height: 640 }
+
+  it('closes the gaps so the stack fits', () => {
+    const tight = { ...short, height: 580 }
+    const tops = rowTops([128, 128, 128, 128], tight)
+    expect(tops[0]).toBeCloseTo(0)
+    expect(tops[3]! + 128).toBeCloseTo(580)
+    expect(tops[1]! - tops[0]! - 128).toBeCloseTo((580 - 512) / 3)
+  })
+
+  it('keeps a minimum gap when even that does not fit', () => {
+    const tops = rowTops([128, 128, 128, 128], { ...short, height: 400 })
+    expect(tops[1]! - tops[0]! - 128).toBe(MIN_ROW_GAP)
+  })
+
+  it('fits four answers in the portrait box of the smallest phone', () => {
+    const need = 4 * TILE_SIZE + 3 * ROW_GAP
+    expect(need).toBe(308)
   })
 })

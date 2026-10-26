@@ -15,7 +15,7 @@
  *   const face = await loadMenuFace()
  *   gfx.drawImage(face.image, x, y, w, w / face.aspect)
  */
-import { AssetLoader, rasterizeSvg } from '@src/stargazer'
+import { AssetLoader, rasterizeSvg } from 'stargazer'
 import raw from '../../assets/menu-mouth.svg?raw'
 
 /**

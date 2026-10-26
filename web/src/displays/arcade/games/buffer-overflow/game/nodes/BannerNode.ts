@@ -11,7 +11,7 @@
  * re-rasterises the label every frame it changes, where alpha rides the quad
  * tint for free.
  */
-import { easings, Node2D, type Canvas } from '@src/stargazer'
+import { easings, Node2D, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { ANIM, FRAME } from '../tuning'
 import { ruleWidth, withGlow } from './tui'

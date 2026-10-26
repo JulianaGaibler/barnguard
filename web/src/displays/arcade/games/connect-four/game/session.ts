@@ -20,7 +20,7 @@ import {
   type Emitter,
   type EngineHost,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { FAMILIES } from '@src/core/theme'
 import {
   COLS,

@@ -9,7 +9,7 @@
  * real alpha.
  */
 
-import { mixColor, withAlpha } from '@src/stargazer'
+import { mixColor, withAlpha } from 'stargazer'
 import type { ThemePalette } from '@src/core/theme'
 
 /** Backdrop black. The map paints on it, so shades mix against it. */

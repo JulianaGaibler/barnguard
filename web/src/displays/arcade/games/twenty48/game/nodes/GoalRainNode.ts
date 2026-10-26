@@ -9,7 +9,7 @@
  * Released over about a second rather than all at once, so the board rains
  * rather than coughing.
  */
-import { type Canvas } from '@src/stargazer'
+import { type Canvas } from 'stargazer'
 import type { Bounds } from '../types'
 import { GOAL, TILE_COLORS } from '../tuning'
 import { ShardNode } from './ShardNode'

@@ -1,32 +1,25 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
+import { setTextMeasurer } from 'stargazer/testing'
 
 // `measureText` needs a real 2D context and reports zero headlessly, which would
-// make every string trivially "fit". Stub a proportional model on textLayout's
-// own dependency (not the barrel, which it does not import measurement through),
-// a little wider than a typical sans face so the check errs toward failing.
-vi.mock('@src/stargazer/render/gfx/rasterizeLabel', async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import('@src/stargazer/render/gfx/rasterizeLabel')
-    >()
+// make every string trivially "fit". Stub a proportional model, a little wider
+// than a typical sans face so the check errs toward failing.
+setTextMeasurer((text, style) => {
+  const size = Number(/(\d+(?:\.\d+)?)px/.exec(style.font)?.[1] ?? 10)
+  const ink = text.length * size * 0.55
   return {
-    ...actual,
-    measureText: (text: string, style: { font: string }) => {
-      const size = Number(/(\d+(?:\.\d+)?)px/.exec(style.font)?.[1] ?? 10)
-      const ink = text.length * size * 0.55
-      return {
-        localW: ink + 4,
-        localH: size + 4,
-        advance: ink,
-        anchorOffsetX: 0,
-        anchorOffsetY: 0,
-      }
-    },
+    localW: ink + 4,
+    localH: size + 4,
+    advance: ink,
+    ascent: size,
+    descent: size * 0.25,
+    anchorOffsetX: 0,
+    anchorOffsetY: 0,
   }
 })
 
 const { fitRichTextBlock, fitTextBlock, richText } =
-  await import('@src/stargazer')
+  await import('stargazer')
 const { DECK } = await import('../rules/deck')
 const { describeAbilitySpans, describeScoringSpans } =
   await import('../rules/text')
@@ -34,7 +27,7 @@ const { abilityFaceSpans, scoringFaceSpans } =
   await import('../rules/glyphText')
 const { cardFace, BODY_SIZE_FRACS, NAME_SIZE_FRACS } =
   await import('../cardFace')
-type TextSpan = import('@src/stargazer').TextSpan
+type TextSpan = import('stargazer').TextSpan
 
 // A shortlist candidate at the reference aspect: the smallest card drawn in full.
 const W = 200

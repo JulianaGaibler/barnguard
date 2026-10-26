@@ -25,7 +25,7 @@ import {
   rectPointAt,
   Row,
   SizedBox,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { Bounds, CellRef, Orientation } from './types'
 import { ANIM } from './tuning'
 

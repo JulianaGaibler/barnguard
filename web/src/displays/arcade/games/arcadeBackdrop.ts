@@ -1,4 +1,4 @@
-import type { Node } from '@src/stargazer'
+import type { Node } from 'stargazer'
 
 /** The id of the node the shared background lives under. */
 export const BACKGROUND_NODE_ID = 'background'

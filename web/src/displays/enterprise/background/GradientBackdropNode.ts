@@ -4,7 +4,7 @@ import {
   type Canvas,
   type GfxGradientStop,
   type GfxLinearGradient,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** CSS angle, degrees clockwise from straight up. */
 const ANGLE_DEG = 114

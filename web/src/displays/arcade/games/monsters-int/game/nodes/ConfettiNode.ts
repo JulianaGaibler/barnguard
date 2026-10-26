@@ -21,7 +21,7 @@ import {
   VectorParticleNode,
   type Canvas,
   type VectorParticleSpawnInit,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { BurstSpec } from '../flourish'
 
 /**

@@ -12,7 +12,7 @@ import {
   type Canvas,
   type Vec2,
   type VectorParticleSpawnInit,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** Sparks in one burst. */
 export const CONFETTI_COUNT = 90

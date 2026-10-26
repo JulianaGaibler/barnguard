@@ -1,4 +1,4 @@
-import { ShapeNode, type Vec2 } from '@src/stargazer'
+import { ShapeNode, type Vec2 } from 'stargazer'
 
 /**
  * Visible circle radius (world units). Kept small, the handle is a discreet

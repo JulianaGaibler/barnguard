@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { domAnchor, type Rect } from '@src/stargazer'
+  import { domAnchor, type Rect } from 'stargazer'
   import { PauseButtonNode } from '../common/PauseButtonNode'
   import type { GameProps } from '../GameModule'
   import {

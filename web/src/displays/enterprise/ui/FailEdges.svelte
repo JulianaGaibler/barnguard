@@ -9,7 +9,7 @@
    * the background and on the map alike.
    */
   import { onDestroy } from 'svelte'
-  import { domAnchor, Node2D, type Engine } from '@src/stargazer'
+  import { domAnchor, Node2D, type Engine } from 'stargazer'
   import hatchRaw from '@src/displays/enterprise/assets/repeat.svg?raw'
   import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
   import { Reveal } from '@src/core/ui/reveal.svelte'

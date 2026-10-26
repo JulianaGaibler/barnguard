@@ -7,7 +7,7 @@
  * node's own picture, which repaints while it grows. The numeral is a child
  * whose transform the clock writes, so its picture is painted once per fire.
  */
-import { definePaintProps, easings, Node2D, type Canvas } from '@src/stargazer'
+import { definePaintProps, easings, Node2D, type Canvas } from 'stargazer'
 import { headingFont } from '../../fonts'
 import { ANIM, tileColor } from '../tuning'
 

@@ -2,7 +2,7 @@ import {
   PointerBehavior,
   type PointerEvent2D,
   type PointerHandlers,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { EndpointHandleNode } from '../nodes/EndpointHandleNode'
 import type { EpicenterNode } from '../nodes/EpicenterNode'
 import type { PacketNode } from '../nodes/PacketNode'

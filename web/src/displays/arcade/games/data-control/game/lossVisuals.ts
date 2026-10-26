@@ -11,7 +11,7 @@ import {
   type EngineHost,
   type Node,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { DebrisBurstNode } from './nodes/DebrisBurstNode'
 import { TUNING } from './data/tuning'
 

@@ -8,7 +8,7 @@
     DebugSection,
     DraggableWindow,
     ToggleButton,
-  } from '@src/stargazer/debug/ui'
+  } from 'stargazer/debug-ui'
   import { t } from '@src/i18n'
   import {
     printerLive,

@@ -27,7 +27,7 @@ import {
   SizedBox,
   rect,
   rectInflate,
-} from '@src/stargazer'
+} from 'stargazer'
 import { type Bounds, type Direction, SIZE } from './types'
 import { BEVEL } from './tuning'
 

@@ -1,4 +1,4 @@
-import type { GfxGradientStop } from '@src/stargazer'
+import type { GfxGradientStop } from 'stargazer'
 import { rgbaStr, type GradientStopN } from './palette'
 
 /**

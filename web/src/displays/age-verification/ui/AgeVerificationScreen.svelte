@@ -9,12 +9,7 @@
    * screens over even when one is stuck.
    */
   import { onDestroy, onMount, untrack } from 'svelte'
-  import {
-    CameraNode2D,
-    Layer,
-    mountEngine,
-    type EngineHost,
-  } from '@src/stargazer'
+  import { CameraNode2D, Layer, mountEngine, type EngineHost } from 'stargazer'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
   import { msSinceInput, pokeActivity } from '@src/core/activity'
   import {
@@ -22,7 +17,7 @@
     setDebugHudVisible,
   } from '@src/core/attendant/boothMenuToggle'
   import { stopGameHandle } from '@src/stores/gameSelection'
-  import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
+  import { DebugHud } from 'stargazer/debug-ui'
   import { DESIGN_HEIGHT, DESIGN_WIDTH } from '@src/core/ui/designRegion'
   import UiLayer from '@src/core/ui/UiLayer.svelte'
   import IdleNotice from '@src/core/ui/IdleNotice.svelte'
@@ -32,11 +27,12 @@
   import { story } from '../story/story'
   import { Run } from '../story/run'
   import { runFromQuery } from '../story/devJump'
+  import { clearSavedRun, loadRun, saveRun } from '../story/saved'
   import { createBackground, type Background } from './backgroundLayer'
   import BackgroundFit from './BackgroundFit.svelte'
   import { SPLASH_POSE } from './motion'
   import { IllustrationLayer } from './IllustrationLayer'
-  import { splashDither } from './ditherLook'
+  import { pickFrame } from './frame'
   import SplashScreen from './SplashScreen.svelte'
   import StoryScreen from './StoryScreen.svelte'
 
@@ -59,7 +55,7 @@
 
   let host = $state.raw<EngineHost | null>(null)
   let uiLayer = $state.raw<Layer | null>(null)
-  /** Holds the splash animation, dithered. */
+  /** Holds the splash animation. */
   let mediaLayer = $state.raw<Layer | null>(null)
   let illustrations = $state.raw<IllustrationLayer | null>(null)
   let background = $state.raw<Background | null>(null)
@@ -70,12 +66,24 @@
     ? runFromQuery(story, window.location.search)
     : null
   // The jump applies to the first run only. Every later run starts fresh.
-  let start = $state.raw<Run>(jump ?? new Run(story))
-  let view = $state<'splash' | 'story'>(jump ? 'story' : 'splash')
+  // Otherwise the story carries on from the place the last visit reached.
+  const saved = jump ? null : loadRun(story)
+  let start = $state.raw<Run>(jump ?? saved ?? new Run(story))
+  let view = $state<'splash' | 'story'>(jump || saved ? 'story' : 'splash')
+  /** True when the story opened partway, which offers the way to start over. */
+  let resumed = $state(!!saved)
+
+  /** Saves the place, and drops the restart chip once the visitor moves on. */
+  function onProgress(run: Run): void {
+    saveRun(run)
+    if (run.currentId !== start.currentId) resumed = false
+  }
 
   function goHome(): void {
     view = 'splash'
     start = new Run(story)
+    resumed = false
+    clearSavedRun()
   }
 
   /** Bumped to remount the screens, which throws away whatever state they hold. */
@@ -132,15 +140,11 @@
     const backdrop = createBackground(h.engine)
     const media = new Layer({
       id: 'splash-media',
-      space: { frame },
-      region: { x: 0, y: 0, width: 0, height: 0 },
-      effects: [splashDither()],
+      space: { frame: pickFrame },
       persistent: true,
     })
-    // Hidden until the animation is there, so an empty layer takes no surface.
-    media.visible = false
     const art = new IllustrationLayer()
-    const ui = new Layer({ id: 'ui', space: { frame } })
+    const ui = new Layer({ id: 'ui', space: { frame: pickFrame } })
     for (const layer of [
       backdrop.layer,
       backdrop.accent,
@@ -214,7 +218,11 @@
     {#if host && uiLayer && mediaLayer && illustrations && background}
       <UiLayer engine={host.engine} layer={uiLayer}>
         {#snippet children(region)}
-          <BackgroundFit {region} background={background!} />
+          <BackgroundFit
+            {region}
+            background={background!}
+            illustrations={illustrations!}
+          />
           {#key screensKey}
             <SplashScreen
               engine={host!.engine}
@@ -231,12 +239,19 @@
               {start}
               active={view === 'story'}
               onHome={goHome}
+              {onProgress}
             />
           {/key}
         {/snippet}
       </UiLayer>
     {/if}
   {/key}
+
+  {#if resumed && view === 'story'}
+    <button type="button" class="av__chip" onclick={stopStory}>
+      {$t.story.restart}
+    </button>
+  {/if}
 
   <IdleNotice
     visible={idleWarning}
@@ -256,6 +271,30 @@
     height: 100%
     overflow: hidden
     background: var(--color-surface)
+
+  // The way out of a resumed story, at the top where the progress row is.
+  .av__chip
+    position: absolute
+    inset-block-start: max(16px, env(safe-area-inset-top))
+    inset-inline-start: 50%
+    transform: translateX(-50%)
+    z-index: 5
+    min-height: 40px
+    padding: 8px 18px
+    border: 1.5px solid var(--color-text)
+    border-radius: 999px
+    background: transparent
+    color: var(--color-text)
+    font-family: var(--font-mozilla-text)
+    font-size: 15px
+    font-weight: 600
+    cursor: pointer
+    -webkit-tap-highlight-color: transparent
+
+    &:hover,
+    &:focus-visible
+      text-decoration: underline
+      text-underline-offset: 0.22em
 
   .av__canvas
     position: absolute

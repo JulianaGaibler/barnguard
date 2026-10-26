@@ -11,7 +11,7 @@
  * - {@link buildFullDemo}: a packed board runs out of moves.
  * - {@link buildGoalDemo}: tiles gather into one corner, toward 2048.
  */
-import { ignoreAbort, Node2D, type Stage } from '@src/stargazer'
+import { ignoreAbort, Node2D, type Stage } from 'stargazer'
 import type { DemoBuilder } from '@src/displays/arcade/tutorial/types'
 import { cellCenter, computeBoardGeom, type BoardGeom } from './layout'
 import { ArrowBarNode } from './nodes/ArrowBarNode'

@@ -38,6 +38,19 @@ describe('flightPoint', () => {
     expect(late.y - to.y).toBeLessThan(late.x - to.x)
   })
 
+  it('leaves straight across and arrives straight up when it goes across first', () => {
+    const start = { x: 100, y: 700 }
+    const end = { x: 500, y: 80 }
+    const early = flightPoint(start, end, 0.05, 'across-first')
+    const late = flightPoint(start, end, 0.95, 'across-first')
+    // Early on it moves across and barely climbs.
+    expect(early.x - start.x).toBeGreaterThan((start.y - early.y) * 4)
+    // Late it is already over the target and climbs to it.
+    expect(end.x - late.x).toBeLessThan(late.y - end.y)
+    expect(flightPoint(start, end, 0, 'across-first')).toEqual(start)
+    expect(flightPoint(start, end, 1, 'across-first')).toEqual(end)
+  })
+
   it('never leaves the box between the two points', () => {
     for (let t = 0; t <= 1; t += 0.05) {
       const p = flightPoint(from, to, t)

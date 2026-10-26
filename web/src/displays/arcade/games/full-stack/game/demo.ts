@@ -25,7 +25,7 @@ import {
   rectUnion,
   type Rect,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import { FingerHintNode } from '@src/displays/arcade/tutorial/FingerHintNode'
 import type {
   DemoBuilder,

@@ -1,4 +1,4 @@
-import { Node2D, type Canvas } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { layout } from '../world'
 import { rgbaStr } from './palette'
 import type { PaletteSource } from './BackgroundController'

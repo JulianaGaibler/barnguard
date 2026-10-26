@@ -1,4 +1,4 @@
-import { Node2D, definePaintProps, type Canvas } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { REGION_HEIGHT, REGION_WIDTH, layout } from '../world'
 import type { RadialDef, SkyPalette } from './palette'
 import { StopsCache } from './util'

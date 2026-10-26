@@ -8,7 +8,7 @@
  *   numbers in the units they were measured in is what makes them checkable
  *   against the artwork.
  */
-import { parseColor } from '@src/stargazer'
+import { parseColor } from 'stargazer'
 import { REGION_HEIGHT } from '../../../world'
 
 /**

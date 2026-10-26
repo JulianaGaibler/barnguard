@@ -17,7 +17,7 @@ import {
   parseColor,
   type BitmapMask,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { FieldLayout } from '../layout'
 import type { RevealRef } from './RevealRef'
 import type { TeamId } from '../types'

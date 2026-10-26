@@ -1,5 +1,5 @@
-import { postShader } from '@src/stargazer'
-import type { PostEffect, PostPass, ShaderReflection } from '@src/stargazer'
+import { postShader } from 'stargazer'
+import type { PostEffect, PostPass, ShaderReflection } from 'stargazer'
 import wgsl from './sliceShift.wgsl?raw'
 import vertSrc from './sliceShift.gen.vert.glsl?raw'
 import fragSrc from './sliceShift.gen.frag.glsl?raw'

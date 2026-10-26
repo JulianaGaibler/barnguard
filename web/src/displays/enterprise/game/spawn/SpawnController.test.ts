@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { BitmapMask, Vec2 } from '@src/stargazer'
+import type { BitmapMask, Vec2 } from 'stargazer'
 import { TUNING } from '../data/tuning'
 import {
   pickTier,

@@ -22,7 +22,7 @@ import {
   textAdvance,
   textMetrics,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { COLORS } from '../tuning'
 import { drawIcon, iconWidth, icons, iconsRef } from '../../art/icons'
 import { font } from '../../fonts'

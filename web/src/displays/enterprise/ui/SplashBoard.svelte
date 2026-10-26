@@ -9,7 +9,7 @@
    * opens the whole board over the splash.
    */
   import { onDestroy } from 'svelte'
-  import type { Engine } from '@src/stargazer'
+  import type { Engine } from 'stargazer'
   import { fetchLeaderboard } from '@src/core/leaderboard/leaderboardClient'
   import { printerLive } from '@src/core/print/printerClient'
   import { onReconnect } from '@src/core/print/reconnect'

@@ -19,7 +19,7 @@ import {
   textWidth,
   type Canvas,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { displayFont, font } from '../../fonts'
 import { MONSTERS_INT_STRINGS as t } from '../../strings'
 import type { BannerArt } from '../art/bannerArt'

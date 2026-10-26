@@ -1,4 +1,4 @@
-import type { PostDataInput, PostPassContext } from '@src/stargazer'
+import type { PostDataInput, PostPassContext } from 'stargazer'
 import type { DiffusionKernel, DitherSettings } from './params'
 
 /** Rows of cells the compute shader keeps errors for. It leaves the rest empty. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { story } from './story'
+import { fixtureStory as story } from './fixture'
 import { runAt, runFromQuery } from './devJump'
 
 describe('runAt', () => {

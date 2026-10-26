@@ -1,16 +1,11 @@
-import {
-  Node2D,
-  ShapeNode,
-  TextNode,
-  fontMetrics,
-  mixColor,
-} from '@src/stargazer'
+import { Node2D, ShapeNode, TextNode, fontMetrics, mixColor } from 'stargazer'
 import { FAMILIES, fontWith } from '@src/core/theme/fonts'
 import { PALETTE } from '../theme'
 import { TILE_SIZE } from './rowLayout'
 
 const HALF = TILE_SIZE / 2
-const LETTER_SIZE = 96
+/** The letter fills three quarters of the square. */
+const LETTER_SIZE = TILE_SIZE * 0.75
 const LETTER_WEIGHT = 600
 
 /**

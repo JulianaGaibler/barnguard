@@ -1,4 +1,4 @@
-import { Node2D, type BitmapMask, type Canvas } from '@src/stargazer'
+import { Node2D, type BitmapMask, type Canvas } from 'stargazer'
 import { PANEL } from '../tuning'
 import type { RevealRef } from './RevealRef'
 

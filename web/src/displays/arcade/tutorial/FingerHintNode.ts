@@ -1,4 +1,4 @@
-import { Node2D, parseSvgPaths, type Canvas } from '@src/stargazer'
+import { Node2D, parseSvgPaths, type Canvas } from 'stargazer'
 import handSvgRaw from './hand.svg?raw'
 
 /**

@@ -17,7 +17,7 @@
  * The pane paints again only when a drawn number or a lit meter cell changes,
  * which is a few times a second at most.
  */
-import { Node2D, textAdvance, type Canvas } from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { MAX_LEVEL } from '../gravity'
 import { textFloor } from '../layout'

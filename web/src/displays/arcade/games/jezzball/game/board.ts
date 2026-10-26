@@ -22,7 +22,7 @@ import {
   circleShape,
   type EngineHost,
   type PhysicsWorld,
-} from '@src/stargazer'
+} from 'stargazer'
 import {
   captureEmptyRegions,
   clearGrid,

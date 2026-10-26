@@ -10,7 +10,7 @@
  *   scene.setSeats(4)
  *   scene.destroy()
  */
-import { Node3D, type EngineHost, type Rect } from '@src/stargazer'
+import { Node3D, type EngineHost, type Rect } from 'stargazer'
 import { loadCardTextures } from './art/cardTextures'
 import { loadBannerArt } from './art/bannerArt'
 import { loadMouthTexture, loadWordArt } from './art/tableTextures'

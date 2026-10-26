@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Node2D, SceneTree } from '@src/stargazer'
+import { Node2D, SceneTree } from 'stargazer'
 import {
   BANNER_WIDTH,
   BUTTONS_WIDTH,

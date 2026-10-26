@@ -12,7 +12,7 @@ import {
   easings,
   textMetrics,
   type Canvas,
-} from '@src/stargazer'
+} from 'stargazer'
 import { COLORS } from '../tuning'
 import { font } from '../../fonts'
 

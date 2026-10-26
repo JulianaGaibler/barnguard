@@ -19,7 +19,7 @@
  * has and the cheapest way to make three numbers read as a readout rather than
  * as a caption.
  */
-import { Node2D, textAdvance, type Canvas } from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from 'stargazer'
 import { seededRandom, type Random } from '../../../common/rng'
 import { font } from '../../fonts'
 import { MAX_LEVEL } from '../gravity'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paintCalls, type BitmapMask } from '@src/stargazer'
+import { paintCalls, type BitmapMask } from 'stargazer'
 import { GridOverlayNode } from './GridOverlayNode'
 import { TUNING } from '../data/tuning'
 

@@ -1,6 +1,6 @@
 /** Value types for the Full Stack session. */
 
-import type { TextSpan } from '@src/stargazer'
+import type { TextSpan } from 'stargazer'
 import type { Difficulty } from './tuning'
 import type { Card } from './rules/deck'
 

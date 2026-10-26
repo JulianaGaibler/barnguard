@@ -1,6 +1,6 @@
 <script lang="ts">
   import PauseOverlay from './PauseOverlay.svelte'
-  import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
+  import { DebugHud } from 'stargazer/debug-ui'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
   import { onDestroy } from 'svelte'
   import { t, regionName, mapCopy } from '@src/displays/enterprise/i18n'
@@ -12,7 +12,7 @@
     mountEngine,
     ignoreAbort,
     type EngineHost,
-  } from '@src/stargazer'
+  } from 'stargazer'
   import {
     startGame,
     loadMap,

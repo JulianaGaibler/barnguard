@@ -9,8 +9,8 @@
     domAnchor,
     type EngineHost,
     type Rect,
-  } from '@src/stargazer'
-  import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
+  } from 'stargazer'
+  import { DebugHud } from 'stargazer/debug-ui'
   import { stopGameHandle } from '@src/stores/gameSelection'
   import {
     debugHudVisible,

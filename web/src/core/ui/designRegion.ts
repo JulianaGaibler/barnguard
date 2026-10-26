@@ -1,4 +1,4 @@
-import type { Rect } from '@src/stargazer'
+import type { Rect } from 'stargazer'
 
 /** The size every screen is designed at, in world units. */
 export const DESIGN_WIDTH = 1920
@@ -26,13 +26,4 @@ export function visibleRect(pixelW: number, pixelH: number): Rect {
     width,
     height,
   }
-}
-
-/**
- * World units per CSS pixel while the design region is framed, for a size that
- * has to stay fixed on screen, such as a tap target, whatever the window does.
- */
-export function worldPerCssPx(cssW: number, cssH: number): number {
-  const scale = Math.min(cssW / DESIGN_WIDTH, cssH / DESIGN_HEIGHT)
-  return scale > 0 ? 1 / scale : 1
 }

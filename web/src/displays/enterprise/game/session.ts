@@ -16,7 +16,7 @@ import {
   type Rect,
   type SvgPathEntry,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { loadGameAssets } from './assets'
 import {
   findRegion,
