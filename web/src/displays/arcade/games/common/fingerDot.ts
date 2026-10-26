@@ -11,7 +11,7 @@
  *   root.add(dot)
  *   await showSwipe(dot, from, to)
  */
-import { easings, ShapeNode } from '@src/stargazer'
+import { easings, ShapeNode } from 'stargazer'
 
 /** A point in the demo stage's world units. */
 export interface DotPoint {
@@ -31,7 +31,6 @@ export function createFingerDot(radius: number, color: string): ShapeNode {
     geometry: { kind: 'circle', radius },
     fill: color,
   })
-  dot.renderLayer = 'dynamic'
   dot.transform.alpha = 0
   dot.transform.scaleX = 0
   dot.transform.scaleY = 0

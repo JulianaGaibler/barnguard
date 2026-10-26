@@ -1,3 +1,22 @@
+import type { Node } from 'stargazer'
+
+/** The id of the node the shared background lives under. */
+export const BACKGROUND_NODE_ID = 'background'
+
+/**
+ * Add `nodes` to `root` directly above the shared background and below
+ * everything else already there.
+ *
+ * Painter order is tree order, so a node added to the shared root normally
+ * draws over every earlier one, the launcher previews included. A game's own
+ * backdrop has to sit under those, but over the sky, so it goes in right after
+ * the background group.
+ */
+export function addAboveBackground(root: Node, ...nodes: Node[]): void {
+  const at = root.children.findIndex((c) => c.id === BACKGROUND_NODE_ID)
+  nodes.forEach((node, i) => root.addAt(node, at + 1 + i))
+}
+
 /**
  * A lease over the arcade's shared background, handed to a game via
  * `GameProps`.

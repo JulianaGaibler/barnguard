@@ -19,7 +19,7 @@ import {
   Node2D,
   type Emitter,
   type EngineHost,
-} from '@src/stargazer'
+} from 'stargazer'
 import { Session } from './session'
 import type { ModeKind, PlayerId } from './types'
 

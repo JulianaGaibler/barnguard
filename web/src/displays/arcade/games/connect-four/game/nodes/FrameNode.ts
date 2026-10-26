@@ -1,4 +1,4 @@
-import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import type { BoardLayout } from '../layout'
 import { FRAME } from '../tuning'
 
@@ -15,10 +15,9 @@ export class FrameNode extends Node2D {
   constructor(layout: BoardLayout) {
     super('cf-frame')
     this.#layout = layout
-    this.renderLayer = 'dynamic'
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const layout = this.#layout
     const x0 = layout.panelX
     const y0 = layout.panelY
@@ -28,7 +27,7 @@ export class FrameNode extends Node2D {
     const over = FRAME.overshoot
     const style = {
       color: FRAME.color,
-      width: FRAME.width * camera.strokeSpaceScale(),
+      width: FRAME.width * gfx.screenScale(),
       cap: 'round' as const,
     }
 

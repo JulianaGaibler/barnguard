@@ -20,7 +20,7 @@ import {
   type EngineHost,
   type PhysicsWorld,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { DemoHandle } from '@src/displays/arcade/tutorial/types'
 import { FingerHintNode } from '@src/displays/arcade/tutorial/FingerHintNode'
 import { Orb } from './Orb'
@@ -32,6 +32,7 @@ import {
 } from './layout'
 import { FieldNode } from './nodes/FieldNode'
 import { PanelNode } from './nodes/PanelNode'
+import { RevealRef } from './nodes/RevealRef'
 import { OrbNode } from './nodes/OrbNode'
 import { OrbExplodeNode } from './nodes/OrbExplodeNode'
 import { ANIM, ORB_SIZES, PHYSICS, PLAYER_COLORS } from './tuning'
@@ -101,7 +102,7 @@ function buildOrboScene(stage: Stage, host: EngineHost): OrboScene {
     height: vp.height - FIELD_PADDING * 2,
   }
   const layout = calculateLayout(bounds.width, bounds.height)
-  const reveal = { frac: 1 }
+  const reveal = new RevealRef(1)
   const abort = new AbortController()
 
   const root = new Node2D('orbo-demo')

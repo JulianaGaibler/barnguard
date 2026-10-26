@@ -1,67 +1,47 @@
-// Local @font-face declarations for the Mozilla type family. Only the weights
-// referenced by the typography map are shipped to keep the bundle small.
+// Local // The Mozilla type family, from the upstream release's variable fonts. One
+// Headline file serves three families: `Mozilla Headline` is its standard
+// width, and `Mozilla Headline Extended` and `Mozilla Headline Condensed` pin
+// the width axis to 125 and 75 through the descriptor, so a plain
+// `font-stretch: normal` request lands on the wide or narrow cut. All cover
+// weights 200 to 700.
+@font-face {
+  font-family: 'Mozilla Text';
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('@src/assets/fonts/MozillaText-Variable.woff2') format('woff2');
+}
 
 @font-face {
   font-family: 'Mozilla Headline';
-  font-weight: 600;
+  font-weight: 200 700;
+  font-stretch: 100%;
   font-style: normal;
   font-display: swap;
-  src: url('@src/assets/fonts/MozillaHeadline-SemiBold.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Mozilla Text';
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/MozillaText-Regular.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Mozilla Text';
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/MozillaText-Medium.woff2') format('woff2');
-}
-
-@font-face {
-  font-family: 'Mozilla Text';
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/MozillaText-Bold.woff2') format('woff2');
+  src: url('@src/assets/fonts/MozillaHeadline-Variable.woff2') format('woff2');
 }
 
 @font-face {
   font-family: 'Mozilla Headline Extended';
-  font-weight: 700;
+  font-weight: 200 700;
+  font-stretch: 125%;
   font-style: normal;
   font-display: swap;
-  src: url('@src/assets/fonts/MozillaHeadlineExtended-Bold.woff2')
-    format('woff2');
+  src: url('@src/assets/fonts/MozillaHeadline-Variable.woff2') format('woff2');
 }
 
-// Azeret Mono backs the `mono` role. Variable: one file covers 100–900, and at
-// 46 KB it is smaller than the two static cuts it replaces.
 @font-face {
-  font-family: 'Azeret Mono';
-  font-weight: 100 900;
+  font-family: 'Mozilla Headline Condensed';
+  font-weight: 200 700;
+  font-stretch: 75%;
   font-style: normal;
   font-display: swap;
-  src: url('@src/assets/fonts/AzeretMono-Variable.woff2') format('woff2');
+  src: url('@src/assets/fonts/MozillaHeadline-Variable.woff2') format('woff2');
 }
 
-// Geist and HK Grotesk are body-capable sans faces a game can claim for `text`.
-// Geist is variable, HK Grotesk ships static cuts.
-@font-face {
-  font-family: 'Geist';
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/Geist-Variable.woff2') format('woff2');
-}
-
+// HK Grotesk is the fallback in every Mozilla stack, since the Mozilla faces
+// lack part of Latin Extended-A (č š ž ř ő ğ ș and the like), and a
+// body-capable sans a game can claim for `text`. Static cuts.
 @font-face {
   font-family: 'HK Grotesk';
   font-weight: 400;
@@ -86,55 +66,4 @@
   src: url('@src/assets/fonts/HKGrotesk-Bold.woff2') format('woff2');
 }
 
-// Bungee backs nothing by default; it is a handle. A signage face — heavy,
-// upright, legible well below poster size, which is why it replaced Humane.
-// Ships as TrueType: it reserves its family name, and converting format would
-// make a Modified Version that could not keep the name. See THIRD-PARTY.md.
-@font-face {
-  font-family: 'Bungee';
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/Bungee-Regular.ttf') format('truetype');
-}
-
-// Raleway backs nothing by default; it is a body-capable grotesque available
-// as a handle. Variable, and the widest character coverage of anything here
-// (936 glyphs).
-@font-face {
-  font-family: 'Raleway';
-  font-weight: 100 900;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/Raleway-Variable.woff2') format('woff2');
-}
-
-// The three below ship as OpenType rather than woff2, deliberately. Their
-// licences reserve the family name, and the OFL FAQ is explicit that
-// converting format makes a Modified Version that must be renamed. Their
-// vendor .woff files exist but are 2011-era subsets with no umlauts, which
-// would break German copy. Shipping the unmodified .otf keeps both the name
-// and the full character set. See THIRD-PARTY.md.
-@font-face {
-  font-family: 'Sniglet';
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/Sniglet-Regular.otf') format('opentype');
-}
-
-@font-face {
-  font-family: 'Sorts Mill Goudy';
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/SortsMillGoudy-Regular.otf') format('opentype');
-}
-
-@font-face {
-  font-family: 'Bagnard';
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  src: url('@src/assets/fonts/Bagnard-Regular.otf') format('opentype');
-}
+// The other faces are not loaded here, see `fonts-extra.scss`.

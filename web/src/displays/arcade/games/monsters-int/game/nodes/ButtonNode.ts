@@ -22,7 +22,7 @@ import {
   easings,
   type Node,
   type PointerEvent2D,
-} from '@src/stargazer'
+} from 'stargazer'
 import { ELEVATION, PX_TO_M, groundFromLayout } from '../project'
 import { ANIM, BLINK, BUTTONS, COLORS, material } from '../tuning'
 

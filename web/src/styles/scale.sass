@@ -26,8 +26,9 @@
   --radius-pill: 100vmax
 
   // Stacking order, single source of truth. In-game overlays sit low (below the
-  // core chrome). The off-duty cover sits above the top bar but below the
-  // attendant's draggable windows so they stay reachable to toggle it off.
+  // core chrome). A display's own full-viewport takeover UI (e.g. an off-duty
+  // screen) sits above the top bar but below the attendant's draggable windows
+  // so they stay reachable to toggle it off.
   --z-overlay: 40
   --z-cover: 120
 
@@ -35,16 +36,17 @@
   // `--font-*` (core/theme.applyFonts); a game's canvas resolves the same two
   // through core/theme/fonts.ts. Full stacks, fallbacks included. Kept
   // byte-identical to `DEFAULT_FONTS` there, asserted by fonts.test.ts.
-  --font-text: "Mozilla Text", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
-  --font-heading: "Mozilla Headline", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-text: "Mozilla Text", "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-heading: "Mozilla Headline", "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
 
   // Every shipped family, by name. NOT themeable and not overridden by a
   // theme: these are handles, so a component wanting one specific face can
   // name it without repeating the fallback tail. Mirrors `FAMILIES` in
   // core/theme/fonts.ts, which is what canvas code uses for the same purpose.
-  --font-mozilla-text: "Mozilla Text", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
-  --font-mozilla-headline: "Mozilla Headline", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
-  --font-mozilla-headline-extended: "Mozilla Headline Extended", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-mozilla-text: "Mozilla Text", "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-mozilla-headline: "Mozilla Headline", "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-mozilla-headline-extended: "Mozilla Headline Extended", "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
+  --font-mozilla-headline-condensed: "Mozilla Headline Condensed", "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
   --font-azeret-mono: "Azeret Mono", ui-monospace, "SF Mono", Menlo, monospace
   --font-geist: "Geist", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif
   --font-hk-grotesk: "HK Grotesk", -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif

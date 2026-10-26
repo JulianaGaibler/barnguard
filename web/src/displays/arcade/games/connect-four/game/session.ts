@@ -20,7 +20,7 @@ import {
   type Emitter,
   type EngineHost,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { FAMILIES } from '@src/core/theme'
 import {
   COLS,
@@ -115,8 +115,7 @@ export async function startGame(
   // chip covers its slot's X), the drop preview, the registration
   // frame + technical labels, the two player tabs, and the win burst layer.
   // The board fades between hidden on the menu (the stylized preview stands in
-  // for it) and full opacity while playing. Alpha is per drawing node (the
-  // render walk doesn't cascade group alpha), so the front-of-board chrome is
+  // for it) and full opacity while playing. The front-of-board chrome is
   // toggled by `visible` on the play/menu transition instead.
   const MENU_ALPHA = 0
   const root = new Node2D('cf-root')

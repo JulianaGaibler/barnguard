@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Fog } from '@src/stargazer'
+import { Fog } from 'stargazer'
 import { FogNode } from './FogNode'
 import { FOG } from '../tuning'
 

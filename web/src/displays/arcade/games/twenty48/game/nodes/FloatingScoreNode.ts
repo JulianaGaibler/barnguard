@@ -8,10 +8,10 @@
  * hangs on screen. Counting elapsed time here cannot care what order the caller
  * constructs and adds in. Same shape as `MergeBurstNode`.
  *
- * Only alpha and position move. The color is fixed, because animating text
- * color re-rasterizes the label every frame it changes.
+ * Only alpha and position move, both on the transform, so the label is painted
+ * once.
  */
-import { easings, Node2D, type Gfx2D } from '@src/stargazer'
+import { easings, Node2D, type Canvas } from 'stargazer'
 import { headingFont } from '../../fonts'
 import { ANIM, COLORS } from '../tuning'
 
@@ -23,18 +23,11 @@ export class FloatingScoreNode extends Node2D {
 
   constructor(gained: number, x: number, y: number, size: number) {
     super('t48-float-score')
-    this.renderLayer = 'dynamic'
     this.#text = `+${gained}`
     this.#size = size
     this.#baseY = y
     this.transform.x = x
     this.transform.y = y
-    this.debugBounds = {
-      x: -size * 2,
-      y: -size - ANIM.floatRise,
-      width: size * 4,
-      height: size * 2 + ANIM.floatRise,
-    }
   }
 
   override onUpdate(dt: number): void {
@@ -45,8 +38,7 @@ export class FloatingScoreNode extends Node2D {
     if (t >= 1 && !this.isDestroyed) this.destroy()
   }
 
-  override draw(gfx: Gfx2D): void {
-    if (this.transform.alpha <= 0) return
+  override paint(gfx: Canvas): void {
     gfx.fillText(this.#text, 0, 0, {
       font: headingFont(700, this.#size),
       align: 'center',

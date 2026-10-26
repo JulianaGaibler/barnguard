@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseColor, type RGBA } from '@src/stargazer'
+import { parseColor, type RGBA } from 'stargazer'
 import { arcadeNightPalette, arcadeTheme } from './theme'
 import { DAY_CYCLE, paletteAt } from './background/dayCycle'
 import {

@@ -1,4 +1,4 @@
-import type { EngineHost } from '@src/stargazer'
+import type { EngineHost } from 'stargazer'
 import { loadGameAssets } from '../assets'
 import { GameOverScene } from './GameOverScene'
 import type { GameOverReason } from '../session'

@@ -6,7 +6,7 @@ import {
   type EngineHost,
   type Node,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { REGION_HEIGHT, REGION_WIDTH } from '../../../world'
 import { buildScene } from './scene'
 

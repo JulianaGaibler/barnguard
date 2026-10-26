@@ -1,4 +1,4 @@
-import type { Vec2 } from '@src/stargazer'
+import type { Vec2 } from 'stargazer'
 
 export const STATE_IDS = [
   'BW',
@@ -39,15 +39,15 @@ export interface StateInfo {
   /**
    * Which half of Germany the state sits in, used to pick between the
    * upper-half and lower-half camera framing after selection. Assigned once
-   * geometry loads (state center y < viewBox/2 → upper).
+   * geometry loads (state center y < viewBox/2 -> upper).
    */
   half: 'upper' | 'lower' | null
 }
 
 /**
- * Path-id in `de-cities.svg` → canonical `StateId`. IDs use ASCII-only
+ * Path-id in `de-cities.svg` -> canonical `StateId`. IDs use ASCII-only
  * transliterations of the capital names because upstream SVG tooling mangles
- * non-ASCII characters (München → Munechen, etc.). Kept as source data so the
+ * non-ASCII characters (München -> Munechen, etc.). Kept as source data so the
  * SVG can be regenerated without renaming its paths.
  */
 export const CITY_ID_TO_STATE_ID: Record<string, StateId> = {

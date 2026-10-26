@@ -6,7 +6,7 @@
  * reaches in. The shell computes it once and every game reads the same values,
  * rather than each one repeating the arithmetic and the anchor bookkeeping.
  */
-import { Node2D, type Engine, type Rect } from '@src/stargazer'
+import { Node2D, type Engine, type Rect } from 'stargazer'
 import {
   REGION_HEIGHT,
   REGION_WIDTH,
@@ -87,7 +87,7 @@ export class GameRegion {
     const rect = gameVisibleRect(pixelW, pixelH)
     this.anchor.transform.x = rect.x
     this.anchor.transform.y = rect.y
-    this.anchor.debugBounds = {
+    this.anchor.boundsOverride = {
       x: 0,
       y: 0,
       width: rect.width,

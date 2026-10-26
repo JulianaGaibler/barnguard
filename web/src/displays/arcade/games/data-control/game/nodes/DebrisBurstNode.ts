@@ -1,10 +1,9 @@
 import {
   VectorParticleNode,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Vec2,
   type VectorParticleSpawnInit,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** Reused scratch for the per-piece equilateral triangle (draw is synchronous). */
 const DEBRIS_TRI_SCRATCH = new Float32Array(6)
@@ -173,11 +172,7 @@ export class DebrisBurstNode extends VectorParticleNode {
   // `shouldDespawn` intentionally NOT overridden. These pieces settle into a
   // permanent ring, cleaned up externally (see class doc comment).
 
-  protected override drawParticle(
-    gfx: Gfx2D,
-    i: number,
-    camera: CameraView2D,
-  ): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
     if (this.#kind[i] === 0) {
       const side = this.#triangleSide
       const height = side * (Math.sqrt(3) / 2)
@@ -192,7 +187,7 @@ export class DebrisBurstNode extends VectorParticleNode {
     } else {
       gfx.strokeLine(-this.#lineHalf, 0, this.#lineHalf, 0, {
         color: this.#color,
-        width: this.#lineWidthCssPx * camera.strokeSpaceScale(),
+        width: { screen: this.#lineWidthCssPx },
         cap: 'round',
       })
     }

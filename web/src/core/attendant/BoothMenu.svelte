@@ -2,24 +2,14 @@
   import { locale, setLocale, supportedLanguages } from '@src/i18n'
   import { printerLive, reloadConfig } from '@src/core/print/printerClient'
   import { stopGameHandle } from '@src/stores/gameSelection'
-  import { activeDisplay } from '@src/core/display'
+  import { activeDisplay, displayPrints } from '@src/core/display'
   import ConfirmButton from '@src/core/ui/ConfirmButton.svelte'
   import DisplaySettings from '@src/core/attendant/DisplaySettings.svelte'
-  import { theme } from '@src/core/theme'
-  import {
-    coverScreen,
-    setCoverMode,
-    setCoverText,
-    setCoverVisible,
-    type CoverMode,
-  } from '@src/stores/coverScreen'
   import {
     DebugSection,
-    DebugSelect,
     DraggableWindow,
     ToggleButton,
-    type DebugSelectItem,
-  } from '@src/stargazer/debug/ui'
+  } from 'stargazer/debug-ui'
   import {
     boothMenuState,
     closeBoothMenu,
@@ -28,11 +18,13 @@
     isFullscreen,
     leaderboardPanelVisible,
     printerPanelVisible,
+    printStatusPillVisible,
     toggleDebugHud,
     toggleFullscreen,
     toggleGamesPanel,
     toggleLeaderboardPanel,
     togglePrinterPanel,
+    togglePrintStatusPill,
   } from '@src/core/attendant/boothMenuToggle'
 
   function handleReload(): void {
@@ -105,63 +97,78 @@
         {/if}
       </span>
     </div>
-    <div class="debug-row">
-      <span class="label">Printer</span>
-      <span
-        class="status-pill"
-        class:status-pill--ok={$printerLive.connection === 'online' &&
-          ($printerLive.printer?.reachable ?? false)}
-        class:status-pill--busy={$printerLive.connection !== 'online'}
-      >
-        <span class="status-dot" aria-hidden="true"></span>
-        {#if $printerLive.connection !== 'online'}
-          unknown
-        {:else if $printerLive.printer?.reachable}
-          connected
-        {:else}
-          offline
-        {/if}
-      </span>
-    </div>
-    <div class="debug-row">
-      <span class="label">Queue</span>
-      <span class="dim">
-        {queueSize === 0 ? 'idle' : `${queueSize} in flight`}
-      </span>
-    </div>
+    {#if displayPrints($activeDisplay)}
+      <div class="debug-row">
+        <span class="label">Printer</span>
+        <span
+          class="status-pill"
+          class:status-pill--ok={$printerLive.connection === 'online' &&
+            ($printerLive.printer?.reachable ?? false)}
+          class:status-pill--busy={$printerLive.connection !== 'online'}
+        >
+          <span class="status-dot" aria-hidden="true"></span>
+          {#if $printerLive.connection !== 'online'}
+            unknown
+          {:else if $printerLive.printer?.reachable}
+            connected
+          {:else}
+            offline
+          {/if}
+        </span>
+      </div>
+      <div class="debug-row">
+        <span class="label">Queue</span>
+        <span class="dim">
+          {queueSize === 0 ? 'idle' : `${queueSize} in flight`}
+        </span>
+      </div>
+    {/if}
   </DebugSection>
 
   <DebugSection title="Panels" open>
-    <ToggleButton
-      active={$gamesPanelVisible}
-      onToggle={toggleGamesPanel}
-      label="Games"
-    />
-    {#if $activeDisplay?.leaderboardIds?.length}
+    <div class="debug-controls">
       <ToggleButton
-        active={$leaderboardPanelVisible}
-        onToggle={toggleLeaderboardPanel}
-        label="Leaderboard"
+        active={$gamesPanelVisible}
+        onToggle={toggleGamesPanel}
+        label="Games"
       />
-    {/if}
-    <ToggleButton
-      active={$printerPanelVisible}
-      onToggle={togglePrinterPanel}
-      label="Printer"
-    />
-    <ToggleButton
-      active={$debugHudVisible}
-      onToggle={toggleDebugHud}
-      label="Stargazer (GFX)"
-    />
+      {#if $activeDisplay?.leaderboardIds?.length}
+        <ToggleButton
+          active={$leaderboardPanelVisible}
+          onToggle={toggleLeaderboardPanel}
+          label="Leaderboard"
+        />
+      {/if}
+      {#if displayPrints($activeDisplay)}
+        <ToggleButton
+          active={$printerPanelVisible}
+          onToggle={togglePrinterPanel}
+          label="Printer"
+        />
+      {/if}
+      {#if $activeDisplay?.renderPreviewLabel}
+        <ToggleButton
+          active={$printStatusPillVisible}
+          onToggle={togglePrintStatusPill}
+          label="Print status pill"
+        />
+      {/if}
+      <ToggleButton
+        active={$debugHudVisible}
+        onToggle={toggleDebugHud}
+        label="Stargazer (GFX)"
+      />
+    </div>
   </DebugSection>
 
   <DebugSection title="View" open>
-    <ToggleButton
-      active={$isFullscreen}
-      onToggle={toggleFullscreen}
-      label="Fullscreen"
-    />
+    <div class="debug-controls">
+      <ToggleButton
+        active={$isFullscreen}
+        onToggle={toggleFullscreen}
+        label="Fullscreen"
+      />
+    </div>
 
     {#if $supportedLanguages.length > 1}
       <div class="debug-row">
@@ -180,36 +187,6 @@
           {/each}
         </div>
       </div>
-    {/if}
-
-    <ToggleButton
-      active={$coverScreen.visible}
-      onToggle={() => setCoverVisible(!$coverScreen.visible)}
-      label="Cover screen"
-    />
-    <DebugSelect
-      label="Message"
-      value={$coverScreen.mode}
-      onChange={(v) => setCoverMode(v)}
-      options={[
-        {
-          value: 'brand',
-          label: $theme?.cover.headline ?? 'Brand headline',
-        },
-        { value: 'backSoon', label: 'Wir sind gleich wieder da' },
-        { divider: true },
-        { value: 'custom', label: 'Custom text…' },
-      ] satisfies DebugSelectItem<CoverMode>[]}
-    />
-    {#if $coverScreen.mode === 'custom'}
-      <textarea
-        class="cover-textarea"
-        value={$coverScreen.customText}
-        oninput={(e) =>
-          setCoverText((e.currentTarget as HTMLTextAreaElement).value)}
-        placeholder="Type the cover message…"
-        rows="3"
-      ></textarea>
     {/if}
   </DebugSection>
 
@@ -273,32 +250,6 @@
   .row__actions
     display: flex
     gap: 4px
-
-  // Free-text field for the cover-screen custom message. Mirrors
-  // `DebugSelect`'s outer chrome so the two controls read as members of the
-  // same family. There's no shared text-input primitive in `debug-ui/`, so
-  // the styling is duplicated by hand.
-  .cover-textarea
-    display: block
-    width: 100%
-    box-sizing: border-box
-    margin-block-start: 4px
-    padding-block-start: 6px
-    padding-block-end: 6px
-    padding-inline-start: 8px
-    padding-inline-end: 8px
-    resize: vertical
-    background: rgba(255, 255, 255, 0.05)
-    border: 1px solid rgba(255, 255, 255, 0.18)
-    border-radius: 4px
-    color: #fff
-    font: inherit
-    font-size: 11px
-
-    &:focus
-      outline: none
-      border-color: rgba(255, 255, 255, 0.5)
-      background: rgba(255, 255, 255, 0.1)
 
   // Landmark photo for the "Selected state" section. Fixed height so the
   // section's overall footprint stays predictable regardless of the source

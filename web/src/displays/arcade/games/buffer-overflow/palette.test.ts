@@ -9,7 +9,7 @@
  * nudging one accent.
  */
 import { describe, expect, it } from 'vitest'
-import { parseColor, type RGBA } from '@src/stargazer'
+import { parseColor, type RGBA } from 'stargazer'
 import { relativeLuminance, type Rgba } from '../../background/palette'
 import { BUFFER_OVERFLOW_PALETTE } from './palette'
 import {

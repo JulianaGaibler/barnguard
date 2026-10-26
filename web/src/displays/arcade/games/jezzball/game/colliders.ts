@@ -9,7 +9,7 @@
  * unit boxes. Balls only ever occupy open space, so internal faces of a merged
  * rect never matter. Only its outer faces (bordering open cells) are hit.
  */
-import { clamp } from '@src/stargazer'
+import { clamp } from 'stargazer'
 import { CELL_FILLED, CELL_WALL, type Bounds } from './types'
 import type { Grid } from './grid'
 import type { FieldGeom } from './layout'
@@ -31,7 +31,7 @@ function isSolid(g: Grid, col: number, row: number): boolean {
 export function mergeSolidCells(g: Grid): CellRect[] {
   const { cols, rows } = g
   const rects: CellRect[] = []
-  // Span key ("c0:c1") → index of the still-open rect from the previous row.
+  // Span key ("c0:c1") -> index of the still-open rect from the previous row.
   let prev = new Map<string, number>()
 
   for (let r = 0; r < rows; r++) {

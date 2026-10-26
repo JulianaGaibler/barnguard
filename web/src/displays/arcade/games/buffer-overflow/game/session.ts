@@ -22,7 +22,7 @@ import {
   Node2D,
   type Emitter,
   type EngineHost,
-} from '@src/stargazer'
+} from 'stargazer'
 import { createPieceStream, type PieceStream } from './bag'
 import {
   clearBuffer,

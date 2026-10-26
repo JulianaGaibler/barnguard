@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { BOOT_FONT_SPECS, preloadFonts, watchFontChanges } from './index'
+import {
+  BOOT_FONT_SPECS,
+  EXTRA_FONT_SPECS,
+  preloadFonts,
+  watchFontChanges,
+} from './index'
 
 interface FakeFontFaceSet {
   load: ReturnType<typeof vi.fn>
@@ -35,18 +40,21 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('BOOT_FONT_SPECS', () => {
+describe.each([
+  ['BOOT_FONT_SPECS', BOOT_FONT_SPECS, 'fonts.scss'],
+  ['EXTRA_FONT_SPECS', EXTRA_FONT_SPECS, 'fonts-extra.scss'],
+])('%s', (_name, list, sheet) => {
   it('parses as font shorthands', () => {
-    for (const spec of BOOT_FONT_SPECS) {
+    for (const spec of list) {
       expect(spec, spec).toMatch(/^\d{3} \d+px "[^"]+"$/)
     }
   })
 
   // A face declared in CSS but missing here is never awaited, so its first
   // canvas draw bakes the fallback glyphs into the label atlas.
-  it('covers every @font-face declared in fonts.scss', () => {
-    const scss = readFileSync(resolve('src/styles/fonts.scss'), 'utf-8')
-    const specs = BOOT_FONT_SPECS.map((s) => {
+  it(`covers every @font-face declared in ${sheet}`, () => {
+    const scss = readFileSync(resolve(`src/styles/${sheet}`), 'utf-8')
+    const specs = list.map((s) => {
       const m = /^(\d+) \d+px "(.+)"$/.exec(s)
       return { weight: Number(m![1]), family: m![2] }
     })
@@ -76,6 +84,15 @@ describe('preloadFonts', () => {
     }
   })
 
+  it('requests the extra specs it is given as well', async () => {
+    const fonts = install()
+    await preloadFonts(EXTRA_FONT_SPECS)
+    expect(fonts.load).toHaveBeenCalledTimes(
+      BOOT_FONT_SPECS.length + EXTRA_FONT_SPECS.length,
+    )
+    expect(fonts.load).toHaveBeenCalledWith(EXTRA_FONT_SPECS[0])
+  })
+
   // A 404ing font must degrade to fallback glyphs, not leave the kiosk on a
   // black screen waiting for a mount that never happens.
   it('resolves even when a face fails to load', async () => {
@@ -88,7 +105,7 @@ describe('preloadFonts', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {})
     install({ load: vi.fn().mockReturnValue(new Promise(() => {})) })
     vi.useFakeTimers()
-    const done = preloadFonts(2500)
+    const done = preloadFonts([], 2500)
     await vi.advanceTimersByTimeAsync(2500)
     await expect(done).resolves.toBeUndefined()
   })

@@ -7,7 +7,7 @@
   it sits in, not against the screen.
 -->
 <script lang="ts">
-  import type { TextSpan } from '@src/stargazer'
+  import type { TextSpan } from 'stargazer'
   import { glyphSvg, parseGlyph } from '../art/glyphs'
 
   interface Props {

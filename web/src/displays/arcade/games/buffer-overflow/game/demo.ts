@@ -18,7 +18,7 @@
  * Every wait and animation goes through {@link runDemoLoop}, which is what keeps
  * a card that stops from stopping silently.
  */
-import { Node2D, type Gfx2D, type ShapeNode, type Stage } from '@src/stargazer'
+import { Node2D, type Canvas, type ShapeNode, type Stage } from 'stargazer'
 import { DEMO_DEBUG, demoLog, demoLogFirst } from '../../../tutorial/demoDebug'
 import type { DemoBuilder, DemoHandle } from '../../../tutorial/types'
 import { runDemoLoop, type DemoLoopContext } from '../../common/demoLoop'
@@ -30,6 +30,7 @@ import {
   type DotPoint,
 } from '../../common/fingerDot'
 import {
+  clearBuffer,
   createBuffer,
   HIDDEN_ROWS,
   lockPiece,
@@ -91,11 +92,9 @@ class DemoProbeNode extends Node2D {
   readonly #rect: Bounds
   constructor(rect: Bounds) {
     super('bo-demo-probe')
-    this.renderLayer = 'dynamic'
     this.#rect = rect
-    this.debugBounds = null
   }
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     demoLogFirst('probe drawn', 2, { rect: r })
     gfx.strokeRoundRect(r.x, r.y, r.width, r.height, 0, {
@@ -180,6 +179,7 @@ function fillRow(
   for (let x = 0; x < b.cols; x++) {
     if (!gaps.includes(x)) b.cells[row * b.cols + x] = kind
   }
+  b.version++
 }
 
 /** Centre of a cell, in the demo's world units. */
@@ -278,7 +278,7 @@ export const buildMoveDemo: DemoBuilder = (stage): DemoHandle => {
   const scene = buildScene(stage, 'bo-demo-move')
 
   runDemoLoop(scene.root, 'move', async (ctx) => {
-    scene.buffer.cells.fill(null)
+    clearBuffer(scene.buffer)
     // A step in the floor, so sliding has a visible reason to happen.
     fillRow(scene.buffer, DEMO_FLOOR, [0, 1], 'J')
 
@@ -328,7 +328,7 @@ const FLUSH_GAP = DEMO_COLS - 1
 
 /** A four-row stack with one open column. Shared by two cards. */
 function stackForFlush(b: Buffer): void {
-  b.cells.fill(null)
+  clearBuffer(b)
   FLUSH_ROWS.forEach((row, i) =>
     fillRow(b, row, [FLUSH_GAP], i % 2 ? 'S' : 'Z'),
   )
@@ -414,7 +414,7 @@ export const buildOverflowDemo: DemoBuilder = (stage): DemoHandle => {
   const scene = buildScene(stage, 'bo-demo-overflow')
 
   runDemoLoop(scene.root, 'overflow', async (ctx) => {
-    scene.buffer.cells.fill(null)
+    clearBuffer(scene.buffer)
     scene.bufferNode.setDimmed(false)
     show(scene, null)
     await ctx.wait(RESET)

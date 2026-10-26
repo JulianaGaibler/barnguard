@@ -6,7 +6,7 @@
  * a parallel buffer so a freshly-captured region animates without touching the
  * logical grid.
  */
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import type { Grid } from '../grid'
 import type { FieldGeom } from '../layout'
 import { CELL_FILLED, type CellRef } from '../types'
@@ -25,20 +25,12 @@ export class GridFieldNode extends Node2D {
     this.#grid = grid
     this.#lineW = Math.max(1, geom.cell * 0.03)
     this.#alpha = new Float32Array(grid.cols * grid.rows)
-    // Draw over the arcade's dynamic sky (paint order is tree order within the
-    // layer. The board subtree is added after the sky).
-    this.renderLayer = 'dynamic'
-    this.debugBounds = {
-      x: geom.board.x,
-      y: geom.board.y,
-      width: geom.board.width,
-      height: geom.board.height,
-    }
   }
 
   /** Begin a flood-in for newly captured cells (alpha ramps from 0). */
   revealCells(cells: CellRef[]): void {
     for (const c of cells) this.#alpha[c.row * this.#grid.cols + c.col] = 0
+    this.markNeedsPaint()
   }
 
   /** Mark all captured cells fully revealed (no animation). */
@@ -47,22 +39,30 @@ export class GridFieldNode extends Node2D {
     for (let i = 0; i < cells.length; i++) {
       this.#alpha[i] = cells[i] === CELL_FILLED ? 1 : 0
     }
+    this.markNeedsPaint()
   }
 
   override onUpdate(dt: number): void {
     const rate = dt / ANIM.floodReveal
     const cells = this.#grid.cells
     const alpha = this.#alpha
+    let changed = false
     for (let i = 0; i < cells.length; i++) {
       if (cells[i] === CELL_FILLED) {
-        if (alpha[i] < 1) alpha[i] = Math.min(1, alpha[i] + rate)
+        if (alpha[i] < 1) {
+          alpha[i] = Math.min(1, alpha[i] + rate)
+          changed = true
+        }
       } else if (alpha[i] !== 0) {
         alpha[i] = 0
+        changed = true
       }
     }
+    if (changed) this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
+    gfx.use(this.#grid)
     const g = this.#geom
     const { cols, rows, cell } = g
 

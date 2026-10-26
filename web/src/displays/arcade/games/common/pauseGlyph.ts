@@ -13,7 +13,7 @@
  * @example
  *   drawPauseGlyph(gfx, size / 2, size / 2, size, COLORS.ink)
  */
-import type { Gfx2D } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 
 /** Bar width, as a fraction of the glyph box. */
 const BAR_W = 0.11
@@ -26,7 +26,7 @@ const RADIUS = 0.4
 
 /** Draw the pause mark centred on `(cx, cy)`, sized to fit a `size` box. */
 export function drawPauseGlyph(
-  gfx: Gfx2D,
+  gfx: Pick<Canvas, 'fillRoundRect'>,
   cx: number,
   cy: number,
   size: number,

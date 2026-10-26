@@ -10,7 +10,7 @@ import {
   ignoreAbort,
   type EngineHost,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { DemoHandle } from '@src/displays/arcade/tutorial/types'
 import { BoardNode } from './nodes/BoardNode'
 import { DiscNode } from './nodes/DiscNode'

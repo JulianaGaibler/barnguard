@@ -13,7 +13,7 @@
  * the buttons competes with it. The bound matters: greedy play survives for
  * hundreds of moves, so "play until stuck" would be minutes of motion.
  */
-import { ignoreAbort, Node2D, type EngineHost, type Rect } from '@src/stargazer'
+import { ignoreAbort, Node2D, type EngineHost, type Rect } from 'stargazer'
 import type { MenuPreview } from '@src/displays/arcade/menu/types'
 import { chooseMove } from './autoplay'
 import { computeBoardGeom } from './layout'

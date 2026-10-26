@@ -14,7 +14,12 @@
 // big display. Per-source textures carry a mip chain, so the minified end stays
 // crisp and the extra resolution is free.
 
-import { AssetLoader, rasterizeSvg, type Gfx2D } from '@src/stargazer'
+import {
+  AssetLoader,
+  VersionedRef,
+  rasterizeSvg,
+  type Gfx2D,
+} from 'stargazer'
 import type { Floor, Group } from '../game/rules/deck'
 import approval from '../assets/icons/approval.svg?raw'
 import budget from '../assets/icons/budget.svg?raw'
@@ -120,7 +125,11 @@ const SVG: Record<IconId, string> = {
 const RASTER_SCALE = 4
 
 const loader = new AssetLoader()
-let cached: IconSet | null = null
+/**
+ * The loaded icons, which change once, when `loadIcons` resolves. A node that
+ * paints icons calls `canvas.use(iconsRef)` so it repaints when they arrive.
+ */
+export const iconsRef = new VersionedRef<IconSet | null>(null)
 
 /** Rasterise every icon. Idempotent, repeat calls resolve to the same canvases. */
 export async function loadIcons(): Promise<IconSet> {
@@ -133,7 +142,10 @@ export async function loadIcons(): Promise<IconSet> {
     ids.forEach((id, i) => (out[id] = canvases[i]!))
     return out
   })
-  cached = set
+  if (iconsRef.value !== set) {
+    iconsRef.value = set
+    iconsRef.touch()
+  }
   return set
 }
 
@@ -147,7 +159,7 @@ export const iconSvg = (id: IconId): string => SVG[id]
 
 /** The loaded icons, or `null` before `loadIcons` has resolved. */
 export function icons(): IconSet | null {
-  return cached
+  return iconsRef.value
 }
 
 export function groupBadge(set: IconSet, group: Group): HTMLCanvasElement {

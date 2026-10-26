@@ -12,7 +12,7 @@
  * owning session's own clock every frame and cannot drift from what a clear
  * will actually pay.
  */
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { COLORS, PROGRESS_ACCENT, SCORING } from '../tuning'
 import { font } from '../../fonts'
 
@@ -46,24 +46,29 @@ export class TimeBonusNode extends Node2D {
   readonly #value: () => number
   readonly #label: string
   readonly #color: string
-  #width: number
+  declare width: number
+  /** The supplier's value as of the last update. */
+  declare value: number
 
   constructor(opts: TimeBonusOptions) {
     super('jb-time-bonus')
-    this.renderLayer = 'dynamic'
     this.#value = opts.value
     this.#label = opts.label
     this.#color = opts.color ?? PROGRESS_ACCENT
-    this.#width = opts.width
+    definePaintProps(this, { width: opts.width, value: opts.value() })
   }
 
   setWidth(width: number): void {
-    this.#width = width
+    this.width = width
   }
 
-  override draw(gfx: Gfx2D): void {
-    const w = this.#width
-    const value = this.#value()
+  override onUpdate(): void {
+    this.value = this.#value()
+  }
+
+  override paint(gfx: Canvas): void {
+    const w = this.width
+    const value = this.value
     const frac = Math.max(0, Math.min(1, value / SCORING.timeBonusBase))
     const trackY = -TRACK_H / 2
 

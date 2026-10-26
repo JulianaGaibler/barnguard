@@ -2,12 +2,14 @@
  * Purely decorative frame chrome, ported from CSS to the engine so it's one
  * fewer always-mounted DOM overlay: two full-width top/bottom bars, four
  * rounded "tab" pills, and four corner marks (a rotating "+" plus two hollow
- * squares). Every size below is a CSS-pixel value converted to world units via
- * `camera.strokeSpaceScale()` each frame, so it reads at a constant on-screen
- * size regardless of the canvas' actual resolution, matching how the original
- * absolutely-positioned DOM version behaved.
+ * squares). Every size below is a CSS-pixel value converted to world units by
+ * the camera's screen scale, so it reads at a constant on-screen size
+ * regardless of the canvas' actual resolution, matching how the original
+ * absolutely-positioned DOM version behaved. The bars, tabs and squares are
+ * painted once. Each `+` is a child node that the update turns, so a quarter
+ * turn repaints nothing.
  */
-import { Node2D, easings, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, easings, type Canvas } from 'stargazer'
 import type { Bounds } from '../types'
 import { COLORS } from '../tuning'
 
@@ -73,26 +75,101 @@ function quarterTurnAngle(
   return (deg * Math.PI) / 180
 }
 
+/** One corner's `+`, centred on its own origin so its transform can spin it. */
+class PlusNode extends Node2D {
+  declare size: number
+  declare thick: number
+
+  constructor() {
+    super('jezzball-chrome-plus')
+    definePaintProps(this, { size: 0, thick: 0 })
+  }
+
+  override paint(gfx: Canvas): void {
+    const { size, thick } = this
+    gfx.fillRect(-size / 2, -thick / 2, size, thick, COLORS.ink)
+    gfx.fillRect(-thick / 2, -size / 2, thick, size, COLORS.ink)
+  }
+}
+
+/** Where a corner's three marks sit, for one rect and one screen scale. */
+function cornerRow(
+  r: Bounds,
+  s: number,
+  c: (typeof CORNERS)[number],
+): { plusX: number; sq1X: number; sq2X: number; rowY: number } {
+  const pad = PADDING_PX * s
+  const gap = GAP_PX * s
+  const plusSize = PLUS_SIZE_PX * s
+  const sqSize = SQUARE_SIZE_PX * s
+  const dir = c.h === 'left' ? 1 : -1
+  const edgeX = c.h === 'left' ? r.x + pad : r.x + r.width - pad
+  const rowY =
+    c.v === 'top'
+      ? r.y + pad + plusSize / 2
+      : r.y + r.height - pad - plusSize / 2
+  // Row of 3 items (plus, then two squares), growing inward from `edgeX`.
+  let cursor = edgeX
+  const nextCenter = (size: number): number => {
+    const center = cursor + dir * (size / 2)
+    cursor += dir * (size + gap)
+    return center
+  }
+  const plusX = nextCenter(plusSize)
+  const sq1X = nextCenter(sqSize)
+  const sq2X = nextCenter(sqSize)
+  return { plusX, sq1X, sq2X, rowY }
+}
+
 export class ChromeNode extends Node2D {
   #rect: Bounds
   #elapsed = 0
+  readonly #plus: PlusNode[] = []
+  /** The screen scale the plus marks were last placed for. */
+  #placedScale = NaN
+  #placedRect: Bounds | null = null
 
   constructor(rect: Bounds) {
     super('jezzball-chrome')
     this.#rect = rect
-    this.renderLayer = 'dynamic'
+    for (let i = 0; i < CORNERS.length; i++) {
+      const plus = new PlusNode()
+      this.#plus.push(plus)
+      this.add(plus)
+    }
   }
 
   setRect(rect: Bounds): void {
     this.#rect = rect
+    this.markNeedsPaint()
   }
 
   override onUpdate(dt: number): void {
     this.#elapsed += dt
+    const s = this.engine?.activeCamera?.strokeSpaceScale() ?? 1
+    if (s !== this.#placedScale || this.#rect !== this.#placedRect) {
+      this.#placedScale = s
+      this.#placedRect = this.#rect
+      CORNERS.forEach((c, i) => {
+        const plus = this.#plus[i]!
+        const row = cornerRow(this.#rect, s, c)
+        plus.transform.x = row.plusX
+        plus.transform.y = row.rowY
+        plus.size = PLUS_SIZE_PX * s
+        plus.thick = PLUS_THICKNESS_PX * s
+      })
+    }
+    CORNERS.forEach((c, i) => {
+      this.#plus[i]!.transform.rotation = quarterTurnAngle(
+        this.#elapsed,
+        c.duration,
+        c.delay,
+      )
+    })
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const s = camera.strokeSpaceScale()
+  override paint(gfx: Canvas): void {
+    const s = gfx.screenScale()
     const r = this.#rect
     const color = COLORS.ink
 
@@ -132,39 +209,10 @@ export class ChromeNode extends Node2D {
       color,
     )
 
-    const pad = PADDING_PX * s
-    const gap = GAP_PX * s
-    const plusSize = PLUS_SIZE_PX * s
     const sqSize = SQUARE_SIZE_PX * s
-    const thick = PLUS_THICKNESS_PX * s
     const border = { color, width: SQUARE_BORDER_PX * s }
-
     for (const c of CORNERS) {
-      const dir = c.h === 'left' ? 1 : -1
-      const edgeX = c.h === 'left' ? r.x + pad : r.x + r.width - pad
-      const rowY =
-        c.v === 'top'
-          ? r.y + pad + plusSize / 2
-          : r.y + r.height - pad - plusSize / 2
-
-      // Row of 3 items (plus, then two squares), growing inward from `edgeX`.
-      let cursor = edgeX
-      const nextCenter = (size: number): number => {
-        const center = cursor + dir * (size / 2)
-        cursor += dir * (size + gap)
-        return center
-      }
-      const plusX = nextCenter(plusSize)
-      const sq1X = nextCenter(sqSize)
-      const sq2X = nextCenter(sqSize)
-
-      gfx.save()
-      gfx.translate(plusX, rowY)
-      gfx.rotate(quarterTurnAngle(this.#elapsed, c.duration, c.delay))
-      gfx.fillRect(-plusSize / 2, -thick / 2, plusSize, thick, color)
-      gfx.fillRect(-thick / 2, -plusSize / 2, thick, plusSize, color)
-      gfx.restore()
-
+      const { sq1X, sq2X, rowY } = cornerRow(r, s, c)
       gfx.strokeRoundRect(
         sq1X - sqSize / 2,
         rowY - sqSize / 2,

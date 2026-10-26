@@ -20,12 +20,11 @@ import {
   circleShape,
   lerp,
   polygonShape,
-  type CameraView2D,
+  type Canvas,
   type EngineHost,
-  type Gfx2D,
   type Rect,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { MenuPreview } from '@src/displays/arcade/menu/types'
 import { BallNode } from './nodes/BallNode'
 import { COLORS, PHYSICS } from './tuning'
@@ -90,7 +89,7 @@ function segmentVerts(a: Vec2, b: Vec2, halfThickness: number): Vec2[] {
 }
 
 /**
- * The portion of segment `a`→`b` inside `rect`, via Liang-Barsky clipping,
+ * The portion of segment `a`->`b` inside `rect`, via Liang-Barsky clipping,
  * `null` when none of it is. The engine has no cheap way to clip a stroke
  * (`setClipMask` only wires into filled-triangle draws), so every line this
  * file draws is clipped by hand before it reaches `Gfx2D`.
@@ -144,15 +143,14 @@ class DecorNode extends Node2D {
     clip: Rect,
   ) {
     super('jezzball-menu-decor')
-    this.renderLayer = 'dynamic'
     this.#square = square
     this.#circle = circle
     this.#spokes = spokes
     this.#clip = clip
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const width = LINE_WIDTH_PX * camera.strokeSpaceScale()
+  override paint(gfx: Canvas): void {
+    const width = LINE_WIDTH_PX * gfx.screenScale()
     const style = { color: COLORS.ink, width, cap: 'round' as const }
     const stroke = (a: Vec2, b: Vec2): void => {
       const seg = clipSegment(a, b, this.#clip)

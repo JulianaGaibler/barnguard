@@ -1,9 +1,9 @@
 import {
   Node2D,
+  definePaintProps,
   withAlpha,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+  type Canvas,
+} from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 export interface PacketMotionTrailOptions {
@@ -26,11 +26,11 @@ export interface PacketMotionTrailOptions {
  * `PacketBehavior` writes every render frame so the ribbon stays glued to the
  * hex despite the sample distance filter and rAF vs fixed-step drift.
  *
- * Rendering builds a closed teardrop path in a single `ctx.fill` per frame:
- * width tapers head → tail with a `pow(1 - t, 0.7)` curve, and the fill is a
- * linear gradient from opaque `color` at the head to fully transparent at the
- * tail. Zero allocations after construction, all scratch state lives in
- * typed-array fields sized to `capacity + 1`.
+ * Painting builds a closed teardrop path as a single fill: width tapers head ->
+ * tail with a `pow(1 - t, 0.7)` curve, and the fill is a linear gradient from
+ * opaque `color` at the head to fully transparent at the tail. Zero allocations
+ * after construction, all scratch state lives in typed-array fields sized to
+ * `capacity + 1`.
  *
  * Draw order: this node is expected to render BEFORE the packet (session adds
  * trail to the packet layer FIRST so tree DFS draws it under the hex).
@@ -51,12 +51,13 @@ export class PacketMotionTrailNode extends Node2D {
   /**
    * Live head, updated per render frame from `PacketBehavior.onUpdate`.
    * Injected at ordinal 0 of the ribbon so the trail visually glues to the
-   * packet's exact position instead of lagging up to `minSampleDist` behind.
+   * packet's exact position instead of lagging up to `minSampleDist` behind. A
+   * paint property, so a head that moves repaints the trail.
    */
-  liveHeadX = NaN
-  liveHeadY = NaN
+  declare liveHeadX: number
+  declare liveHeadY: number
 
-  // Scratch buffers reused across every draw, sized `capacity + 1` because
+  // Scratch buffers reused across every paint, sized `capacity + 1` because
   // the live head, when set, occupies an extra slot ahead of the ring's
   // newest sample.
   readonly #_xs: Float32Array
@@ -69,6 +70,7 @@ export class PacketMotionTrailNode extends Node2D {
 
   constructor(opts: PacketMotionTrailOptions = {}) {
     super('packet-motion-trail')
+    definePaintProps(this, { liveHeadX: NaN, liveHeadY: NaN })
     this.capacity = opts.capacity ?? TUNING.packet.trail.sampleCapacity
     this.maxHalfWidthWorld =
       opts.halfWidthWorld ?? TUNING.packet.trail.halfWidthWorld
@@ -109,10 +111,14 @@ export class PacketMotionTrailNode extends Node2D {
     if (this.#_count < cap) this.#_count++
     this.#lastX = x
     this.#lastY = y
+    this.markNeedsPaint()
     return true
   }
 
-  /** Update the live head. Cheap, called every render frame. */
+  /**
+   * Update the live head. Cheap, called every render frame, and repaints only
+   * when the head moved.
+   */
   setLiveHead(x: number, y: number): void {
     this.liveHeadX = x
     this.liveHeadY = y
@@ -126,9 +132,10 @@ export class PacketMotionTrailNode extends Node2D {
     this.#lastY = NaN
     this.liveHeadX = NaN
     this.liveHeadY = NaN
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D, _dt: number): void {
+  override paint(canvas: Canvas): void {
     const count = this.#_count
     if (count === 0) return
     const haveLive =
@@ -190,8 +197,8 @@ export class PacketMotionTrailNode extends Node2D {
       hw[i] = this.maxHalfWidthWorld * Math.pow(1 - t, 0.7)
     }
 
-    // Build the closed ribbon outline into scratch: left edge head → tail,
-    // then right edge tail → head. Perpendicular of (tx, ty) is (-ty, tx).
+    // Build the closed ribbon outline into scratch: left edge head -> tail,
+    // then right edge tail -> head. Perpendicular of (tx, ty) is (-ty, tx).
     const outline = this.#_outline
     let o = 0
     for (let i = 0; i < n; i++) {
@@ -203,11 +210,11 @@ export class PacketMotionTrailNode extends Node2D {
       outline[o++] = ys[i] - tx[i] * hw[i]
     }
 
-    // Linear gradient head → tail. On broadly-curved paths this reads
+    // Linear gradient head -> tail. On broadly-curved paths this reads
     // correctly. On hairpin U-turns the gradient may cut across the loop,
     // an accepted tradeoff. A segmented-fill fallback could replace this
     // if artifacts start showing in practice.
-    gfx.fillPolyLinearGradient(
+    canvas.fillPolyLinearGradient(
       outline,
       n * 2,
       xs[0],

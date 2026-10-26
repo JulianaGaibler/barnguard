@@ -2,15 +2,19 @@
 <html lang="de">
   <head>
     <meta charset="UTF-8" />
-    <!--
-      Kiosk viewport: lock scaling so the 40" touchscreen cannot be
-      pinch-zoomed or panned by visitors.
-    -->
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
-    <title>Stallwächterparty Booth</title>
+    <!--
+      Added to a home screen, the page opens as an app with no browser around it.
+      Each display brings its own manifest, icon and title once it is chosen, see
+      core/pwa/installable.ts.
+    -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>Barnguard Booth</title>
     <!--
       Apply the stored UI scale before the bundle loads so the first paint is
       already at the right size (no flash of unscaled content). The Svelte store

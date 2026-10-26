@@ -24,8 +24,8 @@ export const JEZZBALL_FONTS = resolveFonts(JEZZBALL_FONT_TOKENS)
 /**
  * The HUD's small copy: pause label, meta lines, sublabels.
  *
- * Callers ask for weights up to 900 and Mozilla Text ships 400, 500 and 700, so
- * `fontFor` snaps anything heavier down rather than letting the browser
+ * Callers ask for weights up to 900 and Mozilla Text covers 200 to 700, so
+ * `fontFor` clamps anything heavier down rather than letting the browser
  * synthesise a fake bold.
  */
 export const font = (weight: number, size: number): string =>

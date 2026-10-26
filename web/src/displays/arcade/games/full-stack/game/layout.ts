@@ -10,7 +10,7 @@
 // cell and a shortlist card recover the same width from an equal-width region:
 // `regionWidth = W * (3 + 2 * gapRatio)`, and every reader inverts that.
 
-import type { Rect } from '@src/stargazer'
+import type { Rect } from 'stargazer'
 import { LAYOUT } from './tuning'
 
 /**

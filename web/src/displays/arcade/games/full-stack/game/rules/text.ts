@@ -10,7 +10,7 @@
 // functions are derived by joining the spans, so older callers and tests keep
 // working. All money reads in thousands ("15" is "15k") everywhere.
 
-import type { TextRun } from '@src/stargazer'
+import type { TextRun } from 'stargazer'
 import {
   type Area,
   type Card,

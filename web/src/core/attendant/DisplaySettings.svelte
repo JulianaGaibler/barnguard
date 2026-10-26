@@ -7,7 +7,7 @@
   target, so the technician can judge tappability, not just legibility.
 -->
 <script lang="ts">
-  import { DebugSection, DebugSlider } from '@src/stargazer/debug/ui'
+  import { DebugSection, DebugSlider } from 'stargazer/debug-ui'
   import Button from '@src/core/ui/Button.svelte'
   import {
     uiScale,

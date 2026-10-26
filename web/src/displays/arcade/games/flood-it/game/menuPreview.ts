@@ -20,7 +20,7 @@
  * It is still the real board running the real flood, so what settles on screen
  * is a genuine position.
  */
-import { Node2D, withAlpha, type EngineHost, type Rect } from '@src/stargazer'
+import { Node2D, withAlpha, type EngineHost, type Rect } from 'stargazer'
 import type { MenuPreview } from '@src/displays/arcade/menu/types'
 import { buildAutoBoard } from './autoBoard'
 import { COLORS } from './tuning'
@@ -100,7 +100,6 @@ export function buildFloodItMenuPreview(
 ): MenuPreview {
   const root = new Node2D('flood-menu-preview')
   // Behind the launcher rail's DOM, and over the arcade sky.
-  root.renderLayer = 'dynamic'
   host.engine.tree.root.add(root)
 
   const side = view.height * BOARD_SPAN

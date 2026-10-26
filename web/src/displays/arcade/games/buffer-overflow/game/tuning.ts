@@ -13,7 +13,7 @@
  * one constant feeding both surfaces is the only thing keeping the DOM chrome
  * and the buffer in step.
  */
-import { mixColor, withAlpha } from '@src/stargazer'
+import { mixColor, withAlpha } from 'stargazer'
 import type { PieceKind } from './types'
 
 const INK = '#F4F0FA'

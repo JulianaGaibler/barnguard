@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Node3D } from '@src/stargazer'
+import { Node3D } from 'stargazer'
 import { createTableView, type TableView } from './tableView'
 import { CardNode } from './nodes/CardNode'
 import {

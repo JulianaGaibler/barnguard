@@ -1,12 +1,6 @@
-import {
-  Node2D,
-  type CameraView2D,
-  type Gfx2D,
-  type Rect,
-} from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { layout } from '../world'
 import { rgbaStr } from './palette'
-import { visibleWorldRect } from './util'
 import type { PaletteSource } from './BackgroundController'
 
 /** Ocean band height in world units (from arcade-ocean.svg: 218 of 1080). */
@@ -16,22 +10,21 @@ const BAND_HEIGHT = 218
  * The ocean band at the bottom of the launcher region: a flat base fill plus a
  * "waterline" glow, a vertical gradient from the bright horizon color (top of
  * the band) down to transparent, so it stays confined to the water. Spans the
- * visible width and down to the visible bottom to cover any letterbox.
+ * visible width and down to the visible bottom to cover any letterbox. It
+ * paints again only when the palette or the camera's view changes.
  */
 export class OceanNode extends Node2D {
-  readonly #vr: Rect = { x: 0, y: 0, width: 0, height: 0 }
   readonly #pts = new Float32Array(8)
   readonly #source: PaletteSource
 
   constructor(source: PaletteSource) {
     super('ocean')
     this.#source = source
-    // Part of the world's base layer. See `SkyGradientNode` for why `'static'`.
-    this.renderLayer = 'static'
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const vr = visibleWorldRect(camera, this.#vr)
+  override paint(gfx: Canvas): void {
+    gfx.use(this.#source)
+    const vr = gfx.visibleWorldRect()
     const p = this.#source.palette
     const top = layout.worldHeight - BAND_HEIGHT
     const bottom = Math.max(layout.worldHeight, vr.y + vr.height)
@@ -40,7 +33,7 @@ export class OceanNode extends Node2D {
 
     gfx.fillRect(x0, top, vr.width, bottom - top, rgbaStr(p.oceanBase))
 
-    // Vertical waterline glow: bright at the top of the band → transparent.
+    // Vertical waterline glow: bright at the top of the band -> transparent.
     const g = p.oceanGlow
     const bright = g.stops[0]
     const fade = g.stops[g.stops.length - 1]

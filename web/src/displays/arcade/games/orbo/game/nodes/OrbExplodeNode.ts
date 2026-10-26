@@ -12,11 +12,10 @@
  */
 import {
   VectorParticleNode,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Vec2,
   type VectorParticleSpawnInit,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** Reused scratch for the per-piece equilateral triangle (draw is synchronous). */
 const TRI_SCRATCH = new Float32Array(6)
@@ -124,11 +123,7 @@ export class OrbExplodeNode extends VectorParticleNode {
     if (this.#age >= MAX_LIFE_SEC) this.destroy()
   }
 
-  protected override drawParticle(
-    gfx: Gfx2D,
-    i: number,
-    camera: CameraView2D,
-  ): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
     // Shrink with the piece's remaining speed so it dissolves as it slows.
     const scale = Math.min(
       1,
@@ -150,7 +145,7 @@ export class OrbExplodeNode extends VectorParticleNode {
     } else {
       gfx.strokeLine(-this.#lineHalf, 0, this.#lineHalf, 0, {
         color: this.#color,
-        width: LINE_WIDTH_CSS_PX * camera.strokeSpaceScale(),
+        width: { screen: LINE_WIDTH_CSS_PX },
         cap: 'round',
       })
     }

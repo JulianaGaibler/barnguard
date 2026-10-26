@@ -52,7 +52,6 @@ export const en: ArcadeMessages = {
       wontBeSaved: 'Your score will not be saved',
       willBeSavedAs: (name) => `Will be saved as ${name}`,
       enterNameToSave: 'enter name to save',
-      closeKeyboard: 'Close keyboard',
       sameName: 'Same name on both sides. Only the higher score is kept.',
     },
   },

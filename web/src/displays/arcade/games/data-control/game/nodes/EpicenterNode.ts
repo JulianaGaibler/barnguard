@@ -1,11 +1,4 @@
-import {
-  Node2D,
-  withAlpha,
-  type CameraView2D,
-  type Gfx2D,
-  type Rect,
-  type Vec2,
-} from '@src/stargazer'
+import { Node2D, withAlpha, type Canvas, type Vec2 } from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 /** Number of segments used to tessellate the cone's arc. */
@@ -33,6 +26,43 @@ interface EpicenterNodeOptions {
   apexIconSizeWorld?: number
 }
 
+/** Which layer of the cone a {@link ConeWedgeNode} paints. */
+type WedgeKind = 'base' | 'pulse'
+
+/**
+ * One layer of the epicenter's cone. The parent turns it with scale and alpha
+ * on its transform, so the breathing and the pulse repaint nothing.
+ */
+class ConeWedgeNode extends Node2D {
+  readonly #poly: Float32Array
+  readonly #kind: WedgeKind
+
+  constructor(kind: WedgeKind, poly: Float32Array) {
+    super(`epicenter-${kind}`)
+    this.#kind = kind
+    this.#poly = poly
+    this.visible = false
+  }
+
+  override paint(canvas: Canvas): void {
+    const n = this.#poly.length / 2
+    if (this.#kind === 'pulse') {
+      canvas.setAlpha(0.55)
+      canvas.fillConvexPoly(this.#poly, n, '#7C93FF')
+      return
+    }
+    canvas.setAlpha(0.08)
+    canvas.fillConvexPoly(this.#poly, n, '#2B4CFF')
+    canvas.setAlpha(0.7)
+    canvas.strokePolyline(this.#poly, n, {
+      color: '#7C93FF',
+      width: 1.5 * canvas.screenScale(),
+      closed: true,
+      join: 'round',
+    })
+  }
+}
+
 /**
  * Safe zone at a state's capital, a 60° cone opening toward the interior.
  * Capture requires apex proximity AND a valid entry heading, not a drag
@@ -46,27 +76,49 @@ export class EpicenterNode extends Node2D {
   readonly coneRadius: number
   readonly coneSweep: number
   /**
-   * Direction (radians) the cone opens, apex → approachReference. Packets
+   * Direction (radians) the cone opens, apex -> approachReference. Packets
    * approaching from within `±(coneSweep/2 + approachForgivenessRad)` of the
    * INWARD axis (`axisRad + π`) are considered valid entries.
    */
   readonly axisRad: number
   /** Set by `EpicenterBehavior`, outer alpha for the breathing pulse. */
-  outerAlpha = 1
+  get outerAlpha(): number {
+    return this.#outerAlpha
+  }
+  set outerAlpha(v: number) {
+    this.#outerAlpha = v
+    this.#syncWedges()
+  }
   /**
-   * Set by `EpicenterBehavior`, grow-in scale applied on show. Kept for
-   * compatibility with the behavior, multiplied into the wedge radius.
+   * Set by `EpicenterBehavior`, grow-in scale applied on show. Multiplied into
+   * the wedge radius.
    */
-  outerScale = 1
+  get outerScale(): number {
+    return this.#outerScale
+  }
+  set outerScale(v: number) {
+    this.#outerScale = v
+    this.#syncWedges()
+  }
   /**
-   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 → 1 over 4 s,
+   * `EpicenterBehavior`-driven pulse scale (0..1). Tweens 0 -> 1 over 4 s,
    * resets, waits 3 s, repeats. Multiplied into the wedge radius.
    */
-  pulseScale = 0
+  get pulseScale(): number {
+    return this.#pulseScale
+  }
+  set pulseScale(v: number) {
+    this.#pulseScale = v
+    this.#syncWedges()
+  }
   /** Retained for compatibility with `EpicenterBehavior`, unused visually. */
   dashRotation = 0
 
-  readonly #_arcPoly: Float32Array
+  #outerAlpha = 1
+  #outerScale = 1
+  #pulseScale = 0
+  readonly #base: ConeWedgeNode
+  readonly #pulse: ConeWedgeNode
   readonly #apexIcon: CanvasImageSource | null
   readonly #apexIconSize: number
 
@@ -86,8 +138,7 @@ export class EpicenterNode extends Node2D {
     const dy = opts.approachReference.y - opts.center.y
     this.axisRad = dx * dx + dy * dy < 1 ? -Math.PI / 2 : Math.atan2(dy, dx)
 
-    // Pre-tessellated wedge, rotation baked in so the draw path issues no
-    // `gfx.rotate` and the apex icon inherits only the node's base transform.
+    // Pre-tessellated wedge with the rotation baked in.
     const half = this.coneSweep * 0.5
     const r = this.coneRadius
     const N = CONE_ARC_SEGMENTS
@@ -100,12 +151,14 @@ export class EpicenterNode extends Node2D {
       pts[(i + 1) * 2] = Math.cos(a) * r
       pts[(i + 1) * 2 + 1] = Math.sin(a) * r
     }
-    this.#_arcPoly = pts
+    this.#base = new ConeWedgeNode('base', pts)
+    this.#pulse = new ConeWedgeNode('pulse', pts)
+    this.add(this.#base)
+    this.add(this.#pulse)
+    this.#syncWedges()
 
     this.#apexIcon = opts.apexIcon ?? null
     this.#apexIconSize = opts.apexIconSizeWorld ?? 14
-
-    this.debugBounds = boundsFromRadius(this.coneRadius)
   }
 
   /** World coord of the safe-zone apex. Read every fixed step by packets. */
@@ -114,7 +167,7 @@ export class EpicenterNode extends Node2D {
   }
 
   /**
-   * True when `from → apex` lies within the cone opening (with
+   * True when `from -> apex` lies within the cone opening (with
    * `approachForgivenessRad` slack beyond `±coneSweep/2`).
    */
   isApproachAngleValid(fromX: number, fromY: number): boolean {
@@ -137,59 +190,44 @@ export class EpicenterNode extends Node2D {
     return Math.abs(delta) <= tol
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const alpha = this.transform.alpha
-    if (alpha < 0.001) return
-    const s = camera.strokeSpaceScale()
-
-    // Base cone wedge, always visible at full radius (with `outerScale`
-    // driving the intro grow-in). Fill sits behind the outline. The
-    // polygon is already rotated at construction. Only the uniform
-    // grow-in scale is applied here.
-    if (this.outerScale > 0.001) {
-      gfx.save()
-      gfx.scale(this.outerScale, this.outerScale)
-
-      gfx.setAlpha(alpha * this.outerAlpha * 0.08)
-      gfx.fillConvexPoly(this.#_arcPoly, this.#_arcPoly.length / 2, '#2B4CFF')
-
-      gfx.setAlpha(alpha * this.outerAlpha * 0.7)
-      gfx.strokePolyline(this.#_arcPoly, this.#_arcPoly.length / 2, {
-        color: '#7C93FF',
-        width: (1.5 * s) / this.outerScale,
-        closed: true,
-        join: 'round',
-      })
-
-      gfx.restore()
+  /**
+   * Writes the wedges' transforms. The base wedge grows in with `outerScale`
+   * and breathes with `outerAlpha`. The pulse wedge grows from the apex to the
+   * grown cone and fades as it expands.
+   */
+  #syncWedges(): void {
+    const base = this.#base
+    const pulse = this.#pulse
+    const shown = this.#outerScale > 0.001
+    base.visible = shown
+    if (shown) {
+      base.transform.scaleX = this.#outerScale
+      base.transform.scaleY = this.#outerScale
+      base.transform.alpha = this.#outerAlpha
     }
-
-    // Overlay pulse, a brighter wedge that grows from 0 → outerScale and
-    // fades out as it expands. Layered on top so it reads as an
-    // "energising" sweep across the cone's face.
-    if (this.pulseScale > 0.001) {
-      const p = this.pulseScale
-      const pulseFade = Math.max(0, 1 - p)
-      const pulseAlpha = alpha * this.outerAlpha * pulseFade
-      if (pulseAlpha > 0.001) {
-        const s2 = p * this.outerScale
-        gfx.save()
-        gfx.scale(s2, s2)
-        gfx.setAlpha(pulseAlpha * 0.55)
-        gfx.fillConvexPoly(this.#_arcPoly, this.#_arcPoly.length / 2, '#7C93FF')
-        gfx.restore()
-      }
+    const p = this.#pulseScale
+    const pulseAlpha = this.#outerAlpha * Math.max(0, 1 - p)
+    const pulsing = p > 0.001 && pulseAlpha > 0.001
+    pulse.visible = pulsing
+    if (pulsing) {
+      const s = p * this.#outerScale
+      pulse.transform.scaleX = s
+      pulse.transform.scaleY = s
+      pulse.transform.alpha = pulseAlpha
     }
+  }
 
-    // Apex disc, the exact capture centre. Sized to host the icon (if
-    // supplied) so the mark reads clearly against the cone. Falls back
-    // to a small marker dot when no icon is provided (e.g. tutorial).
-    gfx.setAlpha(alpha)
+  /**
+   * The apex disc, the exact capture centre. Sized to host the icon (if
+   * supplied) so the mark reads clearly against the cone. Falls back to a small
+   * marker dot when no icon is provided (e.g. tutorial).
+   */
+  override paint(canvas: Canvas): void {
     if (this.#apexIcon) {
       const half = this.#apexIconSize * 0.5
       const padding = 3
-      gfx.fillCircle(0, 0, half + padding, withAlpha('#f8fafc', 1))
-      gfx.drawImage(
+      canvas.fillCircle(0, 0, half + padding, withAlpha('#f8fafc', 1))
+      canvas.drawImage(
         this.#apexIcon,
         -half,
         -half,
@@ -197,13 +235,9 @@ export class EpicenterNode extends Node2D {
         this.#apexIconSize,
       )
     } else {
-      gfx.fillCircle(0, 0, 4, withAlpha('#f8fafc', 1))
+      canvas.fillCircle(0, 0, 4, withAlpha('#f8fafc', 1))
     }
   }
-}
-
-function boundsFromRadius(r: number): Rect {
-  return { x: -r, y: -r, width: r * 2, height: r * 2 }
 }
 
 function wrapAngle(a: number): number {

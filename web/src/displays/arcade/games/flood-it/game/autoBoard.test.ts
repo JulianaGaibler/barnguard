@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { Node2D } from '@src/stargazer'
+import { Node2D } from 'stargazer'
 import { seededRandom } from '../../common/rng'
 import {
   absorbGains,

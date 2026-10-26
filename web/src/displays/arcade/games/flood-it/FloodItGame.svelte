@@ -15,7 +15,7 @@
     ignoreAbort,
     Node2D,
     type Rect,
-  } from '@src/stargazer'
+  } from 'stargazer'
   import { coverView, REGION_HEIGHT, REGION_WIDTH } from '../../world'
   import { GradientBackgroundNode } from '../common/GradientBackgroundNode'
   import { seededRandom } from '../common/rng'

@@ -21,10 +21,10 @@ mistake:
 | A leaderboard view                                   | `src/displays/arcade/leaderboard/LeaderboardModal.svelte`            |
 | A button, card, overlay, counter, on-screen keyboard | `src/core/ui/`                                                       |
 | A backdrop behind your board                         | `common/GradientBackgroundNode.ts` or `common/FlatBackgroundNode.ts` |
-| Text measurement, wrapping, fitting                  | `src/stargazer` text helpers, all memoized                           |
+| Text measurement, wrapping, fitting                  | `stargazer` text helpers, all memoized                               |
 | Layout of boxes and rows                             | The layout system, opt-in per root                                   |
 | Tweening, waiting, sequencing                        | `node.tween`, `engine.wait`, `Timeline`                              |
-| An adversarial search for an AI opponent             | `src/stargazer/ai/minimax.ts`                                        |
+| An adversarial search for an AI opponent             | `searchBestMove` from `stargazer`                                    |
 | A color palette applied to your DOM chrome           | `GameMeta.themeTokens` + `themeScope`                                |
 | A font stack for canvas and DOM                      | `src/core/theme/fonts.ts`                                            |
 | Score persistence                                    | The leaderboard and game-log clients                                 |
@@ -43,9 +43,11 @@ conventions, and following them is what makes your game testable and reviewable.
 
 ## The engine: stargazer
 
-`src/stargazer/` is a 2D-first retained-mode scene graph with an immediate-mode
-drawing facade, plus an optional depth-tested 3D pass. Import from
-`@src/stargazer` only. Internal subpaths are not public API.
+`stargazer` is a 2D-first retained-mode scene graph. Nodes record what they
+look like into pictures that the engine replays, plus an optional depth-tested 3D
+pass. It lives in its own repository and barnguard installs it as a package.
+Import from `stargazer`, `stargazer/debug-ui` and `stargazer/testing` only.
+Other paths are not public API.
 
 Two GPU backends sit behind one device seam, WebGPU and WebGL2, with no canvas-2D
 fallback. `'auto'` probes WebGPU and falls back. You do not pick a backend. The
@@ -57,8 +59,9 @@ arcade already handles selection and context-loss recovery, and `?gfx=` override
 `Stage` (canvas, renderer, scene tree, cameras). Per frame, in order:
 before-frame handlers, pointer reprojection, animation tick, the update walk
 (`node.onUpdate` then each behavior's), the layout pass for dirty roots, transform
-propagation, then rendering (3D passes, then the `static`, `above-static` and
-`dynamic` 2D layers, then post-processing), then a `frame` event.
+propagation, then rendering (3D passes, then the 2D tree in painter order, where
+dirty nodes record their pictures and every picture replays, then
+post-processing), then a `frame` event.
 
 There is a fixed timestep alongside that, default 120 Hz, with an accumulator and a
 per-frame cap. Physics worlds step first, then `onFixedStep` on nodes and behaviors.
@@ -66,8 +69,9 @@ Render `dt` is clamped and smoothed by default. Put anything that must be
 framerate-independent in `onFixedStep`, and read `ticker.fixedAlpha` if you need to
 interpolate between steps.
 
-The three render layers are draw order only, not caching. You can mutate any of
-them on any frame.
+2D draw order is tree order: a node draws before its children and siblings draw in
+the order they were added. You can mutate any node on any frame. A node that has to
+draw under nodes added before it goes in with `addAt` or `insertBefore`.
 
 ### The pieces you'll actually touch
 
@@ -80,18 +84,23 @@ returns a subtree.
 
 Drawable nodes: `ShapeNode` (circle or rect, with radii), `Path2DNode`,
 `PolylineNode`, `TextNode`, `ParticleEmitterNode`, `VectorParticleNode`, and the
-3D `MeshNode`. There is no sprite node. Images go through `gfx.drawImage` inside a
-custom `draw`.
+3D `MeshNode`. There is no sprite node. Images go through `canvas.drawImage`
+inside a custom `paint`.
 
-Immediate mode. Override `draw(gfx, camera, dt)` on a `Node2D` subclass. The layer
-walker installs the combined device, camera and world transform plus the node's
-alpha before calling you, so you draw in local coordinates. `Gfx2D` has fills
+Retained painting. Override `paint(canvas)` on a `Node2D` subclass. It records the
+node's drawing into a picture in local coordinates, and the engine replays the
+picture every frame under the node's transform and alpha. Moving, scaling, fading
+or rotating a node never runs `paint` again. The node repaints when a paint
+property declared with `definePaintProps` changes, when a versioned resource it
+read through `canvas.use` changes, when it calls `markNeedsPaint()`, or when the
+scale settles at a new value and the picture depends on scale. `Canvas` has fills
 (`fillRect`, `fillRoundRect`, `fillCircle`, `fillConvexPoly`, `fillPath2D`, several
 gradient fills), strokes (`strokeLine`, `strokeCircle`, `strokePolyline`,
-`strokeRoundRect`, `strokeQuadratic`, `strokePath2D`), `drawImage`, `fillText`,
-`warmText`, and state calls (`save`/`restore`, `translate`/`rotate`/`scale`,
-`setAlpha`, `setBlend`, `setClip`, `setClipMask`). Style is passed per call, so there
-is no sticky state.
+`strokeRoundRect`, `strokeQuadratic`, `strokePath2D`), `drawImage`, `fillText`, and
+state calls (`save`/`restore`, `translate`/`rotate`/`scale`, `setAlpha`,
+`setBlend`, `setClip`, `setClipMask`). Style is passed per call, so there is no
+sticky state. A stroke width of `{ screen: n }` is `n` CSS pixels at any zoom.
+`LottieNode` is the one engine node that still draws immediately.
 
 Transforms are decomposed affine: `x`, `y`, `scaleX`, `scaleY`, `rotation`,
 `originX`, `originY`, `alpha`. `transform.world` is filled by the propagation pass.
@@ -136,7 +145,7 @@ uploaded as a bitmap and drawn as a textured quad, which is why kerning,
 ligatures, complex scripts and color emoji all work. Color is baked into the
 bitmap, not tinted in a shader.
 
-Either `gfx.fillText(text, x, y, style)` in a `draw`, or a `TextNode` in the tree.
+Either `canvas.fillText(text, x, y, style)` in a `paint`, or a `TextNode` in the tree.
 Labels are cached by text, font, alignment, color and a scale bucket, shelf-packed
 into a 2048-square page under an LRU. Measurement and layout helpers are memoized:
 `measureText`, `textWidth`, `textAdvance`, `wrapText`, `ellipsize`, `fitFontSize`,
@@ -220,8 +229,8 @@ as an abstract base for heterogeneous per-piece shapes. Reach for the baked one
 first.
 
 3D: `Node3D`, `MeshNode`, `CameraNode3D` with a continuous ortho-to-perspective
-blend, a light family with shadows, glTF loading, fog, and `Viewport2DNode` for 2D
-on a quad in 3D. All 3D renders behind all 2D. No game uses it yet.
+blend, a light family with shadows, glTF loading and fog. All 3D renders behind
+all 2D. No game uses it yet.
 
 Ambient occlusion: `engine.ambientOcclusion.enabled = true` plus a preset. Screen
 space, from the 3D pass, so it is only relevant with 3D content.
@@ -267,8 +276,9 @@ accessibility, DOM sync, layout and physics all cost nothing until touched.
 
 What to watch:
 
-- Set `debugBounds` on anything expensive. Viewport culling skips a node whose
-  world AABB leaves the visible rect, but a node without bounds always draws.
+- A node's `bounds` comes from its picture, so culling works without any setup.
+  A picture whose extent is unknown, such as one that draws a `Path2D`, always
+  draws until the node sets `boundsOverride`.
 - Do not animate text color. It re-rasterizes and re-uploads the label every frame
   the value changes. Animate alpha instead, which rides the quad tint.
 - `mixColor` and `withAlpha` return strings, so they allocate. Fine for values you
@@ -282,9 +292,6 @@ What to watch:
   once at module load gives an opaque color that looks the same with nothing to
   double-blend. For the same reason, animate such a shape in by scaling it rather
   than fading it.
-- Warm text before the first paint of a text-heavy scene. `gfx.warmText` moves the
-  shape and upload cost off the first frame, but only after fonts have settled and
-  only under the transform the text will be drawn with.
 - Prefer screen-space labels for HUD. World-space labels re-rasterize a step at a
   time through zoom.
 - Register a tessellation for any `Path2D` you fill or stroke. Without one the call
@@ -300,26 +307,46 @@ What to watch:
   the HUD, alongside label cache statistics. Page wipes are the expensive failure
   mode: one wipe re-rasterizes every label in the scene in a single frame.
 
-`?debug=perf` wraps every node's update and draw in `performance` marks.
+`?debug=perf` wraps every node's update and paint in `performance` marks.
 `engine.lastFrameWorkSec` is CPU work per frame, not the vsync interval.
+
+Rules for `paint` code, which the engine checks in development by repainting a few
+clean nodes each frame and warning when the result differs from the picture it kept:
+
+- Make `paint` a function of declared state. Declare animated fields with
+  `definePaintProps(this, { ... })` in the constructor, with `declare` fields and no
+  initializers, so a tween or a write repaints the node. A class field with an
+  initializer hides the accessor.
+- Do not read the camera, the clock or the node's own `transform` in `paint`.
+  `canvas.screenScale()` and `canvas.visibleWorldRect()` are the exceptions, and each
+  makes the picture repaint when its value changes. Prefer `{ screen: n }` stroke
+  widths, which need neither. `ruleWidth()` in `buffer-overflow/game/nodes/tui.ts`
+  is the shared helper for rule widths that snap to device pixels.
+- Read shared mutable state through an owner with a `version` and a `touch()`
+  method, such as `VersionedRef`, and call `canvas.use(owner)` in `paint`.
+- Call `markNeedsPaint()` from `onUpdate` for content that changes every frame.
+  Put motion on a clock in a child node whose transform the update writes, because
+  a transform write never repaints.
+- Never dirty a node from inside `paint`. In development it throws.
+- Order draws by where nodes sit in the tree. Use `addAt` or `insertBefore` for a
+  node that must go under earlier ones.
+- Animate text with a transform scale, not with a font size that changes every
+  frame. Each font size is a separate raster. Draw the text at its largest size and
+  scale it down.
+- Test what a node draws with `paintCalls(node, { deviceScale })` from
+  `stargazer`.
 
 ### Where to learn more
 
-Guides live in `src/stargazer/docs/guides/`. Read them in roughly this order:
+Guides live in `docs/guides/` in the stargazer repository. Read them in roughly this order:
 `setup`, `architecture`, `scene`, `drawing`, `input`, `animation`, `camera`, `text`,
 `layout`, then `assets`, `debugging`, `stages`, `particles`, `vector-particles`,
 `physics`, `html-overlays`, `accessibility`, `post-processing`,
 `ambient-occlusion`, `3d`, `ai` as needed.
 
-`src/stargazer/README.md` is the overview, and `npm run docs:stargazer` builds the
-typedoc reference into `src/stargazer/site/`, which is gitignored, so run it
-locally when you want the browsable version. The barrel
-files in `src/stargazer/modules/` are a good map of the public surface.
-
-Runnable demos are in `src/stargazer/dev/`, registered in `dev/demos.ts`, reachable
-as `?demo=<name>`: `loop`, `scene`, `input`, `anim`, `particles`, `camera`,
-`stages`, and several 3D ones. `dev/demo-scene.ts` is the shortest end-to-end read.
-About 120 colocated `*.test.ts` files serve as specs.
+The repository's `README.md` is the overview, and `npm run docs` there builds the
+typedoc reference. The files in `src/modules/` are a good map of the public
+surface. The runnable demos and the colocated `*.test.ts` files serve as specs.
 
 The debug HUD (`?debug=hud`, or `Y`) has scene tree, rendering, physics and input
 panels.
@@ -333,8 +360,10 @@ Shaders: WGSL is the source of truth, and GLSL is generated by
 
 ## The arcade shell
 
-The arcade is one of several displays. `src/displayRegistry.ts` maps `?display=<id>`
-to a lazy `DisplayManifest` factory, `src/main.ts` resolves it, applies the theme,
+The arcade is one of several displays. Each display is a folder in `src/displays/`
+whose `index.ts` default-exports a `DisplayManifest`, and `vite/displays.ts` turns
+those folders into a lazy registry keyed by folder name. `src/main.ts` resolves
+`?display=<id>` against it, applies the theme,
 registers locales, preloads fonts and mounts `App.svelte`. The arcade's manifest is
 `src/displays/arcade/index.ts` and its root component is
 `src/displays/arcade/ArcadeScreen.svelte`.
@@ -356,7 +385,8 @@ notice with a draining ring, which any touch cancels.
 Two pieces: `src/core/activity.ts` holds the time since the last input (window
 listeners at capture phase, since half of what a visitor touches is DOM overlays
 the engine never sees), and `src/displays/arcade/idle.ts` holds the arcade's
-timings. `ArcadeScreen` drives it and renders `IdleNotice.svelte`.
+timings. `ArcadeScreen` drives it and renders the shared
+`src/core/ui/IdleNotice.svelte`.
 
 A shorter clock runs on the launcher's own state. Its filters and carousel
 offset live in `launcher/browseState.svelte.ts` rather than in the component, so
@@ -507,7 +537,7 @@ Four idioms, all in use:
   `onPointerUp`.
 - Subclass `PointerBehavior` for drag-to-draw or tap-to-select behaviors.
 - `ButtonBehavior` / `DraggableBehavior` for canvas buttons and draggable pieces.
-- `bindRegionGesture(engine, opts)` from `src/stargazer/input/RegionGesture.ts` for
+- `bindRegionGesture(engine, opts)` from `stargazer` for
   a whole board region. Its `onReject` hook is the documented way to do
   "tap outside the board opens the menu".
 
@@ -526,7 +556,12 @@ Three global gestures your game must not fight:
   thirty-second notice first. Nothing to wire up, but see the exit barrier under
   [Lifecycle](#lifecycle).
 - Text entry never assumes a physical keyboard. Use
-  `src/core/ui/OnScreenKeyboardField.svelte`.
+  `src/core/ui/OnScreenKeyboardField.svelte`. Its `mode` prop sets what the
+  keyboard types: `letters` (the default) is a to z, `name` adds accents on
+  press and hold, space, `-`, `'` and `.`, and `full` adds a page of digits and
+  symbols. Keys type on release. The keyboard's logic lives in
+  `src/core/ui/keyboard/`: `layout.ts` builds the rows, `variants.ts` holds the
+  accents per locale, and `gesture.ts` handles pointers.
 
 ### Coordinate space and scaling
 
@@ -567,7 +602,7 @@ Two things that matter in practice:
   object in `game/tuning.ts` or a dedicated `palette.ts`. The canvas is a sibling
   of the scoped container and cannot read custom properties back, so one constant
   feeding both surfaces is the only way chrome and board stay in sync. Helpers:
-  `withAlpha`, `mixColor`, `parseColor` from `@src/stargazer`.
+  `withAlpha`, `mixColor`, `parseColor` from `stargazer`.
 
 Nothing enforces that two games look different, and `thumbColor` is the one
 required per-game color. Contrast _is_ enforced for the display-level palettes in
@@ -596,11 +631,25 @@ uncovered.
 `src/core/ui/BackgroundLayer.svelte` is the app-level DOM backdrop and is
 display-level, not game-level. A game does not touch it.
 
+A display whose backdrop needs its own shader effects (a blur, a custom
+composite) runs it through stargazer's post-processing pipeline on its own
+stage, not through a game node. See the
+[post-processing guide](/guides/post-processing) for the `PostEffect`
+contract, and `src/displays/enterprise/background/` for a worked example
+(`DualKawaseBlur` + a display-authored shader + `FilmGrain`).
+
 ### Fonts
 
-Faces are declared in `src/styles/fonts.scss` and gated at boot by
-`src/core/fonts/index.ts`, which awaits `preloadFonts()` before mount because the
-engine caches rasterized text keyed by the font string.
+Faces are declared in two sheets and gated at boot by `src/core/fonts/index.ts`,
+which awaits `preloadFonts()` before mount because the engine caches rasterized
+text keyed by the font string. `src/styles/fonts.scss` holds the Mozilla faces and
+HK Grotesk, which every display loads. `src/styles/fonts-extra.scss` holds the
+handle faces (Azeret Mono, Geist, Bungee, Raleway, Sniglet, Sorts Mill Goudy,
+Bagnard), and only a display that imports `src/core/fonts/extra` gets them. The
+arcade does, and passes its `EXTRA_FONT_SPECS` as the manifest's `fontSpecs`, so a
+game in the arcade can use any face. A display built on its own
+(`npm run build:display`) leaves the extra files out unless it imports that
+module.
 
 There are exactly two themeable roles, `text` and `heading`
 (`ThemeFonts` in `src/core/theme/fonts.ts`), and values are full CSS family stacks.
@@ -745,13 +794,15 @@ Under `src/core/ui/`: `Button.svelte` (five variants, 48 px minimum touch target
 forced-colors support), `IconButton.svelte`, `ConfirmButton.svelte` (two-tap
 destructive), `Surface.svelte` (the card, with an optional `blur` to separate it
 from a moving canvas), `Overlay.svelte`, `Score.svelte`, `NumberCounter.svelte`
-(tweened count-up), the three `OnScreenKeyboard*` files, `themeScope.ts`,
+(tweened count-up), the three `OnScreenKeyboard*` files and their `keyboard/`
+folder, `themeScope.ts`,
 `uiScale.ts`.
 
 Under `src/displays/arcade/`: `menu/MenuScreen.svelte`, `menu/PauseMenu.svelte`,
 `menu/MatchScore.svelte`, the three `tutorial/` components, the
 `leaderboard/` components, `RobotIcon.svelte`, and `ReturnToLauncherOverlay.svelte`
-and `IdleNotice.svelte` (both already mounted for you).
+(already mounted for you). The idle notice is `src/core/ui/IdleNotice.svelte`,
+which `ArcadeScreen` also mounts.
 
 Build against the token layer in `src/styles/scale.sass`: `--space-2` through
 `--space-80`, `--radius-*`, `--z-overlay`, the `--color-*` roles, the `--font-*`
@@ -812,10 +863,9 @@ rather than retarget it.
 ### An AI opponent
 
 Set `supportsAi: true` (launcher chip only) and read
-`src/stargazer/docs/guides/ai.md`.
+the `ai` guide in the stargazer repository.
 
-The engine offers exactly one thing, a negamax searcher in
-`src/stargazer/ai/minimax.ts`:
+The engine offers exactly one thing, a negamax searcher, `searchBestMove`:
 
 ```ts
 interface AdversarialGame<S, M> {
@@ -903,8 +953,7 @@ There is no per-game attendant hook. The single slot,
 `DisplayManifest.attendantPanel`, is already taken by the arcade's Sky panel. If a
 game needs an operator control, put a writable store in
 `src/displays/arcade/uiState.ts`, read it from the game, and add a section to that
-panel using the debug UI primitives exported from
-`src/stargazer/debug/ui/index.ts`. For a dev-facing knob,
+panel using the debug UI components from `stargazer/debug-ui`. For a dev-facing knob,
 `host.debug.registerPanel(spec)` contributes a HUD section and returns an
 unregister function.
 
@@ -925,21 +974,20 @@ npm --prefix web install && npm --prefix web run dev     # then ?display=arcade
 ```
 
 Scripts: `npm run dev`, `check` (svelte-check), `lint`, `prettier`, `test`
-(vitest, watch), `test:run`, `docs:stargazer`. Prettier is no semicolons, single
+(vitest, watch), `test:run`. Prettier is no semicolons, single
 quotes, printWidth 80.
 
 Useful URL params: `?display=arcade`, `?debug=hud|perf`, `?gfx=webgpu|webgl2`,
-`?msaa=0|2|4|8`, `?demo=<name>` for an engine sandbox scene, `?fonts` for the type
+`?msaa=0|2|4|8`, `?fonts` for the type
 specimen, `?time=HH:MM` / `?date=MM-DD` / `?sun=<deg>` to pin the launcher sky.
 
 There is no `?game=` deep link. You reach a game by tapping its launcher card. To
-iterate on a scene in isolation, use `?demo=<name>` (which bypasses `App` entirely,
-so no theme, locales or booth chrome) or your own tutorial demo builders. A
+iterate on a scene in isolation, use your own tutorial demo builders. A
 standalone Vite page is the precedent if you need a bespoke art harness.
 
 Tests are vitest plus happy-dom, colocated with the logic they cover. The setup
 shims `localStorage`, a stub 2D context and `Path2D`. Anything that actually
-rasterizes is verified visually in a `?demo=` scene, not in a test. The attendant
+rasterizes is verified visually in the app, not in a test. The attendant
 booth menu (corner double-tap, or `Ctrl+Shift+D`) exposes UI scale, the debug HUD,
 and the printer, games and leaderboard panels at runtime.
 
@@ -986,7 +1034,7 @@ Prose follows the same restraint. Sentence-case headings, no "crucial", "leverag
 "robust", "seamless" or "utilize", no rule-of-three filler, no summary paragraph at
 the end of a section, no bold used as a highlighter.
 
-Engine changes update the guides under `src/stargazer/docs/guides/` and the doc
+Engine changes happen in the stargazer repository. They update its guides and doc
 comments in the same pass. Docs are part of done, not a follow-up, and a stale
 guide tends to describe a missing feature as if it were a design choice.
 

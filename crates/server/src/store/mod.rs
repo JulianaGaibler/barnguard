@@ -15,8 +15,8 @@
 use crate::events::EventHub;
 use crate::log::LogHub;
 use crate::types::{
-    now_ms, DisplayHighScores, GameRecord, LeaderboardEntry, NewGame, NewLeaderboardEntry,
-    ServerEvent, DISPLAY_ARCADE, DISPLAY_STALLWAECHTER,
+    now_ms, DisplayHighScores, GameDetails, GameRecord, LabelVariant, LeaderboardEntry, NewGame,
+    NewLeaderboardEntry, ServerEvent, DISPLAY_ARCADE, DISPLAY_ENTERPRISE,
 };
 use serde_json::Value as JsonValue;
 use std::fs::{self, File};
@@ -27,20 +27,32 @@ use uuid::Uuid;
 
 const GAMES_FILE: &str = "games.json";
 
-/// One-shot migration: legacy `games.json` records had the Stallwächter shape
-/// flat at the top level (no `display` discriminator). Inject
-/// `"display": "stallwaechter"` on any object that lacks it so the tagged-enum
-/// deserializer accepts it. New records always carry the tag.
+/// One-shot migration covering two generations of `games.json` shapes:
+/// records from before the display carried a `display` discriminator at all
+/// (flat at the top level), and records tagged `"display": "stallwaechter"`
+/// from before that display was renamed to `enterprise`. The deserializer's
+/// `#[serde(alias = "stallwaechter")]` on `GameDetails::Enterprise` already
+/// accepts the old tag at read time, so this rewrite is not required for
+/// correctness, only so the file converges to the current tag on save.
 fn migrate_legacy_games_json(bytes: &[u8]) -> io::Result<Vec<u8>> {
     let mut value: JsonValue = serde_json::from_slice(bytes).map_err(io::Error::other)?;
     if let JsonValue::Array(items) = &mut value {
         for item in items {
             if let JsonValue::Object(map) = item {
-                if !map.contains_key("display") {
-                    map.insert(
-                        "display".to_string(),
-                        JsonValue::String(DISPLAY_STALLWAECHTER.to_string()),
-                    );
+                match map.get("display") {
+                    None => {
+                        map.insert(
+                            "display".to_string(),
+                            JsonValue::String(DISPLAY_ENTERPRISE.to_string()),
+                        );
+                    }
+                    Some(JsonValue::String(tag)) if tag == "stallwaechter" => {
+                        map.insert(
+                            "display".to_string(),
+                            JsonValue::String(DISPLAY_ENTERPRISE.to_string()),
+                        );
+                    }
+                    Some(_) => {}
                 }
             }
         }
@@ -109,7 +121,7 @@ impl GameLogController {
         // The details variant already tells us which display's high scores to
         // compare against, so snapshot only those before inserting.
         let display = match &new.details {
-            crate::types::NewGameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+            crate::types::NewGameDetails::Enterprise(_) => DISPLAY_ENTERPRISE,
             crate::types::NewGameDetails::Arcade(_) => DISPLAY_ARCADE,
         };
         let prev = DisplayHighScores::from_games(display, &guard);
@@ -120,6 +132,32 @@ impl GameLogController {
         self.events
             .publish(ServerEvent::GameCreated(record.clone()));
         Ok(record)
+    }
+
+    /// Save the label the player printed on an Enterprise record. Returns the
+    /// updated record, [`SetLabel::NotFound`] for an unknown id, and
+    /// [`SetLabel::NotEnterprise`] for another display's record.
+    pub fn set_label(
+        &self,
+        id: Uuid,
+        variant: LabelVariant,
+        name: Option<String>,
+    ) -> io::Result<SetLabel> {
+        let mut guard = self.inner.lock().unwrap();
+        let Some(record) = guard.iter_mut().find(|g| g.id == id) else {
+            return Ok(SetLabel::NotFound);
+        };
+        let GameDetails::Enterprise(details) = &mut record.details else {
+            return Ok(SetLabel::NotEnterprise);
+        };
+        details.label_variant = Some(variant);
+        details.label_name = name;
+        let updated = record.clone();
+        atomic_write_json(&self.path, &*guard)?;
+        drop(guard);
+        self.events
+            .publish(ServerEvent::GameUpdated(updated.clone()));
+        Ok(SetLabel::Updated(updated))
     }
 
     /// Remove a record by id. Returns `true` if something was removed.
@@ -232,6 +270,7 @@ impl LeaderboardController {
                 return Ok(guard[idx].clone());
             }
             guard[idx].score = new.score;
+            guard[idx].region = new.region;
             guard[idx].ts_ms = now_ms();
             guard[idx].clone()
         } else {
@@ -241,6 +280,7 @@ impl LeaderboardController {
                 display: new.display,
                 name,
                 score: new.score,
+                region: new.region,
             };
             guard.push(entry.clone());
             entry
@@ -320,8 +360,9 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult<T> {
 }
 
 /// Same as [`read_json`], but first passes the raw bytes through
-/// [`migrate_legacy_games_json`] so legacy Stallwächter records (missing the
-/// `display` discriminator) still deserialize.
+/// [`migrate_legacy_games_json`] so legacy game records (missing the
+/// `display` discriminator, or tagged with the display's old id) still
+/// deserialize.
 fn read_json_migrated<T: serde::de::DeserializeOwned>(path: &Path) -> LoadResult<T> {
     match fs::read(path) {
         Ok(bytes) => {
@@ -405,21 +446,57 @@ fn atomic_write_json<T: serde::Serialize>(path: &Path, value: &T) -> io::Result<
 // Tests
 // ---------------------------------------------------------------------------
 
+/// The outcome of [`GameLogController::set_label`].
+#[derive(Debug)]
+pub enum SetLabel {
+    Updated(GameRecord),
+    NotFound,
+    NotEnterprise,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::events::EventHub;
     use crate::types::{
-        GameDetails, GameEndReason, NewArcadeDetails, NewGameDetails, NewStallwaechterDetails,
-        DISPLAY_ARCADE,
+        GameDetails, GameEndReason, NewArcadeDetails, NewEnterpriseDetails, NewGameDetails,
+        DISPLAY_ARCADE, MAP_DE,
     };
     use tempfile::TempDir;
 
-    fn stall_new(state: &str, reason: GameEndReason, score: u32, duration_ms: u32) -> NewGame {
+    #[test]
+    fn migrate_rewrites_legacy_display_tag_and_fills_missing() {
+        let input = br#"[
+            {"id":"a","tsMs":0,"score":1,"durationMs":0,"display":"stallwaechter","stateId":"bayern","reason":"collision","wasOverallHigh":false,"wasStateHigh":false},
+            {"id":"b","tsMs":0,"score":2,"durationMs":0,"stateId":"hessen","reason":"collision","wasOverallHigh":false,"wasStateHigh":false}
+        ]"#;
+        let migrated = migrate_legacy_games_json(input).unwrap();
+        let value: JsonValue = serde_json::from_slice(&migrated).unwrap();
+        let items = value.as_array().unwrap();
+        for item in items {
+            assert_eq!(
+                item["display"],
+                JsonValue::String(DISPLAY_ENTERPRISE.to_string())
+            );
+        }
+    }
+
+    fn enterprise_new(state: &str, reason: GameEndReason, score: u32, duration_ms: u32) -> NewGame {
+        enterprise_new_on(MAP_DE, state, reason, score, duration_ms)
+    }
+
+    fn enterprise_new_on(
+        map_id: &str,
+        state: &str,
+        reason: GameEndReason,
+        score: u32,
+        duration_ms: u32,
+    ) -> NewGame {
         NewGame {
             score,
             duration_ms,
-            details: NewGameDetails::Stallwaechter(NewStallwaechterDetails {
+            details: NewGameDetails::Enterprise(NewEnterpriseDetails {
+                map_id: map_id.into(),
                 state_id: state.into(),
                 reason,
                 escape_heading_rad: None,
@@ -453,38 +530,49 @@ mod tests {
         let store = GameLogController::load(dir.path(), &log, events);
 
         let first = store
-            .push(stall_new("bayern", GameEndReason::Collision, 100, 5000))
+            .push(enterprise_new(
+                "bayern",
+                GameEndReason::Collision,
+                100,
+                5000,
+            ))
             .unwrap();
-        let GameDetails::Stallwaechter(fd) = &first.details else {
-            panic!("expected Stallwaechter details")
+        let GameDetails::Enterprise(fd) = &first.details else {
+            panic!("expected Enterprise details")
         };
         assert!(fd.was_overall_high);
         assert!(fd.was_state_high);
 
         let second = store
-            .push(stall_new("bayern", GameEndReason::Collision, 50, 3000))
+            .push(enterprise_new("bayern", GameEndReason::Collision, 50, 3000))
             .unwrap();
-        let GameDetails::Stallwaechter(sd) = &second.details else {
-            panic!("expected Stallwaechter details")
+        let GameDetails::Enterprise(sd) = &second.details else {
+            panic!("expected Enterprise details")
         };
         assert!(!sd.was_overall_high);
         assert!(!sd.was_state_high);
 
         let third = store
-            .push(stall_new("hessen", GameEndReason::ExitedGermany, 75, 4000))
+            .push(enterprise_new(
+                "hessen",
+                GameEndReason::ExitedGermany,
+                75,
+                4000,
+            ))
             .unwrap();
-        let GameDetails::Stallwaechter(td) = &third.details else {
-            panic!("expected Stallwaechter details")
+        let GameDetails::Enterprise(td) = &third.details else {
+            panic!("expected Enterprise details")
         };
         assert!(!td.was_overall_high); // 75 < 100
         assert!(td.was_state_high); // new state, > 0
 
-        let DisplayHighScores::Stallwaechter(hs) = store.high_scores(DISPLAY_STALLWAECHTER) else {
-            panic!("expected Stallwaechter high scores")
+        let DisplayHighScores::Enterprise(hs) = store.high_scores(DISPLAY_ENTERPRISE) else {
+            panic!("expected Enterprise high scores")
         };
-        assert_eq!(hs.overall, 100);
-        assert_eq!(hs.by_state.get("bayern").copied(), Some(100));
-        assert_eq!(hs.by_state.get("hessen").copied(), Some(75));
+        assert_eq!(hs.by_map.get(MAP_DE).copied(), Some(100));
+        let de = hs.by_state.get(MAP_DE).expect("german map entries");
+        assert_eq!(de.get("bayern").copied(), Some(100));
+        assert_eq!(de.get("hessen").copied(), Some(75));
     }
 
     #[test]
@@ -522,12 +610,64 @@ mod tests {
         let (log, events) = hub();
         let store = GameLogController::load(dir.path(), &log, events.clone());
         let rec = store
-            .push(stall_new("berlin", GameEndReason::Collision, 42, 1000))
+            .push(enterprise_new("berlin", GameEndReason::Collision, 42, 1000))
             .unwrap();
         assert!(store.delete(rec.id).unwrap());
 
         let reopened = GameLogController::load(dir.path(), &log, events);
         assert!(reopened.snapshot().is_empty());
+    }
+
+    #[test]
+    fn game_log_set_label_survives_reload_and_publishes() {
+        let dir = TempDir::new().unwrap();
+        let (log, events) = hub();
+        let store = GameLogController::load(dir.path(), &log, events.clone());
+        let rec = store
+            .push(enterprise_new("berlin", GameEndReason::Collision, 42, 1000))
+            .unwrap();
+        let mut rx = events.subscribe();
+        let SetLabel::Updated(updated) = store
+            .set_label(rec.id, LabelVariant::Orange, Some("Juliana".into()))
+            .unwrap()
+        else {
+            panic!("expected the record to update")
+        };
+        let ServerEvent::GameUpdated(sent) = rx.try_recv().unwrap() else {
+            panic!("expected game.updated")
+        };
+        assert_eq!(sent.id, rec.id);
+
+        let reopened = GameLogController::load(dir.path(), &log, events);
+        let GameDetails::Enterprise(d) = &reopened.snapshot()[0].details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(d.label_variant, Some(LabelVariant::Orange));
+        assert_eq!(d.label_name.as_deref(), Some("Juliana"));
+        let GameDetails::Enterprise(u) = &updated.details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(u.label_variant, Some(LabelVariant::Orange));
+    }
+
+    #[test]
+    fn game_log_set_label_refuses_unknown_and_arcade_records() {
+        let dir = TempDir::new().unwrap();
+        let (log, events) = hub();
+        let store = GameLogController::load(dir.path(), &log, events);
+        assert!(matches!(
+            store
+                .set_label(Uuid::new_v4(), LabelVariant::Pink, None)
+                .unwrap(),
+            SetLabel::NotFound
+        ));
+        let arcade = store.push(arcade_new("orbo", 3)).unwrap();
+        assert!(matches!(
+            store
+                .set_label(arcade.id, LabelVariant::Pink, None)
+                .unwrap(),
+            SetLabel::NotEnterprise
+        ));
     }
 
     #[test]
@@ -557,7 +697,7 @@ mod tests {
         let store = GameLogController::load(dir.path(), &log, events);
         for i in 0..5 {
             store
-                .push(stall_new("bayern", GameEndReason::Collision, i, 1000))
+                .push(enterprise_new("bayern", GameEndReason::Collision, i, 1000))
                 .unwrap();
         }
         // Newest-first: scores should be 4,3,2,1,0.
@@ -576,7 +716,48 @@ mod tests {
             display: display.into(),
             name: name.into(),
             score,
+            region: String::new(),
         }
+    }
+
+    fn new_score_in(display: &str, name: &str, score: u32, region: &str) -> NewLeaderboardEntry {
+        NewLeaderboardEntry {
+            region: region.into(),
+            ..new_score(display, name, score)
+        }
+    }
+
+    #[test]
+    fn leaderboard_keeps_the_region_of_the_best_run() {
+        let dir = TempDir::new().unwrap();
+        let (log, _events) = hub();
+        let store = LeaderboardController::load(dir.path(), &log);
+        store
+            .submit(new_score_in("enterprise-eu", "mia", 10, "DEU"))
+            .unwrap();
+
+        // A lower score from another country changes nothing, region included.
+        let unchanged = store
+            .submit(new_score_in("enterprise-eu", "mia", 5, "FRA"))
+            .unwrap();
+        assert_eq!(unchanged.region, "DEU");
+
+        // A better score replaces the entry, and takes its region with it.
+        let improved = store
+            .submit(new_score_in("enterprise-eu", "Mia", 20, "FRA"))
+            .unwrap();
+        assert_eq!(improved.region, "FRA");
+        assert_eq!(improved.id, unchanged.id);
+        assert_eq!(store.list("enterprise-eu", None).len(), 1);
+    }
+
+    #[test]
+    fn leaderboard_entry_without_a_region_still_loads() {
+        let json = r#"{"id":"3fa1f167-71c0-4a6d-9b1b-000000000000","tsMs":1,"display":"jezzball","name":"abc","score":5}"#;
+        let entry: LeaderboardEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.region, "");
+        let out = serde_json::to_string(&entry).unwrap();
+        assert!(!out.contains("region"));
     }
 
     #[test]

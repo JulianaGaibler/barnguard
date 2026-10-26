@@ -11,7 +11,7 @@
  * re-rasterises the label every frame it changes, where alpha rides the quad
  * tint for free.
  */
-import { easings, Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { easings, Node2D, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { ANIM, FRAME } from '../tuning'
 import { ruleWidth, withGlow } from './tui'
@@ -25,21 +25,16 @@ export class BannerNode extends Node2D {
 
   constructor() {
     super('bo-banner')
-    this.renderLayer = 'dynamic'
   }
 
   /** Centre the banner on a point, sized against the cell. */
   place(x: number, y: number, cell: number): void {
     this.transform.x = x
     this.transform.y = y
-    this.#size = cell * 1.5
-    const reach = this.#size * 8
-    this.debugBounds = {
-      x: -reach / 2,
-      y: -reach / 2,
-      width: reach,
-      height: reach,
-    }
+    const size = cell * 1.5
+    if (size === this.#size) return
+    this.#size = size
+    this.markNeedsPaint()
   }
 
   /** Show `text`, restarting rather than stacking if one is already up. */
@@ -48,19 +43,24 @@ export class BannerNode extends Node2D {
     this.#sub = sub
     this.#color = color
     this.#t = 0
+    this.markNeedsPaint()
   }
 
   /** Cut the banner immediately, for a teardown or a quit. */
   hide(): void {
+    if (this.#t >= 1) return
     this.#t = 1
+    this.markNeedsPaint()
   }
 
+  /** Every frame of a banner is different, so it paints each one it is up. */
   override onUpdate(dt: number): void {
     if (this.#t >= 1) return
     this.#t = Math.min(1, this.#t + dt / (ANIM.banner + ANIM.bannerHold))
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     if (this.#t >= 1 || !this.#text) return
     const span = ANIM.banner / (ANIM.banner + ANIM.bannerHold)
     const ring = Math.min(1, this.#t / span)
@@ -86,7 +86,7 @@ export class BannerNode extends Node2D {
     const fade = 1 - this.#t
     const rise = this.#size * 0.6 * this.#t
     const wordFont = font(700, this.#size * (0.9 + this.#t * 0.25))
-    const rule = ruleWidth(gfx, FRAME.rulePx, camera.strokeSpaceScale())
+    const rule = ruleWidth(gfx, FRAME.rulePx)
 
     // One of the two surfaces allowed a phosphor pass. A word that flashes once
     // and leaves is exactly where bleed reads and nowhere else is.

@@ -7,8 +7,14 @@
 // here where a card needs a veil, because there is only one thing drawn, so
 // nothing shows through anything else.
 
-import { Node2D, type Gfx2D } from '@src/stargazer'
-import { drawIcon, floorMark, iconWidth, icons } from '../../art/icons'
+import { Node2D, type Canvas } from 'stargazer'
+import {
+  drawIcon,
+  floorMark,
+  iconWidth,
+  icons,
+  iconsRef,
+} from '../../art/icons'
 import type { Floor } from '../rules/deck'
 
 export class ShortlistCaptionNode extends Node2D {
@@ -18,20 +24,22 @@ export class ShortlistCaptionNode extends Node2D {
 
   constructor(id: string, floor: Floor) {
     super(id)
-    this.renderLayer = 'dynamic'
     this.#floor = floor
   }
 
   setSize(w: number, h: number): void {
+    if (w === this.#w && h === this.#h) return
     this.#w = w
     this.#h = h
+    this.markNeedsPaint()
   }
 
   setActive(active: boolean): void {
     this.transform.alpha = active ? 1 : 0.4
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
+    gfx.use(iconsRef)
     const w = this.#w
     const h = this.#h
     if (w <= 0 || h <= 0) return

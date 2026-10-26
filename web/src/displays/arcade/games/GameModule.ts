@@ -1,5 +1,5 @@
 import type { Component } from 'svelte'
-import type { EngineHost } from '@src/stargazer'
+import type { EngineHost } from 'stargazer'
 import type { ThemeFonts, ThemePalette } from '@src/core/theme'
 import type { LabelRenderContext, PreviewLabelContext } from '@src/core/display'
 import type { GameRecord } from '@src/core/game-log/gameLogClient'

@@ -3,9 +3,9 @@
 # Build a NATIVE (host-arch) release of the barnguard server with the web UI
 # embedded, for testing the shipped single-binary experience locally.
 #
-#   1. vite build          → web/dist/ (embedded into the binary)
+#   1. vite build          -> web/dist/ (embedded into the binary)
 #   2. cargo build --release --features embed-web (native target)
-#   3. assemble release/   → the executable + config.example.toml
+#   3. assemble release/   -> the executable + config.example.toml
 #
 # For a deployable x86_64 Linux build (cross-compiled from any host), use
 # scripts/build-linux.sh instead.

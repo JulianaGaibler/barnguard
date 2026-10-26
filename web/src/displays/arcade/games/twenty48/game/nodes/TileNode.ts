@@ -2,7 +2,7 @@
  * One tile: an extruded slab with a numeral on it.
  *
  * The node's transform carries the tile's position and any pop or squash, so
- * `draw` always paints a slab centered on the origin. That keeps a merge pop
+ * `paint` always paints a slab centered on the origin. That keeps a merge pop
  * scaling about the tile's middle rather than its corner.
  *
  * Depth grows with value, which is the point of the whole treatment: a 1024
@@ -11,12 +11,13 @@
  * reaches toward the row below it.
  */
 import {
+  definePaintProps,
   easings,
   fitFontSize,
   ignoreAbort,
   Node2D,
-  type Gfx2D,
-} from '@src/stargazer'
+  type Canvas,
+} from 'stargazer'
 import { headingFont } from '../../fonts'
 import {
   ANIM,
@@ -32,8 +33,7 @@ import { drawSlab, faceCenterY } from '../../../common/bevel'
 /**
  * Candidate numeral sizes as fractions of the cell, largest first.
  * {@link fitFontSize} walks these and takes the first that fits, so a five-digit
- * tile shrinks on measured width rather than on a guessed step: the old
- * hand-tuned ladder stopped at four digits and 65536 overflowed its tile.
+ * tile shrinks on measured width rather than on a guessed step.
  */
 const NUMERAL_STEPS = [0.44, 0.4, 0.36, 0.32, 0.28, 0.24, 0.2]
 
@@ -41,10 +41,10 @@ const NUMERAL_STEPS = [0.44, 0.4, 0.36, 0.32, 0.28, 0.24, 0.2]
 const NUMERAL_FIT = 0.78
 
 export class TileNode extends Node2D {
-  #value: number
-  #cell: number
+  readonly #value: number
+  declare cell: number
   /** Measured in `#refit`, since neither the value nor the cell changes often. */
-  #font = ''
+  declare numeralFont: string
   /**
    * Bumped by every slide. A fast player can start a second slide before the
    * first one's squash has recovered, and without this the older recovery would
@@ -54,12 +54,11 @@ export class TileNode extends Node2D {
 
   constructor(value: number, cell: number) {
     super('t48-tile')
-    this.renderLayer = 'dynamic'
     this.#value = value
-    this.#cell = cell
+    definePaintProps(this, { cell, numeralFont: '' })
     this.transform.originX = 0.5
     this.transform.originY = 0.5
-    this.#refit()
+    this.#refit(cell)
   }
 
   get value(): number {
@@ -68,15 +67,10 @@ export class TileNode extends Node2D {
 
   /** Re-measure after a resize. */
   setCell(cell: number): void {
-    this.#cell = cell
-    this.#refit()
+    this.#refit(cell)
   }
 
-  #refit(): void {
-    // The extrusion is taken out of the tile's height, not added to it, so the
-    // whole slab is exactly the square its grid cell reserves for it.
-    const c = this.#cell
-    this.debugBounds = { x: -c / 2, y: -c / 2, width: c, height: c }
+  #refit(c: number): void {
     const label = String(this.#value)
     const size = fitFontSize(
       label,
@@ -84,7 +78,8 @@ export class TileNode extends Node2D {
       (px) => headingFont(700, px),
       c * NUMERAL_FIT,
     )
-    this.#font = headingFont(700, size)
+    this.cell = c
+    this.numeralFont = headingFont(700, size)
   }
 
   /** Move to a new cell center over the standard slide, then land. */
@@ -162,8 +157,8 @@ export class TileNode extends Node2D {
       .catch(ignoreAbort)
   }
 
-  override draw(gfx: Gfx2D): void {
-    const c = this.#cell
+  override paint(gfx: Canvas): void {
+    const c = this.cell
     const half = c / 2
     const value = this.#value
 
@@ -184,7 +179,7 @@ export class TileNode extends Node2D {
     // Centred on the top face, which the extrusion has shortened, rather than
     // on the cell: otherwise every numeral sits low by half the depth.
     gfx.fillText(String(value), 0, -half + faceCenterY(c, depth), {
-      font: this.#font,
+      font: this.numeralFont,
       align: 'center',
       baseline: 'middle',
       color: tileInk(value),

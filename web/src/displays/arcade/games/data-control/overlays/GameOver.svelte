@@ -8,7 +8,7 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte'
   import { fade } from 'svelte/transition'
-  import type { EngineHost } from '@src/stargazer'
+  import type { EngineHost } from 'stargazer'
   import Button from '@src/core/ui/Button.svelte'
   import OnScreenKeyboardField from '@src/core/ui/OnScreenKeyboardField.svelte'
   import { formatScore } from '@src/displays/arcade/leaderboard/formatScore'
@@ -16,7 +16,7 @@
     CONTEXT_ROWS,
     NAME_MAX_LEN,
     NameEntry,
-  } from '@src/displays/arcade/leaderboard/nameEntry.svelte'
+  } from '@src/core/leaderboard/nameEntry.svelte'
   import { registerExitTask } from '@src/displays/arcade/exitTasks'
   import LeaderboardList from '../../../leaderboard/LeaderboardList.svelte'
   import { t as arcadeT } from '../../../i18n'
@@ -117,7 +117,6 @@
       bind:open={entry.keyboardOpen}
       showTrigger={false}
       maxLength={NAME_MAX_LEN}
-      closeLabel={$t.arcade.leaderboard.closeKeyboard}
     />
   {/if}
 

@@ -12,7 +12,7 @@
  *   end of the table and the tongue in front of the lip, with no depth to
  *   arrange.
  */
-import { AssetLoader, parseSvgPaths } from '@src/stargazer'
+import { AssetLoader, parseSvgPaths } from 'stargazer'
 import { COLORS } from '../tuning'
 import lipSvg from '../../assets/red-area.svg?raw'
 import tongueSvg from '../../assets/tongue.svg?raw'

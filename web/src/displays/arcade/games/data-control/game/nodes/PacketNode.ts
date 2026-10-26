@@ -3,7 +3,7 @@ import {
   registerPathTessellation,
   tessellateContours,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { TUNING } from '../data/tuning'
 
 const HEX_STROKE_DEFAULT = '#01CA05'
@@ -31,7 +31,7 @@ export class PacketNode extends Path2DNode {
       lineWidth: 1.5,
       hitMode: 'circle',
       hitRadiusWorld: radius + TUNING.packet.hitPadding,
-      debugBounds: hexBounds(radius),
+      bounds: hexBounds(radius),
     })
     this.radius = radius
   }

@@ -5,6 +5,7 @@
      submitted once the panel goes away, and only if a name was entered by
      then. -->
 <script lang="ts">
+  import { displayName } from '@src/core/leaderboard/displayName'
   import { onDestroy, onMount, untrack } from 'svelte'
   import type { Snippet } from 'svelte'
   import { fade, scale } from 'svelte/transition'
@@ -14,7 +15,11 @@
   import { registerExitTask } from '../exitTasks'
   import { t } from '../i18n'
   import LeaderboardList from './LeaderboardList.svelte'
-  import { CONTEXT_ROWS, NAME_MAX_LEN, NameEntry } from './nameEntry.svelte'
+  import {
+    CONTEXT_ROWS,
+    NAME_MAX_LEN,
+    NameEntry,
+  } from '@src/core/leaderboard/nameEntry.svelte'
 
   interface Props {
     display: string
@@ -96,11 +101,10 @@
               bind:open={entry.keyboardOpen}
               showTrigger={false}
               maxLength={NAME_MAX_LEN}
-              closeLabel={$t.arcade.leaderboard.closeKeyboard}
             />
             <p class="over__hint">
               {entry.name
-                ? $t.arcade.leaderboard.willBeSavedAs(entry.name.toUpperCase())
+                ? $t.arcade.leaderboard.willBeSavedAs(displayName(entry.name))
                 : $t.arcade.leaderboard.wontBeSaved}
             </p>
           </div>

@@ -211,6 +211,8 @@ pub enum ServerEvent {
     Queue(QueueSnapshot),
     Log(LogEntry),
     GameCreated(GameRecord),
+    /// A recorded game's details changed, such as the label the player chose.
+    GameUpdated(GameRecord),
     GameDeleted(Uuid),
     /// Client-facing config changed (emitted on `POST /config/reload`).
     Config(ClientConfig),
@@ -220,20 +222,27 @@ pub enum ServerEvent {
 // Web-facing state & game log
 // ---------------------------------------------------------------------------
 
-/// Stable id for the Stallwächter display. Used as the `display` tag on
+/// Stable id for the Enterprise display. Used as the `display` tag on
 /// records + high scores. Future displays get their own constants alongside.
-pub const DISPLAY_STALLWAECHTER: &str = "stallwaechter";
+pub const DISPLAY_ENTERPRISE: &str = "enterprise";
 
 /// Stable id for the Arcade display (hosts Jezzball, Connect Four, Orbo).
 pub const DISPLAY_ARCADE: &str = "arcade";
 
-/// Why a Stallwächter round ended. JSON: `snake_case` (`"collision"`,
-/// `"exited_germany"`).
+/// Why an Enterprise round ended. JSON: `snake_case` (`"collision"`,
+/// `"exited_germany"`, `"left_play_area"`).
+///
+/// [`GameEndReason::ExitedGermany`] and [`GameEndReason::LeftPlayArea`] both
+/// mean the packet got away, and are kept apart because the maps lose
+/// differently: on the German map a packet is lost by crossing the coastline,
+/// on a map whose play area is bounded by the view it is lost by leaving the
+/// screen. Keeping the German variant also leaves every stored record readable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GameEndReason {
     Collision,
     ExitedGermany,
+    LeftPlayArea,
 }
 
 impl fmt::Display for GameEndReason {
@@ -241,8 +250,18 @@ impl fmt::Display for GameEndReason {
         match self {
             GameEndReason::Collision => f.write_str("collision"),
             GameEndReason::ExitedGermany => f.write_str("exited_germany"),
+            GameEndReason::LeftPlayArea => f.write_str("left_play_area"),
         }
     }
+}
+
+/// The map a record with no `mapId` belongs to. Records written before the
+/// display carried more than one map have no id, and every one of those was a
+/// German round. Mirrors `MAP_ID_DE` on the web side.
+pub const MAP_DE: &str = "de";
+
+fn default_map_id() -> String {
+    MAP_DE.to_string()
 }
 
 /// Display-specific detail payload. Envelope fields (id/ts/score/duration) live
@@ -252,7 +271,10 @@ impl fmt::Display for GameEndReason {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum GameDetails {
-    Stallwaechter(StallwaechterDetails),
+    /// Accepts the legacy `stallwaechter` tag too, so records written before
+    /// the display's rename still deserialize.
+    #[serde(alias = "stallwaechter")]
+    Enterprise(EnterpriseDetails),
     Arcade(ArcadeDetails),
 }
 
@@ -261,7 +283,7 @@ impl GameDetails {
     /// so filtering / grouping code doesn't have to string-match.
     pub fn display_id(&self) -> &'static str {
         match self {
-            GameDetails::Stallwaechter(_) => DISPLAY_STALLWAECHTER,
+            GameDetails::Enterprise(_) => DISPLAY_ENTERPRISE,
             GameDetails::Arcade(_) => DISPLAY_ARCADE,
         }
     }
@@ -295,22 +317,81 @@ pub struct ArcadeDetails {
     pub player_name: Option<String>,
 }
 
-/// Stallwächter-specific game details. `state_id` is the ISO code (lowercase);
-/// high-score flags are snapshotted at record-creation time so reprints stay
+/// Enterprise-specific game details. `state_id` is the region's own id within
+/// its map (an ISO code), and is only meaningful alongside `map_id`: `"BY"` is
+/// a German state and `"FRA"` a European country, and the same string could
+/// mean different regions on two maps. The field keeps its original name so
+/// every stored record still deserializes.
+///
+/// High-score flags are snapshotted at record-creation time so reprints stay
 /// 1:1 with the original badge even after a later game surpasses this score.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StallwaechterDetails {
+pub struct EnterpriseDetails {
+    /// Which map this round was played on, e.g. `"de"`. An open string, like
+    /// the arcade's `game_id`, so a new map starts logging with no server
+    /// change.
+    #[serde(default = "default_map_id")]
+    pub map_id: String,
     pub state_id: String,
     pub reason: GameEndReason,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub escape_heading_rad: Option<f32>,
-    /// True if this score was the overall best (for this display) at the
-    /// moment it was recorded.
+    /// True if this score was the best on its own map at the moment it was
+    /// recorded. Scoped per map rather than per display, since two maps are
+    /// different games to a player and one number cannot describe both.
     pub was_overall_high: bool,
-    /// True if this score was the best for its state at the moment it was
-    /// recorded.
+    /// True if this score was the best for its region, on its own map, at the
+    /// moment it was recorded.
     pub was_state_high: bool,
+    /// The label variant the player printed, so a reprint matches it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_variant: Option<LabelVariant>,
+    /// The name the player put on the printed label, as typed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label_name: Option<String>,
+}
+
+/// The color variants of the Enterprise label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LabelVariant {
+    Purple,
+    Orange,
+    Pink,
+}
+
+/// Body of `PUT /api/games/{id}/label`: the label the player printed.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LabelChoice {
+    pub label_variant: LabelVariant,
+    #[serde(default)]
+    pub label_name: Option<String>,
+}
+
+/// Why a label choice was refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelChoiceError {
+    /// The name is longer than [`LEADERBOARD_NAME_MAX_CHARS`].
+    NameTooLong,
+}
+
+impl LabelChoice {
+    /// The name trimmed, with an empty one as `None`. Its case is kept, since
+    /// the label shows it as typed.
+    pub fn normalized_name(&self) -> Result<Option<String>, LabelChoiceError> {
+        let Some(name) = self.label_name.as_deref().map(str::trim) else {
+            return Ok(None);
+        };
+        if name.is_empty() {
+            return Ok(None);
+        }
+        if name.chars().count() > LEADERBOARD_NAME_MAX_CHARS {
+            return Err(LabelChoiceError::NameTooLong);
+        }
+        Ok(Some(name.to_string()))
+    }
 }
 
 /// A single finished game. Persisted in `games.json` (newest last). Envelope
@@ -336,7 +417,7 @@ impl GameRecord {
 
 /// Client-supplied payload for `POST /api/games`. Same envelope + details
 /// shape as [`GameRecord`], but the server assigns `id`, `ts_ms`, and (for
-/// Stallwächter) the `was*High` flags.
+/// Enterprise) the `was*High` flags.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewGame {
@@ -351,13 +432,19 @@ pub struct NewGame {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum NewGameDetails {
-    Stallwaechter(NewStallwaechterDetails),
+    /// Accepts the legacy `stallwaechter` tag too, so a stale client that
+    /// hasn't picked up the display rename still posts successfully.
+    #[serde(alias = "stallwaechter")]
+    Enterprise(NewEnterpriseDetails),
     Arcade(NewArcadeDetails),
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NewStallwaechterDetails {
+pub struct NewEnterpriseDetails {
+    /// Defaulted so a web build that predates maps still posts successfully.
+    #[serde(default = "default_map_id")]
+    pub map_id: String,
     pub state_id: String,
     pub reason: GameEndReason,
     #[serde(default)]
@@ -387,18 +474,28 @@ impl NewGame {
             details,
         } = self;
         let full = match details {
-            NewGameDetails::Stallwaechter(d) => {
-                let DisplayHighScores::Stallwaechter(s) = prev else {
-                    panic!("prev high scores variant didn't match Stallwaechter details")
+            NewGameDetails::Enterprise(d) => {
+                let DisplayHighScores::Enterprise(s) = prev else {
+                    panic!("prev high scores variant didn't match Enterprise details")
                 };
-                let was_overall_high = score > s.overall;
-                let was_state_high = score > s.by_state.get(&d.state_id).copied().unwrap_or(0);
-                GameDetails::Stallwaechter(StallwaechterDetails {
+                // Both flags compare within this round's own map, so a score on
+                // one map can never claim another map's record.
+                let was_overall_high = score > s.by_map.get(&d.map_id).copied().unwrap_or(0);
+                let was_state_high = score
+                    > s.by_state
+                        .get(&d.map_id)
+                        .and_then(|regions| regions.get(&d.state_id))
+                        .copied()
+                        .unwrap_or(0);
+                GameDetails::Enterprise(EnterpriseDetails {
+                    map_id: d.map_id,
                     state_id: d.state_id,
                     reason: d.reason,
                     escape_heading_rad: d.escape_heading_rad,
                     was_overall_high,
                     was_state_high,
+                    label_variant: None,
+                    label_name: None,
                 })
             }
             NewGameDetails::Arcade(d) => {
@@ -430,16 +527,29 @@ impl NewGame {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "display", rename_all = "snake_case")]
 pub enum DisplayHighScores {
-    Stallwaechter(StallwaechterHighScores),
+    Enterprise(EnterpriseHighScores),
     Arcade(ArcadeHighScores),
+}
+
+/// `display` query params and path segments come from outside the process
+/// (URL parameters, stale bookmarks, a kiosk config that hasn't picked up a
+/// rename), so a display id that no longer resolves is an expected input, not
+/// a programmer error. Map the legacy `stallwaechter` id, from before this
+/// display was renamed to `enterprise`, onto its current id before any
+/// lookup, the same tolerance [`GameDetails::Enterprise`]'s `serde(alias)`
+/// gives the stored record shape.
+fn canonical_display_id(display: &str) -> &str {
+    if display == "stallwaechter" {
+        DISPLAY_ENTERPRISE
+    } else {
+        display
+    }
 }
 
 impl DisplayHighScores {
     pub fn empty_for(display: &str) -> Self {
-        match display {
-            DISPLAY_STALLWAECHTER => {
-                DisplayHighScores::Stallwaechter(StallwaechterHighScores::default())
-            }
+        match canonical_display_id(display) {
+            DISPLAY_ENTERPRISE => DisplayHighScores::Enterprise(EnterpriseHighScores::default()),
             DISPLAY_ARCADE => DisplayHighScores::Arcade(ArcadeHighScores::default()),
             other => panic!("unknown display id: {other}"),
         }
@@ -449,22 +559,27 @@ impl DisplayHighScores {
     /// matches `display` contribute. The rest are silently skipped, so
     /// callers can pass the whole log without prefiltering.
     pub fn from_games(display: &str, games: &[GameRecord]) -> Self {
-        match display {
-            DISPLAY_STALLWAECHTER => {
-                let mut overall = 0u32;
-                let mut by_state: HashMap<String, u32> = HashMap::new();
+        match canonical_display_id(display) {
+            DISPLAY_ENTERPRISE => {
+                let mut by_map: HashMap<String, u32> = HashMap::new();
+                let mut by_state: HashMap<String, HashMap<String, u32>> = HashMap::new();
                 for g in games {
-                    if let GameDetails::Stallwaechter(d) = &g.details {
-                        if g.score > overall {
-                            overall = g.score;
+                    if let GameDetails::Enterprise(d) = &g.details {
+                        let best = by_map.entry(d.map_id.clone()).or_insert(0);
+                        if g.score > *best {
+                            *best = g.score;
                         }
-                        let slot = by_state.entry(d.state_id.clone()).or_insert(0);
+                        let slot = by_state
+                            .entry(d.map_id.clone())
+                            .or_default()
+                            .entry(d.state_id.clone())
+                            .or_insert(0);
                         if g.score > *slot {
                             *slot = g.score;
                         }
                     }
                 }
-                DisplayHighScores::Stallwaechter(StallwaechterHighScores { overall, by_state })
+                DisplayHighScores::Enterprise(EnterpriseHighScores { by_map, by_state })
             }
             DISPLAY_ARCADE => {
                 let mut by_game: HashMap<String, u32> = HashMap::new();
@@ -483,11 +598,16 @@ impl DisplayHighScores {
     }
 }
 
+/// Best scores for the Enterprise display, grouped per map. There is no
+/// display-wide `overall`: two maps are different games to a player, and the
+/// same reasoning the arcade applies across its games applies here.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct StallwaechterHighScores {
-    pub overall: u32,
-    pub by_state: HashMap<String, u32>,
+pub struct EnterpriseHighScores {
+    /// Best score per map id.
+    pub by_map: HashMap<String, u32>,
+    /// Best score per region, keyed by map id then region id.
+    pub by_state: HashMap<String, HashMap<String, u32>>,
 }
 
 /// Best score per arcade `game_id`. There is no `overall` field. Jezzball's
@@ -516,10 +636,16 @@ pub struct LeaderboardEntry {
     pub id: Uuid,
     pub ts_ms: u64,
     pub display: String,
-    /// Already normalized (trimmed, lowercased, truncated to 6 chars) by the
-    /// time it's stored. See `NewLeaderboardEntry::normalized_name`.
+    /// Already normalized (trimmed, lowercased, truncated to
+    /// [`LEADERBOARD_NAME_MAX_CHARS`]) by the time it's stored. See
+    /// `NewLeaderboardEntry::normalized_name`.
     pub name: String,
     pub score: u32,
+    /// What the run was played on, such as a country or a state id, for a
+    /// board that shows where each score came from. Empty when the submitter
+    /// had nothing to say, which is every entry written before this existed.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub region: String,
 }
 
 /// Client-supplied payload for `POST /api/leaderboard`.
@@ -529,10 +655,12 @@ pub struct NewLeaderboardEntry {
     pub display: String,
     pub name: String,
     pub score: u32,
+    #[serde(default)]
+    pub region: String,
 }
 
 /// Max characters kept from a submitted name after normalization.
-pub const LEADERBOARD_NAME_MAX_CHARS: usize = 6;
+pub const LEADERBOARD_NAME_MAX_CHARS: usize = 12;
 
 impl NewLeaderboardEntry {
     /// Trim, lowercase, and truncate to [`LEADERBOARD_NAME_MAX_CHARS`]
@@ -553,24 +681,47 @@ impl NewLeaderboardEntry {
 mod tests {
     use super::*;
 
-    fn stall_details(state: &str) -> StallwaechterDetails {
-        StallwaechterDetails {
+    fn enterprise_details_on(map_id: &str, state: &str) -> EnterpriseDetails {
+        EnterpriseDetails {
+            map_id: map_id.into(),
             state_id: state.into(),
             reason: GameEndReason::Collision,
             escape_heading_rad: None,
             was_overall_high: false,
             was_state_high: false,
+            label_variant: None,
+            label_name: None,
         }
     }
 
     fn record(state: &str, score: u32) -> GameRecord {
+        record_on(MAP_DE, state, score)
+    }
+
+    fn record_on(map_id: &str, state: &str, score: u32) -> GameRecord {
         GameRecord {
             id: Uuid::new_v4(),
             ts_ms: 0,
             score,
             duration_ms: 0,
-            details: GameDetails::Stallwaechter(stall_details(state)),
+            details: GameDetails::Enterprise(enterprise_details_on(map_id, state)),
         }
+    }
+
+    #[test]
+    fn high_scores_accept_legacy_stallwaechter_id() {
+        let games = vec![record("bayern", 100)];
+        let DisplayHighScores::Enterprise(hs) =
+            DisplayHighScores::from_games("stallwaechter", &games)
+        else {
+            panic!("expected Enterprise high scores")
+        };
+        assert_eq!(hs.by_map.get(MAP_DE).copied(), Some(100));
+        let DisplayHighScores::Enterprise(empty) = DisplayHighScores::empty_for("stallwaechter")
+        else {
+            panic!("expected Enterprise high scores")
+        };
+        assert!(empty.by_map.is_empty());
     }
 
     #[test]
@@ -581,21 +732,66 @@ mod tests {
             record("bayern", 150),
             record("hessen", 200),
         ];
-        let DisplayHighScores::Stallwaechter(hs) =
-            DisplayHighScores::from_games(DISPLAY_STALLWAECHTER, &games)
+        let DisplayHighScores::Enterprise(hs) =
+            DisplayHighScores::from_games(DISPLAY_ENTERPRISE, &games)
         else {
-            panic!("expected Stallwaechter high scores")
+            panic!("expected Enterprise high scores")
         };
-        assert_eq!(hs.overall, 250);
-        assert_eq!(hs.by_state.get("bayern").copied(), Some(150));
-        assert_eq!(hs.by_state.get("hessen").copied(), Some(250));
+        assert_eq!(hs.by_map.get(MAP_DE).copied(), Some(250));
+        let de = hs.by_state.get(MAP_DE).expect("german map entries");
+        assert_eq!(de.get("bayern").copied(), Some(150));
+        assert_eq!(de.get("hessen").copied(), Some(250));
     }
 
-    fn stall_new(state: &str, score: u32) -> NewGame {
+    #[test]
+    fn high_scores_keep_maps_apart() {
+        // The same region id on two maps, and a higher score on one of them.
+        // Neither the per-map best nor the per-region best may bleed across.
+        let games = vec![record_on("de", "BY", 100), record_on("eu", "BY", 250)];
+        let DisplayHighScores::Enterprise(hs) =
+            DisplayHighScores::from_games(DISPLAY_ENTERPRISE, &games)
+        else {
+            panic!("expected Enterprise high scores")
+        };
+        assert_eq!(hs.by_map.get("de").copied(), Some(100));
+        assert_eq!(hs.by_map.get("eu").copied(), Some(250));
+        assert_eq!(
+            hs.by_state.get("de").and_then(|m| m.get("BY")).copied(),
+            Some(100)
+        );
+        assert_eq!(
+            hs.by_state.get("eu").and_then(|m| m.get("BY")).copied(),
+            Some(250)
+        );
+    }
+
+    #[test]
+    fn records_without_a_map_id_read_as_german() {
+        // Every record written before maps existed was a German round.
+        let legacy = serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000001",
+            "tsMs": 0,
+            "score": 10,
+            "durationMs": 0,
+            "display": "enterprise",
+            "stateId": "BY",
+            "reason": "collision",
+            "wasOverallHigh": false,
+            "wasStateHigh": false,
+        });
+        let rec: GameRecord = serde_json::from_value(legacy).expect("legacy record parses");
+        let GameDetails::Enterprise(d) = &rec.details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(d.map_id, MAP_DE);
+    }
+
+    fn enterprise_new(state: &str, score: u32) -> NewGame {
         NewGame {
             score,
             duration_ms: 5_000,
-            details: NewGameDetails::Stallwaechter(NewStallwaechterDetails {
+            details: NewGameDetails::Enterprise(NewEnterpriseDetails {
+                map_id: MAP_DE.into(),
                 state_id: state.into(),
                 reason: GameEndReason::Collision,
                 escape_heading_rad: None,
@@ -605,13 +801,18 @@ mod tests {
 
     #[test]
     fn new_game_flags_are_strict_greater_than() {
-        let prev = DisplayHighScores::Stallwaechter(StallwaechterHighScores {
-            overall: 100,
-            by_state: [("bayern".to_string(), 50)].into_iter().collect(),
+        let prev = DisplayHighScores::Enterprise(EnterpriseHighScores {
+            by_map: [(MAP_DE.to_string(), 100)].into_iter().collect(),
+            by_state: [(
+                MAP_DE.to_string(),
+                [("bayern".to_string(), 50)].into_iter().collect(),
+            )]
+            .into_iter()
+            .collect(),
         });
-        let rec = stall_new("bayern", 100).into_record(&prev);
-        let GameDetails::Stallwaechter(d) = &rec.details else {
-            panic!("expected Stallwaechter details")
+        let rec = enterprise_new("bayern", 100).into_record(&prev);
+        let GameDetails::Enterprise(d) = &rec.details else {
+            panic!("expected Enterprise details")
         };
         // Equalling the overall best does NOT trigger the star.
         assert!(!d.was_overall_high);
@@ -620,10 +821,10 @@ mod tests {
 
     #[test]
     fn new_game_flags_first_ever_beats_zero() {
-        let prev = DisplayHighScores::empty_for(DISPLAY_STALLWAECHTER);
-        let rec = stall_new("sachsen", 1).into_record(&prev);
-        let GameDetails::Stallwaechter(d) = &rec.details else {
-            panic!("expected Stallwaechter details")
+        let prev = DisplayHighScores::empty_for(DISPLAY_ENTERPRISE);
+        let rec = enterprise_new("sachsen", 1).into_record(&prev);
+        let GameDetails::Enterprise(d) = &rec.details else {
+            panic!("expected Enterprise details")
         };
         assert!(d.was_overall_high);
         assert!(d.was_state_high);
@@ -706,11 +907,11 @@ mod tests {
         let json = serde_json::to_string(&rec).unwrap();
         // Top-level object carries envelope + flattened display tag +
         // per-display fields (no nested `details` object).
-        assert!(json.contains(r#""display":"stallwaechter""#));
+        assert!(json.contains(r#""display":"enterprise""#));
         assert!(json.contains(r#""stateId":"bayern""#));
         assert!(!json.contains(r#""details":"#));
         let round: GameRecord = serde_json::from_str(&json).unwrap();
-        assert_eq!(round.display_id(), DISPLAY_STALLWAECHTER);
+        assert_eq!(round.display_id(), DISPLAY_ENTERPRISE);
     }
 
     fn new_leaderboard(name: &str) -> NewLeaderboardEntry {
@@ -718,6 +919,7 @@ mod tests {
             display: "jezzball".into(),
             name: name.into(),
             score: 100,
+            region: String::new(),
         }
     }
 
@@ -732,7 +934,63 @@ mod tests {
     }
 
     #[test]
-    fn leaderboard_name_truncates_to_six_chars() {
-        assert_eq!(new_leaderboard("TOOLONG").normalized_name(), "toolon");
+    fn leaderboard_name_truncates_to_the_cap() {
+        assert_eq!(
+            new_leaderboard("ABCDEFGHIJKLMNOP").normalized_name(),
+            "abcdefghijkl"
+        );
+        assert_eq!(new_leaderboard("TOOLONG").normalized_name(), "toolong");
+    }
+
+    #[test]
+    fn game_record_accepts_legacy_stallwaechter_tag() {
+        let json = r#"{"id":"3fa1f167-71c0-4a6d-9b1b-000000000000","tsMs":0,"score":42,"durationMs":0,"display":"stallwaechter","stateId":"bayern","reason":"collision","wasOverallHigh":false,"wasStateHigh":false}"#;
+        let rec: GameRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(rec.display_id(), DISPLAY_ENTERPRISE);
+    }
+
+    #[test]
+    fn records_without_a_label_still_load() {
+        let json = r#"{"id":"6f1c7a5e-6d7e-4b8e-9a51-0d6a5b1f4c11","tsMs":0,"score":1,"durationMs":0,"display":"enterprise","mapId":"de","stateId":"BE","reason":"collision","wasOverallHigh":false,"wasStateHigh":false}"#;
+        let record: GameRecord = serde_json::from_str(json).unwrap();
+        let GameDetails::Enterprise(d) = record.details else {
+            panic!("expected Enterprise details")
+        };
+        assert_eq!(d.label_variant, None);
+        assert_eq!(d.label_name, None);
+        let out = serde_json::to_string(&GameDetails::Enterprise(d)).unwrap();
+        assert!(!out.contains("label"));
+    }
+
+    #[test]
+    fn label_choice_trims_keeps_case_and_caps_the_name() {
+        let choice = |name: Option<&str>| -> LabelChoice {
+            serde_json::from_value(serde_json::json!({
+                "labelVariant": "purple",
+                "labelName": name,
+            }))
+            .unwrap()
+        };
+        assert_eq!(
+            choice(Some("  Juliana ")).normalized_name(),
+            Ok(Some("Juliana".into()))
+        );
+        assert_eq!(choice(Some("   ")).normalized_name(), Ok(None));
+        assert_eq!(choice(None).normalized_name(), Ok(None));
+        assert_eq!(
+            choice(Some("abcdefghijkl")).normalized_name(),
+            Ok(Some("abcdefghijkl".into()))
+        );
+        assert_eq!(
+            choice(Some("abcdefghijklm")).normalized_name(),
+            Err(LabelChoiceError::NameTooLong)
+        );
+    }
+
+    #[test]
+    fn label_choice_refuses_an_unknown_variant() {
+        let bad: Result<LabelChoice, _> =
+            serde_json::from_value(serde_json::json!({ "labelVariant": "teal" }));
+        assert!(bad.is_err());
     }
 }

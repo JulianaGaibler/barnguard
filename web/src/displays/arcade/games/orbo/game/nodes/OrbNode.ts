@@ -11,8 +11,8 @@
  *
  * The ring itself is DRAWN by a companion `RingNode` in a separate, lower layer
  * so it's painted over by, and never obstructs, a neighbouring orb's body. This
- * node owns the ring's animated width and lifecycle, the RingNode just reads
- * and renders it.
+ * node starts and stops the ring's width animation, which the RingNode holds
+ * and paints.
  *
  * The physics `body` is the source of truth for position. A sync-only
  * {@link RigidBodyBehavior} mirrors `body.x/y` into the transform each frame
@@ -27,8 +27,9 @@ import {
   easings,
   mixColor,
   hitTestCircle,
-  type Gfx2D,
-} from '@src/stargazer'
+  definePaintProps,
+  type Canvas,
+} from 'stargazer'
 import type { FieldLayout } from '../layout'
 import { isInOwnScoringBand, returnTeamForZone, zoneAtX } from '../layout'
 import type { Orb } from '../Orb'
@@ -44,13 +45,10 @@ export class OrbNode extends Node2D {
   readonly #color: string
   readonly #captureColorFor: (team: TeamId) => string
   #pulseClock = 0
+  /** Current fill, the orb's color mixed toward a glow color while it pulses. */
+  declare fill: string
   /** While sliding off screen, position is tweened directly, not mirrored. */
   #slidingOff = false
-  /**
-   * Animated outline width (world units): 0 = hidden, overshoots past final
-   * mid-pop.
-   */
-  readonly #ring = { width: 0 }
   #ringScoring = false
   /** Color this orb would become if taken now (resolved on capture-zone entry). */
   #captureColor: string | null = null
@@ -75,12 +73,10 @@ export class OrbNode extends Node2D {
     this.body = body
     this.#layout = layout
     this.#color = color
+    definePaintProps(this, { fill: color })
     this.#captureColorFor = captureColorFor
-    this.renderLayer = 'dynamic'
     this.transform.x = body.x
     this.transform.y = body.y
-    const r = body.radius
-    this.debugBounds = { x: -r, y: -r, width: 2 * r, height: 2 * r }
 
     this.#ringNode = new RingNode(this)
     ringLayer.add(this.#ringNode)
@@ -97,11 +93,6 @@ export class OrbNode extends Node2D {
     this.addBehavior(this.#rb)
   }
 
-  /** Current animated ring width (world units). Read by the companion RingNode. */
-  get ringWidth(): number {
-    return this.#ring.width
-  }
-
   override destroy(): void {
     this.#ringNode.destroy()
     super.destroy()
@@ -113,6 +104,8 @@ export class OrbNode extends Node2D {
     // a held orb tracks the finger directly (no interpolation lag), and a
     // slide-off tween owns the transform outright (sync off, via `shouldSync`).
     this.#rb.interpolate = !this.body.isBeingDragged
+
+    this.fill = this.#currentFill()
 
     // Show as soon as the orb is inside its own scoring band, with no wait for
     // it to settle. Toggles on band enter/leave.
@@ -126,7 +119,7 @@ export class OrbNode extends Node2D {
 
     // Capture glow: resting in the OTHER team's launch strip with the lifetime
     // left to survive being taken means it's about to change hands. Resolve the
-    // target color once on entry. `draw` blends toward it. Excluding the last
+    // target color once on entry. `#currentFill` blends toward it. Excluding the last
     // life here also keeps this mutually exclusive with the low-life glow: an
     // orb on its last life explodes on return instead of being captured, so it
     // should never flash the other team's color.
@@ -147,9 +140,10 @@ export class OrbNode extends Node2D {
   #animateRing(show: boolean): void {
     // Keyed so each show/hide cleanly replaces the in-flight ring tween, with no
     // hand-held AbortController. Fire-and-forget: the width is cosmetic.
-    if (show) this.#ring.width = 0
-    this.playTo(
-      this.#ring,
+    const ring = this.#ringNode
+    if (show) ring.width = 0
+    ring.playTo(
+      ring,
       { width: show ? RING.widthWorld : 0 },
       {
         duration: show ? RING.popInSec : RING.popOutSec,
@@ -186,9 +180,7 @@ export class OrbNode extends Node2D {
     return hitTestCircle(this, worldX, worldY, this.body.radius, touchSlopWorld)
   }
 
-  override draw(gfx: Gfx2D): void {
-    const r = this.body.radius
-
+  #currentFill(): string {
     // While in a capture zone, oscillate the fill between the orb's color and
     // the color it's about to become. Otherwise, on its last life, oscillate
     // toward black as an "about to expire" warning. `capturing` already
@@ -225,8 +217,12 @@ export class OrbNode extends Node2D {
       )
     }
 
-    gfx.fillCircle(0, 0, r, fill)
+    return fill
+  }
+
+  override paint(gfx: Canvas): void {
     // The white scoring ring is drawn by the companion `RingNode` in a lower
     // layer so it's painted over by any orb it touches instead of obstructing it.
+    gfx.fillCircle(0, 0, this.body.radius, this.fill)
   }
 }

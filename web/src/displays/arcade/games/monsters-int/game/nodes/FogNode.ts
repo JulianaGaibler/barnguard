@@ -11,7 +11,7 @@
  *   the falloff on the way rather than lifting it evenly, and `start` alone
  *   cannot pass `end`.
  */
-import { moveToward, Node3D, type Fog } from '@src/stargazer'
+import { moveToward, Node3D, type Fog } from 'stargazer'
 import { FOG } from '../tuning'
 
 const WIDTH = FOG.end - FOG.start

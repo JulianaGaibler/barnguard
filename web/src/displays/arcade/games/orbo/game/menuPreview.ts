@@ -14,13 +14,14 @@ import {
   PhysicsWorldBehavior,
   Node2D,
   aabbShape,
+  definePaintProps,
   ignoreAbort,
   lerp,
   type EngineHost,
-  type Gfx2D,
+  type Canvas,
   type PhysicsWorld,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { MenuPreview } from '@src/displays/arcade/menu/types'
 import { createOrboPhysicsConfig } from './scene'
 import { Orb } from './Orb'
@@ -45,9 +46,8 @@ class PolyPanel extends Node2D {
     super('orbo-menu-zone')
     this.#pts = new Float32Array(pts)
     this.#color = color
-    this.renderLayer = 'dynamic'
   }
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.fillConvexPoly(this.#pts, this.#pts.length / 2, this.#color)
   }
 }
@@ -62,23 +62,25 @@ class PreviewOrb extends Node2D {
   readonly #radius: number
   readonly #ringWidth: number
   readonly #inZone: InZone
+  declare inside: boolean
   constructor(body: Orb, radius: number, inZone: InZone) {
     super('preview-orb')
     this.#body = body
     this.#radius = radius
     this.#ringWidth = radius * 0.16
     this.#inZone = inZone
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { inside: inZone(body.x, body.y) })
   }
   override onUpdate(): void {
     const a = this.scene?.engine?.ticker.fixedAlpha ?? 1
     const prev = this.#body.prevPosition
     this.transform.x = lerp(prev.x, this.#body.x, a)
     this.transform.y = lerp(prev.y, this.#body.y, a)
+    this.inside = this.#inZone(this.#body.x, this.#body.y)
   }
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     gfx.fillCircle(0, 0, this.#radius, ORB_COLOR)
-    if (this.#inZone(this.#body.x, this.#body.y)) {
+    if (this.inside) {
       gfx.strokeCircle(0, 0, this.#radius + this.#ringWidth / 2, {
         color: RING_COLOR,
         width: this.#ringWidth,

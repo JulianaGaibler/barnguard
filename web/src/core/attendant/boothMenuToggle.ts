@@ -40,7 +40,12 @@ export const toggleBoothMenu = (side: BoothMenuSide): void =>
 // via `debug.setHudVisible` for the debug HUD).
 
 /** Whether the stargazer debug HUD should be visible. */
-export const debugHudVisible = writable(false)
+export const debugHudVisible = writable(
+  typeof window !== 'undefined' &&
+    ['hud', 'perf'].includes(
+      new URLSearchParams(window.location.search).get('debug') ?? '',
+    ),
+)
 export const setDebugHudVisible = (v: boolean): void => debugHudVisible.set(v)
 export const toggleDebugHud = (): void =>
   debugHudVisible.update((prev) => !prev)
@@ -53,6 +58,32 @@ export const toggleDebugHud = (): void =>
 export const printerPanelVisible = writable(false)
 export const togglePrinterPanel = (): void =>
   printerPanelVisible.update((prev) => !prev)
+
+const PRINT_STATUS_STORAGE_KEY = 'bg.printStatusPillVisible'
+
+function readPrintStatusVisible(): boolean {
+  try {
+    return localStorage.getItem(PRINT_STATUS_STORAGE_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+/**
+ * Whether the print status pill shows in the corner, on by default and kept per
+ * device.
+ */
+export const printStatusPillVisible = writable(readPrintStatusVisible())
+export const togglePrintStatusPill = (): void =>
+  printStatusPillVisible.update((prev) => {
+    const next = !prev
+    try {
+      localStorage.setItem(PRINT_STATUS_STORAGE_KEY, next ? '1' : '0')
+    } catch {
+      /* storage blocked, the toggle still applies for this session */
+    }
+    return next
+  })
 
 /**
  * Whether the recent-games / high-scores panel should be visible. Same
@@ -133,9 +164,9 @@ function detectCorner(x: number, y: number): BoothMenuSide | null {
 /**
  * Wire up:
  *
- * - Double-tap in top-left corner → open menu on the LEFT
- * - Double-tap in top-right corner → open menu on the RIGHT
- * - `Ctrl + Shift + D` → toggle right-anchored (dev backdoor for
+ * - Double-tap in top-left corner -> open menu on the LEFT
+ * - Double-tap in top-right corner -> open menu on the RIGHT
+ * - `Ctrl + Shift + D` -> toggle right-anchored (dev backdoor for
  *   connected-keyboard debugging)
  */
 export const initBoothMenuToggle = (): (() => void) => {

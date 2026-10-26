@@ -1,13 +1,14 @@
 <script lang="ts">
   // Attendant-facing printer panel. Opened from the booth menu, shows live
-  // printer + queue status over SSE, and offers cancel / reprint / clear plus
-  // (in mock mode) fault-injection buttons for testing. Labels are hardcoded
-  // English to match the booth menu's operator-facing convention.
+  // printer + queue status over SSE, and offers cancel (queued or active),
+  // reprint (any recent job) and clear, plus (in mock mode) fault-injection
+  // buttons for testing. Labels are hardcoded English to match the booth
+  // menu's operator-facing convention.
   import {
     DebugSection,
     DraggableWindow,
     ToggleButton,
-  } from '@src/stargazer/debug/ui'
+  } from 'stargazer/debug-ui'
   import { t } from '@src/i18n'
   import {
     printerLive,
@@ -77,6 +78,17 @@
 
   const onCancel = (id: string): void => void cancelJob(id).catch(logErr)
   const onReprint = (id: string): void => void reprintJob(id).catch(logErr)
+
+  // The active job stops once the daemon's worker lets go of it, which can
+  // take a moment, so its button says so until the job leaves the slot.
+  let cancelingId = $state<string | null>(null)
+  function onCancelActive(id: string): void {
+    cancelingId = id
+    cancelJob(id).catch((err: unknown) => {
+      cancelingId = null
+      logErr(err)
+    })
+  }
   const onClear = (): void => void clearQueue().catch(logErr)
 
   // Transient "connecting…" feedback for the Reconnect button. Independent of
@@ -262,8 +274,17 @@
   >
     <div class="debug-list">
       {#if $printerLive.active}
+        {@const active = $printerLive.active}
         <div class="debug-list-item active-job">
-          <span>{jobLine($printerLive.active)}</span>
+          <span>{jobLine(active)}</span>
+          <button
+            type="button"
+            class="debug-btn"
+            disabled={cancelingId === active.id}
+            onclick={() => onCancelActive(active.id)}
+          >
+            {cancelingId === active.id ? 'Canceling…' : 'Cancel'}
+          </button>
         </div>
       {/if}
       {#each $printerLive.pending as job (job.id)}
@@ -299,15 +320,13 @@
               ? ` · ${job.warning}`
               : ''}</span
           >
-          {#if job.state === 'failed'}
-            <button
-              type="button"
-              class="debug-btn"
-              onclick={() => onReprint(job.id)}
-            >
-              Reprint
-            </button>
-          {/if}
+          <button
+            type="button"
+            class="debug-btn"
+            onclick={() => onReprint(job.id)}
+          >
+            Reprint
+          </button>
         </div>
       {:else}
         <div class="empty-state">none</div>

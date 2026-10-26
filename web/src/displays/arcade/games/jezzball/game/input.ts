@@ -11,7 +11,7 @@
  * side-by-side boards disambiguate by position), and debounces so one press
  * makes one wall.
  */
-import { Behavior, Node2D, type EngineHost } from '@src/stargazer'
+import { Behavior, Node2D, type EngineHost } from 'stargazer'
 import type { BoardController } from './board'
 import { GESTURE } from './tuning'
 import type { Orientation } from './types'

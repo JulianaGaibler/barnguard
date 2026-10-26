@@ -8,7 +8,7 @@
  * demos.
  */
 import { describe, expect, it } from 'vitest'
-import type { Gfx2D } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 import {
   cursorAlpha,
   drawCap,
@@ -38,7 +38,7 @@ interface Quad {
 
 /** Captures the primitives a draw call emits. */
 function recorder(): {
-  gfx: Gfx2D
+  gfx: Canvas
   lines: Line[]
   quads: Quad[]
   rects: Quad[]
@@ -54,7 +54,7 @@ function recorder(): {
     setBlend: noop,
     save: noop,
     restore: noop,
-    snapSize: (v: number) => Math.max(1, Math.round(v)),
+    snap: (v: number) => Math.max(1, Math.round(v)),
     fillRoundRect: (
       x: number,
       y: number,
@@ -79,7 +79,7 @@ function recorder(): {
       s: { width: number },
     ) => lines.push({ x0, y0, x1, y1, width: s.width }),
     fillText: (t: string) => texts.push(t),
-  } as unknown as Gfx2D
+  } as unknown as Canvas
   return { gfx, lines, quads, rects, texts }
 }
 

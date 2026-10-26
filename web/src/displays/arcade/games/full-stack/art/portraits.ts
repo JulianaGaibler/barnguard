@@ -685,6 +685,29 @@ export function portraitRuns(card: Card): PortraitRun[] {
   return runs
 }
 
+const imageCache = new Map<string, HTMLCanvasElement>()
+
+/**
+ * A card's portrait as a 16 by 16 canvas, one pixel per cell, memoised. Drawn
+ * with `drawImage` and `smoothing: false`, it scales to hard-edged cells.
+ */
+export function portraitImage(card: Card): HTMLCanvasElement {
+  const hit = imageCache.get(card.id)
+  if (hit) return hit
+  const canvas = document.createElement('canvas')
+  canvas.width = PORTRAIT_SIZE
+  canvas.height = PORTRAIT_SIZE
+  const ctx = canvas.getContext('2d')
+  if (ctx) {
+    for (const run of portraitRuns(card)) {
+      ctx.fillStyle = run.color
+      ctx.fillRect(run.x, run.row, run.len, 1)
+    }
+  }
+  imageCache.set(card.id, canvas)
+  return canvas
+}
+
 /** The raw layers, for the preview page and the geometry tests. */
 export const LIBRARY = {
   HAIR,

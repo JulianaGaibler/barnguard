@@ -8,15 +8,15 @@
  * None of that shows up in a screenshot at one particular size, so it is pinned
  * here across the ratios a cabinet and a laptop actually produce.
  *
- * The fake camera derives `deviceScale` from the pixel ratio and the camera
+ * The fake canvas derives its device scale from the pixel ratio and the camera
  * scale rather than taking it as its own number. The two are not independent:
- * `deviceScale` is device pixels per WORLD unit, so it already has the camera
- * scale folded into it. A fake that lets them disagree describes a canvas that
- * cannot exist, and will happily agree with an implementation that has the
- * conversion backwards.
+ * the device scale is device pixels per WORLD unit, so it already has the
+ * camera scale folded into it. A fake that lets them disagree describes a
+ * canvas that cannot exist, and will happily agree with an implementation that
+ * has the conversion backwards.
  */
 import { describe, expect, it } from 'vitest'
-import type { CameraView2D, Gfx2D } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 import { ScanlineNode } from './ScanlineNode'
 import type { Bounds } from '../types'
 
@@ -54,22 +54,19 @@ function draw(opts: {
   const perWorld = dpr / scale
   const raw: Bar[] = []
   const gfx = {
-    deviceScale: () => perWorld,
-    // The real one, from `GpuGfx`, so the test cannot pass against a snap the
-    // engine would not perform.
-    snapSize: (v: number) =>
+    // The same rounding as `Canvas.snap`, so the test cannot pass against a
+    // snap the engine would not perform.
+    snap: (v: number) =>
       perWorld > 0 ? Math.max(1, Math.round(v * perWorld)) / perWorld : v,
+    screenScale: () => scale,
+    visibleWorldRect: () => view,
     fillRoundRect: (x: number, y: number, w: number, h: number) =>
       raw.push({ x, y, w, h }),
-  } as unknown as Gfx2D
-  const camera = {
-    visibleWorldRect: () => view,
-    strokeSpaceScale: () => scale,
-  } as unknown as CameraView2D
+  } as unknown as Canvas
 
   const node = new ScanlineNode()
   node.setRegion(opts.region ?? REGION)
-  node.draw(gfx, camera)
+  node.paint(gfx)
 
   return {
     bars: raw.map((b) => ({
@@ -228,8 +225,7 @@ describe('where it draws', () => {
 
   it('draws nothing for a camera with no height to fill', () => {
     // The only degenerate case the node has to guard. A zero device scale is
-    // not one: `Gfx2D.deviceScale` contracts to return 1 rather than 0 when
-    // there is no transform to read, and `snapSize` floors at one device pixel.
+    // not one: `Canvas.snap` floors at one device pixel.
     expect(
       draw({ view: { x: 0, y: 0, width: 1920, height: 0 } }).bars,
     ).toHaveLength(0)

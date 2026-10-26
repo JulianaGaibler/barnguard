@@ -136,21 +136,21 @@ describe('printerLive SSE state machine', () => {
 
   it('doubles the backoff on repeated failures, capped at 15 s', async () => {
     mod = await subscribeFresh()
-    // 1st fail → next attempt in 1s
+    // 1st fail -> next attempt in 1s
     MockEventSource.latest().fireError()
     vi.advanceTimersByTime(999)
     expect(MockEventSource.instances.length).toBe(1)
     vi.advanceTimersByTime(1)
     expect(MockEventSource.instances.length).toBe(2)
 
-    // 2nd fail → next attempt in 2s
+    // 2nd fail -> next attempt in 2s
     MockEventSource.latest().fireError()
     vi.advanceTimersByTime(1999)
     expect(MockEventSource.instances.length).toBe(2)
     vi.advanceTimersByTime(1)
     expect(MockEventSource.instances.length).toBe(3)
 
-    // 3rd fail → next attempt in 4s
+    // 3rd fail -> next attempt in 4s
     MockEventSource.latest().fireError()
     vi.advanceTimersByTime(3999)
     expect(MockEventSource.instances.length).toBe(3)
@@ -158,11 +158,11 @@ describe('printerLive SSE state machine', () => {
     expect(MockEventSource.instances.length).toBe(4)
 
     // Skip ahead to the cap. The 4th attempt is in flight, so fail it and then
-    // fail once more to reach 16s → capped at 15s.
+    // fail once more to reach 16s -> capped at 15s.
     MockEventSource.latest().fireError() // 8s
     vi.advanceTimersByTime(8000)
     expect(MockEventSource.instances.length).toBe(5)
-    MockEventSource.latest().fireError() // would be 16s → capped to 15s
+    MockEventSource.latest().fireError() // would be 16s -> capped to 15s
     vi.advanceTimersByTime(14999)
     expect(MockEventSource.instances.length).toBe(5)
     vi.advanceTimersByTime(1)
@@ -171,7 +171,7 @@ describe('printerLive SSE state machine', () => {
 
   it('resets backoff to 1 s on a successful onopen', async () => {
     mod = await subscribeFresh()
-    // Fail twice → backoff at 2s.
+    // Fail twice -> backoff at 2s.
     MockEventSource.latest().fireError()
     vi.advanceTimersByTime(1000)
     MockEventSource.latest().fireError()
@@ -221,12 +221,12 @@ describe('printerLive SSE state machine', () => {
     mod = await subscribeFresh()
     MockEventSource.latest().fireOpen()
     // Time = 0. Heartbeat ticks every 5s, and a message resets `lastMessageAt`.
-    // Advance 20s → no timeout yet (threshold is 25s, checked with `>`).
+    // Advance 20s -> no timeout yet (threshold is 25s, checked with `>`).
     vi.advanceTimersByTime(20_000)
     expect(get(mod.printerLive).connection).toBe('online')
     expect(MockEventSource.instances.length).toBe(1)
 
-    // Advance past 25s total silence → timeout fires on the next 5s tick.
+    // Advance past 25s total silence -> timeout fires on the next 5s tick.
     vi.advanceTimersByTime(10_000) // total 30s
     // The tick at t=30s (>25s elapsed) ran the timeout check, so scheduleReopen
     // was called.

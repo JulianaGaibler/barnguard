@@ -11,9 +11,12 @@
   on a screen two people share it is obvious which name is receiving keys.
 
   Each qualifying score is submitted independently on exit, and both names go
-  back through `onFinalize` for the caller's game log.
+  back through `onFinalize` for the caller's game log. A submission that fails
+  is queued and sent with the next board fetch. A board that cannot be reached
+  loads as soon as the backend reconnects, while the screen is still up.
 -->
 <script lang="ts">
+  import { displayName } from '@src/core/leaderboard/displayName'
   import { onDestroy, onMount } from 'svelte'
   import type { Snippet } from 'svelte'
   import { fade, scale } from 'svelte/transition'
@@ -21,10 +24,11 @@
   import Surface from '@src/core/ui/Surface.svelte'
   import OnScreenKeyboardField from '@src/core/ui/OnScreenKeyboardField.svelte'
   import {
-    fetchLeaderboard,
     submitScore,
     type LeaderboardEntry,
   } from '@src/core/leaderboard/leaderboardClient'
+  import { loadBoard } from '@src/core/leaderboard/loadBoard'
+  import { enqueueSubmission } from '@src/core/leaderboard/outbox'
   import { registerExitTask } from '../exitTasks'
   import { t } from '../i18n'
   import LeaderboardList from './LeaderboardList.svelte'
@@ -94,18 +98,22 @@
   /** While a side has the keyboard, spell out its letter slots ("YAI___"). */
   function pendingDisplay(id: 'a' | 'b'): string | undefined {
     if (focus !== id) return undefined
-    return names[id].toUpperCase().padEnd(NAME_MAX_LEN, '_')
+    return displayName(names[id]).padEnd(NAME_MAX_LEN, '_')
   }
 
+  let stopLoading: (() => void) | null = null
   onMount(() => {
-    fetchLeaderboard(display, MAX_ROWS)
-      .then((list) => {
+    stopLoading = loadBoard(
+      display,
+      MAX_ROWS,
+      (list) => {
         entries = list
         stage = 'ready'
-      })
-      .catch(() => {
+      },
+      () => {
         stage = 'unavailable'
-      })
+      },
+    )
   })
 
   // Submit both qualifying scores at most once, on whichever exit path runs
@@ -115,6 +123,7 @@
   async function saveIfNeeded(): Promise<void> {
     if (submitted) return
     submitted = true
+    stopLoading?.()
     const logged = onFinalize?.({ ...names })
     if (stage !== 'ready') {
       await logged
@@ -130,7 +139,12 @@
     for (const side of posting) {
       const name = names[side.id]
       if (name && qualifies(side.score)) {
-        jobs.push(submitScore(display, name, side.score).catch(() => {}))
+        const score = side.score
+        jobs.push(
+          submitScore(display, name, score).catch(() => {
+            enqueueSubmission({ display, name, score })
+          }),
+        )
       }
     }
     await Promise.all(jobs)
@@ -188,7 +202,7 @@
                 <p class="over__hint">
                   {names[side.id]
                     ? $t.arcade.leaderboard.willBeSavedAs(
-                        names[side.id].toUpperCase(),
+                        displayName(names[side.id]),
                       )
                     : $t.arcade.leaderboard.wontBeSaved}
                 </p>
@@ -237,7 +251,6 @@
       showTrigger={false}
       caption={side.label}
       maxLength={NAME_MAX_LEN}
-      closeLabel={$t.arcade.leaderboard.closeKeyboard}
     />
   {/each}
 </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { chipAnchor } from './HudNode'
+import { chipAnchor, HudNode, type SeatHud } from './HudNode'
 import { focusScreenHeight } from '../cardLayout'
 import { flatForeshortening } from '../project'
 import { seatPlacements } from '../seats'
@@ -69,6 +69,51 @@ describe('chipAnchor', () => {
           at.y + CHIP_HEIGHT <= lifted.y || lifted.y + CHIP_HEIGHT <= at.y
         expect(!sameColumn || apart, `${count}p seat ${seat.seat}`).toBe(true)
       }
+    }
+  })
+})
+
+const seatHud = (over: Partial<SeatHud> = {}): SeatHud => ({
+  seat: 0,
+  label: 'One',
+  total: 0,
+  round: 5,
+  status: 'active',
+  up: false,
+  ...over,
+})
+
+/** A node that has painted, so any later dirt came from a write since. */
+function settled(): HudNode {
+  const node = new HudNode()
+  node.setSeats([seatHud()])
+  node.setStatus({ seat: 0, text: 'turn', note: '' })
+  node.setMatch(1, [0])
+  node._paintDirty = false
+  return node
+}
+
+describe('HudNode repaint', () => {
+  it('ignores an equal copy of what it already shows', () => {
+    const node = settled()
+    node.setSeats([seatHud()])
+    node.setStatus({ seat: 0, text: 'turn', note: '' })
+    node.setMatch(1, [0])
+    node.setViewport({ ...node.view })
+    expect(node._paintDirty).toBe(false)
+  })
+
+  it('repaints when a seat, the status or the totals change', () => {
+    for (const change of [
+      (n: HudNode) => n.setSeats([seatHud({ up: true })]),
+      (n: HudNode) => n.setStatus({ seat: 0, text: 'hit', note: '' }),
+      (n: HudNode) => n.setMatch(1, [3]),
+      (n: HudNode) => n.setMatch(2, [0]),
+      (n: HudNode) => n.setFocusedSeat(0),
+    ]) {
+      const node = settled()
+      change(node)
+      expect(node._paintDirty).toBe(true)
     }
   })
 })

@@ -4,7 +4,7 @@ import {
   easings,
   ignoreAbort,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { COLS } from './board'
 import { cellCenter, type BoardLayout } from './layout'
 import { DiscNode } from './nodes/DiscNode'

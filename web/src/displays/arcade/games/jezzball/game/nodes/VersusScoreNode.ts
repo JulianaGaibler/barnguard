@@ -4,7 +4,7 @@
  * `TextNode`s rather than one multi-line node, since the number and the label
  * render at different font sizes.
  */
-import { Node2D, TextNode } from '@src/stargazer'
+import { Node2D, TextNode } from 'stargazer'
 import { JEZZBALL_FONTS } from '../../fonts'
 
 const NUM_FONT_PX = 44.8 // 2.8rem

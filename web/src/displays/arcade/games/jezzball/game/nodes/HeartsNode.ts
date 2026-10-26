@@ -6,10 +6,10 @@
  */
 import {
   Node2D,
+  definePaintProps,
   parseSvgPaths,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+  type Canvas,
+} from 'stargazer'
 import heartSvgRaw from '../../assets/heart.svg?raw'
 
 const HEART = Array.from(
@@ -33,11 +33,11 @@ export class HeartsNode extends Node2D {
   readonly #color: string
   readonly #align: HeartsAlign
   readonly #sizePx: number
-  #lives = 0
+  declare lives: number
 
   constructor(opts: HeartsOptions) {
     super('jb-hearts')
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { lives: 0 })
     this.#max = opts.max
     this.#color = opts.color
     this.#align = opts.align
@@ -45,12 +45,12 @@ export class HeartsNode extends Node2D {
   }
 
   setLives(lives: number): void {
-    this.#lives = lives
+    this.lives = lives
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     if (!HEART) return
-    const s = camera.strokeSpaceScale()
+    const s = gfx.screenScale()
     const size = this.#sizePx * s
     const gap = GAP_PX * s
     const scale = size / VIEWBOX
@@ -67,7 +67,7 @@ export class HeartsNode extends Node2D {
       // Right-aligned rows fill from the outer edge inward, so a losing
       // player's hearts drain toward the center.
       const idx = this.#align === 'right' ? this.#max - 1 - i : i
-      const filled = idx < this.#lives
+      const filled = idx < this.lives
       const width = filled ? 2.4 : 2
       gfx.save()
       gfx.translate(startX + i * step, -size / 2)

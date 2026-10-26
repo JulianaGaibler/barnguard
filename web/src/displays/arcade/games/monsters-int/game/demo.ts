@@ -33,7 +33,7 @@ import {
   Node3D,
   type Rect,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import { FingerHintNode } from '@src/displays/arcade/tutorial/FingerHintNode'
 import type {
   DemoBuilder,
@@ -125,7 +125,6 @@ export function bench(
   rig.makeCurrent()
 
   const overlay = new Node2D('mi-demo-overlay')
-  overlay.renderLayer = 'dynamic'
   const scale = view.height / frame.height
   overlay.transform.scaleX = scale
   overlay.transform.scaleY = scale

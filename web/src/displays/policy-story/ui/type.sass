@@ -1,0 +1,48 @@
+// Type styles from the design, in design pixels. Every screen is laid out in a
+// 1920 by 1080 frame, so these sizes scale with it.
+
+@mixin trimmed
+  text-box-trim: trim-both
+  text-box-edge: cap alphabetic
+
+@mixin body
+  @include trimmed
+  font-family: var(--font-mozilla-text)
+  font-weight: 600
+  font-size: 44px
+  line-height: 1.25
+  letter-spacing: 0.01em
+  text-wrap: balance
+
+@mixin option
+  @include trimmed
+  font-family: var(--font-mozilla-text)
+  font-weight: 600
+  font-size: 36px
+  line-height: 1.25
+  letter-spacing: 0.01em
+  text-wrap: balance
+
+@mixin letter
+  @include trimmed
+  font-family: var(--font-mozilla-headline-condensed)
+  font-weight: 600
+  font-size: 96px
+  line-height: 1.05
+  letter-spacing: 0
+
+@mixin headline
+  @include trimmed
+  font-family: var(--font-mozilla-headline-condensed)
+  font-weight: 600
+  font-size: 160px
+  line-height: 0.9
+  letter-spacing: 0
+
+@mixin button
+  @include trimmed
+  font-family: var(--font-mozilla-text)
+  font-weight: 600
+  font-size: 34.5px
+  line-height: 1.05
+  letter-spacing: 0.01em

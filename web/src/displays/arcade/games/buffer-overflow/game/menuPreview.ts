@@ -10,9 +10,16 @@
  * Nothing here reads the session. It is decoration, and building it out of the
  * same cell primitive the game uses is what keeps the two looking related.
  */
-import { Node2D, clamp, easings, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  Node2D,
+  clamp,
+  definePaintProps,
+  easings,
+  type Canvas,
+  type Rect,
+} from 'stargazer'
 import type { MenuPreview } from '../../../menu/types'
-import type { EngineHost } from '@src/stargazer'
+import type { EngineHost } from 'stargazer'
 import { seededRandom } from '../../common/rng'
 import { PIECE_KINDS, pieceCells } from './pieces'
 import { COLORS } from './tuning'
@@ -35,20 +42,49 @@ interface Drifter {
   spin: number
 }
 
+/**
+ * One drifting piece. The fall and the fade are the node's transform, so only a
+ * turn repaints it.
+ */
+class DrifterNode extends Node2D {
+  declare piece: PieceKind
+  declare rot: Rotation
+  readonly #cell: number
+
+  constructor(kind: PieceKind, rot: Rotation, cell: number) {
+    super('bo-menu-drifter')
+    this.#cell = cell
+    definePaintProps(this, { piece: kind, rot })
+  }
+
+  override paint(gfx: Canvas): void {
+    const cell = this.#cell
+    for (const c of pieceCells(this.piece, this.rot)) {
+      drawCell(gfx, this.piece, c.x * cell, c.y * cell, cell)
+    }
+  }
+}
+
 class MenuPreviewNode extends Node2D {
   readonly #view: Rect
-  /** The game region. Everything is clipped to it, see {@link draw}. */
-  readonly #region: Rect
   readonly #cell: number
   readonly #drifters: Drifter[] = []
+  readonly #nodes: DrifterNode[] = []
   #elapsed = 0
 
   constructor(view: Rect, region: Rect) {
     super('bo-menu-preview')
-    this.renderLayer = 'dynamic'
     this.#view = view
-    this.#region = region
     this.#cell = view.height / 22
+    // Clipped to the region, not the cover rect. The cover rect deliberately
+    // overflows so the field has no visible edge, and without this the overflow
+    // hangs into the launcher below and is visible from there.
+    this.clip = {
+      x: region.x,
+      y: region.y,
+      width: region.width,
+      height: region.height,
+    }
     // Seeded, so the menu looks the same every time the booth opens it rather
     // than being subtly different on each visit.
     const random = seededRandom(0x0bffe201)
@@ -63,12 +99,13 @@ class MenuPreviewNode extends Node2D {
         spin: random() < 0.3 ? 1 : 0,
       })
     }
-    this.debugBounds = {
-      x: view.x,
-      y: view.y,
-      width: view.width,
-      height: view.height,
+    for (const d of this.#drifters) {
+      const node = new DrifterNode(d.kind, d.rot, this.#cell)
+      node.transform.x = view.x + d.col * this.#cell
+      this.#nodes.push(node)
+      this.add(node)
     }
+    this.#place()
   }
 
   override onUpdate(dt: number): void {
@@ -82,44 +119,31 @@ class MenuPreviewNode extends Node2D {
         d.rot = ((d.rot + 1) % 4) as Rotation
       }
     }
+    this.#place()
   }
 
-  override draw(gfx: Gfx2D): void {
+  /** Move each piece to where its clock puts it. */
+  #place(): void {
     const v = this.#view
     const cell = this.#cell
-    // Clipped to the region, not the cover rect. The cover rect deliberately
-    // overflows so the field has no visible edge, and without this the overflow
-    // hangs into the launcher below and is visible from there.
-    const r = this.#region
-    gfx.save()
-    gfx.setClip({
-      kind: 'roundRect',
-      x: r.x,
-      y: r.y,
-      w: r.width,
-      h: r.height,
-      radius: 0,
-    })
+    for (let i = 0; i < this.#drifters.length; i++) {
+      const d = this.#drifters[i]
+      const node = this.#nodes[i]
+      node.transform.y = v.y - cell * 4 + d.t * (v.height + cell * 8)
+      // Fade in at the top and out at the bottom, so nothing pops at an edge.
+      const edge = Math.min(d.t, 1 - d.t) / 0.15
+      node.transform.alpha = clamp(edge, 0, 1) * 0.55
+      node.rot = d.spin
+        ? (((d.rot + Math.floor(this.#elapsed * 0.3)) % 4) as Rotation)
+        : d.rot
+    }
+  }
+
+  override paint(gfx: Canvas): void {
+    const v = this.#view
     // A wash of the opening accent over the backdrop, so the preview reads as
     // the same object the board is cut from.
     gfx.fillRect(v.x, v.y, v.width, v.height, COLORS.backdropTop)
-
-    for (const d of this.#drifters) {
-      const y = v.y - cell * 4 + d.t * (v.height + cell * 8)
-      const x = v.x + d.col * cell
-      // Fade in at the top and out at the bottom, so nothing pops at an edge.
-      const edge = Math.min(d.t, 1 - d.t) / 0.15
-      gfx.setAlpha(clamp(edge, 0, 1) * 0.55)
-      const rot = d.spin
-        ? (((d.rot + Math.floor(this.#elapsed * 0.3)) % 4) as Rotation)
-        : d.rot
-      for (const c of pieceCells(d.kind, rot)) {
-        drawCell(gfx, d.kind, x + c.x * cell, y + c.y * cell, cell)
-      }
-      gfx.setAlpha(1)
-    }
-
-    gfx.restore()
   }
 }
 

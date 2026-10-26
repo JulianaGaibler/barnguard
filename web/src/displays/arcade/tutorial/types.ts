@@ -1,4 +1,4 @@
-import type { EngineHost, Stage } from '@src/stargazer'
+import type { EngineHost, Stage } from 'stargazer'
 
 /**
  * A live demo running on the shared demo stage. `destroy` tears the built

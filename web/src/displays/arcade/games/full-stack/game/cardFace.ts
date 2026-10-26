@@ -9,7 +9,7 @@
 // and the name all read fine a little smaller, so the space comes from them and
 // goes to the on-hire band.
 
-import type { Rect } from '@src/stargazer'
+import type { Rect } from 'stargazer'
 
 /**
  * Below this drawn width a card shows only its cost, badges and name. Kept

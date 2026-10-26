@@ -1,4 +1,4 @@
-import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { COLS, ROWS } from '../board'
 import { cellCenter, type BoardLayout } from '../layout'
 import { BOARD } from '../tuning'
@@ -18,10 +18,9 @@ export class BoardNode extends Node2D {
   constructor(layout: BoardLayout) {
     super('cf-board')
     this.#layout = layout
-    this.renderLayer = 'dynamic'
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const layout = this.#layout
     // Panel: only the top-right corner rounded (radii are [tl, tr, br, bl]).
     gfx.fillRoundRect(
@@ -35,7 +34,7 @@ export class BoardNode extends Node2D {
 
     const wellR = layout.cell * BOARD.wellRadiusFrac
     const arm = layout.cell * BOARD.xArmFrac
-    const xWidth = BOARD.xWidth * camera.strokeSpaceScale()
+    const xWidth = BOARD.xWidth * gfx.screenScale()
     for (let row = 0; row < ROWS; row++) {
       for (let col = 0; col < COLS; col++) {
         const center = cellCenter(layout, col, row)

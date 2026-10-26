@@ -1,4 +1,4 @@
-import type { Rect } from '@src/stargazer'
+import type { Rect } from 'stargazer'
 import type { PacketMask } from '../behaviors/PacketBehavior'
 
 /**

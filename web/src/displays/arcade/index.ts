@@ -5,6 +5,7 @@ import SkyPanel from './attendant/SkyPanel.svelte'
 import { arcadeLocales, ARCADE_DEFAULT_LANGUAGE } from './i18n'
 import { asArcade } from './game-log'
 import { GAMES } from './games/registry'
+import { EXTRA_FONT_SPECS } from '@src/core/fonts/extra'
 
 const GAME_BY_ID = new Map(GAMES.map((g) => [g.meta.id, g]))
 
@@ -29,11 +30,13 @@ const LEADERBOARD_IDS = GAMES.flatMap((g) =>
  * false` and the dispatch below never actually fires. A game only needs to
  * implement those two methods on its own module to start printing.
  */
-export const arcade: DisplayManifest = {
+const arcade: DisplayManifest = {
   id: 'arcade',
   name: 'Arcade',
   theme: arcadeTheme,
   root: ArcadeScreen,
+  // The games use the handle faces: Bungee, Sniglet, Azeret Mono and others.
+  fontSpecs: EXTRA_FONT_SPECS,
   attendantPanel: SkyPanel,
   locales: arcadeLocales,
   defaultLanguage: ARCADE_DEFAULT_LANGUAGE,
@@ -59,3 +62,5 @@ export const arcade: DisplayManifest = {
     return game.renderLabelForRecord(record, ctx)
   },
 }
+
+export default arcade

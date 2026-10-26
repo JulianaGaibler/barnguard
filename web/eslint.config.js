@@ -43,6 +43,20 @@ export default ts.config(
   {
     rules: {
       'svelte/no-at-html-tags': 'off',
+      // Stargazer is used through its entry points only. Anything else is
+      // internal and can change without notice.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^(@src/)?stargazer/(?!(debug-ui|testing)$)',
+              message:
+                "Import from 'stargazer', 'stargazer/debug-ui' or 'stargazer/testing'.",
+            },
+          ],
+        },
+      ],
     },
   },
   prettierConfig,
@@ -58,8 +72,6 @@ export default ts.config(
     ignores: [
       'dist/',
       'node_modules/',
-      // Generated stargazer docs-site bundles (git-ignored build output).
-      'src/stargazer/site/',
       '**/*.config.js',
       '**/*.config.ts',
     ],

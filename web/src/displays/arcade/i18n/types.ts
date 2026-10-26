@@ -82,8 +82,6 @@ export interface ArcadeMessages extends CoreMessages {
       willBeSavedAs: (name: string) => string
       /** Pending row's CTA pill while the name is empty. */
       enterNameToSave: string
-      /** Accessible label for the keyboard's collapse key. */
-      closeKeyboard: string
       /**
        * Warning when both players in a versus result type the same name. The
        * board keeps one row per name, so only the higher score can survive.

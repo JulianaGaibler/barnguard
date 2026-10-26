@@ -4,17 +4,17 @@
   import {
     BOOTH_CORNER_SIZE_PX,
     initBoothMenuToggle,
+    printStatusPillVisible,
   } from '@src/core/attendant/boothMenuToggle'
   import { startActivityTracking } from '@src/core/activity'
-  import { coverScreen } from '@src/stores/coverScreen'
-  import CoverScreen from '@src/core/attendant/CoverScreen.svelte'
   import BoothMenu from '@src/core/attendant/BoothMenu.svelte'
   import PrinterPanel from '@src/core/attendant/PrinterPanel.svelte'
+  import PrintStatusPill from '@src/core/attendant/PrintStatusPill.svelte'
   import GamesPanel from '@src/core/attendant/GamesPanel.svelte'
   import LeaderboardPanel from '@src/core/attendant/LeaderboardPanel.svelte'
   import BackgroundLayer from '@src/core/ui/BackgroundLayer.svelte'
   import TopBar from '@src/core/attendant/TopBar.svelte'
-  import type { DisplayManifest } from '@src/core/display'
+  import { displayPrints, type DisplayManifest } from '@src/core/display'
 
   interface Props {
     display: DisplayManifest
@@ -55,12 +55,14 @@
 
 <TopBar />
 
-{#if $coverScreen.visible}
-  <CoverScreen />
+{#if display.renderPreviewLabel && $printStatusPillVisible}
+  <PrintStatusPill />
 {/if}
 
 <BoothMenu />
-<PrinterPanel />
+{#if displayPrints(display)}
+  <PrinterPanel />
+{/if}
 <GamesPanel />
 {#if display.leaderboardIds?.length}
   <LeaderboardPanel />

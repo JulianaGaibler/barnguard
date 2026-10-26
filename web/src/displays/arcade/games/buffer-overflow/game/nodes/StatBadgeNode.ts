@@ -14,19 +14,17 @@
  * at the edge of vision while the player is watching the buffer, and a gain
  * floats up and fades, so a jump of eight hundred says how much it was rather
  * than only that it happened.
+ *
+ * Every accent is a different picture on each frame it runs, so the node paints
+ * every frame while one is live, which is under a second after a change, and
+ * rests otherwise.
  */
-import {
-  Node2D,
-  easings,
-  textAdvance,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+import { Node2D, easings, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { textFloor, valueFloor } from '../layout'
 import { accentForLevel, ANIM, COLORS, FRAME } from '../tuning'
 import type { Bounds } from '../types'
-import { capBaseline, drawMeter, drawRun, ruleWidth } from './tui'
+import { capBaseline, drawMeter, drawRun, ruleWidth, sameBounds } from './tui'
 
 const FLASH_SEC = 0.5
 const KICK_SEC = 0.32
@@ -76,7 +74,6 @@ export class StatBadgeNode extends Node2D {
 
   constructor(opts: StatBadgeOptions) {
     super(`bo-stat-${opts.label.toLowerCase()}`)
-    this.renderLayer = 'dynamic'
     this.#label = opts.label
     this.#showGain = opts.showGain ?? false
     this.#countUp = opts.countUp ?? false
@@ -84,19 +81,26 @@ export class StatBadgeNode extends Node2D {
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    const accent = accentForLevel(level)
+    if (accent === this.#accent) return
+    this.#accent = accent
+    this.markNeedsPaint()
   }
 
   /** How far along the next step this readout is, for a metered one. */
   setProgress(value: number, max: number): void {
+    const progressMax = Math.max(1, max)
+    if (value === this.#progress && progressMax === this.#progressMax) return
     this.#progress = value
-    this.#progressMax = Math.max(1, max)
+    this.#progressMax = progressMax
+    if (this.#meter) this.markNeedsPaint()
   }
 
   /** Move to `value`, running whichever accents this readout was built with. */
@@ -114,6 +118,7 @@ export class StatBadgeNode extends Node2D {
       this.#gain = gain
       this.#gainT = 0
     }
+    this.markNeedsPaint()
   }
 
   /** Jump to `value` with no accents, for a fresh run. */
@@ -126,9 +131,13 @@ export class StatBadgeNode extends Node2D {
     this.#kickT = 1
     this.#gainT = 1
     this.#progress = 0
+    this.markNeedsPaint()
   }
 
   override onUpdate(dt: number): void {
+    const live =
+      this.#countT < 1 || this.#flashT < 1 || this.#kickT < 1 || this.#gainT < 1
+    if (live) this.markNeedsPaint()
     if (this.#countT < 1) {
       this.#countT = Math.min(1, this.#countT + dt / ANIM.scoreCount)
       const eased = easings.outCubic(this.#countT)
@@ -140,11 +149,11 @@ export class StatBadgeNode extends Node2D {
     if (this.#gainT < 1) this.#gainT = Math.min(1, this.#gainT + dt / GAIN_SEC)
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
-    const scale = camera.strokeSpaceScale()
-    const rule = ruleWidth(gfx, FRAME.rulePx, scale)
+    const scale = gfx.screenScale()
+    const rule = ruleWidth(gfx, FRAME.rulePx)
 
     const capSize = Math.max(textFloor(scale), this.#cell * 0.36)
     const capFont = font(400, capSize)
@@ -218,7 +227,7 @@ export class StatBadgeNode extends Node2D {
    * and costs nothing.
    */
   #drawValue(
-    gfx: Gfx2D,
+    gfx: Canvas,
     text: string,
     r: Bounds,
     valueFont: string,
@@ -261,7 +270,7 @@ export class StatBadgeNode extends Node2D {
     gfx.setAlpha(1)
   }
 
-  #drawGain(gfx: Gfx2D, r: Bounds, capFont: string): void {
+  #drawGain(gfx: Canvas, r: Bounds, capFont: string): void {
     const fade = 1 - this.#gainT
     gfx.setAlpha(fade * fade)
     gfx.fillText(

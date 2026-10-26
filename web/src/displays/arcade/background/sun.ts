@@ -9,7 +9,7 @@
  * `dayCycle.ts` for how elevation maps onto palettes.
  */
 
-import { clamp } from '@src/stargazer'
+import { clamp } from 'stargazer'
 
 const DEG = Math.PI / 180
 const MS_PER_DAY = 86_400_000

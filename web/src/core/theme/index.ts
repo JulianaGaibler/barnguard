@@ -1,13 +1,7 @@
 import { writable, type Readable } from 'svelte/store'
 import type { Theme, ThemeFonts, ThemePalette } from './types'
 
-export type {
-  Theme,
-  ThemePalette,
-  ThemeFonts,
-  ThemeAssets,
-  ThemeCover,
-} from './types'
+export type { Theme, ThemePalette, ThemeFonts, ThemeAssets } from './types'
 export {
   DEFAULT_FONTS,
   FAMILIES,

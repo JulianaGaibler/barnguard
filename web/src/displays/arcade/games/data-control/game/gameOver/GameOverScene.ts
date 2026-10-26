@@ -6,13 +6,12 @@ import {
   ignoreAbort,
   registerPathTessellation,
   tessellateContours,
-  type CameraView2D,
+  type Canvas,
   type EngineHost,
-  type Gfx2D,
   type Rect,
   type Stage,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { PacketNode } from '../nodes/PacketNode'
 import { PacketMotionTrailNode } from '../nodes/PacketMotionTrailNode'
 import {
@@ -338,8 +337,8 @@ export class GameOverScene {
       const eye = this.#eyes[i]
       eye.transform.x = packet.transform.x + off.x
       eye.transform.y = packet.transform.y + off.y
-      eye.lookAtX = packet.transform.x
-      eye.lookAtY = packet.transform.y
+      eye.lookDx = -off.x
+      eye.lookDy = -off.y
     }
   }
 
@@ -613,9 +612,8 @@ export class GameOverScene {
 // ----------------------------------------------------------------------------
 
 /**
- * Draws a single dashed line perpendicular to a heading, centred at the node's
- * transform origin. All state fits in `readonly` fields, no per-frame
- * allocations.
+ * Paints a single dashed line perpendicular to a heading, centred at the node's
+ * transform origin. All state fits in `readonly` fields.
  */
 class BorderLineNode extends Node2D {
   readonly #nx: number
@@ -642,25 +640,20 @@ class BorderLineNode extends Node2D {
     this.#dashCssPx = dashCssPx
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const a = this.transform.alpha
-    if (a <= 0.001) return
-    const s = camera.strokeSpaceScale()
+  override paint(canvas: Canvas): void {
+    const s = canvas.screenScale()
     // Zero-length dashes = solid stroke.
     const dash =
       this.#dashCssPx[0] <= 0 && this.#dashCssPx[1] <= 0
         ? undefined
         : [this.#dashCssPx[0] * s, this.#dashCssPx[1] * s]
-    gfx.save()
-    gfx.setAlpha(a > 1 ? 1 : a)
-    gfx.strokeLine(
+    canvas.strokeLine(
       -this.#nx * this.#halfLength,
       -this.#ny * this.#halfLength,
       this.#nx * this.#halfLength,
       this.#ny * this.#halfLength,
       { color: this.#color, width: this.#widthCssPx * s, dash },
     )
-    gfx.restore()
   }
 }
 

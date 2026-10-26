@@ -10,18 +10,13 @@
  * rather than clipping them, which is the same contract the rest of the chrome
  * follows.
  */
-import {
-  Node2D,
-  textAdvance,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { stamp } from '../eventLog'
 import { textFloor } from '../layout'
 import { accentForLevel, COLORS } from '../tuning'
 import type { Bounds } from '../types'
-import { capBaseline, drawInverse, drawRun } from './tui'
+import { capBaseline, drawInverse, drawRun, sameBounds } from './tui'
 
 const ZERO: Bounds = { x: 0, y: 0, width: 0, height: 0 }
 
@@ -41,44 +36,67 @@ export class HeaderBarNode extends Node2D {
   #detail: readonly string[] = []
   #showDetail = true
   #elapsed = 0
+  /** The uptime as drawn, which only changes once a second. */
+  #uptime = stamp(0)
   #accent = accentForLevel(1)
 
   constructor() {
     super('bo-header')
-    this.renderLayer = 'dynamic'
   }
 
   setRect(rect: Bounds): void {
-    this.#rect = rect
-    this.debugBounds = { ...rect }
+    if (sameBounds(rect, this.#rect)) return
+    this.#rect = { ...rect }
+    this.markNeedsPaint()
   }
 
   setTitle(title: string): void {
+    if (title === this.#title) return
     this.#title = title
+    this.markNeedsPaint()
   }
 
   /** Mode and seat count, shown after the title when there is room. */
   setDetail(detail: readonly string[], show: boolean): void {
-    this.#detail = detail
+    const old = this.#detail
+    const same =
+      show === this.#showDetail &&
+      old.length === detail.length &&
+      old.every((part, i) => part === detail[i])
+    if (same) return
+    this.#detail = [...detail]
     this.#showDetail = show
+    this.markNeedsPaint()
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    const accent = accentForLevel(level)
+    if (accent === this.#accent) return
+    this.#accent = accent
+    this.markNeedsPaint()
   }
 
   reset(): void {
     this.#elapsed = 0
+    this.#syncUptime()
   }
 
   override onUpdate(dt: number): void {
     this.#elapsed += dt
+    this.#syncUptime()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  #syncUptime(): void {
+    const uptime = stamp(this.#elapsed)
+    if (uptime === this.#uptime) return
+    this.#uptime = uptime
+    this.markNeedsPaint()
+  }
+
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
-    const size = Math.max(textFloor(camera.strokeSpaceScale()), r.height * 0.5)
+    const size = Math.max(textFloor(gfx.screenScale()), r.height * 0.5)
     const face = font(700, size)
 
     // Inverse video, which is how every terminal tool names itself. The bar is
@@ -92,7 +110,7 @@ export class HeaderBarNode extends Node2D {
     })
 
     const pad = textAdvance('0', face)
-    const right = `up ${stamp(this.#elapsed)}`
+    const right = `up ${this.#uptime}`
     gfx.fillText(
       right,
       r.x + r.width - pad,
@@ -143,18 +161,28 @@ export class StatusBarNode extends Node2D {
 
   constructor() {
     super('bo-status')
-    this.renderLayer = 'dynamic'
   }
 
   setRect(rect: Bounds): void {
-    this.#rect = rect
-    this.debugBounds = { ...rect }
+    if (sameBounds(rect, this.#rect)) return
+    this.#rect = { ...rect }
+    this.markNeedsPaint()
   }
 
   /** Most important first, since the tail is what gets dropped. */
   setFields(fields: readonly StatusField[], shown: number): void {
-    this.#fields = fields
-    this.#shown = Math.max(0, shown)
+    const count = Math.max(0, shown)
+    const old = this.#fields
+    const same =
+      count === this.#shown &&
+      old.length === fields.length &&
+      old.every(
+        (f, i) => f.label === fields[i].label && f.value === fields[i].value,
+      )
+    if (same) return
+    this.#fields = fields.map((f) => ({ label: f.label, value: f.value }))
+    this.#shown = count
+    this.markNeedsPaint()
   }
 
   /**
@@ -165,10 +193,10 @@ export class StatusBarNode extends Node2D {
    * fixed and the digits come from an alphabet of twelve, so a run of any
    * length costs the same handful of cache entries.
    */
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0 || this.#shown === 0) return
-    const size = Math.max(textFloor(camera.strokeSpaceScale()), r.height * 0.52)
+    const size = Math.max(textFloor(gfx.screenScale()), r.height * 0.52)
     const face = font(400, size)
     const advance = textAdvance('0', face)
     if (advance <= 0) return

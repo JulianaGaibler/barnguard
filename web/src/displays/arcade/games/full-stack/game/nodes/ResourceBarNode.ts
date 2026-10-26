@@ -16,9 +16,15 @@
 // open banks twenty, well past the point where counting slips beats reading a
 // number, so above `MAX_SLIPS` the row drops to a single slip and a count.
 
-import { Node2D, textAdvance, textMetrics, type Gfx2D } from '@src/stargazer'
+import {
+  Node2D,
+  definePaintProps,
+  textAdvance,
+  textMetrics,
+  type Canvas,
+} from 'stargazer'
 import { COLORS } from '../tuning'
-import { drawIcon, iconWidth, icons } from '../../art/icons'
+import { drawIcon, iconWidth, icons, iconsRef } from '../../art/icons'
 import { font } from '../../fonts'
 
 /**
@@ -36,49 +42,58 @@ const capCenteredBaseline = (cy: number, f: string): number =>
 const MAX_SLIPS = 5
 
 export class ResourceBarNode extends Node2D {
-  #w = 0
-  #h = 0
-  #label = ''
-  #approvals = 0
-  #budget = 0
-  #active = false
-  #mirrored = false
+  declare w: number
+  declare h: number
+  declare label: string
+  declare approvals: number
+  declare budget: number
+  declare active: boolean
+  declare mirrored: boolean
 
   constructor(id: string) {
     super(id)
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, {
+      w: 0,
+      h: 0,
+      label: '',
+      approvals: 0,
+      budget: 0,
+      active: false,
+      mirrored: false,
+    })
   }
 
   setSize(w: number, h: number): void {
-    this.#w = w
-    this.#h = h
+    this.w = w
+    this.h = h
   }
 
   setLabel(label: string): void {
-    this.#label = label
+    this.label = label
   }
 
   setValues(approvals: number, budget: number): void {
-    this.#approvals = approvals
-    this.#budget = budget
+    this.approvals = approvals
+    this.budget = budget
   }
 
   setActive(active: boolean): void {
-    this.#active = active
+    this.active = active
   }
 
   /** Put the name on the right and the values on the left. */
   setMirrored(mirrored: boolean): void {
-    this.#mirrored = mirrored
+    this.mirrored = mirrored
   }
 
-  override draw(gfx: Gfx2D): void {
-    const w = this.#w
-    const h = this.#h
+  override paint(gfx: Canvas): void {
+    gfx.use(iconsRef)
+    const w = this.w
+    const h = this.h
     if (w <= 0 || h <= 0) return
 
     const pill = h * 0.28
-    if (this.#active) {
+    if (this.active) {
       gfx.fillRoundRect(0, 0, w, h, pill, COLORS.activePill)
     } else {
       gfx.strokeRoundRect(0, 0, w, h, pill, {
@@ -88,16 +103,16 @@ export class ResourceBarNode extends Node2D {
     }
 
     const pad = h * 0.35
-    const labelFont = font(this.#active ? 800 : 600, h * 0.34)
+    const labelFont = font(this.active ? 800 : 600, h * 0.34)
     gfx.fillText(
-      this.#label,
-      this.#mirrored ? w - pad : pad,
+      this.label,
+      this.mirrored ? w - pad : pad,
       capCenteredBaseline(h / 2, labelFont),
       {
         font: labelFont,
-        align: this.#mirrored ? 'right' : 'left',
+        align: this.mirrored ? 'right' : 'left',
         baseline: 'alphabetic',
-        color: this.#active ? COLORS.activeSide : COLORS.ink,
+        color: this.active ? COLORS.activeSide : COLORS.ink,
       },
     )
 
@@ -117,22 +132,22 @@ export class ResourceBarNode extends Node2D {
     const pairGap = h * 0.2
     const groupGap = h * 0.5
 
-    const counted = this.#approvals > MAX_SLIPS
-    const slips = counted ? 1 : this.#approvals
-    const overflow = counted ? `\u00d7${this.#approvals}` : ''
+    const counted = this.approvals > MAX_SLIPS
+    const slips = counted ? 1 : this.approvals
+    const overflow = counted ? `\u00d7${this.approvals}` : ''
     const overflowW = overflow ? pairGap + textAdvance(overflow, valFont) : 0
     const approvalsW =
-      this.#approvals === 0
+      this.approvals === 0
         ? slipW + pairGap + textAdvance('0', valFont)
         : slips * slipW + (slips - 1) * slipGap + overflowW
 
-    const budgetStr = `${this.#budget}k`
+    const budgetStr = `${this.budget}k`
     const budgetW = textAdvance(budgetStr, valFont) + pairGap + noteW
 
     const groupW = approvalsW + groupGap + budgetW
-    let x = this.#mirrored ? pad : w - pad - groupW
+    let x = this.mirrored ? pad : w - pad - groupW
 
-    if (this.#approvals === 0) {
+    if (this.approvals === 0) {
       // No slips to count, so the zero has to be said out loud.
       x += drawIcon(gfx, set.approval, x, h / 2 - slipH / 2, slipH) + pairGap
       gfx.fillText('0', x, valBaseline, {

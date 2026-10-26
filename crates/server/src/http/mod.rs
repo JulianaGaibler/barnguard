@@ -9,7 +9,7 @@ use crate::log::LogHub;
 use crate::queue::QueueController;
 use crate::store::{GameLogController, LeaderboardController};
 use axum::http::{header, HeaderValue, Method};
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, post, put};
 use axum::Router;
 use printer_driver::MockControls;
 use std::sync::{Arc, RwLock};
@@ -62,6 +62,7 @@ pub fn build_router(state: AppState, allowed_origins: &[String]) -> Router {
         )
         .route("/api/games/high-scores", get(routes::games_high_scores))
         .route("/api/games/{id}", delete(routes::games_delete))
+        .route("/api/games/{id}/label", put(routes::games_set_label))
         .route(
             "/api/leaderboard",
             get(routes::leaderboard_list)
@@ -87,13 +88,13 @@ fn build_cors(origins: &[String]) -> CorsLayer {
     if origins.iter().any(|o| o == "*") || origins.is_empty() {
         CorsLayer::new()
             .allow_origin(Any)
-            .allow_methods([Method::GET, Method::POST, Method::DELETE])
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
             .allow_headers(Any)
     } else {
         let list: Vec<HeaderValue> = origins.iter().filter_map(|o| o.parse().ok()).collect();
         CorsLayer::new()
             .allow_origin(list)
-            .allow_methods([Method::GET, Method::POST, Method::DELETE])
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
             .allow_headers([header::CONTENT_TYPE])
     }
 }

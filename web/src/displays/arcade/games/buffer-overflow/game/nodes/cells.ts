@@ -6,7 +6,7 @@
  * function means a piece looks the same everywhere it appears, which is what
  * lets a player read the queue at a glance.
  */
-import type { Gfx2D } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 import { pieceCells } from '../pieces'
 import { FRAME, PIECE_COLORS, pieceHighlight, pieceSkirt } from '../tuning'
 import type { PieceKind, Rotation } from '../types'
@@ -33,13 +33,13 @@ import type { PieceKind, Rotation } from '../types'
  *   that holds the whole playfield, its frame and its labels in one draw.
  */
 export function drawCell(
-  gfx: Gfx2D,
+  gfx: Canvas,
   kind: PieceKind,
   x: number,
   y: number,
   size: number,
 ): void {
-  const w = Math.max(1, gfx.snapSize(size * FRAME.cellRuleFrac))
+  const w = Math.max(1, gfx.snap(size * FRAME.cellRuleFrac))
   gfx.fillRoundRect(x, y, size, size, 0, pieceHighlight(kind))
   gfx.fillRoundRect(x + w, y + w, size - w, size - w, 0, pieceSkirt(kind))
   gfx.fillRoundRect(
@@ -64,7 +64,7 @@ export function drawCell(
  * glance, which a solid outline at low alpha does not.
  */
 export function drawGhostCell(
-  gfx: Gfx2D,
+  gfx: Canvas,
   kind: PieceKind,
   x: number,
   y: number,
@@ -91,7 +91,7 @@ export function drawGhostCell(
 
 /** Every cell of a piece, with its box's top-left at `(originX, originY)`. */
 function drawPiece(
-  gfx: Gfx2D,
+  gfx: Canvas,
   kind: PieceKind,
   rot: Rotation,
   originX: number,
@@ -130,7 +130,7 @@ function pieceExtent(
  * off one edge.
  */
 export function drawPieceCentered(
-  gfx: Gfx2D,
+  gfx: Canvas,
   kind: PieceKind,
   boxX: number,
   boxY: number,

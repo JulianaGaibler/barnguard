@@ -9,46 +9,49 @@ import {
   Node2D,
   easings,
   ignoreAbort,
-  type Gfx2D,
+  definePaintProps,
+  type Canvas,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { ANIM, COLORS } from '../tuning'
-import { drawIcon, iconWidth, icons } from '../../art/icons'
+import { drawIcon, iconWidth, icons, iconsRef } from '../../art/icons'
 import type { Floor } from '../rules/deck'
 
 export class ElevatorNode extends Node2D {
   #rect: Rect = { x: 0, y: 0, width: 0, height: 0 }
   /** Where the car rests on each floor, in world y. */
   #stops: [number, number] = [0, 0]
-  /** How far down the shaft the car is. Tweened, so it is its own object. */
-  readonly #car = { t: 0 }
+  /** How far down the shaft the car is, from 0 at the top. Tweened. */
+  declare carT: number
 
   constructor(id: string) {
     super(id)
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { carT: 0 })
   }
 
   /** The shaft, and the y each floor's car centre sits at. */
   setGeom(rect: Rect, management: number, ic: number): void {
     this.#rect = rect
     this.#stops = [management, ic]
+    this.markNeedsPaint()
   }
 
   /** Send the car to `floor`, or put it there if it has never moved. */
   goTo(floor: Floor, animate: boolean): void {
     const t = floor === 'ic' ? 1 : 0
     if (!animate) {
-      this.#car.t = t
+      this.carT = t
       return
     }
-    void this.tweenTo(
-      this.#car,
-      { t },
+    void this.tweenTo<ElevatorNode>(
+      this,
+      { carT: t },
       { duration: ANIM.elevator, easing: easings.inOutCubic, key: 'fs-lift' },
     ).catch(ignoreAbort)
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
+    gfx.use(iconsRef)
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
     const set = icons()
@@ -66,7 +69,7 @@ export class ElevatorNode extends Node2D {
     )
 
     const [top, bottom] = this.#stops
-    const y = top + (bottom - top) * this.#car.t
+    const y = top + (bottom - top) * this.carT
     const car = set.elevator
     const size = r.width
     drawIcon(gfx, car, cx - iconWidth(car, size) / 2, y - size / 2, size)

@@ -5,7 +5,7 @@ import {
   type PointerEvent2D,
   type PointerHandlers,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { PacketNode } from '../nodes/PacketNode'
 import { PathTrailNode } from '../nodes/PathTrailNode'
 import type { EpicenterNode } from '../nodes/EpicenterNode'
@@ -100,7 +100,7 @@ export class PathDrawBehavior extends PointerBehavior {
   }
 
   /**
-   * Two-phase scale pop, 1 → `scaleTo` then back to 1, that fires on every
+   * Two-phase scale pop, 1 -> `scaleTo` then back to 1, that fires on every
    * touchdown so the player gets an immediate visual "heard you" before their
    * finger starts producing samples. Runs on the packet's transform.
    * `PacketBehavior::steerAlongTrail` doesn't touch scale so the tween never

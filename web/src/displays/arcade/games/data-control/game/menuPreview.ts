@@ -6,7 +6,7 @@
  * starts.
  *
  * Packets are spawned through the SAME factory the live game uses
- * (`spawnDriftPacket` → `spawnPacketInSession`), so they carry the real hex,
+ * (`spawnDriftPacket` -> `spawnPacketInSession`), so they carry the real hex,
  * shooting-star tail, and heading orientation with no bespoke rendering. The
  * sim runs in a small local space scaled up to the region so the packets and
  * their debris are sized like the live game (`TUNING.packet.radius`, etc.).
@@ -17,7 +17,7 @@ import {
   type EngineHost,
   type Rect,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { MenuPreview } from '../../../menu/types'
 import type { PacketNode } from './nodes/PacketNode'
 import { spawnDriftPacket } from './spawnPacketInSession'
@@ -157,7 +157,7 @@ class PreviewSim extends Behavior {
       }
     }
 
-    // Pairwise collisions → explode both into decaying debris. Gate on the
+    // Pairwise collisions -> explode both into decaying debris. Gate on the
     // same `hitEnabled` flag the live game uses so packets still growing in
     // don't collide.
     const t2 = COLLIDE_DIST * COLLIDE_DIST

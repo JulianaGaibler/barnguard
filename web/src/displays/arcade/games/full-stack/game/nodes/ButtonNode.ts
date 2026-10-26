@@ -2,7 +2,7 @@
 // rest of the board is canvas. Carries a label, an optional sublabel, an
 // optional price in approval slips, enabled/pressed states, and an optional
 // checkbox (for the flip toggle). Input is the shared `ButtonBehavior`. This
-// node only draws.
+// node only paints.
 //
 // A price is slips rather than words, matching the slips in the resource bar
 // and on the cards. "Switch floor" for one slip needs no sentence under it.
@@ -16,11 +16,18 @@ import {
   Node2D,
   ellipsize,
   textAdvance,
+  definePaintProps,
   textMetrics,
-  type Gfx2D,
-} from '@src/stargazer'
+  type Canvas,
+} from 'stargazer'
 import { COLORS } from '../tuning'
-import { drawIcon, iconWidth, icons, type IconId } from '../../art/icons'
+import {
+  drawIcon,
+  iconWidth,
+  icons,
+  iconsRef,
+  type IconId,
+} from '../../art/icons'
 import { font } from '../../fonts'
 
 /** Label size as a fraction of the button height. */
@@ -30,49 +37,55 @@ const LABEL_FRAC = 0.27
 const DISABLED_ALPHA = 0.45
 
 export class ButtonNode extends Node2D {
-  #w = 0
-  #h = 0
-  #label = ''
-  #sub = ''
+  declare w: number
+  declare h: number
+  declare label: string
+  declare sub: string
   /** Approval slips drawn before the label, as the button's price. */
-  #price = 0
+  declare price: number
   /** Set on a button that carries artwork instead of a label. */
-  #icon: IconId | null = null
-  #iconChecked: IconId | null = null
-  #enabled = true
+  declare icon: IconId | null
+  declare iconChecked: IconId | null
+  declare enabled: boolean
   /** `null` unless this is a toggle, in which case it draws a checkbox. */
-  #checked: boolean | null = null
-  #pressed = false
+  declare checked: boolean | null
+  declare pressed: boolean
 
   constructor(id: string, onClick: () => void) {
     super(id)
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, {
+      w: 0,
+      h: 0,
+      label: '',
+      sub: '',
+      price: 0,
+      icon: null as IconId | null,
+      iconChecked: null as IconId | null,
+      enabled: true,
+      checked: null as boolean | null,
+      pressed: false,
+    })
     this.addBehavior(
       new ButtonBehavior({
         onClick,
-        enabled: () => this.#enabled,
-        onPressedChange: (pressed) => (this.#pressed = pressed),
+        enabled: () => this.enabled,
+        onPressedChange: (pressed) => (this.pressed = pressed),
       }),
     )
   }
 
-  get enabled(): boolean {
-    return this.#enabled
-  }
-
   setSize(w: number, h: number): void {
-    this.#w = w
-    this.#h = h
-    this.debugBounds = { x: 0, y: 0, width: w, height: h }
+    this.w = w
+    this.h = h
   }
 
   setLabel(label: string, sub = ''): void {
-    this.#label = label
-    this.#sub = sub
+    this.label = label
+    this.sub = sub
   }
 
   setPrice(price: number): void {
-    this.#price = price
+    this.price = price
   }
 
   /**
@@ -83,40 +96,40 @@ export class ButtonNode extends Node2D {
    * `drawImage`, so the two states are two files.
    */
   setIcon(icon: IconId | null, whenChecked = icon): void {
-    this.#icon = icon
-    this.#iconChecked = whenChecked
+    this.icon = icon
+    this.iconChecked = whenChecked
   }
 
   setEnabled(enabled: boolean): void {
-    this.#enabled = enabled
-    // Alpha does not cascade, but this node paints its own face, so the render
-    // walk applies it to everything the button draws.
+    this.enabled = enabled
+    // The alpha applies to everything the button paints.
     this.transform.alpha = enabled ? 1 : DISABLED_ALPHA
   }
 
   setChecked(checked: boolean): void {
-    this.#checked = checked
+    this.checked = checked
   }
 
   override hitTest(worldX: number, worldY: number, _slop = 0): boolean {
-    if (this.#w <= 0) return false
+    if (this.w <= 0) return false
     const p = this.worldToLocal(worldX, worldY)
-    return p.x >= 0 && p.y >= 0 && p.x <= this.#w && p.y <= this.#h
+    return p.x >= 0 && p.y >= 0 && p.x <= this.w && p.y <= this.h
   }
 
-  #drawIconFace(gfx: Gfx2D, w: number, h: number, r: number): void {
+  #drawIconFace(gfx: Canvas, w: number, h: number, r: number): void {
     const set = icons()
-    if (!set || !this.#icon) return
-    const on = this.#checked === true
+    if (!set || !this.icon) return
+    const on = this.checked === true
     if (on) gfx.fillRoundRect(0, 0, w, h, r, COLORS.activeSide)
-    const art = set[(on ? this.#iconChecked : this.#icon) ?? this.#icon]
+    const art = set[(on ? this.iconChecked : this.icon) ?? this.icon]
     const size = Math.min(w, h) * 0.46
     drawIcon(gfx, art, (w - iconWidth(art, size)) / 2, (h - size) / 2, size)
   }
 
-  override draw(gfx: Gfx2D): void {
-    const w = this.#w
-    const h = this.#h
+  override paint(gfx: Canvas): void {
+    gfx.use(iconsRef)
+    const w = this.w
+    const h = this.h
     if (w <= 0 || h <= 0) return
     // Off the height, so a square button rounds the same as a wide one. Taking
     // the smaller of the two instead leaves the square nearly sharp-cornered.
@@ -127,16 +140,16 @@ export class ButtonNode extends Node2D {
       w,
       h,
       r,
-      this.#pressed && this.#enabled ? COLORS.pressed : COLORS.panel,
+      this.pressed && this.enabled ? COLORS.pressed : COLORS.panel,
     )
     gfx.strokeRoundRect(0, 0, w, h, r, {
       color: COLORS.panelBorder,
       width: 1.5,
     })
 
-    const ink = this.#enabled ? COLORS.ink : COLORS.disabledText
+    const ink = this.enabled ? COLORS.ink : COLORS.disabledText
 
-    if (this.#icon) {
+    if (this.icon) {
       this.#drawIconFace(gfx, w, h, r)
       return
     }
@@ -144,12 +157,12 @@ export class ButtonNode extends Node2D {
     let textX = w / 2
     let align: 'center' | 'left' = 'center'
 
-    if (this.#checked !== null) {
+    if (this.checked !== null) {
       const box = h * 0.36
       const bx = w * 0.07
       const by = h / 2 - box / 2
       gfx.strokeRoundRect(bx, by, box, box, box * 0.2, { color: ink, width: 2 })
-      if (this.#checked) {
+      if (this.checked) {
         gfx.fillRoundRect(
           bx + box * 0.22,
           by + box * 0.22,
@@ -169,10 +182,10 @@ export class ButtonNode extends Node2D {
     // room that neither line uses.
     const labelSize = h * LABEL_FRAC
     const f = font(700, labelSize)
-    const labelM = textMetrics(this.#label, f)
+    const labelM = textMetrics(this.label, f)
     const sf = font(500, h * 0.2)
-    const subM = this.#sub ? textMetrics(this.#sub, sf) : null
-    const gap = this.#sub ? h * 0.06 : 0
+    const subM = this.sub ? textMetrics(this.sub, sf) : null
+    const gap = this.sub ? h * 0.06 : 0
     const blockH =
       labelM.ascent +
       labelM.descent +
@@ -182,18 +195,18 @@ export class ButtonNode extends Node2D {
     // A price sits on the label's own line, so the pair is measured together
     // and the group is what gets centred. Left-aligned the slips just lead.
     const set = icons()
-    const slip = this.#price > 0 ? (set?.approval ?? null) : null
+    const slip = this.price > 0 ? (set?.approval ?? null) : null
     const slipH = labelSize * 1.25
     const slipW = slip ? iconWidth(slip, slipH) : 0
     const slipGap = slip ? labelSize * 0.3 : 0
-    const priceW = this.#price * slipW + (this.#price - 1) * slipGap * 0.4
+    const priceW = this.price * slipW + (this.price - 1) * slipGap * 0.4
     const leadW = slip ? priceW + slipGap : 0
-    const label = ellipsize(this.#label, f, w * 0.92 - leadW)
+    const label = ellipsize(this.label, f, w * 0.92 - leadW)
     let labelX = textX
     if (slip) {
       const groupW = leadW + textAdvance(label, f)
       let x = align === 'center' ? textX - groupW / 2 : textX
-      for (let i = 0; i < this.#price; i++) {
+      for (let i = 0; i < this.price; i++) {
         if (i > 0) x += slipGap * 0.4
         x += drawIcon(
           gfx,
@@ -212,17 +225,17 @@ export class ButtonNode extends Node2D {
       baseline: 'alphabetic',
       color: ink,
     })
-    if (this.#sub && subM) {
+    if (this.sub && subM) {
       const subTop = top + labelM.ascent + labelM.descent + gap
       gfx.fillText(
-        ellipsize(this.#sub, sf, w * 0.92),
+        ellipsize(this.sub, sf, w * 0.92),
         textX,
         subTop + subM.ascent,
         {
           font: sf,
           align,
           baseline: 'alphabetic',
-          color: this.#enabled ? COLORS.inkSoft : COLORS.disabledText,
+          color: this.enabled ? COLORS.inkSoft : COLORS.disabledText,
         },
       )
     }

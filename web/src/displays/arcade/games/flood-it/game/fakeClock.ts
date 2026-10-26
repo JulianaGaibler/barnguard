@@ -6,7 +6,7 @@
  * advances by hand keeps the state machines verifiable without a canvas, and
  * keeps the tests free of real timers.
  */
-import { abortError, type EngineHost } from '@src/stargazer'
+import { abortError, type EngineHost } from 'stargazer'
 
 interface FakeClock {
   host: EngineHost

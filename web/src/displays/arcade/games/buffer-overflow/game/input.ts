@@ -15,7 +15,7 @@
  * what a gesture is, with no engine underneath it, so the rules can be tested
  * against exact coordinates and timings.
  */
-import { bindRegionGesture, type Engine } from '@src/stargazer'
+import { bindRegionGesture, type Engine } from 'stargazer'
 import { GestureRecognizer, type GestureIntent } from './gestures'
 import { insideBuffer, type SeatGeometry } from './layout'
 import type { Action } from './types'

@@ -10,7 +10,7 @@ import {
   type Emitter,
   type Rect,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import { gameView } from '../../../world'
 import { BLACK, BLUE } from '../palette'
 import type { ArcadeCamera } from '../../arcadeCamera'
@@ -135,8 +135,8 @@ const CAMERA_TWEEN_SEC = 0.6
 // Map placement: fit the 661×888 country (contain) into the arcade's fixed
 // 1920×1080 GAME region and center it. The game's scene lives under a single
 // parent node carrying this transform, so every ported node/behavior keeps
-// operating in map-local units. Only the camera framings (map→world) and the
-// spawn bounds (world→map) cross the boundary. All constant, the region and
+// operating in map-local units. Only the camera framings (map->world) and the
+// spawn bounds (world->map) cross the boundary. All constant, the region and
 // viewBox are both fixed, so the camera handles every aspect via contain-fit.
 // -----------------------------------------------------------------------------
 
@@ -168,7 +168,7 @@ function worldToMap(rect: Rect): Rect {
   }
 }
 
-/** Arcade-world point → map-local point (pointer input for path drawing). */
+/** Arcade-world point -> map-local point (pointer input for path drawing). */
 function worldToMapPoint(x: number, y: number): Vec2 {
   return {
     x: (x - PLACEMENT_X) / PLACEMENT_SCALE,
@@ -252,7 +252,6 @@ export async function startGame(
   // No `host.loadScene` / `host.start()` here: the arcade engine is already
   // running with its own camera + background. We attach a subtree instead.
   const mapGroup = new Node2D('map')
-  mapGroup.renderLayer = 'static'
   mapRoot.add(mapGroup)
 
   // Enclaves last so they paint on top of their surrounding state (stable sort
@@ -271,9 +270,8 @@ export async function startGame(
       stroke: COLOR_STATE_STROKE,
       lineWidth: 1,
       hitMode: 'fill',
-      debugBounds: entry.bounds,
+      bounds: entry.bounds,
     })
-    node.renderLayer = 'static'
     node.addBehavior(new StateSelectionBehavior(info.id, onStateTap))
     mapGroup.add(node)
     stateNodes.set(info.id, node)
@@ -281,10 +279,9 @@ export async function startGame(
 
   if (outlineNode) mapGroup.add(outlineNode)
 
-  // Country grid overlay sits above the static state fills but under the
-  // dynamic path / packet layers. Its own `renderLayer = 'above-static'`
-  // handles the compositing. This add order just controls scene-tree traversal
-  // for `onUpdate` (overlay ticks before packets, which is fine).
+  // Country grid overlay draws above the state fills and under the path and
+  // packet layers added after it. It also updates before the packets, which is
+  // fine.
   mapRoot.add(gridOverlay)
 
   // Dynamic-layer groups: paths draw under packets so trails don't occlude the
@@ -324,7 +321,7 @@ export async function startGame(
       return
     }
     // Mid-selection (zoom in-flight OR card shown), allow retargeting to a
-    // different state. Same state → no-op, avoids re-triggering the zoom + fade
+    // different state. Same state -> no-op, avoids re-triggering the zoom + fade
     // + epicenter build on an accidental double-tap.
     if (sessionState === 'zoomingIn' || sessionState === 'preGame') {
       if (id !== selectedStateId) void selectState(id)
@@ -366,7 +363,6 @@ export async function startGame(
         // (smaller than the logo disc), which suits the minimal look.
       })
       epicenter.transform.alpha = 0
-      epicenter.renderLayer = 'dynamic'
       epicenter.addBehavior(new EpicenterBehavior())
       mapRoot.add(epicenter)
       // Fade the epicenter in as the camera zooms.
@@ -705,7 +701,6 @@ function buildOutlineNode(assets: GameAssets): Path2DNode | null {
       lineWidth: 1.5,
       hitMode: 'none',
     })
-    node.renderLayer = 'static'
     return node
   }
   return null

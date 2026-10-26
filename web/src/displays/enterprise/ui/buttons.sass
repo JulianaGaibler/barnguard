@@ -1,0 +1,25 @@
+// Buttons shared by the game over screen and its print picker. Sizes are design
+// pixels, since the element is scaled with the design region.
+
+@mixin pill
+  appearance: none
+  border: 0
+  cursor: pointer
+  pointer-events: auto
+  height: 80px
+  padding: 20px 32px
+  border-radius: 999px
+  background: #15141a
+  color: #ffffff
+  font-family: var(--font-mozilla-headline-condensed)
+  font-weight: 600
+  font-size: 40px
+  line-height: 1.05
+  letter-spacing: -0.8px
+  white-space: nowrap
+  text-box-trim: trim-both
+  text-box-edge: cap alphabetic
+
+  &:disabled
+    pointer-events: none
+    opacity: 0.5

@@ -1,10 +1,12 @@
-// One card, drawn whole.
+// One card, painted whole.
 //
-// A card is a single `Node2D` that paints its entire face in one `draw`. That is
-// deliberate: `transform.alpha` does not cascade in the 2D render
-// walk, which iterates a flat per-layer list, so a card built from a parent plus
-// child nodes would need every part tweened separately to fade or dim as a unit.
-// One node means one tween.
+// A card is a single `Node2D` that paints its entire face in one `paint`. That
+// keeps it to one tween and one picture. It fades as a group (see `setFaded`),
+// so the parts of its face do not show through one another.
+//
+// The face is recorded once and replayed, so a card at rest costs nothing to
+// paint. Everything the face reads is a paint property, and a write that changes
+// one repaints the card.
 //
 // Two levels of detail. Below `DETAIL_MIN_WIDTH` the on-hire and review text are
 // dropped and only the portrait, cost, badges and name are drawn. That is a
@@ -16,14 +18,15 @@ import {
   easings,
   fitRichTextBlock,
   fitTextBlock,
+  definePaintProps,
   ignoreAbort,
   textAdvance,
   textMetrics,
-  type Gfx2D,
+  type Canvas,
   type Rect,
   type RichBlock,
-} from '@src/stargazer'
-import { ANIM, COLORS, GROUP_COLORS } from '../tuning'
+} from 'stargazer'
+import { ANIM, COLORS, FADED_ALPHA, GROUP_COLORS } from '../tuning'
 import {
   BODY_SIZE_FRACS,
   DETAIL_MIN_WIDTH,
@@ -41,9 +44,10 @@ import {
   groupBadge,
   iconWidth,
   icons,
+  iconsRef,
 } from '../../art/icons'
 import { drawGlyph, parseGlyph } from '../../art/glyphs'
-import { portraitRuns } from '../../art/portraits'
+import { PORTRAIT_SIZE, portraitImage } from '../../art/portraits'
 import { FS_STRINGS } from '../../strings'
 import { font } from '../../fonts'
 
@@ -86,30 +90,42 @@ export type CardFaceKind =
     }
   | { kind: 'openSeat' }
 
+/** Whether two faces show the same thing, so a re-sync does not repaint. */
+function sameFace(a: CardFaceKind | null, b: CardFaceKind | null): boolean {
+  if (a === b) return true
+  if (!a || !b || a.kind !== b.kind) return false
+  if (a.kind === 'openSeat' || b.kind === 'openSeat') return true
+  if (a.card !== b.card || a.budget !== b.budget) return false
+  const ap = a.pays
+  const bp = b.pays
+  if (ap === bp) return true
+  if (!ap || !bp || ap.length !== bp.length) return false
+  return ap.every((v, i) => v === bp[i])
+}
+
 export class CardNode extends Node2D {
-  #face: CardFaceKind | null = null
-  #width = 0
-  #height = 0
+  declare faceKind: CardFaceKind | null
+  declare width: number
+  declare height: number
   /** Org side of the match this card is in, so scoring reads right on a 2x2. */
-  #boardWidth = 3
+  declare boardWidth: number
   /** Raised cards get a stronger shadow and sit in the drag layer. */
-  #lifted = false
-  #faded = false
-  #score: number | null = null
+  declare lifted: boolean
+  declare score: number | null
   /** Where the layout wants this card. Motion is measured against it. */
   #home: Rect = { x: 0, y: 0, width: 0, height: 0 }
   #moving = 0
-  /**
-   * Last frame's device scale, which is what says the portrait may snap.
-   *
-   * Negative until the card has drawn once. A first frame has nothing to
-   * compare against and is almost always at rest, and any zoom worth seeing
-   * lasts long enough to be caught on the frame after it starts.
-   */
-  #lastScale = -1
 
   constructor(id = 'card') {
     super(id)
+    definePaintProps(this, {
+      faceKind: null as CardFaceKind | null,
+      width: 0,
+      height: 0,
+      boardWidth: 3,
+      lifted: false,
+      score: null as number | null,
+    })
   }
 
   /**
@@ -154,8 +170,8 @@ export class CardNode extends Node2D {
     return {
       x: t.x,
       y: t.y,
-      width: this.#width * t.scaleX,
-      height: this.#height * t.scaleY,
+      width: this.width * t.scaleX,
+      height: this.height * t.scaleY,
     }
   }
 
@@ -309,29 +325,28 @@ export class CardNode extends Node2D {
   }
 
   get face(): CardFaceKind | null {
-    return this.#face
+    return this.faceKind
   }
 
+  /** Show `face`. A face that shows what the card already shows is ignored. */
   setFace(face: CardFaceKind | null): void {
-    this.#face = face
+    if (!sameFace(this.faceKind, face)) this.faceKind = face
   }
 
   setLifted(lifted: boolean): void {
-    this.#lifted = lifted
+    this.lifted = lifted
   }
 
   /**
    * Push the card back, for a shortlist on the floor that is not in play.
    *
-   * This is a veil in the card's own colors rather than `transform.alpha`,
-   * because alpha applies per draw call, not to the node's output as a group: a
-   * translucent card shows its own portrait disc through the face over it and
-   * its badges through the art panel. One veil over the finished face fades the
-   * card as a whole, which is what a card at reduced opacity is meant to look
-   * like.
+   * The card composites as a group, so a translucent card does not show its
+   * portrait disc through the face over it or its badges through the art panel.
+   * It fades as a whole, like a card at reduced opacity.
    */
   setFaded(faded: boolean): void {
-    this.#faded = faded
+    this.compositeGroup = faded
+    this.transform.alpha = faded ? FADED_ALPHA : 1
   }
 
   /**
@@ -345,37 +360,18 @@ export class CardNode extends Node2D {
    * rest of the card is still legible.
    */
   setScore(score: number | null): void {
-    this.#score = score
+    this.score = score
   }
 
   /** The board size this card scores under: 3 for standard, 2 for Quick. */
   setBoardWidth(width: number): void {
-    this.#boardWidth = width
+    this.boardWidth = width
   }
 
-  get width(): number {
-    return this.#width
-  }
-
-  get height(): number {
-    return this.#height
-  }
-
-  /**
-   * Size the card. Bounds cover the drawn extent rather than the card rect,
-   * because declaring bounds also opts the node into viewport culling and the
-   * shadow reaches past the edge.
-   */
+  /** Size the card. The shadow reaches past the rect and is part of the bounds. */
   setSize(width: number, height: number): void {
-    this.#width = width
-    this.#height = height
-    const bleed = Math.max(4, width * 0.06)
-    this.debugBounds = {
-      x: -bleed,
-      y: -bleed,
-      width: width + bleed * 2,
-      height: height + bleed * 2,
-    }
+    this.width = width
+    this.height = height
   }
 
   /** Local-space hit test against the card rect. */
@@ -384,20 +380,21 @@ export class CardNode extends Node2D {
     worldY: number,
     _touchSlopWorld = 0,
   ): boolean {
-    if (!this.#face || this.#width <= 0) return false
+    if (!this.faceKind || this.width <= 0) return false
     const p = this.worldToLocal(worldX, worldY)
-    return p.x >= 0 && p.y >= 0 && p.x <= this.#width && p.y <= this.#height
+    return p.x >= 0 && p.y >= 0 && p.x <= this.width && p.y <= this.height
   }
 
-  override draw(gfx: Gfx2D): void {
-    const face = this.#face
-    if (!face || this.#width <= 0 || this.#height <= 0) return
-    const w = this.#width
-    const h = this.#height
+  override paint(gfx: Canvas): void {
+    const face = this.faceKind
+    if (!face || this.width <= 0 || this.height <= 0) return
+    gfx.use(iconsRef)
+    const w = this.width
+    const h = this.height
     const g = cardFace(w, h)
     const edge = Math.max(1, w * 0.012)
 
-    if (this.#lifted) {
+    if (this.lifted) {
       gfx.fillRoundRect(w * 0.02, w * 0.03, w, h, g.radius, COLORS.cardShadow)
     }
 
@@ -405,10 +402,6 @@ export class CardNode extends Node2D {
       this.#drawOpenSeat(gfx, g, w, h, edge)
     } else {
       this.#drawCard(gfx, g, face, w, h, edge)
-    }
-
-    if (this.#faded) {
-      gfx.fillRoundRect(0, 0, w, h, g.radius, COLORS.fadeVeil)
     }
   }
 
@@ -418,9 +411,9 @@ export class CardNode extends Node2D {
    * Sized off the disc rather than the card, then pulled in if the figure is
    * wide enough to touch the edge, which a two-digit score at this weight is.
    */
-  #drawScore(gfx: Gfx2D, g: CardFaceGeom): void {
+  #drawScore(gfx: Canvas, g: CardFaceGeom): void {
     const d = g.portrait
-    const text = String(this.#score)
+    const text = String(this.score)
     let size = d.r * 1.15
     const advance = textAdvance(text, font(800, size))
     const room = d.r * 1.5
@@ -435,7 +428,7 @@ export class CardNode extends Node2D {
   }
 
   #drawCard(
-    gfx: Gfx2D,
+    gfx: Canvas,
     g: CardFaceGeom,
     face: Extract<CardFaceKind, { kind: 'card' }>,
     w: number,
@@ -473,7 +466,7 @@ export class CardNode extends Node2D {
     })
   }
 
-  #drawArtPanel(gfx: Gfx2D, g: CardFaceGeom, card: Card): void {
+  #drawArtPanel(gfx: Canvas, g: CardFaceGeom, card: Card): void {
     const p = g.artPanel
     const r = g.artRadius
     const g0 = card.groups[0]!
@@ -487,7 +480,7 @@ export class CardNode extends Node2D {
     }
   }
 
-  #drawFloorMark(gfx: Gfx2D, g: CardFaceGeom, card: Card): void {
+  #drawFloorMark(gfx: Canvas, g: CardFaceGeom, card: Card): void {
     const set = icons()
     if (!set) return
     const m = g.floorMark
@@ -504,21 +497,13 @@ export class CardNode extends Node2D {
    * makes the portrait crawl while it is dragged, as the sixteen edges cross
    * their thresholds on different frames.
    *
-   * The snap is dropped on any frame where the device scale differs from the
-   * last one. `snapSize` rounds against that scale, so while it is changing the
-   * quantum moves with it and the face climbs in visible steps while everything
-   * around it scales smoothly. Reading the scale rather than this node's own
-   * transform is what makes it cover a zoom driven by an ancestor or by the
-   * camera, neither of which touches the card.
+   * The snap follows the scale the card is drawn at. The canvas repaints the
+   * card once a zoom settles, so the face does not step while the scale moves.
    */
-  #drawPortrait(gfx: Gfx2D, g: CardFaceGeom, card: Card): void {
+  #drawPortrait(gfx: Canvas, g: CardFaceGeom, card: Card): void {
     const box = g.portraitBox
-    const scale = gfx.deviceScale()
-    const steady =
-      this.#lastScale < 0 || Math.abs(scale - this.#lastScale) < 1e-4
-    this.#lastScale = scale
     const d = g.portrait
-    const cell = steady ? gfx.snapSize(box.width / 16) : box.width / 16
+    const cell = gfx.snap(box.width / 16)
     // Re-centred across, so rounding the cell does not walk the face off the
     // disc. Down the card the grid hangs from its bottom edge instead: the art
     // is drawn cut off at the shoulders, so the row it ends on has to stay
@@ -531,57 +516,34 @@ export class CardNode extends Node2D {
     // Alpha applies per draw call, which is exactly right here: the strips tile
     // the grid rather than overlapping, so a face at a quarter is a quarter
     // everywhere instead of building up where parts meet.
-    if (this.#score !== null) gfx.setAlpha(SCORED_PORTRAIT_ALPHA)
-    for (const run of portraitRuns(card)) {
-      gfx.fillRect(
-        originX + run.x * cell,
-        originY + run.row * cell,
-        run.len * cell,
-        cell,
-        run.color,
-      )
-    }
+    if (this.score !== null) gfx.setAlpha(SCORED_PORTRAIT_ALPHA)
+    gfx.drawImage(
+      portraitImage(card),
+      originX,
+      originY,
+      cell * PORTRAIT_SIZE,
+      cell * PORTRAIT_SIZE,
+      { smoothing: false },
+    )
     gfx.restore()
-    if (this.#score !== null) this.#drawScore(gfx, g)
+    if (this.score !== null) this.#drawScore(gfx, g)
   }
 
   /**
-   * Crop to the portrait disc.
-   *
-   * A circle normally. While the card is squashed for a turn it becomes a
-   * capsule, because an analytic circle clip resolves a non-uniform transform
-   * to one averaged radius, which shrinks the face in both directions instead
-   * of narrowing it with the card. A rounded rect carries its two half extents
-   * separately, so it squashes correctly, and at equal scale it is the same
-   * circle.
+   * Crop to the portrait disc. The clip lives in the card's local space, so it
+   * squashes with the card through a turn and stays a circle when the card is
+   * not squashed.
    *
    * The disc is filled inside the clip rather than drawn as its own circle, as
    * it is in the reference art. Two independently anti-aliased circles of the
    * same radius do not composite to one edge. The seam between them shows the
    * card stock through as a hairline ring.
    */
-  #clipToDisc(gfx: Gfx2D, d: { cx: number; cy: number; r: number }): void {
-    if (!this.#squashed) {
-      gfx.setClip({ kind: 'circle', cx: d.cx, cy: d.cy, r: d.r })
-      return
-    }
-    gfx.setClip({
-      kind: 'roundRect',
-      x: d.cx - d.r,
-      y: d.cy - d.r,
-      w: d.r * 2,
-      h: d.r * 2,
-      radius: d.r,
-    })
+  #clipToDisc(gfx: Canvas, d: { cx: number; cy: number; r: number }): void {
+    gfx.setClip({ kind: 'circle', cx: d.cx, cy: d.cy, r: d.r })
   }
 
-  /** Whether the card is mid-turn, where its two scales differ. */
-  get #squashed(): boolean {
-    const t = this.transform
-    return Math.abs(t.scaleX - t.scaleY) >= 1e-3
-  }
-
-  #drawLanyard(gfx: Gfx2D, g: CardFaceGeom, w: number): void {
+  #drawLanyard(gfx: Canvas, g: CardFaceGeom, w: number): void {
     const l = g.lanyard
     const r = l.height / 2
     gfx.fillRoundRect(l.x, l.y, l.width, l.height, r, COLORS.lanyard)
@@ -591,7 +553,7 @@ export class CardNode extends Node2D {
     })
   }
 
-  #drawCoin(gfx: Gfx2D, g: CardFaceGeom, card: Card, w: number): void {
+  #drawCoin(gfx: Canvas, g: CardFaceGeom, card: Card, w: number): void {
     const c = g.coin
     gfx.fillCircle(c.cx, c.cy, c.r, COLORS.coinFill)
     gfx.strokeCircle(c.cx, c.cy, c.r, {
@@ -619,14 +581,14 @@ export class CardNode extends Node2D {
    * No direction on it, because a card that moves the marker always sends it to
    * the floor the card did not come from.
    */
-  #drawElevator(gfx: Gfx2D, g: CardFaceGeom): void {
+  #drawElevator(gfx: Canvas, g: CardFaceGeom): void {
     const set = icons()
     if (!set) return
     const e = g.elevator
     gfx.drawImage(set.elevator, e.x, e.y, e.width, e.height)
   }
 
-  #drawBadges(gfx: Gfx2D, g: CardFaceGeom, card: Card): void {
+  #drawBadges(gfx: Canvas, g: CardFaceGeom, card: Card): void {
     const set = icons()
     if (!set) return
     card.groups.forEach((group, i) => {
@@ -648,7 +610,7 @@ export class CardNode extends Node2D {
    * before anything is cut. Only a title that will not fit even at the smallest
    * size ellipsizes, which `fitTextBlock` reports.
    */
-  #drawName(gfx: Gfx2D, g: CardFaceGeom, name: string, w: number): void {
+  #drawName(gfx: Canvas, g: CardFaceGeom, name: string, w: number): void {
     const sizes = NAME_SIZE_FRACS.map((f) => f * w)
     const block = fitTextBlock(
       name,
@@ -675,7 +637,7 @@ export class CardNode extends Node2D {
   }
 
   #drawOnHire(
-    gfx: Gfx2D,
+    gfx: Canvas,
     g: CardFaceGeom,
     card: Card,
     w: number,
@@ -694,7 +656,7 @@ export class CardNode extends Node2D {
     drawRichBlock(gfx, block, g.onHire, 'center', COLORS.ink)
   }
 
-  #drawReview(gfx: Gfx2D, g: CardFaceGeom, card: Card, w: number): void {
+  #drawReview(gfx: Canvas, g: CardFaceGeom, card: Card, w: number): void {
     const bnd = g.reviewBand
     gfx.fillRoundRect(
       bnd.x,
@@ -714,7 +676,7 @@ export class CardNode extends Node2D {
       COLORS.reviewChip,
     )
     gfx.fillText(
-      String(resolveScoring(card, this.#boardWidth).points),
+      String(resolveScoring(card, this.boardWidth).points),
       chip.x + chip.width / 2,
       chip.y + chip.height / 2,
       {
@@ -726,7 +688,7 @@ export class CardNode extends Node2D {
     )
     const sizes = BODY_SIZE_FRACS.map((f) => f * w)
     const block = fitRichTextBlock(
-      scoringFaceSpans(card, this.#boardWidth),
+      scoringFaceSpans(card, this.boardWidth),
       sizes,
       (s, bold) => font(bold ? 700 : 500, s),
       g.reviewText,
@@ -736,7 +698,7 @@ export class CardNode extends Node2D {
   }
 
   #drawStoredBudget(
-    gfx: Gfx2D,
+    gfx: Canvas,
     g: CardFaceGeom,
     budget: number,
     w: number,
@@ -759,7 +721,7 @@ export class CardNode extends Node2D {
    * the reward for taking it.
    */
   #drawOpenSeat(
-    gfx: Gfx2D,
+    gfx: Canvas,
     g: CardFaceGeom,
     w: number,
     h: number,
@@ -865,7 +827,7 @@ export class CardNode extends Node2D {
  * `drawImage` has none to take: text follows the ink and artwork does not.
  */
 function drawRichBlock(
-  gfx: Gfx2D,
+  gfx: Canvas,
   block: RichBlock,
   box: { x: number; y: number; width: number; height: number },
   align: 'left' | 'center',
@@ -921,7 +883,7 @@ function amountWidth(a: Amount): number {
  * so the figure looks level with the icons beside it.
  */
 function drawAmount(
-  gfx: Gfx2D,
+  gfx: Canvas,
   a: Amount,
   x: number,
   cy: number,

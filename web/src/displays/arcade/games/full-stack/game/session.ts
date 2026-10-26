@@ -34,7 +34,7 @@ import {
   type EngineHost,
   rectContains,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { GradientBackgroundNode } from '../../common/GradientBackgroundNode'
 import { loadIcons } from '../art/icons'
 import { CardNode, type CardFaceKind } from './nodes/CardNode'

@@ -15,11 +15,12 @@
  * The rows the current piece is about to land on brighten, which reinforces the
  * ghost for the price of one alpha change.
  */
-import { Node2D, type CameraView2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { textFloor } from '../layout'
 import { COLORS } from '../tuning'
 import type { Bounds } from '../types'
+import { sameBounds } from './tui'
 
 /** Bytes per row: ten cells of one machine word each. */
 const ROW_STRIDE = 40
@@ -39,28 +40,34 @@ export class AddressGutterNode extends Node2D {
 
   constructor() {
     super('bo-gutter')
-    this.renderLayer = 'dynamic'
   }
 
   setRect(rect: Bounds, cell: number, rows: number): void {
-    this.#rect = rect
+    if (
+      sameBounds(rect, this.#rect) &&
+      cell === this.#cell &&
+      rows === this.#rows
+    )
+      return
+    this.#rect = { ...rect }
     this.#cell = cell
     this.#rows = rows
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
   /** Visible rows the falling piece would come to rest on. */
   setMarked(rows: readonly number[]): void {
-    this.#marked = rows
+    const old = this.#marked
+    if (old.length === rows.length && old.every((row, i) => row === rows[i]))
+      return
+    this.#marked = [...rows]
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || this.#rows <= 0) return
-    const size = Math.max(
-      textFloor(camera.strokeSpaceScale()),
-      this.#cell * 0.34,
-    )
+    const size = Math.max(textFloor(gfx.screenScale()), this.#cell * 0.34)
     const face = font(400, size)
     const right = r.x + r.width
     for (let row = 0; row < this.#rows; row++) {

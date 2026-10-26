@@ -3,9 +3,10 @@
 use super::AppState;
 use crate::config::Config;
 use crate::queue::{CancelOutcome, ReprintError};
+use crate::store::SetLabel;
 use crate::types::{
-    JobMeta, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus, ServerEvent,
-    DISPLAY_STALLWAECHTER,
+    JobMeta, LabelChoice, LabelChoiceError, NewGame, NewLeaderboardEntry, PrintJob, PrinterStatus,
+    ServerEvent, DISPLAY_ENTERPRISE,
 };
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -96,9 +97,9 @@ pub async fn cancel(State(st): State<AppState>, Path(id): Path<String>) -> Respo
         CancelOutcome::Canceled => {
             Json(json!({ "id": uuid.to_string(), "state": "canceled" })).into_response()
         }
-        CancelOutcome::AlreadyActive => (
-            StatusCode::CONFLICT,
-            Json(json!({"error": "already_printing"})),
+        CancelOutcome::Canceling => (
+            StatusCode::ACCEPTED,
+            Json(json!({ "id": uuid.to_string(), "state": "canceling" })),
         )
             .into_response(),
         CancelOutcome::NotFound => {
@@ -257,7 +258,7 @@ pub async fn config_override_reset(State(st): State<AppState>) -> impl IntoRespo
     Json(json!({ "ok": true }))
 }
 
-/// `GET /log`. Recent buffered log entries (oldest → newest).
+/// `GET /log`. Recent buffered log entries (oldest -> newest).
 pub async fn log(State(st): State<AppState>) -> impl IntoResponse {
     Json(st.log.snapshot())
 }
@@ -277,7 +278,7 @@ pub struct GamesQuery {
     pub limit: Option<usize>,
     pub offset: Option<usize>,
     /// Optional display filter. When set, only records whose `display` tag
-    /// matches this id are returned. Absent → all displays.
+    /// matches this id are returned. Absent -> all displays.
     pub display: Option<String>,
 }
 
@@ -325,10 +326,46 @@ pub async fn games_delete(State(st): State<AppState>, Path(id): Path<String>) ->
     }
 }
 
+/// `PUT /api/games/{id}/label`. Saves the label the player printed on an
+/// Enterprise record and emits `game.updated`. 400 for a bad id, a name over
+/// the cap, or another display's record, 422 for an unknown variant, 404 if
+/// unknown.
+pub async fn games_set_label(
+    State(st): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<LabelChoice>,
+) -> Response {
+    let Ok(uuid) = Uuid::parse_str(&id) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({"error": "bad_id"}))).into_response();
+    };
+    let name = match body.normalized_name() {
+        Ok(name) => name,
+        Err(LabelChoiceError::NameTooLong) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "name_too_long"})),
+            )
+                .into_response();
+        }
+    };
+    match st.games.set_label(uuid, body.label_variant, name) {
+        Ok(SetLabel::Updated(record)) => Json(record).into_response(),
+        Ok(SetLabel::NotFound) => {
+            (StatusCode::NOT_FOUND, Json(json!({"error": "not_found"}))).into_response()
+        }
+        Ok(SetLabel::NotEnterprise) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": "not_enterprise"})),
+        )
+            .into_response(),
+        Err(e) => write_error(&st, "games", e),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HighScoresQuery {
-    /// Which display to compute high scores for. Defaults to Stallwächter,
+    /// Which display to compute high scores for. Defaults to Enterprise,
     /// which is the only display shipping today.
     pub display: Option<String>,
 }
@@ -338,7 +375,7 @@ pub async fn games_high_scores(
     State(st): State<AppState>,
     Query(q): Query<HighScoresQuery>,
 ) -> impl IntoResponse {
-    let display = q.display.as_deref().unwrap_or(DISPLAY_STALLWAECHTER);
+    let display = q.display.as_deref().unwrap_or(DISPLAY_ENTERPRISE);
     Json(st.games.high_scores(display))
 }
 

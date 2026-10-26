@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import type { Gfx2D } from '@src/stargazer'
+import { describe, expect, it, vi } from 'vitest'
+import { paintCalls } from 'stargazer'
 import { CardNode } from './CardNode'
 import { BODY_SIZE_FRACS, cardFace } from '../cardFace'
 import { COLORS } from '../tuning'
@@ -131,13 +131,50 @@ describe('CardNode', () => {
     expect(node.face).toEqual({ kind: 'card', card, budget: 0 })
   })
 
-  it('sizes itself and bounds a shadow bleed', () => {
+  it('sizes itself', () => {
     const node = new CardNode('t')
     node.setSize(200, 303)
     expect(node.width).toBe(200)
     expect(node.height).toBe(303)
-    expect(node.debugBounds!.x).toBeLessThan(0)
-    expect(node.debugBounds!.width).toBeGreaterThan(200)
+  })
+
+  it('paints its shadow only while lifted', () => {
+    const node = new CardNode('t')
+    node.setSize(200, 303)
+    node.setFace({ kind: 'openSeat' })
+    const shadows = (): number =>
+      paintCalls(node).filter(
+        (c) => c.name === 'fillRoundRect' && c.args[5] === COLORS.cardShadow,
+      ).length
+    expect(shadows()).toBe(0)
+    node.setLifted(true)
+    expect(shadows()).toBe(1)
+  })
+
+  it('repaints for a changed face and not for an equal one', () => {
+    const node = new CardNode('t')
+    const card = DECK[0]!
+    node.setFace({ kind: 'card', card, budget: 0, pays: [1, null] })
+    const dirty = vi.spyOn(node, 'markNeedsPaint')
+    node.setFace({ kind: 'card', card, budget: 0, pays: [1, null] })
+    expect(dirty).not.toHaveBeenCalled()
+    node.setFace({ kind: 'card', card, budget: 2, pays: [1, null] })
+    expect(dirty).toHaveBeenCalledTimes(1)
+    node.setLifted(false)
+    expect(dirty).toHaveBeenCalledTimes(1)
+    node.setLifted(true)
+    expect(dirty).toHaveBeenCalledTimes(2)
+  })
+
+  it("crops the portrait to a circle in the card's own space", () => {
+    const node = new CardNode('t')
+    node.setSize(200, 303)
+    node.setFace({ kind: 'card', card: DECK[0]!, budget: 0 })
+    const clips = paintCalls(node).filter((c) => c.name === 'setClip')
+    expect(clips.length).toBeGreaterThan(0)
+    for (const c of clips) {
+      expect(c.args[0]).toMatchObject({ kind: 'circle' })
+    }
   })
 
   it('hit-tests the card rect', () => {
@@ -150,47 +187,6 @@ describe('CardNode', () => {
   })
 })
 
-interface RecordedRect {
-  x: number
-  y: number
-  w: number
-  h: number
-  color: string
-}
-
-/** A Gfx2D that records `fillRect` and no-ops everything else. */
-function recordingGfx(deviceScale: number): {
-  gfx: Gfx2D
-  rects: RecordedRect[]
-} {
-  const rects: RecordedRect[] = []
-  const gfx = new Proxy(
-    {},
-    {
-      get(_t, prop) {
-        if (prop === 'fillRect') {
-          return (
-            x: number,
-            y: number,
-            w: number,
-            h: number,
-            color: string,
-          ): void => {
-            rects.push({ x, y, w, h, color })
-          }
-        }
-        if (prop === 'snapSize') {
-          return (v: number): number =>
-            Math.max(1, Math.round(v * deviceScale)) / deviceScale
-        }
-        if (prop === 'deviceScale') return (): number => deviceScale
-        return (): undefined => undefined
-      },
-    },
-  ) as Gfx2D
-  return { gfx, rects }
-}
-
 describe('CardNode portrait grid', () => {
   // 178.35 world units is the card width at a 1920x1080 region, and 1.333
   // device px per world unit is a 2560x1440 canvas. That puts the raw cell at
@@ -199,73 +195,57 @@ describe('CardNode portrait grid', () => {
   const H = W * (388 / 256)
   const SCALE = 4 / 3
 
-  // The disc behind the face is filled inside the same clip, so it arrives as a
-  // `fillRect` too, and only the pixel strips are the grid under test.
-  const portraitRects = (): RecordedRect[] => {
+  interface Portrait {
+    x: number
+    y: number
+    w: number
+    h: number
+    smoothing: boolean | undefined
+  }
+
+  /** The portrait is the one image drawn with smoothing off. */
+  const portrait = (deviceScale: number): Portrait => {
     const node = new CardNode('t')
     node.setSize(W, H)
     node.setFace({ kind: 'card', card: DECK[0]!, budget: 0 })
-    const { gfx, rects } = recordingGfx(SCALE)
-    node.draw(gfx)
-    return rects.filter((r) => r.color !== COLORS.portraitDisc)
+    const call = paintCalls(node, { deviceScale }).find(
+      (c) =>
+        c.name === 'drawImage' &&
+        (c.args[5] as { smoothing?: boolean } | undefined)?.smoothing === false,
+    )
+    expect(call).toBeDefined()
+    const [, x, y, w, h, opts] = call!.args as [
+      unknown,
+      number,
+      number,
+      number,
+      number,
+      { smoothing?: boolean },
+    ]
+    return { x, y, w, h, smoothing: opts.smoothing }
   }
 
-  it('draws every portrait cell one whole device pixel tall', () => {
-    const rects = portraitRects()
-    expect(rects.length).toBeGreaterThan(10)
-    for (const r of rects) {
-      expect(Math.abs(r.h * SCALE - Math.round(r.h * SCALE))).toBeLessThan(1e-9)
-    }
+  it('draws the portrait as one nearest-filtered image', () => {
+    expect(portrait(SCALE).smoothing).toBe(false)
   })
 
-  it('gives every cell the same width, so no column is a pixel wider', () => {
-    const rects = portraitRects()
-    const cell = rects[0]!.h
-    for (const r of rects) {
-      expect(r.h).toBeCloseTo(cell, 9)
-      expect(r.w / cell).toBeCloseTo(Math.round(r.w / cell), 9)
-    }
+  it('sizes every source pixel to a whole number of device pixels', () => {
+    const p = portrait(SCALE)
+    const cell = p.w / 16
+    expect(p.h).toBeCloseTo(p.w, 9)
+    expect(Math.abs(cell * SCALE - Math.round(cell * SCALE))).toBeLessThan(1e-9)
   })
 
   it('keeps the snapped grid centred on the portrait disc', () => {
-    const rects = portraitRects()
+    const p = portrait(SCALE)
     const g = cardFace(W, H)
-    const cell = rects[0]!.h
-    const left = Math.min(...rects.map((r) => r.x))
-    const right = Math.max(...rects.map((r) => r.x + r.w))
-    // The art does not fill all 16 columns, so bound rather than equate.
-    expect(left).toBeGreaterThanOrEqual(g.portrait.cx - cell * 8 - 1e-9)
-    expect(right).toBeLessThanOrEqual(g.portrait.cx + cell * 8 + 1e-9)
+    expect(p.x + p.w / 2).toBeCloseTo(g.portrait.cx, 9)
   })
 
   it('falls back to the unsnapped cell when the device scale is unknown', () => {
-    const node = new CardNode('t')
-    node.setSize(W, H)
-    node.setFace({ kind: 'card', card: DECK[0]!, budget: 0 })
-    const rects: { h: number }[] = []
-    const gfx = new Proxy(
-      {},
-      {
-        get(_t, prop) {
-          if (prop === 'fillRect') {
-            return (
-              _x: number,
-              _y: number,
-              _w: number,
-              h: number,
-              color: string,
-            ): void => {
-              // Skip the disc filled behind the face inside the same clip.
-              if (color !== COLORS.portraitDisc) rects.push({ h })
-            }
-          }
-          if (prop === 'snapSize') return (v: number): number => v
-          if (prop === 'deviceScale') return (): number => 1
-          return (): undefined => undefined
-        },
-      },
-    ) as Gfx2D
-    node.draw(gfx)
-    expect(rects[0]!.h).toBeCloseTo(cardFace(W, H).portraitBox.width / 16, 9)
+    expect(portrait(0).w / 16).toBeCloseTo(
+      cardFace(W, H).portraitBox.width / 16,
+      9,
+    )
   })
 })

@@ -1,4 +1,4 @@
-import { Node2D, easings, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, easings, type Canvas } from 'stargazer'
 import { ANIM } from '../tuning'
 
 /**
@@ -10,22 +10,21 @@ import { ANIM } from '../tuning'
  */
 export class DiscNode extends Node2D {
   readonly #radius: number
-  #color: string
+  declare color: string
 
   constructor(color: string, radius: number) {
     super('cf-disc')
-    this.#color = color
+    definePaintProps(this, { color })
     this.#radius = radius
-    this.renderLayer = 'dynamic'
   }
 
   /** Recolor the disc (used to glow the winning line). */
   setColor(color: string): void {
-    this.#color = color
+    this.color = color
   }
 
-  override draw(gfx: Gfx2D): void {
-    gfx.fillCircle(0, 0, this.#radius, this.#color)
+  override paint(gfx: Canvas): void {
+    gfx.fillCircle(0, 0, this.#radius, this.color)
   }
 
   /**

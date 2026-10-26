@@ -19,7 +19,7 @@ import {
   ignoreAbort,
   type PointerEvent2D,
   type Node2D,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { OrbNode } from './nodes/OrbNode'
 import { launchBoundary, type FieldLayout } from './layout'
 import { ANIM, FLICK } from './tuning'

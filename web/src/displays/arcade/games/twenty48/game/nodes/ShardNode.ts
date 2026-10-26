@@ -13,11 +13,11 @@
  * rectangles that fall past the board.
  */
 import {
-  type Gfx2D,
+  type Canvas,
   VectorParticleNode,
   type VectorParticleNodeOptions,
   type VectorParticleSpawnInit,
-} from '@src/stargazer'
+} from 'stargazer'
 
 /** One shard's worth of state, staged immediately before `release()`. */
 export interface ShardStage {
@@ -44,12 +44,11 @@ export abstract class ShardNode extends VectorParticleNode {
     spin: 0,
     color: '#000000',
   }
-  /** Scratch for one shard's points, so drawing allocates nothing. */
+  /** Scratch for one shard's points, so painting allocates nothing. */
   protected readonly poly = new Float32Array(8)
 
   constructor(opts: VectorParticleNodeOptions) {
     super(opts)
-    this.renderLayer = 'dynamic'
     this.size = new Float32Array(opts.capacity)
     this.spin = new Float32Array(opts.capacity)
     this.color = new Array<string>(opts.capacity).fill('#000000')
@@ -85,30 +84,20 @@ export abstract class ShardNode extends VectorParticleNode {
   protected integrate(_i: number, _dt: number): void {}
 
   /**
-   * Fill shard `i` as a convex polygon whose local points are `local`, an
-   * interleaved `[x, y, …]` list, rotated by the shard's angle and scaled by
-   * its size.
+   * Fill the shard being painted as a convex polygon whose local points are
+   * `local`, an interleaved `[x, y, …]` list, scaled by the shard's size. The
+   * base class has already moved and turned the origin onto the shard.
    */
   protected fillShard(
-    gfx: Gfx2D,
+    gfx: Canvas,
     i: number,
     local: ArrayLike<number>,
     count: number,
     scale = 1,
   ): void {
-    const a = this.angle[i]
-    const cos = Math.cos(a)
-    const sin = Math.sin(a)
     const s = this.size[i] * scale
-    const px = this.x[i]
-    const py = this.y[i]
     const out = this.poly
-    for (let k = 0; k < count; k++) {
-      const lx = local[k * 2] * s
-      const ly = local[k * 2 + 1] * s
-      out[k * 2] = px + lx * cos - ly * sin
-      out[k * 2 + 1] = py + lx * sin + ly * cos
-    }
+    for (let k = 0; k < count * 2; k++) out[k] = local[k] * s
     gfx.fillConvexPoly(out, count, this.color[i])
   }
 }

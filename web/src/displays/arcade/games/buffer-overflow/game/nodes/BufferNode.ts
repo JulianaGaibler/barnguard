@@ -2,27 +2,25 @@
  * The buffer: a framed field, a hairline grid inside it, the locked stack, and
  * a rule whose accent climbs with the level.
  *
- * Reads the session's buffer directly each frame rather than keeping a copy.
- * There are two hundred cells and the array is already there, so a mirror would
- * be one more thing to keep in step for no gain.
+ * Reads the session's buffer directly rather than keeping a copy, and paints
+ * again when the buffer's `version` moves. There are two hundred cells and the
+ * array is already there, so a mirror would be one more thing to keep in step
+ * for no gain.
+ *
+ * A knock shakes the node's own transform, so the picture stays put while it
+ * does. Only the clear flash repaints on a clock.
  *
  * The frame's title carries the seat's identity, which is why there is no
  * separate player label anywhere on the board.
  */
-import {
-  Node2D,
-  easings,
-  withAlpha,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+import { Node2D, easings, withAlpha, type Canvas } from 'stargazer'
 import { VISIBLE_TOP, visibleRows, type Buffer } from '../board'
 import { font } from '../../fonts'
 import { textFloor } from '../layout'
 import { accentForLevel, ANIM, CLEAR_FLASH, COLORS, FRAME } from '../tuning'
 import type { Bounds } from '../types'
 import { drawCell } from './cells'
-import { drawFrame, ruleWidth } from './tui'
+import { drawFrame, ruleWidth, sameBounds } from './tui'
 
 /** Corner brackets inside the frame, as a fraction of a cell. */
 const MARK_FRAC = 0.5
@@ -54,18 +52,24 @@ export class BufferNode extends Node2D {
 
   constructor() {
     super('bo-buffer')
-    this.renderLayer = 'dynamic'
   }
 
   setBuffer(buffer: Buffer): void {
+    if (buffer === this.#buffer) return
     this.#buffer = buffer
+    this.markNeedsPaint()
   }
 
   setRect(rect: Bounds, frame: Bounds, cell: number): void {
-    this.#rect = rect
-    this.#frame = frame
+    const same =
+      sameBounds(rect, this.#rect) &&
+      sameBounds(frame, this.#frame) &&
+      cell === this.#cell
+    if (same) return
+    this.#rect = { ...rect }
+    this.#frame = { ...frame }
     this.#cell = cell
-    this.debugBounds = { ...frame }
+    this.markNeedsPaint()
   }
 
   /**
@@ -76,31 +80,48 @@ export class BufferNode extends Node2D {
    * own half.
    */
   setTitle(title: string, trailing: string, color?: string): void {
+    const titleColor = color ?? null
+    const same =
+      title === this.#title &&
+      trailing === this.#trailing &&
+      titleColor === this.#titleColor
+    if (same) return
     this.#title = title
     this.#trailing = trailing
-    this.#titleColor = color ?? null
+    this.#titleColor = titleColor
+    this.markNeedsPaint()
   }
 
   setTicks(ticks: boolean): void {
+    if (ticks === this.#ticks) return
     this.#ticks = ticks
+    this.markNeedsPaint()
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    const accent = accentForLevel(level)
+    if (accent === this.#accent) return
+    this.#accent = accent
+    this.markNeedsPaint()
   }
 
   setDimmed(dimmed: boolean): void {
+    if (dimmed === this.#dimmed) return
     this.#dimmed = dimmed
+    this.markNeedsPaint()
   }
 
   /** Flash `rows` until {@link clearFlash} is called. */
   flashRows(rows: readonly number[]): void {
     this.#flashing = [...rows]
     this.#flashT = 0
+    this.markNeedsPaint()
   }
 
   clearFlash(): void {
+    if (this.#flashing.length === 0) return
     this.#flashing = []
+    this.markNeedsPaint()
   }
 
   /** A knock proportional to how much came out at once. */
@@ -109,10 +130,12 @@ export class BufferNode extends Node2D {
   }
 
   override onUpdate(dt: number): void {
-    if (this.#flashing.length > 0) {
+    if (this.#flashing.length > 0 && this.#flashT < 1) {
       this.#flashT = Math.min(1, this.#flashT + dt / ANIM.clearFlash)
+      this.markNeedsPaint()
     }
-    if (this.#shake > 0) {
+    const wasShaking = this.#shake > 0
+    if (wasShaking) {
       this.#shakePhase += dt * 44
       this.#shake = Math.max(
         0,
@@ -123,27 +146,27 @@ export class BufferNode extends Node2D {
         this.#shakePhase = 0
       }
     }
+    if (this.#shake > 0) {
+      // Two frequencies, so the wobble never repeats on itself.
+      this.transform.x = Math.sin(this.#shakePhase) * this.#shake
+      this.transform.y = Math.cos(this.#shakePhase * 1.3) * this.#shake * 0.5
+    } else if (wasShaking) {
+      this.transform.x = 0
+      this.transform.y = 0
+    }
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     const cell = this.#cell
-    if (cell <= 0 || !this.#buffer) return
+    const buffer = this.#buffer
+    if (cell <= 0 || !buffer) return
+    gfx.use(buffer)
 
-    const scale = camera.strokeSpaceScale()
-    const rule = ruleWidth(gfx, FRAME.rulePx, scale)
+    const scale = gfx.screenScale()
+    const rule = ruleWidth(gfx, FRAME.rulePx)
     const size = Math.max(textFloor(scale), cell * 0.4)
     const labelFont = font(400, size)
-
-    const shaking = this.#shake > 0
-    if (shaking) {
-      gfx.save()
-      // Two frequencies, so the wobble never repeats on itself.
-      gfx.translate(
-        Math.sin(this.#shakePhase) * this.#shake,
-        Math.cos(this.#shakePhase * 1.3) * this.#shake * 0.5,
-      )
-    }
 
     drawFrame(gfx, this.#frame, {
       color: this.#accent,
@@ -164,8 +187,6 @@ export class BufferNode extends Node2D {
     this.#drawGrid(gfx, r, cell)
     this.#drawStack(gfx, r, cell)
     if (this.#ticks) this.#drawTicks(gfx, r, cell, rule, labelFont)
-
-    if (shaking) gfx.restore()
   }
 
   /**
@@ -175,7 +196,7 @@ export class BufferNode extends Node2D {
    * single polyline would double-blend at the elbow at this alpha and show as a
    * darker notch.
    */
-  #drawCornerMarks(gfx: Gfx2D, cell: number, rule: number): void {
+  #drawCornerMarks(gfx: Canvas, cell: number, rule: number): void {
     const f = this.#frame
     const len = cell * MARK_FRAC
     const inset = rule * 2.5
@@ -200,7 +221,7 @@ export class BufferNode extends Node2D {
    * so a smaller buffer draws a smaller grid instead of ruling lines out past
    * its own rim.
    */
-  #drawGrid(gfx: Gfx2D, r: Bounds, cell: number): void {
+  #drawGrid(gfx: Canvas, r: Bounds, cell: number): void {
     const b = this.#buffer
     if (!b) return
     const style = { color: COLORS.grid, width: 1 }
@@ -216,7 +237,7 @@ export class BufferNode extends Node2D {
 
   /** A ruler down the right rule, so the stack's height can be read off. */
   #drawTicks(
-    gfx: Gfx2D,
+    gfx: Canvas,
     r: Bounds,
     cell: number,
     rule: number,
@@ -246,7 +267,7 @@ export class BufferNode extends Node2D {
     }
   }
 
-  #drawStack(gfx: Gfx2D, r: Bounds, cell: number): void {
+  #drawStack(gfx: Canvas, r: Bounds, cell: number): void {
     const b = this.#buffer
     if (!b) return
     // Flashing rows blow out to white and then fade, which is what reads as the

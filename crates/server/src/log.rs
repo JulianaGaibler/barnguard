@@ -55,7 +55,7 @@ impl LogHub {
         self.push(LogLevel::Error, source, message);
     }
 
-    /// Buffered entries, oldest → newest. Used for the SSE backfill on connect
+    /// Buffered entries, oldest -> newest. Used for the SSE backfill on connect
     /// and `GET /api/printer/log`.
     pub fn snapshot(&self) -> Vec<LogEntry> {
         self.buf

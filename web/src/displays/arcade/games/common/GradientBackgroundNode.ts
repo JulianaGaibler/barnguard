@@ -1,4 +1,9 @@
-import { Node2D, type Gfx2D, type Rect } from '@src/stargazer'
+import {
+  Node2D,
+  definePaintProps,
+  type Canvas,
+  type Rect,
+} from 'stargazer'
 
 /** Construction options for {@link GradientBackgroundNode}. */
 export interface GradientBackgroundOptions {
@@ -26,35 +31,35 @@ export interface GradientBackgroundOptions {
  * {@link setRect} to refit it.
  */
 export class GradientBackgroundNode extends Node2D {
-  readonly #rect: Rect = { x: 0, y: 0, width: 0, height: 0 }
   readonly #pts = new Float32Array(8)
-  #topLeft: string
-  #bottomRight: string
+  readonly #topLeft: string
+  readonly #bottomRight: string
+  declare rectX: number
+  declare rectY: number
+  declare rectWidth: number
+  declare rectHeight: number
 
   constructor(opts: GradientBackgroundOptions) {
     super('gradient-bg')
     this.#topLeft = opts.topLeft
     this.#bottomRight = opts.bottomRight
+    definePaintProps(this, { rectX: 0, rectY: 0, rectWidth: 0, rectHeight: 0 })
     this.setRect(opts.rect)
-    // Dynamic so it draws in the same pass as the shared sky. The game subtree
-    // is added after the sky, so this paints over it within the game view.
-    this.renderLayer = 'dynamic'
   }
 
   /** Refit the gradient to a new world rect (e.g. after a resize). */
   setRect(rect: Rect): void {
-    this.#rect.x = rect.x
-    this.#rect.y = rect.y
-    this.#rect.width = rect.width
-    this.#rect.height = rect.height
+    this.rectX = rect.x
+    this.rectY = rect.y
+    this.rectWidth = rect.width
+    this.rectHeight = rect.height
   }
 
-  override draw(gfx: Gfx2D): void {
-    const r = this.#rect
-    const x0 = r.x
-    const y0 = r.y
-    const x1 = r.x + r.width
-    const y1 = r.y + r.height
+  override paint(gfx: Canvas): void {
+    const x0 = this.rectX
+    const y0 = this.rectY
+    const x1 = x0 + this.rectWidth
+    const y1 = y0 + this.rectHeight
     const pts = this.#pts
     pts[0] = x0
     pts[1] = y0

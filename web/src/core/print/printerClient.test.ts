@@ -5,7 +5,9 @@ import {
   lastMockPrint,
   mockPrintEnabled,
   setMockPrintEnabled,
+  withUpdatedGame,
 } from './printerClient'
+import type { GameRecord } from '@src/core/game-log/gameLogClient'
 
 describe('enqueuePrint', () => {
   beforeEach(() => {
@@ -93,5 +95,23 @@ describe('mock printing', () => {
     const res = await enqueuePrint(blob, {})
     expect(res.jobId).toBe('real')
     expect(fetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('withUpdatedGame', () => {
+  const game = (id: string, score: number) =>
+    ({ id, score }) as unknown as GameRecord
+
+  it('replaces the record with the same id, in place', () => {
+    const games = [game('a', 1), game('b', 2), game('c', 3)]
+    const updated = game('b', 20)
+    const next = withUpdatedGame(games, updated)
+    expect(next.map((g) => g.score)).toEqual([1, 20, 3])
+    expect(next[1]).toBe(updated)
+  })
+
+  it('ignores a record the list does not hold', () => {
+    const games = [game('a', 1)]
+    expect(withUpdatedGame(games, game('z', 9))).toEqual(games)
   })
 })

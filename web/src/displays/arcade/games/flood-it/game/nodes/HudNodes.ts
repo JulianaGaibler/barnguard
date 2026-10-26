@@ -8,13 +8,14 @@
  */
 import {
   ButtonBehavior,
+  definePaintProps,
   easings,
   moveToward,
   Node2D,
   textAdvance,
   withAlpha,
-  type Gfx2D,
-} from '@src/stargazer'
+  type Canvas,
+} from 'stargazer'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
 import { font, numberFont } from '../../fonts'
 import { ACCENT, ANIM, COLORS } from '../tuning'
@@ -66,50 +67,54 @@ export function counterLayout(
  * gives.
  */
 export class MoveMeterNode extends Node2D {
-  #used = 0
-  #max = 0
-  #pop = 1
+  declare used: number
+  declare max: number
+  /** Progress of the tick pop, 1 at rest. */
+  declare pop: number
+  /** Opacity of the used count, which breathes while the warning is on. */
+  declare glow: number
+  declare size: number
   #breathe = 0
-  #size = 1
 
   constructor() {
     super('flood-move-meter')
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { used: 0, max: 0, pop: 1, glow: 1, size: 1 })
   }
 
   /** Scale the readout to the board it belongs to. */
   setSize(size: number): void {
-    this.#size = size
+    this.size = size
   }
 
   set(used: number, max: number): void {
-    if (used !== this.#used) this.#pop = 0
-    this.#used = used
-    this.#max = max
+    if (used !== this.used) this.pop = 0
+    this.used = used
+    this.max = max
   }
 
   get warning(): boolean {
-    return this.#max - this.#used <= ANIM.lowMovesWarn
+    return this.max - this.used <= ANIM.lowMovesWarn
   }
 
   override onUpdate(dt: number): void {
-    if (this.#pop < 1) this.#pop = Math.min(1, this.#pop + dt / ANIM.counterPop)
+    if (this.pop < 1) this.pop = Math.min(1, this.pop + dt / ANIM.counterPop)
     this.#breathe = this.warning
       ? (this.#breathe + dt / ANIM.counterBreathe) % 1
       : 0
-  }
-
-  override draw(gfx: Gfx2D): void {
-    const s = this.#size
-    // A brief overshoot on the tick, settling back to rest.
-    const scale = 1 + 0.16 * (1 - easings.outCubic(this.#pop))
-    const glow = this.warning
+    this.glow = this.warning
       ? 0.55 + 0.45 * Math.sin(this.#breathe * Math.PI * 2)
       : 1
+  }
+
+  override paint(gfx: Canvas): void {
+    const s = this.size
+    // A brief overshoot on the tick, settling back to rest.
+    const scale = 1 + 0.16 * (1 - easings.outCubic(this.pop))
+    const glow = this.glow
     const color = this.warning ? ACCENT[2] : COLORS.paper
 
-    const usedText = `${this.#used}`
-    const maxText = `/${this.#max}`
+    const usedText = `${this.used}`
+    const maxText = `/${this.max}`
     // Measured at the resting size, not the popped one, so the tick does not
     // shove the layout sideways every time the count changes.
     const usedFont = numberFont(700, s)
@@ -160,24 +165,25 @@ const ACTIVE_FADE = 0.22
 export class TallyNode extends Node2D {
   readonly #player: PlayerId
   readonly #label: string
-  #count = 0
-  #size = 1
+  declare count: number
+  declare size: number
+  /** How far the tally has faded to its active look, 0 to 1. */
+  declare activeT: number
   #active = false
-  #activeT = 0
 
   constructor(player: PlayerId, label: string) {
     super(`flood-tally-${player}`)
     this.#player = player
     this.#label = label
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { count: 0, size: 1, activeT: 0 })
   }
 
   setSize(size: number): void {
-    this.#size = size
+    this.size = size
   }
 
   set(count: number): void {
-    this.#count = count
+    this.count = count
   }
 
   setActive(active: boolean): void {
@@ -186,13 +192,13 @@ export class TallyNode extends Node2D {
 
   override onUpdate(dt: number): void {
     const target = this.#active ? 1 : 0
-    this.#activeT = moveToward(this.#activeT, target, dt / ACTIVE_FADE)
+    this.activeT = moveToward(this.activeT, target, dt / ACTIVE_FADE)
   }
 
-  override draw(gfx: Gfx2D): void {
-    const s = this.#size
+  override paint(gfx: Canvas): void {
+    const s = this.size
     const accent = ACCENT[this.#player]
-    const lift = easings.outCubic(this.#activeT)
+    const lift = easings.outCubic(this.activeT)
 
     // Stacked and centred on its own transform, so it sits square in the narrow
     // strip beside the board rather than running off one side of it.
@@ -204,7 +210,7 @@ export class TallyNode extends Node2D {
       color: accent,
     })
     gfx.setAlpha(0.6 + 0.4 * lift)
-    gfx.fillText(`${this.#count}`, 0, -s * 0.05, {
+    gfx.fillText(`${this.count}`, 0, -s * 0.05, {
       font: numberFont(700, s * 0.62),
       align: 'center',
       baseline: 'middle',
@@ -224,39 +230,40 @@ export class TallyNode extends Node2D {
 
 /** A centered notice, for the player waiting on the other to finish. */
 export class NoticeNode extends Node2D {
-  #text = ''
-  #size = 1
-  #shown = 0
+  declare text: string
+  declare size: number
+  /** Progress of the fade in, 1 once the notice is fully shown. */
+  declare shown: number
 
   constructor() {
     super('flood-notice')
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { text: '', size: 1, shown: 0 })
     this.visible = false
   }
 
   setSize(size: number): void {
-    this.#size = size
+    this.size = size
   }
 
   show(text: string): void {
-    this.#text = text
+    this.text = text
     this.visible = true
   }
 
   hide(): void {
     this.visible = false
-    this.#shown = 0
+    this.shown = 0
   }
 
   override onUpdate(dt: number): void {
-    if (this.visible && this.#shown < 1) {
-      this.#shown = Math.min(1, this.#shown + dt / 0.3)
+    if (this.visible && this.shown < 1) {
+      this.shown = Math.min(1, this.shown + dt / 0.3)
     }
   }
 
-  override draw(gfx: Gfx2D): void {
-    const s = this.#size
-    const t = easings.outCubic(this.#shown)
+  override paint(gfx: Canvas): void {
+    const s = this.size
+    const t = easings.outCubic(this.shown)
     // Body face, not the display one. This is a status line rather than a
     // heading, and the heading face is set far too loud for a sentence.
     const size = s * 0.4
@@ -265,7 +272,7 @@ export class NoticeNode extends Node2D {
     // the node size, which is what let a longer sentence run out of its box.
     const padX = size * 1.1
     const padY = size * 0.62
-    const w = textAdvance(this.#text, label) + padX * 2
+    const w = textAdvance(this.text, label) + padX * 2
     const h = size + padY * 2
 
     gfx.setAlpha(t * 0.9)
@@ -273,7 +280,7 @@ export class NoticeNode extends Node2D {
     gfx.setAlpha(t)
     // Sat on a baseline rather than centred on the em box, so the text sits in
     // the middle of the pill by cap height.
-    gfx.fillText(this.#text, 0, size * 0.35, {
+    gfx.fillText(this.text, 0, size * 0.35, {
       font: label,
       align: 'center',
       baseline: 'alphabetic',
@@ -295,42 +302,42 @@ type ChromeIcon = 'pause' | 'glyphs'
  */
 export class ChromeButtonNode extends Node2D {
   readonly #icon: ChromeIcon
-  #size = 0
-  #pressed = false
-  #on = false
+  declare size: number
+  declare pressed: boolean
+  declare engaged: boolean
 
   constructor(icon: ChromeIcon, onClick: () => void) {
     super(`flood-chrome-${icon}`)
     this.#icon = icon
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { size: 0, pressed: false, engaged: false })
     this.addBehavior(
       new ButtonBehavior({
         onClick,
-        onPressedChange: (pressed) => (this.#pressed = pressed),
+        onPressedChange: (pressed) => (this.pressed = pressed),
       }),
     )
   }
 
   setSize(size: number): void {
-    this.#size = size
-    this.debugBounds = { x: 0, y: 0, width: size, height: size }
+    this.size = size
+    this.boundsOverride = { x: 0, y: 0, width: size, height: size }
   }
 
   /** Whether the toggle reads as engaged. Ignored by the pause button. */
   setOn(on: boolean): void {
-    this.#on = on
+    this.engaged = on
   }
 
-  override draw(gfx: Gfx2D): void {
-    const s = this.#size
+  override paint(gfx: Canvas): void {
+    const s = this.size
     if (s <= 0) return
     const radius = s * 0.28
-    const fill = this.#on ? ACCENT[1] : withAlpha(COLORS.paper, 0.08)
-    const ink = this.#on ? COLORS.ink : COLORS.paper
+    const fill = this.engaged ? ACCENT[1] : withAlpha(COLORS.paper, 0.08)
+    const ink = this.engaged ? COLORS.ink : COLORS.paper
 
     gfx.fillRoundRect(0, 0, s, s, radius, fill)
     gfx.strokeRoundRect(0, 0, s, s, radius, {
-      color: withAlpha(COLORS.paper, this.#pressed ? 0.5 : 0.22),
+      color: withAlpha(COLORS.paper, this.pressed ? 0.5 : 0.22),
       width: s * 0.05,
     })
 

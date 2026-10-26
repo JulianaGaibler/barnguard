@@ -26,11 +26,11 @@ describe('jezzball gesture classification', () => {
   })
 
   it('accepts slight tilt within tolerance', () => {
-    // ~20° from horizontal → horizontal.
+    // ~20° from horizontal -> horizontal.
     expect(
       classifyGesture({ x: 0, y: 0 }, { x: 100, y: 36 }, OPTS)?.orientation,
     ).toBe('horizontal')
-    // ~75° from horizontal → vertical.
+    // ~75° from horizontal -> vertical.
     expect(
       classifyGesture({ x: 0, y: 0 }, { x: 27, y: 100 }, OPTS)?.orientation,
     ).toBe('vertical')

@@ -8,7 +8,7 @@
  * player can perceive or react to, and the level number keeps climbing as a
  * score multiplier alone.
  */
-import { clamp } from '@src/stargazer'
+import { clamp } from 'stargazer'
 
 /** Lines to clear before the level ticks up. */
 export const LINES_PER_LEVEL = 10

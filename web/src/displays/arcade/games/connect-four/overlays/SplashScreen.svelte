@@ -1,6 +1,6 @@
 <!--
   Connect Four main menu. Thin config over the shared `MenuScreen`: builds the
-  button items (with the "1 Player" → difficulty submenu) + optional running
+  button items (with the "1 Player" -> difficulty submenu) + optional running
   score. The in-engine preview on the right is owned by `ConnectFourGame`.
 -->
 <script lang="ts">

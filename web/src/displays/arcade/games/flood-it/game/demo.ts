@@ -12,7 +12,7 @@
  * Builders read the stage's fixed viewport rather than the primary renderer's
  * pixel size, since the demo canvas is its own surface at its own resolution.
  */
-import { Behavior, Node2D, type EngineHost, type Stage } from '@src/stargazer'
+import { Behavior, Node2D, type EngineHost, type Stage } from 'stargazer'
 import type { DemoHandle } from '@src/displays/arcade/tutorial/types'
 import {
   buildAutoBoard,
@@ -64,7 +64,6 @@ function card(
   decorate?: (root: Node2D, board: AutoBoard, rect: Bounds) => void,
 ): DemoHandle {
   const root = new Node2D('flood-demo')
-  root.renderLayer = 'dynamic'
   stage.tree.root.add(root)
 
   const rect = demoRect(stage)

@@ -205,7 +205,7 @@ mod tests {
         assert!(t.on_failure(base).is_some()); // 1
         assert!(t.on_failure(base).is_some()); // 2
         assert!(t.on_failure(base).is_some()); // 3
-        assert!(t.on_failure(base).is_none()); // 4 > max → give up
+        assert!(t.on_failure(base).is_none()); // 4 > max -> give up
     }
 
     #[test]

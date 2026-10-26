@@ -1,8 +1,9 @@
 import { get } from 'svelte/store'
-import { Node2D, type EngineHost } from '@src/stargazer'
+import { Node2D, type EngineHost } from 'stargazer'
 import { daemonConfig } from '@src/stores/daemonConfig'
 import cloudUrl from '../assets/arcade-cloud.svg?url'
 import { REGION_HEIGHT } from '../world'
+import { BACKGROUND_NODE_ID } from '../games/arcadeBackdrop'
 import { publishSky } from '../uiState'
 import { type SkyPalette } from './palette'
 import {
@@ -45,7 +46,7 @@ export class BackgroundController implements PaletteSource {
   palette: SkyPalette
   version = 0
 
-  readonly #group = new Node2D('background')
+  readonly #group = new Node2D(BACKGROUND_NODE_ID)
   readonly #host: EngineHost
   #timer: ReturnType<typeof setInterval> | null = null
   #lastDrive: number | null = null
@@ -107,7 +108,7 @@ export class BackgroundController implements PaletteSource {
   async build(): Promise<void> {
     const bitmap = await loadCloudBitmap()
 
-    // Draw order (back → front): sky, clouds, ocean. The clouds sit BEHIND the
+    // Draw order (back -> front): sky, clouds, ocean. The clouds sit BEHIND the
     // ocean so they rise from behind the waterline.
     this.#group.add(new SkyGradientNode(this))
 
@@ -141,7 +142,7 @@ export class BackgroundController implements PaletteSource {
       }),
     )
 
-    // Ocean last within the background group → in front of the clouds.
+    // Ocean last within the background group -> in front of the clouds.
     this.#group.add(new OceanNode(this))
 
     // The whole background group is added first to the scene root, so it draws

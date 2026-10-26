@@ -1,4 +1,4 @@
-import { mixColor } from '@src/stargazer'
+import { mixColor } from 'stargazer'
 import type { GameModule } from '../GameModule'
 import ConnectFourGame from './ConnectFourGame.svelte'
 import thumbImage from './assets/thumb.png?url'

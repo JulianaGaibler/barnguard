@@ -9,7 +9,7 @@
  * Released over about a second rather than all at once, so the board rains
  * rather than coughing.
  */
-import { type Gfx2D } from '@src/stargazer'
+import { type Canvas } from 'stargazer'
 import type { Bounds } from '../types'
 import { GOAL, TILE_COLORS } from '../tuning'
 import { ShardNode } from './ShardNode'
@@ -42,12 +42,6 @@ export class GoalRainNode extends ShardNode {
     this.#queued = GOAL.rainCount
     this.#interval = GOAL.rainDurationSec / GOAL.rainCount
     this.#sinceLast = 0
-    this.debugBounds = {
-      x: plate.x - cell,
-      y: plate.y - plate.height * GOAL.rainStartAbove - cell,
-      width: plate.width + cell * 2,
-      height: plate.height + cell * 2,
-    }
   }
 
   override onUpdate(dt: number): void {
@@ -89,7 +83,7 @@ export class GoalRainNode extends ShardNode {
     return this.y[i] > this.#plate.y + this.#plate.height + this.#cell
   }
 
-  protected override drawParticle(gfx: Gfx2D, i: number): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
     this.fillShard(gfx, i, RECT, 4)
   }
 }

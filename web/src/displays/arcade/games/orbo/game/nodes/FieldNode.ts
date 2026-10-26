@@ -6,25 +6,22 @@
  * transition (e.g. red-blue to green's turn to red-green). The edge launch
  * strips stay neutral.
  *
- * Drawn on the dynamic layer (behind the orbs, added first) so the color tween
- * is visible. It's just two `fillRect`s per frame.
+ * Added first so it sits behind the orbs. It paints again while the reveal
+ * moves or a band color tweens.
  */
 import {
   Node2D,
   easings,
+  VersionedRef,
   ignoreAbort,
   parseColor,
   type BitmapMask,
-  type Gfx2D,
-} from '@src/stargazer'
+  type Canvas,
+} from 'stargazer'
 import type { FieldLayout } from '../layout'
+import type { RevealRef } from './RevealRef'
 import type { TeamId } from '../types'
 import { TEAM_COLORS } from '../tuning'
-
-/** Shared, mutable reveal fraction (0 = hidden, 1 = fully open). */
-interface RevealRef {
-  frac: number
-}
 
 // Tint strength over the light (~white) panel, chosen so the scoring bands
 // still read.
@@ -52,6 +49,8 @@ export class FieldNode extends Node2D {
   // leftCenter is Team R's (team 1) band, rightCenter is Team L's (team 0).
   readonly #leftBand = parseHex(TEAM_COLORS[1])
   readonly #rightBand = parseHex(TEAM_COLORS[0])
+  /** Bumped whenever a band color changes, since the bands are tweened in place. */
+  readonly #bands = new VersionedRef<null>(null)
   readonly #layout: FieldLayout
   readonly #reveal: RevealRef
   readonly #mask: BitmapMask
@@ -61,7 +60,6 @@ export class FieldNode extends Node2D {
     this.#layout = layout
     this.#reveal = reveal
     this.#mask = mask
-    this.renderLayer = 'dynamic'
   }
 
   #bandFor(team: TeamId): Rgb {
@@ -72,6 +70,7 @@ export class FieldNode extends Node2D {
   resetColors(): void {
     Object.assign(this.#rightBand, parseHex(TEAM_COLORS[0]))
     Object.assign(this.#leftBand, parseHex(TEAM_COLORS[1]))
+    this.#bands.touch()
   }
 
   /** Retint a team's scoring band to `hex` with a short transition. */
@@ -80,10 +79,15 @@ export class FieldNode extends Node2D {
     void this.tweenTo(this.#bandFor(team), target, {
       duration: RETINT_SEC,
       easing: easings.outCubic,
+      onUpdate: () => {
+        this.#bands.touch()
+      },
     }).catch(ignoreAbort)
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
+    gfx.use(this.#reveal)
+    gfx.use(this.#bands)
     const { width, height, leftStripEnd, centerX, rightStripStart } =
       this.#layout
     const frac = this.#reveal.frac

@@ -1,5 +1,5 @@
 /**
- * Orbo turn state machine. Mirrors the stallwaechter convention:
+ * Orbo turn state machine. Mirrors the enterprise display's convention:
  * `startGame(host)` builds the scene and returns a `GameSession` control
  * surface with a typed event emitter. Ports the reference `_gameLogic.ts`
  * rules, queues, turn rotation with empty-skip, zone processing, and the
@@ -22,7 +22,7 @@ import {
   type Emitter,
   type EngineHost,
   type Rect,
-} from '@src/stargazer'
+} from 'stargazer'
 import { GradientBackgroundNode } from '../../common/GradientBackgroundNode'
 import { Orb } from './Orb'
 import {
@@ -39,6 +39,7 @@ import { FieldNode } from './nodes/FieldNode'
 import { IndicatorNode } from './nodes/IndicatorNode'
 import { ScoringCountNode } from './nodes/ScoringCountNode'
 import { PanelNode } from './nodes/PanelNode'
+import { RevealRef } from './nodes/RevealRef'
 import { FlickController } from './FlickController'
 import {
   ANIM,
@@ -169,7 +170,7 @@ export async function startGame(
   const fieldMask = await createOrboFieldMask(bounds)
   // Reveal fraction (0 = hidden, 1 = full) driving the horizontal clip opening.
   // Shared by reference with the panel + field nodes, tweened on match start.
-  const reveal = { frac: 0 }
+  const reveal = new RevealRef(0)
 
   const orbLayer = new Node2D('orb-layer')
   // orbLayer owns the orbo physics world. Orb nodes are its children with

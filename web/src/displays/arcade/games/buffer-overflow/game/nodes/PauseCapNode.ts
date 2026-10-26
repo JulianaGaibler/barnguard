@@ -9,54 +9,59 @@
 import {
   ButtonBehavior,
   Node2D,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+  definePaintProps,
+  type Canvas,
+} from 'stargazer'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
 import { accentForLevel, COLORS, FRAME } from '../tuning'
 import type { Bounds } from '../types'
 import { drawCap, ruleWidth } from './tui'
 
-const ZERO: Bounds = { x: 0, y: 0, width: 0, height: 0 }
-
 export class PauseCapNode extends Node2D {
-  #rect: Bounds = ZERO
-  #pressed = false
-  #accent = accentForLevel(1)
+  declare width: number
+  declare height: number
+  declare pressed: boolean
+  declare accent: string
 
   constructor(onClick: () => void) {
     super('bo-pause')
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, {
+      width: 0,
+      height: 0,
+      pressed: false,
+      accent: accentForLevel(1),
+    })
     this.addBehavior(
       new ButtonBehavior({
         onClick,
-        onPressedChange: (pressed) => (this.#pressed = pressed),
+        onPressedChange: (pressed) => (this.pressed = pressed),
       }),
     )
   }
 
   setRect(rect: Bounds): void {
-    this.#rect = rect
     this.transform.x = rect.x
     this.transform.y = rect.y
-    this.debugBounds = { x: 0, y: 0, width: rect.width, height: rect.height }
+    this.width = rect.width
+    this.height = rect.height
+    this.boundsOverride = { x: 0, y: 0, width: rect.width, height: rect.height }
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    this.accent = accentForLevel(level)
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const w = this.#rect.width
-    const h = this.#rect.height
+  override paint(gfx: Canvas): void {
+    const w = this.width
+    const h = this.height
     if (w <= 0 || h <= 0) return
     const ink = drawCap(
       gfx,
       { x: 0, y: 0, width: w, height: h },
       {
-        rule: this.#accent,
-        width: ruleWidth(gfx, FRAME.capRulePx, camera.strokeSpaceScale()),
-        pressed: this.#pressed,
+        rule: this.accent,
+        width: ruleWidth(gfx, FRAME.capRulePx),
+        pressed: this.pressed,
         ink: COLORS.ink,
         pressedInk: COLORS.inkDark,
         fill: COLORS.pane,

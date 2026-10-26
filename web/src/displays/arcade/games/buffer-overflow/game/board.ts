@@ -21,11 +21,17 @@ export const TOTAL_ROWS = VISIBLE_ROWS + HIDDEN_ROWS
 /** First row the player can see. Everything above it is the spawn band. */
 export const VISIBLE_TOP = HIDDEN_ROWS
 
-/** A buffer. `cells` is row-major over {@link TOTAL_ROWS} by {@link COLS}. */
+/**
+ * A buffer. `cells` is row-major over {@link TOTAL_ROWS} by {@link COLS}.
+ *
+ * `version` goes up with every write, so a node that painted the cells knows
+ * when to paint them again. Anything that writes `cells` directly bumps it.
+ */
 export interface Buffer {
   cols: number
   rows: number
   cells: Cell[]
+  version: number
 }
 
 /**
@@ -41,6 +47,7 @@ export function createBuffer(cols = COLS, rows = TOTAL_ROWS): Buffer {
     cols,
     rows,
     cells: new Array<Cell>(cols * rows).fill(null),
+    version: 0,
   }
 }
 
@@ -52,6 +59,7 @@ export function visibleRows(b: Buffer): number {
 /** Empty every cell, reusing the array so a restart allocates nothing. */
 export function clearBuffer(b: Buffer): void {
   b.cells.fill(null)
+  b.version++
 }
 
 export function cellAt(b: Buffer, x: number, y: number): Cell {
@@ -100,6 +108,7 @@ export function lockPiece(
     if (cx < 0 || cx >= b.cols || cy < 0 || cy >= b.rows) continue
     b.cells[cy * b.cols + cx] = kind
   }
+  b.version++
 }
 
 /** Indices of every full row, top to bottom. */
@@ -127,6 +136,7 @@ export function fullRows(b: Buffer): number[] {
  */
 export function clearRows(b: Buffer, rows: readonly number[]): void {
   if (rows.length === 0) return
+  b.version++
   const doomed = new Set(rows)
   let write = b.rows - 1
   for (let read = b.rows - 1; read >= 0; read--) {

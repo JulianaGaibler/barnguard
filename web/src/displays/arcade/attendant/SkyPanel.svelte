@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { DebugSection, DebugSlider } from '@src/stargazer/debug/ui'
+  import { DebugSection, DebugSlider } from 'stargazer/debug-ui'
   import { daemonConfig } from '@src/stores/daemonConfig'
   import { locationFromConfig, zonedClockMinutes } from '../background/dayCycle'
   import { skyTimeOverride } from '../uiState'

@@ -9,8 +9,9 @@
     domAnchor,
     type EngineHost,
     type Rect,
-  } from '@src/stargazer'
-  import DebugHud from '@src/stargazer/debug/DebugHud.svelte'
+  } from 'stargazer'
+  import { DebugHud } from 'stargazer/debug-ui'
+  import { stopGameHandle } from '@src/stores/gameSelection'
   import {
     debugHudVisible,
     setDebugHudVisible,
@@ -28,13 +29,14 @@
   import Launcher from './launcher/Launcher.svelte'
   import { browseState } from './launcher/browseState.svelte'
   import ReturnToLauncherOverlay from './ReturnToLauncherOverlay.svelte'
-  import IdleNotice from './IdleNotice.svelte'
-  import { IDLE_POLL_MS, isExpired, isWarning } from './idle'
+  import IdleNotice from '@src/core/ui/IdleNotice.svelte'
+  import RobotIcon from './RobotIcon.svelte'
+  import { t } from './i18n'
+  import { IDLE_POLL_MS, IDLE_WARN_MS, isExpired, isWarning } from './idle'
   import { runExitTasks } from './exitTasks'
   import { msSinceInput, pokeActivity } from '@src/core/activity'
   import { fontScope, themeScope } from '@src/core/ui/themeScope'
   import { invalidateTextOnFontLoad } from '@src/core/fonts'
-  import { applyTheme } from '@src/core/theme'
   import { daemonConfig } from '@src/stores/daemonConfig'
   import { arcadeNightPalette, arcadeTheme } from './theme'
   import { rgbaStr } from './background/palette'
@@ -46,7 +48,7 @@
     zonedMinutesToEpochMs,
     zonedWallClockToEpochMs,
   } from './background/dayCycle'
-  import { skyIsDark, skyTimeOverride, skyTopColor } from './uiState'
+  import { skyIsDark, skyTimeOverride } from './uiState'
   import type { GameModule } from './games/GameModule'
   import { ArcadeCamera } from './games/arcadeCamera'
   import { ArcadeBackdrop } from './games/arcadeBackdrop'
@@ -204,7 +206,7 @@
       const lr = launcherVisibleRect(px.w, px.h)
       anchor.transform.x = lr.x
       anchor.transform.y = lr.y
-      anchor.debugBounds = { x: 0, y: 0, width: lr.width, height: lr.height }
+      anchor.boundsOverride = { x: 0, y: 0, width: lr.width, height: lr.height }
       h.engine.tree.root.add(anchor)
       launcherAnchor = anchor
       launcherRect = lr
@@ -273,7 +275,7 @@
 
   // Mirror the booth-menu debug toggle into the engine's debug controller, and
   // reflect keyboard (Y) toggles back so the menu label stays in sync, the
-  // same two-way wiring stallwaechter uses.
+  // same two-way wiring the enterprise display uses.
   $effect(() => {
     if (!host) return
     host.debug.setHudVisible($debugHudVisible)
@@ -303,16 +305,6 @@
     )
   })
 
-  // Mirror the sky into the DOM surfaces that are sky. Spreading `arcadeTheme`
-  // keeps every other role present, since `applyPalette` only ever sets custom
-  // properties and never removes one a previous theme left behind.
-  $effect(() => {
-    applyTheme({
-      ...arcadeTheme,
-      cover: { ...arcadeTheme.cover, backgroundColor: $skyTopColor },
-    })
-  })
-
   // Return the booth to its opening state once the visitor in front of it has
   // gone. In a game that means quitting, and `browseState` has already expired
   // by then, so the launcher comes back clean on its own. On the launcher the
@@ -328,6 +320,15 @@
       else launcher?.reset()
     }, IDLE_POLL_MS)
     return () => clearInterval(id)
+  })
+
+  // The booth menu's "Stop game" quits the game in front of the booth, the
+  // same way the game's own exit does. It is offered only while a game shows,
+  // since a pan in flight has to finish before another can start.
+  $effect(() => {
+    if (screen !== 'ingame') return
+    stopGameHandle.set(() => void exit())
+    return () => stopGameHandle.set(null)
   })
 
   async function exit(): Promise<void> {
@@ -349,7 +350,7 @@
     // a slow daemon costs nothing anyone can see.
     const flushed = runExitTasks()
     // Pan back to the launcher: the game's overlays slide out and cull, the
-    // launcher slides back in. Unmount the game (→ session.destroy()) only once
+    // launcher slides back in. Unmount the game (-> session.destroy()) only once
     // the camera has left the game region.
     await panCamera(launcherView())
     await flushed
@@ -434,7 +435,13 @@
     onConfirm={exit}
   />
 
-  <IdleNotice visible={idleWarning} />
+  <IdleNotice
+    visible={idleWarning}
+    message={$t.arcade.idle.returningToLauncher}
+    durationMs={IDLE_WARN_MS}
+  >
+    {#snippet icon()}<RobotIcon size={20} />{/snippet}
+  </IdleNotice>
 </main>
 
 {#if host}

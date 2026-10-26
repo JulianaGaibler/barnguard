@@ -14,12 +14,7 @@
  * seat drops the stamp and keeps the label, because which event fired is the
  * information and when it fired is not.
  */
-import {
-  Node2D,
-  textAdvance,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import {
   formatEntry,
@@ -30,7 +25,7 @@ import {
 import { textFloor } from '../layout'
 import { accentForLevel, ANIM, COLORS } from '../tuning'
 import type { Bounds } from '../types'
-import { capBaseline } from './tui'
+import { capBaseline, sameBounds } from './tui'
 
 const ZERO: Bounds = { x: 0, y: 0, width: 0, height: 0 }
 
@@ -50,27 +45,35 @@ export class EventLogNode extends Node2D {
 
   constructor() {
     super('bo-log')
-    this.renderLayer = 'dynamic'
   }
 
   setCaption(caption: string): void {
+    if (caption === this.#caption) return
     this.#caption = caption
+    this.markNeedsPaint()
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
   /** How many rows the ladder left room for. Zero hides the section. */
   setRows(rows: number): void {
-    this.#rows = Math.max(0, rows)
+    const count = Math.max(0, rows)
+    if (count === this.#rows) return
+    this.#rows = count
     this.#log = this.#log.slice(-Math.max(1, this.#rows))
+    this.markNeedsPaint()
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    const accent = accentForLevel(level)
+    if (accent === this.#accent) return
+    this.#accent = accent
+    this.markNeedsPaint()
   }
 
   /** Seconds this run has been going, which is what stamps a row. */
@@ -86,25 +89,29 @@ export class EventLogNode extends Node2D {
       this.#rows,
     )
     this.#freshT = 0
+    this.markNeedsPaint()
   }
 
   reset(): void {
     this.#log = []
     this.#elapsed = 0
     this.#freshT = 1
+    this.markNeedsPaint()
   }
 
+  /** The newest row fades in over a few frames, and nothing else is timed. */
   override onUpdate(dt: number): void {
     this.#elapsed += dt
     if (this.#freshT < 1) {
       this.#freshT = Math.min(1, this.#freshT + dt / ANIM.scoreCount)
+      this.markNeedsPaint()
     }
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0 || this.#rows <= 0) return
-    const scale = camera.strokeSpaceScale()
+    const scale = gfx.screenScale()
     const size = Math.max(textFloor(scale), this.#cell * 0.36)
     const capFont = font(400, size)
     const band = size * 1.7

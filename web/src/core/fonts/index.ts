@@ -13,28 +13,35 @@
  * covers the failure path where a face misses the deadline and turns up later.
  */
 
-import { clearFontMetricsCache, clearTextLayoutCaches } from '@src/stargazer'
-import type { Engine } from '@src/stargazer'
+import { clearFontMetricsCache, clearTextLayoutCaches } from 'stargazer'
+import type { Engine } from 'stargazer'
 
 /**
- * One spec per shipped (family, weight). Size is irrelevant to `fonts.load` —
- * it just has to parse as a font shorthand.
+ * One spec per (family, weight) every display ships. Size is irrelevant to
+ * `fonts.load` — it just has to parse as a font shorthand.
  *
  * Kept in step with the `@font-face` blocks in `styles/fonts.scss`; a face
  * missing from here simply is not waited for.
  */
 export const BOOT_FONT_SPECS: readonly string[] = [
+  // Variable faces: one spec is enough, the whole file downloads either way.
   '400 16px "Mozilla Text"',
-  '500 16px "Mozilla Text"',
-  '700 16px "Mozilla Text"',
   '600 16px "Mozilla Headline"',
   '700 16px "Mozilla Headline Extended"',
-  // Variable faces: one spec is enough, the whole file downloads either way.
-  '400 16px "Azeret Mono"',
-  '400 16px "Geist"',
+  '600 16px "Mozilla Headline Condensed"',
   '400 16px "HK Grotesk"',
   '500 16px "HK Grotesk"',
   '700 16px "HK Grotesk"',
+]
+
+/**
+ * The same for the faces in `styles/fonts-extra.scss`, which only a display
+ * that imports `core/fonts/extra` loads. That module hands these on, so import
+ * them from there, never from here, or the sheet is left behind.
+ */
+export const EXTRA_FONT_SPECS: readonly string[] = [
+  '400 16px "Azeret Mono"',
+  '400 16px "Geist"',
   '400 16px "Bungee"',
   '400 16px "Raleway"',
   '400 16px "Sniglet"',
@@ -46,7 +53,8 @@ const canUseFontFaceSet = (): boolean =>
   typeof document !== 'undefined' && !!document.fonts
 
 /**
- * Download every shipped face and wait for it to settle.
+ * Download the faces every display ships, plus `extra`, and wait for them to
+ * settle.
  *
  * A CSS `@font-face` is fetched lazily on first USE, so awaiting
  * `document.fonts.ready` on its own resolves immediately at boot and guarantees
@@ -56,12 +64,15 @@ const canUseFontFaceSet = (): boolean =>
  * that stalls must degrade to fallback glyphs, not brick the kiosk on a black
  * screen.
  */
-export async function preloadFonts(timeoutMs = 2500): Promise<void> {
+export async function preloadFonts(
+  extra: readonly string[] = [],
+  timeoutMs = 2500,
+): Promise<void> {
   if (!canUseFontFaceSet()) return
 
   const settle = (async () => {
     await Promise.all(
-      BOOT_FONT_SPECS.map((spec) =>
+      [...BOOT_FONT_SPECS, ...extra].map((spec) =>
         document.fonts.load(spec).catch((err: unknown) => {
           console.warn(`[fonts] failed to load ${spec}:`, err)
         }),

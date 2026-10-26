@@ -9,20 +9,22 @@
  * weight, which is the whole typographic system: what a thing is recedes, what
  * it says comes forward.
  */
-import {
-  Node2D,
-  textAdvance,
-  withAlpha,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+import { Node2D, textAdvance, withAlpha, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { formatClock, isUrgent, START_SECONDS } from '../countdown'
 import { textFloor } from '../layout'
 import { accentForLevel, ANIM, COLORS, FRAME } from '../tuning'
 import type { Bounds, PieceKind } from '../types'
 import { drawPieceCentered } from './cells'
-import { capBaseline, drawMeter, drawRun, ruleWidth, withGlow } from './tui'
+import {
+  capBaseline,
+  drawMeter,
+  drawRun,
+  meterCells,
+  ruleWidth,
+  sameBounds,
+  withGlow,
+} from './tui'
 
 const ZERO: Bounds = { x: 0, y: 0, width: 0, height: 0 }
 
@@ -34,13 +36,12 @@ const CLOCK_CELLS = 18
 
 /** A section's caption, and the rect left under it for the content. */
 function drawCaption(
-  gfx: Gfx2D,
+  gfx: Canvas,
   rect: Bounds,
-  scale: number,
   cell: number,
   caption: string,
 ): Bounds {
-  const size = Math.max(textFloor(scale), cell * 0.36)
+  const size = Math.max(textFloor(gfx.screenScale()), cell * 0.36)
   const band = size * 1.7
   gfx.fillText(
     caption,
@@ -71,34 +72,32 @@ export class HoldPanelNode extends Node2D {
 
   constructor() {
     super('bo-hold')
-    this.renderLayer = 'dynamic'
   }
 
   setCaption(caption: string): void {
+    if (caption === this.#caption) return
     this.#caption = caption
+    this.markNeedsPaint()
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
   set(kind: PieceKind | null, spent: boolean): void {
+    if (kind === this.#kind && spent === this.#spent) return
     this.#kind = kind
     this.#spent = spent
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
-    const body = drawCaption(
-      gfx,
-      r,
-      camera.strokeSpaceScale(),
-      this.#cell,
-      this.#caption,
-    )
+    const body = drawCaption(gfx, r, this.#cell, this.#caption)
     if (!this.#kind) return
     // Spent dims the piece rather than hiding it, so the player can still see
     // what is waiting there for the next piece.
@@ -132,33 +131,42 @@ export class NextQueueNode extends Node2D {
 
   constructor() {
     super('bo-next')
-    this.renderLayer = 'dynamic'
   }
 
   setCaption(caption: string): void {
+    if (caption === this.#caption) return
     this.#caption = caption
+    this.markNeedsPaint()
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
   /** How many rows the ladder left room for. */
   setCount(count: number): void {
-    this.#count = Math.max(1, count)
+    const rows = Math.max(1, count)
+    if (rows === this.#count) return
+    this.#count = rows
+    this.markNeedsPaint()
   }
 
   set(queue: readonly PieceKind[]): void {
-    this.#queue = queue
+    const old = this.#queue
+    if (old.length === queue.length && old.every((k, i) => k === queue[i]))
+      return
+    this.#queue = [...queue]
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
-    const scale = camera.strokeSpaceScale()
-    const body = drawCaption(gfx, r, scale, this.#cell, this.#caption)
+    const scale = gfx.screenScale()
+    const body = drawCaption(gfx, r, this.#cell, this.#caption)
     const shown = Math.min(this.#count, this.#queue.length)
     if (shown <= 0 || body.height <= 0) return
 
@@ -221,25 +229,42 @@ export class ClockNode extends Node2D {
 
   constructor() {
     super('bo-clock')
-    this.renderLayer = 'dynamic'
   }
 
   setCaption(caption: string): void {
+    if (caption === this.#caption) return
     this.#caption = caption
+    this.markNeedsPaint()
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
+  /**
+   * The clock drains continuously, but only the digits, the lit cell count and
+   * the urgent state are drawn, so the picture only changes when one of those
+   * does.
+   */
   setRemaining(seconds: number): void {
+    const old = this.#remaining
     this.#remaining = seconds
+    const same =
+      formatClock(seconds) === formatClock(old) &&
+      meterCells(seconds, START_SECONDS, CLOCK_CELLS) ===
+        meterCells(old, START_SECONDS, CLOCK_CELLS) &&
+      isUrgent(seconds) === isUrgent(old)
+    if (!same) this.markNeedsPaint()
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    const accent = accentForLevel(level)
+    if (accent === this.#accent) return
+    this.#accent = accent
+    this.markNeedsPaint()
   }
 
   /** A clear just bought `seconds`, which floats up off the meter. */
@@ -247,22 +272,25 @@ export class ClockNode extends Node2D {
     if (seconds <= 0) return
     this.#grant = seconds
     this.#grantT = 0
+    this.markNeedsPaint()
   }
 
+  /** The grant floats up and fades over a few frames, and nothing else is timed. */
   override onUpdate(dt: number): void {
     if (this.#grantT < 1) {
       this.#grantT = Math.min(
         1,
         this.#grantT + dt / (ANIM.banner + ANIM.bannerHold),
       )
+      this.markNeedsPaint()
     }
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
-    const scale = camera.strokeSpaceScale()
-    const rule = ruleWidth(gfx, FRAME.rulePx, scale)
+    const scale = gfx.screenScale()
+    const rule = ruleWidth(gfx, FRAME.rulePx)
     const urgent = isUrgent(this.#remaining)
     const lit = urgent ? COLORS.ink : this.#accent
 
@@ -315,7 +343,7 @@ export class ClockNode extends Node2D {
     if (this.#grantT < 1) this.#drawGrant(gfx, r, valueFont, lit)
   }
 
-  #drawGrant(gfx: Gfx2D, r: Bounds, valueFont: string, color: string): void {
+  #drawGrant(gfx: Canvas, r: Bounds, valueFont: string, color: string): void {
     const fade = 1 - this.#grantT
     gfx.setAlpha(fade * fade)
     gfx.fillText(

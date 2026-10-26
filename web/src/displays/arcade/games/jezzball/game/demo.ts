@@ -19,9 +19,10 @@ import {
   TextNode,
   easings,
   type Stage,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { DemoBuilder } from '@src/displays/arcade/tutorial/types'
 import {
+  clearGrid,
   createGrid,
   captureEmptyRegions,
   markWallSpan,
@@ -40,7 +41,6 @@ import {
   timeBonus,
 } from './scoring'
 import {
-  CELL_OPEN,
   type Bounds,
   type CellRef,
   type Orientation,
@@ -180,7 +180,6 @@ function spawnDemoBalls(
       geometry: { kind: 'circle', radius },
       fill: COLORS.ink,
     })
-    node.renderLayer = 'dynamic'
     node.transform.x = d.geom.x + d.geom.width * xFrac
     node.transform.y = d.geom.y + d.geom.height * yFrac
     d.wallLayer.add(node)
@@ -234,7 +233,6 @@ function makeFingerDot(x: number, y: number, radius: number): ShapeNode {
     geometry: { kind: 'circle', radius },
     fill: COLORS.ink,
   })
-  dot.renderLayer = 'dynamic'
   dot.transform.x = x
   dot.transform.y = y
   dot.transform.alpha = 0
@@ -348,7 +346,7 @@ class WallGrowLoop extends Behavior {
       if (!seg.node.isDestroyed) seg.node.destroy()
     }
     this.#segments = []
-    this.#d.grid.cells.fill(CELL_OPEN)
+    clearGrid(this.#d.grid)
     this.#d.field.snapRevealed()
     this.#phase = 'gap'
     this.#timer = 0
@@ -458,7 +456,7 @@ class CaptureLoop extends Behavior {
       if (!seg.node.isDestroyed) seg.node.destroy()
     }
     this.#segments = []
-    this.#d.grid.cells.fill(CELL_OPEN)
+    clearGrid(this.#d.grid)
     this.#d.field.snapRevealed()
     this.#phase = 'gap'
     this.#timer = 0
@@ -607,7 +605,7 @@ class DestroyLoop extends Behavior {
       if (!node.isDestroyed) node.destroy()
     }
     this.#solidNodes = []
-    this.#d.grid.cells.fill(CELL_OPEN)
+    clearGrid(this.#d.grid)
     this.#d.field.snapRevealed()
     this.#segments = spawnSegments(
       this.#d.wallLayer,
@@ -677,8 +675,7 @@ function tallyBreakdown(): ScoreBreakdown {
 
 /**
  * One line of the tally: a label and a right-aligned figure in one group, so a
- * single transform slides both. Alpha does not cascade through the 2D render
- * walk, so the reveal sets it on each text node separately.
+ * single transform slides both. The reveal sets alpha on each text node.
  */
 interface TallyRow {
   group: Node2D

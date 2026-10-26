@@ -2,34 +2,33 @@
  * The big countdown digit/GO text, engine port of the `.count` overlay, fading
  * in/out over 120ms exactly like the original `transition:fade`.
  */
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { COLORS } from '../tuning'
 import { headingFont } from '../../fonts'
 
 const FADE_SEC = 0.12
 
 export class CountdownNode extends Node2D {
-  #label = ''
+  declare label: string
   #visible = false
 
   constructor() {
     super('jb-countdown')
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, { label: '' })
     this.transform.alpha = 0
   }
 
   /** Set the label. `null` (or empty) hides (fades out) the node. */
   setLabel(label: string | null): void {
-    if (label) this.#label = label
+    if (label) this.label = label
     const shown = !!label
     if (shown === this.#visible) return
     this.#visible = shown
     this.play({ alpha: shown ? 1 : 0 }, { duration: FADE_SEC })
   }
 
-  override draw(gfx: Gfx2D): void {
-    if (this.transform.alpha <= 0) return
-    gfx.fillText(this.#label, 0, 0, {
+  override paint(gfx: Canvas): void {
+    gfx.fillText(this.label, 0, 0, {
       font: headingFont(900, 144),
       align: 'center',
       baseline: 'middle',

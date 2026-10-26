@@ -2,10 +2,9 @@ import {
   Node2D,
   registerPathTessellation,
   tessellateContours,
-  type CameraView2D,
-  type Gfx2D,
+  type Canvas,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 
 export interface PacketSpawnConvergeOptions {
   center: Vec2
@@ -26,9 +25,9 @@ export interface PacketSpawnConvergeOptions {
   /** Peak world-space size at end of life. Particles start at scale 0. */
   sizeMaxWorld: number
   /**
-   * Fraction of life spent ramping alpha 0 → 1. Remainder is a quick fade to 0.
-   * So the particle starts invisible, becomes progressively more opaque as it
-   * moves inward, then briefly dips out at the end.
+   * Fraction of life spent ramping alpha 0 -> 1. Remainder is a quick fade to
+   * 0. So the particle starts invisible, becomes progressively more opaque as
+   * it moves inward, then briefly dips out at the end.
    */
   alphaGrowFraction: number
   color: string
@@ -41,14 +40,15 @@ export interface PacketSpawnConvergeOptions {
  * 1. Spawns at a random angle on the ring (`ringRadiusWorld` from centre) at scale
  *    0, alpha 0.
  * 2. Eases inward (quadratic) toward `ringRadiusWorld * radiusEndFraction`.
- * 3. Grows linearly from scale 0 → `sizeMaxWorld`.
- * 4. Alpha ramps from 0 → 1 over the first `alphaGrowFraction` of its life, then
+ * 3. Grows linearly from scale 0 -> `sizeMaxWorld`.
+ * 4. Alpha ramps from 0 -> 1 over the first `alphaGrowFraction` of its life, then
  *    quick-fades to 0 for the remainder.
  * 5. Dies before reaching the centre, the packet's own grow tween owns the middle
  *    of the animation.
  *
  * Emission stops after `spawnDurationSec`. Remaining live particles finish
- * their lives, then the node self-destroys. Storage is a fixed pool of
+ * their lives, then the node self-destroys. Live particles move every frame, so
+ * the node repaints every frame until then. Storage is a fixed pool of
  * `Float32Array` + `Uint8Array`, no per-frame allocations.
  */
 export class PacketSpawnConvergeNode extends Node2D {
@@ -124,6 +124,9 @@ export class PacketSpawnConvergeNode extends Node2D {
       }
     }
 
+    // Every live particle moves each frame, so the picture is rebuilt.
+    if (this.#aliveCount > 0) this.markNeedsPaint()
+
     // Self-destroy once emission has ended AND no particles remain alive.
     if (
       this.#elapsedSec >= this.#spawnDuration &&
@@ -157,7 +160,7 @@ export class PacketSpawnConvergeNode extends Node2D {
     this.#aliveCount++
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(canvas: Canvas): void {
     const cap = this.#capacity
     const rStart = this.#ringRadius
     const rEnd = this.#ringRadius * this.#radiusEndFraction
@@ -182,12 +185,12 @@ export class PacketSpawnConvergeNode extends Node2D {
       const a = this.#angle[i]
       const x = Math.cos(a) * r
       const y = Math.sin(a) * r
-      gfx.save()
-      gfx.setAlpha(alpha)
-      gfx.translate(x, y)
-      gfx.scale(size, size)
-      gfx.fillPath2D(this.#hexPath, color)
-      gfx.restore()
+      canvas.save()
+      canvas.setAlpha(alpha)
+      canvas.translate(x, y)
+      canvas.scale(size, size)
+      canvas.fillPath2D(this.#hexPath, color)
+      canvas.restore()
     }
   }
 }

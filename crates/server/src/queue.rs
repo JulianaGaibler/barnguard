@@ -33,6 +33,9 @@ pub struct QueueStore {
     /// evicted from `recent`.
     jpegs: HashMap<Uuid, Arc<Vec<u8>>>,
     printer: PrinterStatus,
+    /// Set when the active job is asked to stop. The worker reads it and
+    /// abandons the job. Reset whenever a job becomes active.
+    cancel_active: bool,
     /// Connection telemetry, surfaced in the published status.
     failed_attempts: u32,
     unreachable_since_ms: Option<u64>,
@@ -46,6 +49,7 @@ impl QueueStore {
             recent: VecDeque::new(),
             jpegs: HashMap::new(),
             printer,
+            cancel_active: false,
             failed_attempts: 0,
             unreachable_since_ms: None,
         }
@@ -84,8 +88,10 @@ impl QueueStore {
 /// Outcome of a cancel request.
 #[derive(Debug, PartialEq, Eq)]
 pub enum CancelOutcome {
+    /// A queued job, canceled on the spot.
     Canceled,
-    AlreadyActive,
+    /// The active job. The worker abandons it and publishes it as canceled.
+    Canceling,
     NotFound,
 }
 
@@ -103,6 +109,8 @@ pub struct QueueController {
     events: EventHub,
     log: LogHub,
     notify: Arc<Notify>,
+    /// Wakes the worker when the active job is canceled.
+    cancel_notify: Arc<Notify>,
 }
 
 impl QueueController {
@@ -112,6 +120,7 @@ impl QueueController {
             events,
             log,
             notify: Arc::new(Notify::new()),
+            cancel_notify: Arc::new(Notify::new()),
         }
     }
 
@@ -156,7 +165,9 @@ impl QueueController {
             self.events.publish(ServerEvent::Queue(s.snapshot()));
             CancelOutcome::Canceled
         } else if s.active.as_ref().map(|j| j.id) == Some(id) {
-            CancelOutcome::AlreadyActive
+            s.cancel_active = true;
+            self.cancel_notify.notify_waiters();
+            CancelOutcome::Canceling
         } else {
             CancelOutcome::NotFound
         }
@@ -246,8 +257,24 @@ impl QueueController {
             return None;
         };
         s.active = Some(job.clone());
+        s.cancel_active = false;
         self.events.publish(ServerEvent::Queue(s.snapshot()));
         Some((job, jpeg))
+    }
+
+    /// Resolves once the active job has been asked to stop.
+    async fn active_canceled(&self) {
+        loop {
+            let notified = self.cancel_notify.notified();
+            tokio::pin!(notified);
+            // Register before reading the flag, so a cancel landing between
+            // the two still wakes this waiter.
+            notified.as_mut().enable();
+            if self.lock().cancel_active {
+                return;
+            }
+            notified.await;
+        }
     }
 
     fn set_active_state(&self, state: JobState) {
@@ -475,8 +502,32 @@ async fn keepalive(
     }
 }
 
-/// Run one job through the full FSM, applying the retry policy.
+/// Run one job through the full FSM, applying the retry policy, until it ends
+/// or an attendant cancels it.
+///
+/// A canceled job is dropped wherever it stands, including a wait on a held
+/// label. What the printer already received may still print. The connection is
+/// closed so the next job starts on a fresh one.
 async fn process_job(
+    backend: &mut Box<dyn PrinterBackend>,
+    controller: &QueueController,
+    cfg: &WorkerConfig,
+    jpeg: Arc<Vec<u8>>,
+) {
+    let canceled = tokio::select! {
+        _ = controller.active_canceled() => true,
+        _ = attempt_job(backend, controller, cfg, jpeg) => false,
+    };
+    if canceled {
+        let _ = backend.close_for_cut().await;
+        controller
+            .log()
+            .info("print", "active print canceled by attendant");
+        controller.finish_active(JobState::Canceled, None, None);
+    }
+}
+
+async fn attempt_job(
     backend: &mut Box<dyn PrinterBackend>,
     controller: &QueueController,
     cfg: &WorkerConfig,

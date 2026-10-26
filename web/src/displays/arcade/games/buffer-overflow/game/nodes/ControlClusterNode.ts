@@ -23,9 +23,9 @@
 import {
   HoldButtonBehavior,
   Node2D,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+  definePaintProps,
+  type Canvas,
+} from 'stargazer'
 import { computeControlRects, type ControlId } from '../layout'
 import { accentForLevel, COLORS, DAS, FRAME } from '../tuning'
 import type { Action, Bounds } from '../types'
@@ -56,15 +56,21 @@ export interface ControlCallbacks {
 }
 
 class ControlButtonNode extends Node2D {
-  #rect: Bounds = { x: 0, y: 0, width: 0, height: 0 }
-  #pressed = false
-  #accent = accentForLevel(1)
+  declare width: number
+  declare height: number
+  declare pressed: boolean
+  declare accent: string
   readonly id: ControlId
 
   constructor(spec: ControlSpec, cb: ControlCallbacks) {
     super(`bo-control-${spec.id}`)
     this.id = spec.id
-    this.renderLayer = 'dynamic'
+    definePaintProps(this, {
+      width: 0,
+      height: 0,
+      pressed: false,
+      accent: accentForLevel(1),
+    })
     this.addBehavior(
       new HoldButtonBehavior({
         onPress: () => {
@@ -75,7 +81,7 @@ class ControlButtonNode extends Node2D {
           : undefined,
         enabled: cb.enabled,
         onPressedChange: (pressed) => {
-          this.#pressed = pressed
+          this.pressed = pressed
           if (spec.id === 'softDrop') cb.onSoftDrop(pressed)
         },
       }),
@@ -83,14 +89,15 @@ class ControlButtonNode extends Node2D {
   }
 
   setRect(rect: Bounds): void {
-    this.#rect = rect
     this.transform.x = rect.x
     this.transform.y = rect.y
-    this.debugBounds = { x: 0, y: 0, width: rect.width, height: rect.height }
+    this.width = rect.width
+    this.height = rect.height
+    this.boundsOverride = { x: 0, y: 0, width: rect.width, height: rect.height }
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    this.accent = accentForLevel(level)
   }
 
   /**
@@ -103,9 +110,9 @@ class ControlButtonNode extends Node2D {
     return super.hitTest(worldX, worldY, 0)
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
-    const w = this.#rect.width
-    const h = this.#rect.height
+  override paint(gfx: Canvas): void {
+    const w = this.width
+    const h = this.height
     if (w <= 0 || h <= 0) return
 
     // Pressing inverts the cap rather than sinking it. At arm's length a solid
@@ -115,9 +122,9 @@ class ControlButtonNode extends Node2D {
       gfx,
       { x: 0, y: 0, width: w, height: h },
       {
-        rule: this.#accent,
-        width: ruleWidth(gfx, FRAME.capRulePx, camera.strokeSpaceScale()),
-        pressed: this.#pressed,
+        rule: this.accent,
+        width: ruleWidth(gfx, FRAME.capRulePx),
+        pressed: this.pressed,
         // The one action that cannot be undone takes a doubled rule rather than
         // a filled face, so it reads as the heaviest control without becoming a
         // second pressed state.
@@ -127,15 +134,7 @@ class ControlButtonNode extends Node2D {
         fill: COLORS.pane,
       },
     )
-    drawGlyph(
-      gfx,
-      this.id,
-      w / 2,
-      h / 2,
-      Math.min(w, h),
-      camera.strokeSpaceScale(),
-      ink,
-    )
+    drawGlyph(gfx, this.id, w / 2, h / 2, Math.min(w, h), ink)
   }
 }
 
@@ -194,17 +193,16 @@ const GLYPH_PATHS: Record<ControlId, readonly (readonly number[])[]> = {
 }
 
 function drawGlyph(
-  gfx: Gfx2D,
+  gfx: Canvas,
   id: ControlId,
   cx: number,
   cy: number,
   cap: number,
-  scale: number,
   ink: string,
 ): void {
   // Clamped only so a cap smaller than the mark does not have the mark hanging
   // out of it. At every size the game actually draws, the constant wins.
-  const box = Math.min(GLYPH_CSS_PX * scale, cap * 0.8)
+  const box = Math.min(GLYPH_CSS_PX * gfx.screenScale(), cap * 0.8)
   const unit = box / GLYPH_BOX
   const style = {
     color: ink,
@@ -217,17 +215,9 @@ function drawGlyph(
   gfx.translate(cx - box / 2, cy - box / 2)
   gfx.scale(unit, unit)
   for (const path of GLYPH_PATHS[id]) {
-    gfx.strokePolyline(scratch(path), path.length / 2, style)
+    gfx.strokePolyline(path, path.length / 2, style)
   }
   gfx.restore()
-}
-
-/** One reused buffer, so a frame of six marks allocates nothing. */
-const points = new Float32Array(16)
-
-function scratch(path: readonly number[]): Float32Array {
-  for (let i = 0; i < path.length; i++) points[i] = path[i]
-  return points
 }
 
 /**

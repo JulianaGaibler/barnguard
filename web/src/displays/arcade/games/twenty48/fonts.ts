@@ -29,8 +29,9 @@ export const font = (weight: number, size: number): string =>
 /**
  * The tile numerals and the display moments.
  *
- * Mozilla Headline Extended ships weight 700 only, so `fontFor` snaps anything
- * heavier down to it rather than letting the browser synthesise a fake bold.
+ * Mozilla Headline Extended covers weights 200 to 700, so `fontFor` clamps
+ * anything heavier down to 700 rather than letting the browser synthesise a
+ * fake bold.
  */
 export const headingFont = (weight: number, size: number): string =>
   fontFor(TWENTY48_FONTS, 'heading', weight, size)

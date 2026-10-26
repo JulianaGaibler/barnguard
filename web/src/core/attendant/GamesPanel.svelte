@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayName } from '@src/core/leaderboard/displayName'
   import { get } from 'svelte/store'
   import { t } from '@src/i18n'
   import {
@@ -8,7 +9,7 @@
   } from '@src/core/game-log/gameLogClient'
   import { enqueuePrint, printerLive } from '@src/core/print/printerClient'
   import { activeDisplay } from '@src/core/display'
-  import { DebugSection, DraggableWindow } from '@src/stargazer/debug/ui'
+  import { DebugSection, DraggableWindow } from 'stargazer/debug-ui'
   import ConfirmButton, {
     createConfirmCoordinator,
   } from '@src/core/ui/ConfirmButton.svelte'
@@ -22,8 +23,8 @@
   let page = $state(0) // 0-indexed
 
   // The log holds every display's games. Only show the currently active
-  // display's own games here (arcade sees only arcade games, stallwaechter
-  // only stallwaechter games, etc).
+  // display's own games here (arcade sees only arcade games, enterprise
+  // only enterprise games, etc).
   const displayGames = $derived(
     $gamesLive.games.filter((g) => g.display === $activeDisplay?.id),
   )
@@ -113,7 +114,7 @@
             {/if}
             {#if summary?.playerName}
               <span class="game-player" title="Saved to the leaderboard as">
-                {summary.playerName.toUpperCase()}
+                {displayName(summary.playerName)}
               </span>
             {/if}
             <span class="game-score">

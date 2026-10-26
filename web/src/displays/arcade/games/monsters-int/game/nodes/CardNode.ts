@@ -23,7 +23,7 @@ import {
   type MaterialTexture,
   type MeshGeometry,
   type Quat,
-} from '@src/stargazer'
+} from 'stargazer'
 import { ELEVATION, PX_TO_M } from '../project'
 import { ANIM, CARD, DIM, FOCUS } from '../tuning'
 

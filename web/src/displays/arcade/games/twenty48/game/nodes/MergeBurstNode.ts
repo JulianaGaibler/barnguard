@@ -6,7 +6,7 @@
  * allocation-free. Each shard carries its own color so a single pool serves
  * every tile value.
  */
-import { type Gfx2D } from '@src/stargazer'
+import { type Canvas } from 'stargazer'
 import { BURST, exponentOf, tileColor } from '../tuning'
 import { ShardNode } from './ShardNode'
 
@@ -53,7 +53,7 @@ export class MergeBurstNode extends ShardNode {
     return Math.hypot(this.vx[i], this.vy[i]) < BURST.stopSpeed
   }
 
-  protected override drawParticle(gfx: Gfx2D, i: number): void {
+  protected override paintParticle(gfx: Canvas, i: number): void {
     // Shards shrink and fade as they slow, so a burst tapers off instead of
     // snapping out of existence when a slot recycles.
     const speed = Math.hypot(this.vx[i], this.vy[i])

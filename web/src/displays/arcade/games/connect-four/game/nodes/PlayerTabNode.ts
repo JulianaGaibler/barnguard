@@ -1,4 +1,4 @@
-import { Node2D, type Gfx2D } from '@src/stargazer'
+import { Node2D, definePaintProps, type Canvas } from 'stargazer'
 import { FAMILIES, fontFor, fontWith } from '@src/core/theme'
 import { CONNECT_FOUR_FONTS } from '../../fonts'
 import { TAB } from '../tuning'
@@ -30,12 +30,12 @@ export interface PlayerTabOptions {
  * (left/right) and calls {@link setState} on turn and round-over events. It
  * toggles `visible` for the menu vs play.
  *
- * Everything (card, labels, pill) is drawn in this node's own `draw`, so
- * `visible = false` hides the whole tab atomically. The card is composed from
- * `fillRect` + `fillCircle` (its fill is opaque, so the overlaps don't darken)
- * rather than a `Path2D`. The GPU `fillPath2D` only renders pre-registered
- * tessellations, so a runtime path draws nothing. Sizes are world units so the
- * tab scales with the board.
+ * Everything (card, labels, pill) is painted by this node, so `visible = false`
+ * hides the whole tab atomically. The card is composed from `fillRect` +
+ * `fillCircle` (its fill is opaque, so the overlaps don't darken) rather than a
+ * `Path2D`. The GPU `fillPath2D` only renders pre-registered tessellations, so
+ * a runtime path draws nothing. Sizes are world units so the tab scales with
+ * the board.
  */
 export class PlayerTabNode extends Node2D {
   readonly #w: number
@@ -54,29 +54,21 @@ export class PlayerTabNode extends Node2D {
   readonly #subCY: number
   readonly #pillH: number
 
-  #fill: string
-  #mainColor = '#ffffff'
-  #subText = ''
-  #subColor: string
-  #showDogEar = false
-  #showPill = false
-  #showSub = false
+  declare state: PlayerTabState
 
   constructor(opts: PlayerTabOptions) {
     super('cf-player-tab')
-    this.renderLayer = 'dynamic'
     this.#w = opts.width
     this.#h = opts.height
     this.#rounded = opts.roundedCorner
     this.#radius = opts.width * TAB.cornerRadiusFrac
     this.#dogEar = opts.width * TAB.dogEarFrac
     this.#color = opts.color
-    this.#fill = opts.color
     this.#label = opts.label
     this.#yourTurn = opts.yourTurn
     this.#thinking = opts.thinking
     this.#wonLabel = opts.won
-    this.#subColor = opts.color
+    definePaintProps(this, { state: 'inactive' as PlayerTabState })
     // The "p.N" label is body-weight sans. The sublabel is monospace, for the
     // technical feel the board chrome is going for.
     this.#mainFont = fontFor(
@@ -92,49 +84,30 @@ export class PlayerTabNode extends Node2D {
   }
 
   setState(state: PlayerTabState): void {
-    switch (state) {
-      case 'active':
-      case 'thinking':
-        this.#fill = this.#color
-        this.#mainColor = '#ffffff'
-        this.#showDogEar = false
-        this.#subText = state === 'thinking' ? this.#thinking : this.#yourTurn
-        this.#subColor = this.#color
-        this.#showSub = true
-        this.#showPill = true
-        break
-      case 'won':
-        this.#fill = '#ffffff'
-        this.#mainColor = this.#color
-        this.#showDogEar = true
-        this.#subText = this.#wonLabel
-        this.#subColor = this.#color
-        this.#showSub = true
-        this.#showPill = false
-        break
-      case 'inactive':
-      case 'lost':
-        this.#fill = this.#color
-        this.#mainColor = '#ffffff'
-        this.#showDogEar = false
-        this.#showSub = false
-        this.#showPill = false
-        break
-    }
+    this.state = state
   }
 
-  #drawCard(gfx: Gfx2D): void {
+  #drawCard(gfx: Canvas, fill: string): void {
     const r = this.#radius
     // One rounded corner (bookmark look): only the top-left or top-right.
     const radii: [number, number, number, number] =
       this.#rounded === 'tr' ? [0, r, 0, 0] : [r, 0, 0, 0]
-    gfx.fillRoundRect(0, 0, this.#w, this.#h, radii, this.#fill)
+    gfx.fillRoundRect(0, 0, this.#w, this.#h, radii, fill)
   }
 
-  override draw(gfx: Gfx2D): void {
-    this.#drawCard(gfx)
+  override paint(gfx: Canvas): void {
+    const state = this.state
+    const won = state === 'won'
+    const showSub = state === 'active' || state === 'thinking' || won
+    const subText =
+      state === 'thinking'
+        ? this.#thinking
+        : won
+          ? this.#wonLabel
+          : this.#yourTurn
+    this.#drawCard(gfx, won ? '#ffffff' : this.#color)
 
-    if (this.#showDogEar) {
+    if (won) {
       // A small gray triangle in the bottom-right corner, reading as a fold.
       const w = this.#w
       const h = this.#h
@@ -143,7 +116,7 @@ export class PlayerTabNode extends Node2D {
       gfx.fillConvexPoly(tri, 3, 'rgba(120, 133, 148, 0.3)')
     }
 
-    if (this.#showPill) {
+    if (showSub && !won) {
       // White capsule behind the "your turn" sublabel.
       const pw = this.#w
       const ph = this.#pillH
@@ -159,15 +132,15 @@ export class PlayerTabNode extends Node2D {
       font: this.#mainFont,
       align: 'center',
       baseline: 'middle',
-      color: this.#mainColor,
+      color: won ? this.#color : '#ffffff',
     })
 
-    if (this.#showSub) {
-      gfx.fillText(this.#subText, this.#subCX, this.#subCY, {
+    if (showSub) {
+      gfx.fillText(subText, this.#subCX, this.#subCY, {
         font: this.#subFont,
         align: 'center',
         baseline: 'middle',
-        color: this.#subColor,
+        color: this.#color,
       })
     }
   }

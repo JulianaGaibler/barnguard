@@ -6,7 +6,13 @@
  * change accent whenever a new `spinKey` arrives, easing to the next quarter
  * over half a second.
  */
-import { Node2D, easings, textMetrics, type Gfx2D } from '@src/stargazer'
+import {
+  Node2D,
+  definePaintProps,
+  easings,
+  textMetrics,
+  type Canvas,
+} from 'stargazer'
 import { COLORS } from '../tuning'
 import { font } from '../../fonts'
 
@@ -23,50 +29,56 @@ const SPIN_DURATION_SEC = 0.5
 export class BadgeNode extends Node2D {
   readonly #label: string
   readonly #color: string
-  #size: number
+  declare size: number
   readonly #labelCorner: 'tl' | 'tr'
   readonly #tabCorner: 'bl' | 'br'
-  #value = ''
-  #turns = 0
-  #spinFrom = 0
-  #spinT = 1 // 1 = settled, no turn in flight
+  declare value: string
+  declare turns: number
+  declare spinFrom: number
+  /** 1 when settled, with no turn in flight. */
+  declare spinT: number
   #spinKey: string | number | undefined
 
   constructor(opts: BadgeOptions) {
     super('jb-badge')
-    this.renderLayer = 'dynamic'
     this.#label = opts.label
     this.#color = opts.color
-    this.#size = opts.size
+    definePaintProps(this, {
+      size: opts.size,
+      value: '',
+      turns: 0,
+      spinFrom: 0,
+      spinT: 1,
+    })
     this.#labelCorner = opts.labelCorner
     this.#tabCorner = opts.tabCorner
   }
 
   setSize(size: number): void {
-    this.#size = size
+    this.size = size
   }
 
   /** Set the displayed value. A new `spinKey` triggers the quarter-turn accent. */
   setValue(value: string, spinKey: string | number): void {
-    this.#value = value
+    this.value = value
     if (this.#spinKey !== undefined && spinKey !== this.#spinKey) {
-      this.#spinFrom = this.#turns
-      this.#turns += 1
-      this.#spinT = 0
+      this.spinFrom = this.turns
+      this.turns += 1
+      this.spinT = 0
     }
     this.#spinKey = spinKey
   }
 
   override onUpdate(dt: number): void {
-    if (this.#spinT < 1)
-      this.#spinT = Math.min(1, this.#spinT + dt / SPIN_DURATION_SEC)
+    if (this.spinT < 1)
+      this.spinT = Math.min(1, this.spinT + dt / SPIN_DURATION_SEC)
   }
 
-  override draw(gfx: Gfx2D): void {
-    const size = this.#size
+  override paint(gfx: Canvas): void {
+    const size = this.size
     const half = size / 2
-    const eased = easings.outCubic(this.#spinT)
-    const turns = this.#spinFrom + (this.#turns - this.#spinFrom) * eased
+    const eased = easings.outCubic(this.spinT)
+    const turns = this.spinFrom + (this.turns - this.spinFrom) * eased
     const angle = (turns * 90 * Math.PI) / 180
     const motif = size * 0.92
     const border = { color: COLORS.ink, width: 2 }
@@ -90,9 +102,9 @@ export class BadgeNode extends Node2D {
     })
 
     // Big value, shrinking past 3 characters like the original.
-    const len = this.#value.length
+    const len = this.value.length
     const valueFrac = len > 3 ? 0.36 * (3 / len) : 0.36
-    gfx.fillText(this.#value, half, half, {
+    gfx.fillText(this.value, half, half, {
       font: font(800, size * valueFrac),
       align: 'center',
       baseline: 'middle',

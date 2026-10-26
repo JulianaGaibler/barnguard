@@ -34,6 +34,9 @@ export type ResolvedFonts = Required<ThemeFonts>
 
 const SANS_TAIL =
   '-apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif'
+// The Mozilla faces lack part of Latin Extended-A (č š ž ř ő ğ ș and the like).
+// HK Grotesk covers it, so those letters resolve there before a system font.
+const MOZILLA_TAIL = `"HK Grotesk", ${SANS_TAIL}`
 const MONO_TAIL = 'ui-monospace, "SF Mono", Menlo, monospace'
 
 /**
@@ -45,9 +48,10 @@ const MONO_TAIL = 'ui-monospace, "SF Mono", Menlo, monospace'
  * — a monospace readout, a wide numeral, a game's own display type.
  */
 export const FAMILIES = {
-  mozillaText: `"Mozilla Text", ${SANS_TAIL}`,
-  mozillaHeadline: `"Mozilla Headline", ${SANS_TAIL}`,
-  mozillaHeadlineExtended: `"Mozilla Headline Extended", ${SANS_TAIL}`,
+  mozillaText: `"Mozilla Text", ${MOZILLA_TAIL}`,
+  mozillaHeadline: `"Mozilla Headline", ${MOZILLA_TAIL}`,
+  mozillaHeadlineExtended: `"Mozilla Headline Extended", ${MOZILLA_TAIL}`,
+  mozillaHeadlineCondensed: `"Mozilla Headline Condensed", ${MOZILLA_TAIL}`,
   azeretMono: `"Azeret Mono", ${MONO_TAIL}`,
   geist: `"Geist", ${SANS_TAIL}`,
   hkGrotesk: `"HK Grotesk", ${SANS_TAIL}`,
@@ -91,7 +95,10 @@ export function isVariableWeights(w: FontWeights): w is VariableWeights {
  */
 export interface FontFamilyEntry {
   id: FamilyId
-  /** The `font-family` name, exactly as declared in `styles/fonts.scss`. */
+  /**
+   * The `font-family` name, exactly as declared in `styles/fonts.scss` or
+   * `styles/fonts-extra.scss`.
+   */
   family: string
   weights: FontWeights
   /**
@@ -107,23 +114,30 @@ export const FONT_CATALOGUE: readonly FontFamilyEntry[] = [
   {
     id: 'mozillaText',
     family: 'Mozilla Text',
-    weights: [400, 500, 700],
+    weights: { variable: [200, 700] },
     kind: 'body',
     note: 'Brand body face. The default for `text`.',
   },
   {
     id: 'mozillaHeadline',
     family: 'Mozilla Headline',
-    weights: [600],
+    weights: { variable: [200, 700] },
     kind: 'display',
     note: 'Brand headline face. The default for `heading`.',
   },
   {
     id: 'mozillaHeadlineExtended',
     family: 'Mozilla Headline Extended',
-    weights: [700],
+    weights: { variable: [200, 700] },
     kind: 'display',
     note: 'Mozilla Headline drawn ~19% wider. Big scores, short banners.',
+  },
+  {
+    id: 'mozillaHeadlineCondensed',
+    family: 'Mozilla Headline Condensed',
+    weights: { variable: [200, 700] },
+    kind: 'display',
+    note: 'Mozilla Headline drawn ~25% narrower. Tall headlines in little width.',
   },
   {
     id: 'azeretMono',
@@ -262,6 +276,32 @@ export function fontWith(
   weight: number,
   sizePx: number,
 ): string {
+  // Drawing code calls this for every label every frame, so the string is
+  // cached per stack, weight and quantized size.
+  const px = quantizePx(sizePx)
+  let byWeight = fontCache.get(stack)
+  if (!byWeight) {
+    byWeight = new Map()
+    fontCache.set(stack, byWeight)
+  }
+  let bySize = byWeight.get(weight)
+  if (!bySize) {
+    bySize = new Map()
+    byWeight.set(weight, bySize)
+  }
+  const hit = bySize.get(px)
+  if (hit !== undefined) return hit
+  if (bySize.size >= FONT_CACHE_SIZES) bySize.clear()
+  const font = buildFont(stack, weight, px)
+  bySize.set(px, font)
+  return font
+}
+
+/** Sizes kept per stack and weight before that set starts over. */
+const FONT_CACHE_SIZES = 256
+const fontCache = new Map<string, Map<number, Map<number, string>>>()
+
+function buildFont(stack: string, weight: number, px: number): string {
   const snapped = snapWeight(stack, weight)
   if (import.meta.env.DEV && snapped !== weight) {
     const key = `${stack}:${weight}`
@@ -274,7 +314,7 @@ export function fontWith(
       )
     }
   }
-  return `${snapped} ${quantizePx(sizePx)}px ${stack}`
+  return `${snapped} ${px}px ${stack}`
 }
 
 /**

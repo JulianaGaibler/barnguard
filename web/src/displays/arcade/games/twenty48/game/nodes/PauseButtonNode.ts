@@ -1,5 +1,11 @@
 /** The in-game pause toggle: the same slab as everything else, at HUD scale. */
-import { ButtonBehavior, mixColor, Node2D, type Gfx2D } from '@src/stargazer'
+import {
+  ButtonBehavior,
+  definePaintProps,
+  mixColor,
+  Node2D,
+  type Canvas,
+} from 'stargazer'
 import { BEVEL, COLORS } from '../tuning'
 import { drawSlab } from '../../../common/bevel'
 import { drawPauseGlyph } from '../../../common/pauseGlyph'
@@ -7,16 +13,16 @@ import { drawPauseGlyph } from '../../../common/pauseGlyph'
 const SIZE = 52
 
 export class PauseButtonNode extends Node2D {
-  #pressed = false
+  declare pressed: boolean
 
   constructor(onClick: () => void) {
     super('t48-pause-button')
-    this.renderLayer = 'dynamic'
-    this.debugBounds = { x: 0, y: 0, width: SIZE, height: SIZE * 1.2 }
+    definePaintProps(this, { pressed: false })
+    this.boundsOverride = { x: 0, y: 0, width: SIZE, height: SIZE * 1.2 }
     this.addBehavior(
       new ButtonBehavior({
         onClick,
-        onPressedChange: (pressed) => (this.#pressed = pressed),
+        onPressedChange: (pressed) => (this.pressed = pressed),
       }),
     )
   }
@@ -26,9 +32,9 @@ export class PauseButtonNode extends Node2D {
     return SIZE
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     const depth = SIZE * 0.1
-    const sink = this.#pressed ? depth * 0.7 : 0
+    const sink = this.pressed ? depth * 0.7 : 0
     drawSlab(gfx, {
       x: 0,
       y: sink,

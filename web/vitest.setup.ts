@@ -1,12 +1,20 @@
 // Vitest setup: minimal shims for browser APIs happy-dom doesn't ship
 // but that stargazer needs at construction time. The shims are structural
 // no-ops. Anything that actually rasterises (isPointInPath, getImageData) is
-// verified visually in `?demo=…` sandbox scenes, not here.
+// verified visually in the app, not here.
+
+import { setSmoothCornerFieldLoader } from 'stargazer/testing'
+
+// There is no server to fetch the smooth-corner field from, so smoothed corners
+// draw circular.
+setSmoothCornerFieldLoader(() => Promise.resolve(null))
 
 // happy-dom does not always attach `localStorage` in the current Node
 // version. Install a tiny in-memory shim so tests that persist scores /
 // locale work without --localstorage-file.
-if (typeof (globalThis as { localStorage?: unknown }).localStorage === 'undefined') {
+if (
+  typeof (globalThis as { localStorage?: unknown }).localStorage === 'undefined'
+) {
   const store = new Map<string, string>()
   const shim: Storage = {
     get length() {
@@ -84,7 +92,5 @@ if (typeof (globalThis as { Path2D?: unknown }).Path2D === 'undefined') {
     rect(): void {}
     roundRect(): void {}
   }
-  ;(
-    globalThis as unknown as { Path2D: typeof Path2DStub }
-  ).Path2D = Path2DStub
+  ;(globalThis as unknown as { Path2D: typeof Path2DStub }).Path2D = Path2DStub
 }

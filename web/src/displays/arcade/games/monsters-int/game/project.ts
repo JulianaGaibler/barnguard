@@ -20,7 +20,7 @@
  *   const p = groundFromLayout(806, 779.5) // where the left button stands
  *   const { x, y } = layoutFromWorld(p) // back to 806, 779.5
  */
-import { vec3, type Vec3 } from '@src/stargazer'
+import { vec3, type Vec3 } from 'stargazer'
 import { REGION_HEIGHT, REGION_WIDTH } from '../../../world'
 
 /** Metres per design pixel. */

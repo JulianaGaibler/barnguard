@@ -22,7 +22,7 @@
  * to test.
  */
 import { seededRandom, type Random } from '../../common/rng'
-import { clamp } from '@src/stargazer'
+import { clamp } from 'stargazer'
 
 /** Seconds a meter holds a target before choosing another. */
 const HOLD_MIN = 2.6

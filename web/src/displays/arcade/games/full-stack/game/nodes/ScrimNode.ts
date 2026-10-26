@@ -4,7 +4,7 @@
 // it is meant to be lifting out. This one is a scene node, drawn between the
 // board and the focus layer.
 
-import { Node2D, type Gfx2D, type Rect } from '@src/stargazer'
+import { Node2D, type Canvas, type Rect } from 'stargazer'
 import { COLORS } from '../tuning'
 
 export class ScrimNode extends Node2D {
@@ -12,14 +12,23 @@ export class ScrimNode extends Node2D {
 
   constructor(id: string) {
     super(id)
-    this.renderLayer = 'dynamic'
   }
 
   setRect(rect: Rect): void {
+    const r = this.#rect
+    if (
+      r.x === rect.x &&
+      r.y === rect.y &&
+      r.width === rect.width &&
+      r.height === rect.height
+    ) {
+      return
+    }
     this.#rect = rect
+    this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
     gfx.fillRect(r.x, r.y, r.width, r.height, COLORS.scrim)

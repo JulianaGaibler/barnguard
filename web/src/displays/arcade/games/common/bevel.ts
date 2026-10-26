@@ -35,7 +35,7 @@
  *     band,
  *   })
  */
-import type { Gfx2D } from '@src/stargazer'
+import type { Canvas } from 'stargazer'
 
 /** One slab. All measurements are world units. */
 export interface Slab {
@@ -56,7 +56,7 @@ export interface Slab {
 }
 
 /** A raised slab: the side, then the lit edge, then the face over it. */
-export function drawSlab(gfx: Gfx2D, s: Slab): void {
+export function drawSlab(gfx: Pick<Canvas, 'fillRoundRect'>, s: Slab): void {
   const r = s.radius
   const faceH = Math.max(1, s.h - s.depth)
   if (s.depth > 0) {
@@ -77,7 +77,7 @@ export function faceCenterY(h: number, depth: number): number {
  * edge.
  */
 export function drawWell(
-  gfx: Gfx2D,
+  gfx: Pick<Canvas, 'fillRoundRect'>,
   x: number,
   y: number,
   w: number,

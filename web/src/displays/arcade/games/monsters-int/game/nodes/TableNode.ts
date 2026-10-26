@@ -17,7 +17,7 @@ import {
   Node3D,
   createQuadGeometry,
   type MaterialTexture,
-} from '@src/stargazer'
+} from 'stargazer'
 import {
   PX_TO_M,
   groundDepthForScreenHeight,

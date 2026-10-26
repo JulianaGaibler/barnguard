@@ -1,8 +1,18 @@
-import { defineConfig } from 'vite'
+import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
+import { VitePWA } from 'vite-plugin-pwa'
+import { createRequire } from 'node:module'
+import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { displays } from './vite/displays'
 
 const src = fileURLToPath(new URL('./src', import.meta.url))
+const publicDir = fileURLToPath(new URL('./public', import.meta.url))
+// The `stargazer` engine loads data files from next to its code, which the dev
+// server refuses to serve unless the folder is allowed.
+const stargazerDir = dirname(
+  createRequire(import.meta.url).resolve('stargazer/package.json'),
+)
 
 /**
  * Prepend the shared SASS utilities to every SASS block so components can use
@@ -21,8 +31,37 @@ const prependStyleUtils = (source: string): string => {
 }
 
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [
+    // Which displays this build carries: all of them, or the one named by
+    // `BARNGUARD_DISPLAY` (see `npm run build:display`).
+    displays(src, publicDir),
+    svelte(),
+    // The service worker keeps the installed app working offline. The pages
+    // register it themselves, in `core/pwa/register.ts`, and the manifests are
+    // plain files in `public/`.
+    VitePWA({
+      registerType: 'prompt',
+      injectRegister: false,
+      manifest: false,
+      workbox: {
+        globPatterns: [
+          // `bin` and `json` cover the engine's data files (the squircle field,
+          // splash animations), which it fetches next to its code.
+          '**/*.{js,css,html,png,svg,woff,woff2,ttf,otf,lottie,webmanifest,bin,json}',
+        ],
+        // The debug models are only for the engine demos.
+        globIgnores: ['debug/**'],
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/\/api\//],
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+      },
+    }),
+  ],
   server: {
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), stargazerDir] },
+    // Lets other machines on the tailnet load the dev server by name, for
+    // running benchmarks on other GPUs. Vite rejects unknown Host headers.
+    allowedHosts: ['bubblegum.local.yaina.dev'],
     // Proxy the printer-daemon so the web app uses same-origin relative URLs
     // in dev (no CORS). SSE (`/api/printer/events`) streams fine over this.
     // `/api/games` and `/api/leaderboard` share the same daemon, so each
@@ -47,6 +86,14 @@ export default defineConfig({
     alias: {
       '@src': src,
     },
+    // One Svelte runtime, shared with the `stargazer` package.
+    dedupe: ['svelte'],
+  },
+  // The engine loads data files with `new URL('./x.bin', import.meta.url)`.
+  // Pre-bundling moves its code to `.vite/deps`, where those files are not, and
+  // the dev server answers the request with the page instead.
+  optimizeDeps: {
+    exclude: ['stargazer', 'stargazer/debug-ui'],
   },
   css: {
     preprocessorOptions: {

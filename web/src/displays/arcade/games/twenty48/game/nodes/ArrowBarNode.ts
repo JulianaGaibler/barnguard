@@ -10,11 +10,12 @@
  */
 import {
   ButtonBehavior,
+  definePaintProps,
   mixColor,
   Node2D,
   withAlpha,
-  type Gfx2D,
-} from '@src/stargazer'
+  type Canvas,
+} from 'stargazer'
 import type { Bounds, Direction } from '../types'
 import { COLORS } from '../tuning'
 
@@ -40,8 +41,9 @@ const CHEVRON_REST = chevronColor(REST_TINT)
 const CHEVRON_PRESSED = chevronColor(PRESSED_TINT)
 
 export class ArrowBarNode extends Node2D {
-  #rect: Bounds
-  #pressed = false
+  declare width: number
+  declare height: number
+  declare pressed: boolean
   readonly #dir: Direction
   /** Reused chevron points: arm, elbow, arm. */
   readonly #chevron = new Float32Array(6)
@@ -52,15 +54,14 @@ export class ArrowBarNode extends Node2D {
     opts: { onPress: (dir: Direction) => void; enabled: () => boolean },
   ) {
     super(`t48-arrow-${dir}`)
-    this.renderLayer = 'dynamic'
     this.#dir = dir
-    this.#rect = rect
+    definePaintProps(this, { width: 0, height: 0, pressed: false })
     this.setRect(rect)
     this.addBehavior(
       new ButtonBehavior({
         onClick: () => opts.onPress(dir),
         enabled: opts.enabled,
-        onPressedChange: (p) => (this.#pressed = p),
+        onPressedChange: (p) => (this.pressed = p),
       }),
     )
   }
@@ -71,16 +72,17 @@ export class ArrowBarNode extends Node2D {
   }
 
   setRect(rect: Bounds): void {
-    this.#rect = rect
+    this.width = rect.width
+    this.height = rect.height
     this.transform.x = rect.x
     this.transform.y = rect.y
     // Local space, as `hitTest` expects.
-    this.debugBounds = { x: 0, y: 0, width: rect.width, height: rect.height }
+    this.boundsOverride = { x: 0, y: 0, width: rect.width, height: rect.height }
   }
 
-  override draw(gfx: Gfx2D): void {
-    const w = this.#rect.width
-    const h = this.#rect.height
+  override paint(gfx: Canvas): void {
+    const w = this.width
+    const h = this.height
     const short = Math.min(w, h)
     gfx.fillRoundRect(
       0,
@@ -88,7 +90,7 @@ export class ArrowBarNode extends Node2D {
       w,
       h,
       short * 0.42,
-      withAlpha('#000000', this.#pressed ? PRESSED_TINT : REST_TINT),
+      withAlpha('#000000', this.pressed ? PRESSED_TINT : REST_TINT),
     )
     this.#drawChevron(gfx, w / 2, h / 2, short * CHEVRON_FRAC)
   }
@@ -99,7 +101,7 @@ export class ArrowBarNode extends Node2D {
    * that composites twice into a visibly darker notch. As a single stroke the
    * renderer deduplicates the overlap for us.
    */
-  #drawChevron(gfx: Gfx2D, cx: number, cy: number, size: number): void {
+  #drawChevron(gfx: Canvas, cx: number, cy: number, size: number): void {
     const arm = size
     const d = this.#dir
     // The elbow leads and the arms trail, so the chevron points the way it
@@ -124,7 +126,7 @@ export class ArrowBarNode extends Node2D {
     p[2] = ex
     p[3] = ey
     gfx.strokePolyline(p, 3, {
-      color: this.#pressed ? CHEVRON_PRESSED : CHEVRON_REST,
+      color: this.pressed ? CHEVRON_PRESSED : CHEVRON_REST,
       width: arm * 0.42,
       cap: 'round',
       join: 'round',

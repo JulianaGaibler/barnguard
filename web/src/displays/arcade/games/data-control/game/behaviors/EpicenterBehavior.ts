@@ -1,4 +1,4 @@
-import { Behavior, easings } from '@src/stargazer'
+import { Behavior, easings } from 'stargazer'
 import type { EpicenterNode } from '../nodes/EpicenterNode'
 import { TUNING } from '../data/tuning'
 
@@ -13,7 +13,7 @@ const DASH_ROTATION_SPEED_RAD_PER_SEC = (Math.PI * 2) / DASH_ROTATION_PERIOD_SEC
  * Drives the epicenter's animated visuals:
  *
  * - The existing outer-ring intro grow-in + breathing alpha loop.
- * - The cyan gradient pulse disc that grows from 0 → 1 over 4 s, resets, waits 3
+ * - The cyan gradient pulse disc that grows from 0 -> 1 over 4 s, resets, waits 3
  *   s, repeats.
  * - Continuous rotation of the dashed capture ring so the perimeter reads as
  *   active without any per-frame heavy work.

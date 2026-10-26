@@ -1,9 +1,9 @@
 /**
- * The board itself: the plate, and the sixteen wells cut into it. Static, so it
- * draws in one pass and never animates except for the short shake a big merge
- * gives it.
+ * The board itself: the plate, and the sixteen wells cut into it. Painted once
+ * per geometry. The short shake a big merge gives it moves the node's
+ * transform, so it never repaints.
  */
-import { mixColor, Node2D, type Gfx2D } from '@src/stargazer'
+import { definePaintProps, mixColor, Node2D, type Canvas } from 'stargazer'
 import { type BoardGeom, cellRect } from '../layout'
 import { BEVEL, COLORS } from '../tuning'
 import { CELLS } from '../types'
@@ -12,32 +12,24 @@ import { drawSlab, drawWell } from '../../../common/bevel'
 const SHAKE_DECAY_PER_SEC = 9
 
 export class BoardFrameNode extends Node2D {
-  #geom: BoardGeom
+  declare geom: BoardGeom
   #accent: string
   #shake = 0
   #shakePhase = 0
 
   constructor(geom: BoardGeom, accent: string) {
     super('t48-frame')
-    this.renderLayer = 'dynamic'
-    this.#geom = geom
+    definePaintProps(this, { geom })
     this.#accent = accent
-    this.#refit()
   }
 
   setGeom(geom: BoardGeom): void {
-    this.#geom = geom
-    this.#refit()
+    this.geom = geom
   }
 
   /** A short knock, for a merge worth celebrating on this board alone. */
   shake(strength: number): void {
     this.#shake = Math.max(this.#shake, strength)
-  }
-
-  #refit(): void {
-    const s = this.#geom.slot
-    this.debugBounds = { x: s.x, y: s.y, width: s.width, height: s.height }
   }
 
   override onUpdate(dt: number): void {
@@ -51,21 +43,15 @@ export class BoardFrameNode extends Node2D {
       this.#shake = 0
       this.#shakePhase = 0
     }
+    this.transform.x = Math.sin(this.#shakePhase) * this.#shake
+    this.transform.y = Math.cos(this.#shakePhase * 1.3) * this.#shake * 0.5
   }
 
-  override draw(gfx: Gfx2D): void {
-    const g = this.#geom
+  override paint(gfx: Canvas): void {
+    const g = this.geom
     const cell = g.cell
     const band = cell * BEVEL.bandFrac
     const plateRadius = g.radius * 1.15
-
-    if (this.#shake > 0) {
-      gfx.save()
-      gfx.translate(
-        Math.sin(this.#shakePhase) * this.#shake,
-        Math.cos(this.#shakePhase * 1.3) * this.#shake * 0.5,
-      )
-    }
 
     drawSlab(gfx, {
       x: g.plate.x,
@@ -95,8 +81,6 @@ export class BoardFrameNode extends Node2D {
         cell * BEVEL.wellDepthFrac,
       )
     }
-
-    if (this.#shake > 0) gfx.restore()
   }
 
   /** The seat color, used by the HUD sitting above this board. */

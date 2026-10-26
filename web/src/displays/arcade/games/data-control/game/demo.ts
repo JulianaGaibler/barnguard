@@ -20,7 +20,7 @@ import {
   type EngineHost,
   type Stage,
   type Vec2,
-} from '@src/stargazer'
+} from 'stargazer'
 import type { DemoHandle } from '../../../tutorial/types'
 import { EpicenterNode } from './nodes/EpicenterNode'
 import { EpicenterBehavior } from './behaviors/EpicenterBehavior'

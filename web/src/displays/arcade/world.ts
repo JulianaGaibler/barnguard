@@ -1,4 +1,4 @@
-import type { Rect } from '@src/stargazer'
+import type { Rect } from 'stargazer'
 import { BOOTH_CORNER_SIZE_PX } from '@src/core/attendant/boothMenuToggle'
 
 /**

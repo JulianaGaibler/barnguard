@@ -11,7 +11,7 @@ import {
   type BitmapMask,
   type PhysicsWorld,
   type PhysicsWorldConfig,
-} from '@src/stargazer'
+} from 'stargazer'
 import { MAX_SPEED, PANEL, PHYSICS } from './tuning'
 import type { FieldLayout } from './layout'
 

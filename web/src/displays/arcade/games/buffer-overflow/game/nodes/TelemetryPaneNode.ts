@@ -14,13 +14,10 @@
  *
  * Nothing it shows is load-bearing and nothing it shows moves quickly. The
  * numbers all come from {@link stepTelemetry}, which is where the pacing lives.
+ * The pane paints again only when a drawn number or a lit meter cell changes,
+ * which is a few times a second at most.
  */
-import {
-  Node2D,
-  textAdvance,
-  type CameraView2D,
-  type Gfx2D,
-} from '@src/stargazer'
+import { Node2D, textAdvance, type Canvas } from 'stargazer'
 import { font } from '../../fonts'
 import { MAX_LEVEL } from '../gravity'
 import { textFloor } from '../layout'
@@ -38,7 +35,9 @@ import {
   drawFrame,
   drawMeter,
   drawRun,
+  meterCells,
   ruleWidth,
+  sameBounds,
 } from './tui'
 
 const ZERO: Bounds = { x: 0, y: 0, width: 0, height: 0 }
@@ -69,10 +68,12 @@ export class TelemetryPaneNode extends Node2D {
   #cell = 1
   #accent = accentForLevel(1)
   #load = 0
+  /** What each reading drew last, so an update can tell if it moved. */
+  readonly #drawn: number[] = []
+  #drawnJob = -1
 
   constructor(opts: TelemetryPaneOptions) {
     super(`bo-aside-${opts.title}`)
-    this.renderLayer = 'dynamic'
     this.#title = opts.title
     this.#header = opts.header
     this.#job = opts.job ?? false
@@ -81,26 +82,50 @@ export class TelemetryPaneNode extends Node2D {
   }
 
   setRect(rect: Bounds, cell: number): void {
-    this.#rect = rect
+    if (sameBounds(rect, this.#rect) && cell === this.#cell) return
+    this.#rect = { ...rect }
     this.#cell = cell
-    this.debugBounds = { ...rect }
+    this.markNeedsPaint()
   }
 
   setLevel(level: number): void {
-    this.#accent = accentForLevel(level)
+    const accent = accentForLevel(level)
     this.#load = loadFor(level, MAX_LEVEL)
+    if (accent === this.#accent) return
+    this.#accent = accent
+    this.markNeedsPaint()
   }
 
   override onUpdate(dt: number): void {
     if (this.#rect.width <= 0) return
-    stepTelemetry(this.#telemetry, dt, this.#load)
+    const t = this.#telemetry
+    stepTelemetry(t, dt, this.#load)
+    let moved = false
+    for (let i = 0; i < t.gauges.length; i++) {
+      const v = t.gauges[i].value
+      const key = Math.round(v * 100) * 64 + meterCells(v, 1, METER_CELLS)
+      if (key !== this.#drawn[i]) {
+        this.#drawn[i] = key
+        moved = true
+      }
+    }
+    const job = t.job
+    const left = Math.max(0, Math.ceil(job.duration - job.elapsed))
+    const jobKey =
+      (job.index * 100 + left) * 64 +
+      meterCells(job.progress, 1, METER_CELLS * 2)
+    if (jobKey !== this.#drawnJob) {
+      this.#drawnJob = jobKey
+      moved = this.#job || moved
+    }
+    if (moved) this.markNeedsPaint()
   }
 
-  override draw(gfx: Gfx2D, camera: CameraView2D): void {
+  override paint(gfx: Canvas): void {
     const r = this.#rect
     if (r.width <= 0 || r.height <= 0) return
-    const scale = camera.strokeSpaceScale()
-    const rule = ruleWidth(gfx, FRAME.rulePx, scale)
+    const scale = gfx.screenScale()
+    const rule = ruleWidth(gfx, FRAME.rulePx)
     const size = Math.max(textFloor(scale), this.#cell * 0.34)
     const face = font(400, size)
     const advance = textAdvance('0', face)
@@ -178,7 +203,7 @@ export class TelemetryPaneNode extends Node2D {
   }
 
   #drawHeader(
-    gfx: Gfx2D,
+    gfx: Canvas,
     x: number,
     w: number,
     y: number,
@@ -205,7 +230,7 @@ export class TelemetryPaneNode extends Node2D {
   }
 
   #label(
-    gfx: Gfx2D,
+    gfx: Canvas,
     text: string,
     x: number,
     y: number,
@@ -223,7 +248,7 @@ export class TelemetryPaneNode extends Node2D {
 
   /** What is being built, how far along, and how much of it is left. */
   #drawJob(
-    gfx: Gfx2D,
+    gfx: Canvas,
     x: number,
     w: number,
     y: number,

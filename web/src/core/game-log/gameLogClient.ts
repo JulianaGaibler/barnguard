@@ -103,6 +103,23 @@ export async function deleteGame(id: string): Promise<void> {
   }
 }
 
+/**
+ * Save the label the player printed for a recorded game, so a reprint of it
+ * matches. Returns the updated record.
+ */
+export async function setGameLabel(
+  id: string,
+  label: { labelVariant: string; labelName?: string },
+): Promise<GameRecord> {
+  return jsonOrThrow(
+    await robustFetch(`${API}/${encodeURIComponent(id)}/label`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(label),
+    }),
+  )
+}
+
 export async function fetchHighScores(display: string): Promise<HighScores> {
   const params = new URLSearchParams({ display })
   return jsonOrThrow(

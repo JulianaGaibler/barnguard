@@ -11,9 +11,11 @@ export interface LeaderboardEntry {
   id: string
   tsMs: number
   display: string
-  /** Already server-normalized: lowercase, trimmed, max 6 characters. */
+  /** Already server-normalized: lowercase, trimmed, at most 12 characters. */
   name: string
   score: number
+  /** What the run was played on, when the submitter said. */
+  region?: string
 }
 
 async function jsonOrThrow<T>(res: Response): Promise<T> {
@@ -47,12 +49,13 @@ export async function submitScore(
   display: string,
   name: string,
   score: number,
+  region?: string,
 ): Promise<LeaderboardEntry> {
   return jsonOrThrow(
     await robustFetch(API, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ display, name, score }),
+      body: JSON.stringify({ display, name, score, region }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     }),
   )

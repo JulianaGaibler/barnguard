@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { domAnchor, ignoreAbort, mixColor, type Rect } from '@src/stargazer'
+  import { domAnchor, ignoreAbort, mixColor, type Rect } from 'stargazer'
   import { coverView, REGION_WIDTH, REGION_HEIGHT } from '../../world'
   import { BLACK, GREEN } from './palette'
   import type { GameProps } from '../GameModule'
+  import { addAboveBackground } from '../arcadeBackdrop'
   import { recordArcadeGame } from '../../game-log'
   import {
     startGame,
@@ -158,16 +159,14 @@
     // framing overshoots above the map for headroom, which a fixed
     // region-sized rect fails to cover). Its bottom is pinned to the game
     // region so it still scrolls away, never blacking out the launcher,
-    // during the arcade's launcher<->game pan. `'static'` draws it above the
-    // shared sky but below the map/preview.
+    // during the arcade's launcher<->game pan. It draws above the shared sky
+    // and below the launcher previews and the map.
     const backdrop = new BackdropNode({
       regionBottom: REGION_HEIGHT,
       fill: '#050505',
     })
-    host.engine.tree.root.add(backdrop)
-
-    // Green reference grid on the black backdrop, behind the map. Added after
-    // the backdrop (so it paints on top of the black) and before the map
+    // Green reference grid on the black backdrop, behind the map. Added right
+    // after the backdrop (so it paints on top of the black) and before the map
     // subtree (added on Play), which paints over it. Like the backdrop it fills
     // the viewport up to the region bottom, so it follows the camera into any
     // zoom instead of leaving a bare strip.
@@ -177,7 +176,9 @@
       color: mixColor(GREEN, BLACK, 0.68),
       regionBottom: REGION_HEIGHT,
     })
-    host.engine.tree.root.add(grid)
+    // Painter order is tree order, so both go in right after the shared
+    // background instead of at the end of the root.
+    addAboveBackground(host.engine.tree.root, backdrop, grid)
 
     return () => {
       session?.destroy()

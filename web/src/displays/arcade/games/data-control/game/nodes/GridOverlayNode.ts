@@ -1,16 +1,10 @@
-import {
-  Node2D,
-  type BitmapMask,
-  type CameraView2D,
-  type Gfx2D,
-  type Vec2,
-} from '@src/stargazer'
+import { Node2D, type BitmapMask, type Canvas, type Vec2 } from 'stargazer'
 import type { PacketNode } from './PacketNode'
 import type { PacketMask } from '../behaviors/PacketBehavior'
 import { TUNING } from '../data/tuning'
 
 /**
- * Session-facing accessors the overlay pulls each render frame. Accessors (not
+ * Session-facing accessors the overlay polls each update. Accessors (not
  * values) so a swappable mask and a `null`-until-ready packet list work.
  */
 export interface GridWarnSource {
@@ -39,6 +33,14 @@ interface PulseSlot {
 
 const MIN_DRAW_ALPHA = 0.02
 
+/** True when any cell of the buffer is bright enough to be drawn. */
+function anyLit(alpha: Float32Array): boolean {
+  for (let i = 0; i < alpha.length; i++) {
+    if (alpha[i] >= MIN_DRAW_ALPHA) return true
+  }
+  return false
+}
+
 /**
  * Per-cell brightness variance. Final alpha *= `(1 + variance[i])` with
  * `variance ∈ [-VARIANCE_AMP, +VARIANCE_AMP]`. Deterministic index hash so the
@@ -55,8 +57,8 @@ const VARIANCE_AMP = 0.1
 const NUM_ALPHA_BUCKETS = 12
 
 /**
- * Uniform grid of squares clipped to the country outline. Sits on
- * `'above-static'` so alpha changes don't invalidate the map's static bake.
+ * Uniform grid of squares clipped to the country outline. Sits above the map
+ * and under the packets in tree order.
  *
  * Per-frame state:
  *
@@ -66,6 +68,9 @@ const NUM_ALPHA_BUCKETS = 12
  * - `warnAlpha[]`, smoothed toward `warnTarget[]` resampled from packet positions
  *   each `onUpdate`. Yellow tint with linear falloff around packets in danger.
  *
+ * The picture is rebuilt on each update while any cell is lit, plus once more
+ * when the last one goes dark. A resting overlay costs nothing.
+ *
  * Cells precomputed at construction by iterating the mask's bounding box on
  * `cellSizeWorld` steps and keeping centre-or-corner hits.
  */
@@ -73,8 +78,8 @@ export class GridOverlayNode extends Node2D {
   readonly #cellSize: number
   readonly #cellHalf: number
   /**
-   * Country outline. `draw` wraps its passes in `gfx.setClipMask(this.mask)` so
-   * coastal cells clip to the outline.
+   * Country outline. `paint` wraps its passes in a clip to it so coastal cells
+   * stay inside the outline.
    */
   readonly #mask: BitmapMask
   /** Interleaved (x, y) cell centres, length `2 × count`. */
@@ -97,13 +102,14 @@ export class GridOverlayNode extends Node2D {
   readonly #bucketCounts: Uint16Array
 
   #elapsed = 0
+  /** Whether the last painted state had any lit cell. */
+  #wasLit = false
   #warnSource: GridWarnSource | null = null
   /** Scratch for the `findNearestWallPoint` raymarch, reused each frame. */
   readonly #wallScratch: Vec2 = { x: 0, y: 0 }
 
   constructor(opts: GridOverlayOptions) {
     super('grid-overlay')
-    this.renderLayer = 'above-static'
 
     this.#mask = opts.mask
     const step = opts.cellSizeWorld
@@ -146,7 +152,7 @@ export class GridOverlayNode extends Node2D {
     // variance pattern every reload, no `Math.random` footgun.
     for (let i = 0; i < this.#count; i++) {
       const h = ((i * 2654435761) >>> 0) / 4294967296
-      // h ∈ [0, 1) → variance factor ∈ [1 - VARIANCE_AMP, 1 + VARIANCE_AMP].
+      // h ∈ [0, 1) -> variance factor ∈ [1 - VARIANCE_AMP, 1 + VARIANCE_AMP].
       this.#varianceFactor[i] = 1 + (h * 2 - 1) * VARIANCE_AMP
     }
 
@@ -224,6 +230,8 @@ export class GridOverlayNode extends Node2D {
       slot.amplitude = 0
       slot.maxWavefrontDelay = 0
     }
+    this.#wasLit = false
+    this.markNeedsPaint()
   }
 
   override onUpdate(dt: number): void {
@@ -231,18 +239,29 @@ export class GridOverlayNode extends Node2D {
     this.#elapsed += dt
     this.#updatePulses()
     this.#updateWarn(dt)
+    const lit = anyLit(this.#warnAlpha) || anyLit(this.#pulseAlpha)
+    if (lit || this.#wasLit) this.markNeedsPaint()
+    this.#wasLit = lit
   }
 
-  override draw(gfx: Gfx2D, _camera: CameraView2D): void {
+  override paint(canvas: Canvas): void {
     if (this.#count === 0) return
-    gfx.save()
+    canvas.save()
     // Clip both passes so coastal cells don't spill into the sea.
-    gfx.setClipMask(this.#mask)
+    canvas.setClipMask(this.#mask)
     // Warn under pulse, game-over ripple wins visually over lingering warn.
-    this.#drawPassBucketed(gfx, this.#warnAlpha, TUNING.wahlkreise.warn.color)
-    this.#drawPassBucketed(gfx, this.#pulseAlpha, TUNING.wahlkreise.pulse.color)
-    gfx.setClipMask(null)
-    gfx.restore()
+    this.#drawPassBucketed(
+      canvas,
+      this.#warnAlpha,
+      TUNING.wahlkreise.warn.color,
+    )
+    this.#drawPassBucketed(
+      canvas,
+      this.#pulseAlpha,
+      TUNING.wahlkreise.pulse.color,
+    )
+    canvas.setClipMask(null)
+    canvas.restore()
   }
 
   /**
@@ -250,7 +269,7 @@ export class GridOverlayNode extends Node2D {
    * buckets, per-bucket loop issues one `globalAlpha` + tight `fillRect`s.
    * `variance[i]` applied in the scatter so warn and pulse share jitter.
    */
-  #drawPassBucketed(gfx: Gfx2D, src: Float32Array, color: string): void {
+  #drawPassBucketed(canvas: Canvas, src: Float32Array, color: string): void {
     const n = this.#count
     const variance = this.#varianceFactor
     const bucketCounts = this.#bucketCounts
@@ -280,11 +299,11 @@ export class GridOverlayNode extends Node2D {
       const bcount = bucketCounts[b]
       if (bcount === 0) continue
       // Bucket midpoint alpha, quantisation step is `1 / NUM_ALPHA_BUCKETS`.
-      gfx.setAlpha((b + 0.5) * invBuckets)
+      canvas.setAlpha((b + 0.5) * invBuckets)
       const bucket = buckets[b]
       for (let j = 0; j < bcount; j++) {
         const i = bucket[j]
-        gfx.fillRect(
+        canvas.fillRect(
           centroids[i * 2] - half,
           centroids[i * 2 + 1] - half,
           size,
@@ -370,7 +389,7 @@ export class GridOverlayNode extends Node2D {
       for (let i = 0; i < n; i++) {
         const localT = elapsed - startTime - delay[i]
         if (localT < 0 || localT > totalLife) continue
-        // Triangular envelope: 0 → amp over `rise`, then amp → 0 over `fall`.
+        // Triangular envelope: 0 -> amp over `rise`, then amp -> 0 over `fall`.
         const value =
           localT < rise
             ? (localT / rise) * amp

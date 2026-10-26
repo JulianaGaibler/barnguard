@@ -18,7 +18,7 @@ export const ADJACENCY: Record<StateId, readonly StateId[]> = {
   BE: ['BB'],
   // BB ↔ NI would be a technically-real border but it's very short. Kept
   // out of the ripple graph so the wave routes through the more visually
-  // legible BB → ST → NI path instead.
+  // legible BB -> ST -> NI path instead.
   BB: ['BE', 'MV', 'SN', 'ST'],
   HB: ['NI'],
   HH: ['NI', 'SH'],
@@ -61,7 +61,7 @@ export function bfsDepth(from: StateId, to: StateId, maxDepth: number): number {
 
 /**
  * BFS the graph outward from `origin` up to `maxDepth` layers deep. Returns a
- * map `stateId → depth (1..maxDepth)`. `origin` itself is NOT included. Used by
+ * map `stateId -> depth (1..maxDepth)`. `origin` itself is NOT included. Used by
  * `ShockwaveBehavior.pulse` to schedule delayed alpha pulses on concentric
  * rings of neighbors.
  */
