@@ -52,7 +52,10 @@ export const MIN_TAP_CSS_PX = 48
 export type Box = Pick<Rect, 'x' | 'y' | 'width' | 'height'>
 
 /** What a screen shows besides its text, which decides how it is split. */
-export type ScreenKind = 'choice' | 'picture' | 'text'
+export type ScreenKind = 'choice' | 'picture' | 'text' | 'cards' | 'folders'
+
+/** The share of the content's height that a row of folders takes. */
+const FOLDERS_SHARE = 0.62
 
 export interface LayoutOptions {
   /** Default `'text'`. */
@@ -67,6 +70,11 @@ export interface LayoutOptions {
    * of the column.
    */
   answers?: readonly number[]
+  /**
+   * The height the answers need on one column, when they are not a list of
+   * rows, such as a row of people. Without it the height follows `answers`.
+   */
+  answersBlock?: number
   /** The least height of an answer, in design pixels. Default the square's. */
   answerMinHeight?: number
   /** The font size of an answer's text, in design pixels. */
@@ -123,7 +131,8 @@ export interface ScreenLayout {
  * for the frame {@link pickFrame} chose. A frame wider than tall gives two
  * columns: the text on the left, and the picture or the answers on the right. A
  * taller frame gives one column, with the picture above the text, or the
- * answers below it. A screen with only text sets it in a wider column.
+ * answers below it. A screen with only text sets it in a wider column, and one
+ * with cards gives them the whole row.
  *
  * The progress row hugs the top and the buttons hug the bottom. Extra width
  * becomes margin and extra height goes to the content, which centers what it
@@ -135,10 +144,12 @@ export function layoutFor(
   frame: Pick<Rect, 'width' | 'height'>,
   opts: LayoutOptions = {},
 ): ScreenLayout {
-  const screen = opts.screen ?? 'text'
   const navHeight = opts.navHeight ?? NAV_HEIGHT
   const insets = opts.insets ?? NO_INSETS
   const stacked = isStacked(frame)
+  // On one column a row of folders is a choice with a tall block of answers.
+  const requested = opts.screen ?? 'text'
+  const screen = stacked && requested === 'folders' ? 'choice' : requested
 
   const usable = Math.max(width - insets.left - insets.right, 0)
   const margin = stacked ? STACK_MARGIN : MIN_MARGIN
@@ -170,6 +181,20 @@ export function layoutFor(
     const text = { ...content, width: Math.min(rowWidth, TEXT_ONLY_WIDTH) }
     return { ...base, text, media: text, answers: text }
   }
+  if (!stacked && screen === 'folders') {
+    // The text over the whole row, and the folders in the middle under it.
+    const folders = content.height * FOLDERS_SHARE
+    return {
+      ...base,
+      text: split(content, 0, content.height - folders - STACK_GAP),
+      media: content,
+      answers: split(content, content.height - folders, content.height),
+    }
+  }
+  if (!stacked && screen === 'cards') {
+    // The cards need the whole row to sit side by side.
+    return { ...base, text: content, media: content, answers: content }
+  }
   if (!stacked) {
     const columnWidth = Math.max((rowWidth - COLUMN_GAP) / 2, 0)
     const right = {
@@ -196,14 +221,16 @@ export function layoutFor(
   }
   if (screen === 'choice') {
     const most = content.height * STACK_ANSWERS_SHARE
-    const wanted = opts.answers
-      ? answersHeight(
-          opts.answers,
-          rowWidth,
-          opts.answerMinHeight ?? TILE_SIZE,
-          opts.answerSize,
-        )
-      : most
+    const wanted = opts.answersBlock
+      ? opts.answersBlock
+      : opts.answers
+        ? answersHeight(
+            opts.answers,
+            rowWidth,
+            opts.answerMinHeight ?? TILE_SIZE,
+            opts.answerSize,
+          )
+        : most
     const height = Math.min(wanted, most)
     const answers = split(content, content.height - height, content.height)
     return {
@@ -245,7 +272,7 @@ export function tapHeight(height: number, cssPxInWorld: number): number {
 export function layoutIn(
   region: Pick<UiRegion, 'rect' | 'frame' | 'cssPxInWorld'>,
   screen: ScreenKind,
-  choice: Pick<LayoutOptions, 'answers' | 'answerSize'> = {},
+  choice: Pick<LayoutOptions, 'answers' | 'answerSize' | 'answersBlock'> = {},
 ): ScreenLayout {
   const { rect, cssPxInWorld } = region
   return layoutFor(rect.width, rect.height, region.frame ?? rect, {

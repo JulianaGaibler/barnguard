@@ -42,7 +42,7 @@ export const fixtureStory = defineStory({
       ],
     },
     'strict-consequence': {
-      kind: 'moment',
+      kind: 'scene',
       body: [
         'Placeholder: a consequence of the strict answer, before the paths meet again.',
       ],
@@ -71,7 +71,7 @@ export const fixtureStory = defineStory({
       ],
     },
     'news-event': {
-      kind: 'moment',
+      kind: 'scene',
       body: ['Placeholder: something happens in the world.'],
       next: 'final-choice',
     },

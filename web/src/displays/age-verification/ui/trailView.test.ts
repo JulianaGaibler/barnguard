@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { Node2D } from 'stargazer'
 import type { ProgressMark } from '../story/run'
 import { TrailView, type Tweener } from './trailView'
 
@@ -17,7 +18,7 @@ function instant(): Tweener & { calls: number } {
 
 const marks = (kinds: string, current = kinds.length - 1): ProgressMark[] =>
   [...kinds].map((k, i) => ({
-    kind: k === 'm' ? 'moment' : 'step',
+    kind: k === 'c' ? 'choice' : k === 'e' ? 'ending' : 'scene',
     current: i === current,
   }))
 
@@ -27,10 +28,10 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 describe('TrailView', () => {
   it('builds one mark per screen on the first sync, the last one filled', () => {
     const trail = new TrailView(instant())
-    trail.sync(marks('sms'), 1664)
+    trail.sync(marks('scs'), 1664)
     expect(trail.count).toBe(3)
-    expect(trail.markAt(0)?.shape).toBe('step')
-    expect(trail.markAt(1)?.shape).toBe('moment')
+    expect(trail.markAt(0)?.shape).toBe('scene')
+    expect(trail.markAt(1)?.shape).toBe('choice')
     expect([0, 1, 2].map((i) => trail.markAt(i)?.filled)).toEqual([0, 0, 1])
   })
 
@@ -92,15 +93,15 @@ describe('TrailView', () => {
     const trail = new TrailView(instant())
     trail.sync(marks('sss'), 1664)
     const before = trail.markAt(0)
-    trail.sync(marks('m'), 1664)
+    trail.sync(marks('c'), 1664)
     expect(trail.count).toBe(1)
     expect(trail.markAt(0)).not.toBe(before)
-    expect(trail.markAt(0)?.shape).toBe('moment')
+    expect(trail.markAt(0)?.shape).toBe('choice')
   })
 
   it('scales the whole row down once it outgrows its width, and back', () => {
     const trail = new TrailView(instant())
-    trail.sync(marks('s'.repeat(60)), 1664)
+    trail.sync(marks('s'.repeat(60)), 122)
     expect(trail.transform.scaleX).toBeLessThan(1)
     expect(trail.transform.scaleY).toBe(trail.transform.scaleX)
     trail.sync(marks('sss'), 1664)
@@ -125,8 +126,28 @@ describe('TrailView', () => {
     const trail = new TrailView(instant())
     trail.sync(marks('s'), 1664)
     // One mark, no link: only the mark is a child.
-    expect(trail.children.length).toBe(1)
+    const strip = trail.children[0]!
+    expect(strip.children.length).toBe(1)
     trail.sync(marks('ss'), 1664, { animate: false })
-    expect(trail.children.length).toBe(3)
+    expect(strip.children.length).toBe(3)
+  })
+
+  it('shows the last five and fades the older marks out', async () => {
+    const trail = new TrailView(instant())
+    trail.sync(marks('sssss'), 1664)
+    const strip = trail.children[0] as Node2D
+    expect(strip.transform.x).toBeCloseTo(0)
+    expect(trail.markAt(0)?.transform.alpha).toBe(1)
+    trail.sync(marks('ssssss'), 1664)
+    await settle()
+    // The strip has slid one step, and the first mark is gone from view.
+    expect(strip.transform.x).toBeCloseTo(-52)
+    expect(trail.markAt(0)?.transform.alpha).toBe(0)
+    expect(trail.markAt(1)?.transform.alpha).toBe(1)
+    // Going back brings it back.
+    trail.sync(marks('sssss'), 1664)
+    await settle()
+    expect(strip.transform.x).toBeCloseTo(0)
+    expect(trail.markAt(0)?.transform.alpha).toBe(1)
   })
 })

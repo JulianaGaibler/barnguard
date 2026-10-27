@@ -3,6 +3,7 @@ import { story } from './story'
 import { Run } from './run'
 import { enumeratePaths, validateStory } from './validate'
 import type { NodeId } from './types'
+import { runAt } from './devJump'
 
 describe('the story', () => {
   it('validates with no errors or warnings', () => {
@@ -18,5 +19,16 @@ describe('the story', () => {
     }
     expect([...reached].sort()).toEqual(Object.keys(story.nodes).sort())
     console.info(`the story has ${paths.length} paths`)
+  })
+
+  it('opens the hub on a later visit, with a meeting already heard', () => {
+    const run = runAt(story, 'stakeholders', ['heard-cr'])!
+    expect(run.currentId).toBe('stakeholders')
+    expect([...run.doneOptions]).toEqual(['children'])
+    expect(run.options.map((o) => o.id)).toEqual([
+      'children',
+      'digital-rights',
+      'young-people',
+    ])
   })
 })

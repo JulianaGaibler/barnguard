@@ -1,4 +1,5 @@
 import type { DisplayManifest } from '@src/core/display'
+import SplashPanel from './attendant/SplashPanel.svelte'
 import AgeVerificationScreen from './ui/AgeVerificationScreen.svelte'
 import { ageVerificationTheme } from './theme'
 import {
@@ -19,6 +20,7 @@ const ageVerification: DisplayManifest = {
   theme: ageVerificationTheme,
   root: AgeVerificationScreen,
   install: {},
+  attendantPanel: SplashPanel,
   locales: ageVerificationLocales,
   defaultLanguage: AGE_VERIFICATION_DEFAULT_LANGUAGE,
   // The display never logs a game, so the Games panel never has one to show.

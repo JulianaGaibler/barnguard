@@ -111,11 +111,9 @@ const start = new Run(story)
 const atChoice = start.continue()
 
 describe('poseOf', () => {
-  it('depends on the step and whether it is a moment', () => {
-    expect(poseOf(start)).toEqual(stepPose(0, false))
-    const moment = atChoice.choose('strict')
-    expect(moment.current.kind).toBe('moment')
-    expect(poseOf(moment)).toEqual(stepPose(2, true))
+  it('depends on the step', () => {
+    expect(poseOf(start)).toEqual(stepPose(0))
+    expect(poseOf(atChoice.choose('strict'))).toEqual(stepPose(2))
   })
 
   it('opens up for the ending', () => {
@@ -136,7 +134,7 @@ describe('StoryDirector.enter', () => {
     Object.assign(t.motion, { text: 0, side: 0, nav: 0, trail: 0 })
     await t.director.enter(start)
     expect(t.log).toEqual(['run:scenario', 'picture:scenario'])
-    expect(t.poses[0]!.pose).toEqual(stepPose(0, false))
+    expect(t.poses[0]!.pose).toEqual(stepPose(0))
     expect(t.motion).toMatchObject({
       text: 1,
       side: 1,

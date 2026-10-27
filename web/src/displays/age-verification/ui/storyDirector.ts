@@ -59,7 +59,7 @@ export interface DirectorDeps {
 /** The background pose a screen has. */
 export function poseOf(run: Run): Pose {
   if (run.current.kind === 'ending') return ENDING_POSE
-  return stepPose(run.history.length - 1, run.current.kind === 'moment')
+  return stepPose(run.history.length - 1)
 }
 
 /**
@@ -194,12 +194,15 @@ export class StoryDirector {
     const marks = next.progress()
     const width = this.#d.rowWidth()
     this.#d.setPicked(id)
-    // Everything else leaves while the square turns into a circle, and the
-    // circle does not wait for it to finish.
+    // The square turns into a circle, unless the mark it becomes is a square.
+    const radius =
+      marks[marks.length - 1]?.kind === 'choice' ? 0 : TILE_SIZE / 2
+    // Everything else leaves while the square turns red, and the picked one
+    // does not wait for it to finish.
     const leaving = this.#leave(signal, -1, picked)
     await this.#tween(
       picked.pose,
-      { radius: TILE_SIZE / 2, red: 1, letterAlpha: 0, labelAlpha: 0 },
+      { radius, red: 1, letterAlpha: 0, labelAlpha: 0 },
       signal,
       {
         duration: MOTION.morph,

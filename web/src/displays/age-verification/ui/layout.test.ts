@@ -107,6 +107,22 @@ describe('layoutFor', () => {
     expect(layout.text.width * 2 + COLUMN_GAP).toBe(layout.rowWidth)
   })
 
+  it('gives a screen of cards the whole row, where text alone gets less', () => {
+    const cards = forWindow(1920, 1080, 'cards').layout
+    const text = forWindow(1920, 1080, 'text').layout
+    expect(cards.text.width).toBe(cards.rowWidth)
+    expect(text.text.width).toBe(TEXT_ONLY_WIDTH)
+  })
+
+  it('puts the text over the whole row and the folders under it', () => {
+    const { layout } = forWindow(1920, 1080, 'folders')
+    expect(layout.text.width).toBe(layout.rowWidth)
+    expect(layout.answers.width).toBe(layout.rowWidth)
+    expect(layout.text.y + layout.text.height).toBeLessThanOrEqual(
+      layout.answers.y,
+    )
+  })
+
   it('keeps the progress row and the buttons off the content', () => {
     for (const [w, h] of [
       [1920, 1080],

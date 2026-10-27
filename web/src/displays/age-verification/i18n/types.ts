@@ -18,6 +18,8 @@ export interface AgeVerificationMessages extends CoreMessages {
     back: string
     /** Leaves the story for the splash screen. */
     home: string
+    /** Said of an answer already taken, which can't be picked again. */
+    optionDone: string
     /** Moves on from a screen with no choice. */
     continue: string
     /** Leaves an ending for the splash screen. */

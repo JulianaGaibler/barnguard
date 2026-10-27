@@ -34,6 +34,8 @@ export const MOTION = {
   /** A new mark in the progress row. */
   markPop: 0.42,
   linkGrow: 0.25,
+  /** The progress row sliding left as the oldest mark leaves. */
+  trailScroll: 0.4,
   /** The progress row as a whole slides in or out. */
   trail: 0.5,
   trailDistance: 40,
@@ -118,7 +120,7 @@ export interface SpotPose {
   strength: number
 }
 
-/** The two dark spots and the one accent spot that only a moment lights. */
+/** The two dark spots and an accent spot, which no screen lights now. */
 export interface Pose {
   spots: readonly [SpotPose, SpotPose]
   accent: SpotPose
@@ -269,7 +271,7 @@ const BREATH = 0.14
  * step and nothing else, so going back to a step reproduces it and the story's
  * length never shows.
  */
-export function stepPose(step: number, moment: boolean): Pose {
+export function stepPose(step: number): Pose {
   const random = seeded(step + 1)
   const sway = step % 2 === 0 ? -SWAY : SWAY
   // Size does most of the moving: a spot swells as it sways one way and
@@ -289,7 +291,7 @@ export function stepPose(step: number, moment: boolean): Pose {
   const accent: SpotPose = {
     u: wrapEdge(TOP_RIGHT + 1 + near()),
     radius: (360 + random() * 80) * breath,
-    strength: moment ? 1 : 0,
+    strength: 0,
   }
   return { spots: [first, second], accent }
 }

@@ -19,6 +19,7 @@ export const en: AgeVerificationMessages = {
     continue: 'Continue',
     startOver: 'Start over',
     restart: 'Start over',
+    optionDone: 'Done',
     optionLabel: (letter, label) => `Choice ${letter}: ${label}`,
     progressLabel: (step) => `Step ${step}`,
     idleReturning: 'Returning to the start',

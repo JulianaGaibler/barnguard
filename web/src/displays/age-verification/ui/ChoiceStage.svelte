@@ -1,6 +1,8 @@
 <!--
-  The answers to a choice, lettered from A. The engine draws each answer's
-  square and letter and moves them. The browser draws the answer's text, which
+  The answers to a choice, lettered from A. An answer with a description has a
+  title and a line under it, and one already taken
+  shows a tick in place of its letter and can't be picked. The engine draws each
+  answer's square and letter and moves them. The browser draws the answer's text, which
   it wraps and screen readers read, in a button anchored to the answer's slot so
   it follows the engine node. The whole row takes the tap, so a tap on the text
   and a tap on the square are the same.
@@ -24,6 +26,10 @@
     /** The column the answers fill, in the layout's coordinates. */
     box: Box
     options: readonly ChoiceOption[]
+    /** The ids of the answers already taken, which can't be picked. */
+    done?: ReadonlySet<string>
+    /** What a screen reader says of an answer that is taken. */
+    doneLabel?: string
     /** The answer just picked, whose label shows as chosen. */
     picked: string | null
     disabled: boolean
@@ -41,6 +47,8 @@
     region,
     box,
     options,
+    done = new Set<string>(),
+    doneLabel = '',
     picked,
     disabled,
     ariaLabel,
@@ -54,7 +62,9 @@
 
   // The options are fixed for a stage's life, since a new screen mounts a new one.
   /* svelte-ignore state_referenced_locally */
-  const rows = options.map((_, i) => new AnswerRow(letterOf(i)))
+  const rows = options.map(
+    (option, i) => new AnswerRow(letterOf(i), done.has(option.id)),
+  )
   // They arrive when the director brings them in, so they start out of sight.
   for (const row of rows) {
     row.pose.alpha = 0
@@ -106,8 +116,15 @@
       <button
         class="answer"
         class:answer--picked={picked === option.id}
-        aria-label={ariaLabel(letterOf(i), option.label)}
-        {disabled}
+        class:answer--done={done.has(option.id)}
+        aria-label={ariaLabel(
+          letterOf(i),
+          [option.label, option.description, done.has(option.id) && doneLabel]
+            .filter((part): part is string => !!part)
+            .map((part) => part.replace(/\.$/, ''))
+            .join('. '),
+        )}
+        disabled={disabled || done.has(option.id)}
         use:domAnchor={{ engine, node: rows[i]!.slot, syncOpacity: true }}
         bind:clientHeight={heights[i]}
         onpointerdown={() => press(rows[i]!, true)}
@@ -116,7 +133,12 @@
         onpointercancel={() => press(rows[i]!, false)}
         onclick={() => onPick(option.id)}
       >
-        <span class="answer__label" aria-hidden="true">{option.label}</span>
+        <span class="answer__label" aria-hidden="true">
+          <span class="answer__title">{option.label}</span>
+          {#if option.description}
+            <span class="answer__description">{option.description}</span>
+          {/if}
+        </span>
       </button>
     </li>
   {/each}
@@ -162,11 +184,31 @@
   // block that carries the type and the padding. The top padding keeps the
   // first line's cap height on the middle of the 56px square, whatever the size.
   .answer__label
-    @include type.option
     font-size: var(--answer-size, 40px)
     display: block
     flex: 1
     padding: calc(28px - 0.35em) 24px 24px
+
+  .answer__title
+    @include type.option
+    font-size: 1em
+    display: block
+
+  // A line under the title, smaller and quieter, so the title leads.
+  .answer__description
+    @include type.body
+    font-size: 0.78em
+    font-weight: 500
+    display: block
+    margin-block-start: 0.7em
+    color: var(--color-text-secondary)
+
+  // A taken answer fades, and is not a button anymore.
+  .answer--done
+    cursor: default
+
+  .answer--done .answer__label
+    opacity: 0.45
 
   .answer--picked
     color: var(--color-accent)

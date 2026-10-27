@@ -15,8 +15,10 @@
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte'
   import { domAnchor, type Engine } from 'stargazer'
+  import { Reveal } from '@src/core/ui/reveal.svelte'
   import type { UiRegion } from '@src/core/ui/uiRegion.svelte'
   import { t } from '../i18n'
+  import { blocks as blocksOf, plain, segments } from '../story/emphasis'
   import { Run } from '../story/run'
   import { illustrationOf } from '../story/types'
   import type { IllustrationLayer } from './IllustrationLayer'
@@ -25,6 +27,9 @@
   import { TILE_SIZE } from './rowLayout'
   import type { AnswerRow } from './answerRow'
   import ChoiceStage from './ChoiceStage.svelte'
+  import Folder from './Folder.svelte'
+  import FolderStage from './FolderStage.svelte'
+  import PeopleStage from './PeopleStage.svelte'
   import NavBar from './NavBar.svelte'
   import { MOTION, slideOffset } from './motion'
   import {
@@ -32,10 +37,17 @@
     type Backdrop,
     type DirectorMotion,
   } from './storyDirector'
-  import { MarkNode, TrailView } from './trailView'
+  import { TrailView } from './trailView'
+  import { PALETTE } from '../theme'
 
   /** An answer's text is this share of the body text. */
   const ANSWER_SHARE = 0.92
+  /** The room a row of people needs on one column, in design pixels. */
+  const PEOPLE_BLOCK = 460
+  /** The room a row of folders needs on one column. */
+  const FOLDER_BLOCK = 380
+  /** The folders' colors, one after another. */
+  const FOLDER_COLORS = [PALETTE.pink, PALETTE.mint, PALETTE.orange]
 
   interface Props {
     engine: Engine
@@ -71,15 +83,6 @@
   const trail = new TrailView(engine)
   /* svelte-ignore state_referenced_locally */
   region.anchor.add(trail)
-  // The moment's big star is the same mark as in the progress row, twice the
-  // size. Its place comes from the text column, which the browser lays out.
-  const star = new MarkNode('moment', 1)
-  star.visible = false
-  /* svelte-ignore state_referenced_locally */
-  region.anchor.add(star)
-  let starSlot = $state<HTMLElement | null>(null)
-  /** Where the star's top left goes, in the layout's coordinates. */
-  let starAt = $state({ x: 0, y: 0 })
   /** The answers of the choice showing, for the director to animate. */
   let rows: readonly AnswerRow[] = []
 
@@ -120,10 +123,54 @@
   })
 
   const node = $derived(run.current)
+  /** How the answers of a choice are set, when not as the lettered list. */
+  const presentation = $derived(
+    node.kind === 'choice' ? node.presentation : undefined,
+  )
   const paragraphs = $derived(run.text())
+  const blocks = $derived(blocksOf(paragraphs))
+
+  // People and folders are markup, so the engine has no answers to move.
+  $effect(() => {
+    if (presentation) rows = []
+  })
+
+  // The heading and the paragraphs come in one after another. Each screen gets
+  // its own, since how many parts there are changes with the screen.
+  let reveal = $state.raw<Reveal | null>(null)
+  $effect(() => {
+    void run
+    const count = untrack(
+      () => (node.title ? 1 : 0) + blocks.length + cards.length,
+    )
+    const next = new Reveal(engine, count)
+    next.show()
+    reveal = next
+    return () => next.destroy()
+  })
+  /** The look of part `i` of the text, which rises a little as it comes in. */
+  const part = (i: number): string => {
+    const v = reveal?.items[i]?.v ?? 1
+    return `opacity: ${v}; transform: translateY(${(1 - v) * 0.4}em)`
+  }
+
+  /** The cards of a scene with no picture, which take its row. */
+  const cards = $derived(
+    node.kind !== 'choice' && node.kind !== 'ending' && !node.illustration
+      ? (node.cards ?? [])
+      : [],
+  )
 
   const screenKind = $derived<ScreenKind>(
-    node.kind === 'choice' ? 'choice' : node.illustration ? 'picture' : 'text',
+    node.kind === 'choice'
+      ? presentation === 'folders'
+        ? 'folders'
+        : 'choice'
+      : node.illustration
+        ? 'picture'
+        : cards.length
+          ? 'cards'
+          : 'text',
   )
   // The window's width in CSS pixels, which sets the size of the text.
   const cssWidth = $derived(region.rect.width / region.cssPxInWorld)
@@ -134,9 +181,17 @@
     layoutIn(region, screenKind, {
       answers:
         node.kind === 'choice'
-          ? node.options.map((o) => o.label.length)
+          ? run.options.map(
+              (o) => o.label.length + (o.description?.length ?? 0) * 0.8,
+            )
           : undefined,
       answerSize,
+      answersBlock:
+        presentation === 'people'
+          ? PEOPLE_BLOCK
+          : presentation === 'folders'
+            ? FOLDER_BLOCK
+            : undefined,
     }),
   )
 
@@ -146,8 +201,13 @@
   function fit(): void {
     if (!textBox) return
     const characters =
-      paragraphs.join('').length +
-      (node.kind === 'ending' ? (node.title?.length ?? 0) : 0)
+      paragraphs.map(plain).join('').length +
+      (node.title?.length ?? 0) +
+      cards.reduce(
+        (sum, card) =>
+          sum + plain(card.text).length + (card.title?.length ?? 0),
+        0,
+      )
     const { min, max } = textRange(
       characters,
       region.cssPxInWorld,
@@ -221,52 +281,23 @@
     trailShown = true
   })
 
-  // The browser lays out the text box, so the star waits for it and then
-  // reads where its placeholder landed.
-  $effect(() => {
-    void node
-    void paragraphs
-    void layout
-    const slot = starSlot
-    if (!slot) return
-    void tick().then(() => {
-      starAt = {
-        x: layout.text.x + slot.offsetLeft,
-        y: layout.text.y + slot.offsetTop,
-      }
-    })
-  })
-
-  // The star comes in with the text: it slides, grows and turns into place.
-  const STAR_SIZE = 72
-  $effect(() => {
-    const lead = node.kind === 'moment'
-    star.visible = lead
-    if (!lead) return
-    const v = motion.text
-    const grown = STAR_SIZE / 36
-    star.transform.x =
-      starAt.x +
-      STAR_SIZE / 2 +
-      slideOffset(motion.sign, v, MOTION.slideDistance)
-    star.transform.y = starAt.y + STAR_SIZE / 2
-    star.transform.alpha = v
-    star.transform.scaleX = star.transform.scaleY = grown * (0.4 + 0.6 * v)
-    star.transform.rotation = (1 - v) * -0.9 * motion.sign
-  })
-
   onDestroy(() => {
     director.destroy()
     trail.destroy()
-    star.destroy()
   })
 
   function pick(optionId: string): void {
     if (node.kind !== 'choice') return
-    const index = node.options.findIndex((o) => o.id === optionId)
-    void transition(() =>
-      director.forward(run.choose(optionId), { index, id: optionId }),
-    )
+    const index = run.options.findIndex((o) => o.id === optionId)
+    void transition(async () => {
+      // People and folders have no engine tile to fly, so the pick is shown by
+      // the stage itself, a moment before the screen moves on.
+      if (presentation) {
+        picked = optionId
+        await engine.wait(0.22)
+      }
+      await director.forward(run.choose(optionId), { index, id: optionId })
+    })
   }
 
   function back(): void {
@@ -318,6 +349,10 @@
   style:--media-y="{layout.media.y}px"
   style:--media-width="{layout.media.width}px"
   style:--media-height="{layout.media.height}px"
+  style:--answers-x="{layout.answers.x}px"
+  style:--answers-y="{layout.answers.y}px"
+  style:--answers-width="{layout.answers.width}px"
+  style:--answers-height="{layout.answers.height}px"
   style:--nav-y="{layout.navY}px"
   style:--nav-height="{layout.navHeight}px"
 >
@@ -331,25 +366,61 @@
   <div
     class="story__text"
     class:story__text--stacked={layout.stacked}
-    class:story__text--moment={node.kind === 'moment'}
+    class:story__text--cards={cards.length > 0}
     style:opacity={motion.text}
     style:transform={textSlide}
     bind:this={textBox}
   >
-    {#if node.kind === 'moment'}
-      <span class="story__moment-slot" bind:this={starSlot} aria-hidden="true"
-      ></span>
-    {/if}
-    {#if node.kind === 'ending' && node.title}
-      <h1 class="story__title">
+    {#if node.title}
+      <h1 class="story__title" style={part(0)}>
         {node.title}
       </h1>
     {/if}
-    {#each paragraphs as paragraph, i (i)}
-      <p class="story__paragraph">
-        {paragraph}
-      </p>
+    {#each blocks as block, i (i)}
+      {#if block.kind === 'list'}
+        <ul class="story__list" style={part(i + (node.title ? 1 : 0))}>
+          {#each block.items as item, k (k)}
+            <li>
+              {#each segments(item) as piece, j (j)}
+                {#if piece.strong}<strong>{piece.text}</strong
+                  >{:else}{piece.text}{/if}
+              {/each}
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="story__paragraph" style={part(i + (node.title ? 1 : 0))}>
+          {#each segments(block.text) as piece, j (j)}
+            {#if piece.strong}<strong>{piece.text}</strong
+              >{:else}{piece.text}{/if}
+          {/each}
+        </p>
+      {/if}
     {/each}
+    {#if cards.length}
+      {@const first = (node.title ? 1 : 0) + blocks.length}
+      <ul
+        class="story__cards"
+        class:story__cards--stacked={layout.stacked}
+        style:--card-count={cards.length}
+      >
+        {#each cards as card, i (i)}
+          <li class="story__card" style={part(first + i)}>
+            <Folder
+              title={card.title}
+              color={FOLDER_COLORS[i % FOLDER_COLORS.length]!}
+            >
+              <p class="story__card-text">
+                {#each segments(card.text) as piece, j (j)}
+                  {#if piece.strong}<strong>{piece.text}</strong
+                    >{:else}{piece.text}{/if}
+                {/each}
+              </p>
+            </Folder>
+          </li>
+        {/each}
+      </ul>
+    {/if}
   </div>
 
   <div class="story__side">
@@ -363,11 +434,51 @@
     {/if}
   </div>
 
+  {#if node.kind === 'choice' && presentation}
+    <!-- People and folders are markup, so they sit in the section and move with
+         the right column. -->
+    <div
+      class="story__stage"
+      style:opacity={motion.side}
+      style:transform="translateX({slideOffset(
+        motion.sign,
+        motion.side,
+        MOTION.slideDistance,
+      )}px)"
+    >
+      {#key `${run.history.length}-${run.currentId}`}
+        {#if presentation === 'people'}
+          <PeopleStage
+            {engine}
+            options={run.options}
+            done={run.doneOptions}
+            doneLabel={$t.story.optionDone}
+            {picked}
+            disabled={busy || !active}
+            ariaLabel={$t.story.optionLabel}
+            fontSize={answerSize}
+            onPick={pick}
+          />
+        {:else}
+          <FolderStage
+            {engine}
+            options={run.options}
+            {picked}
+            disabled={busy || !active}
+            ariaLabel={$t.story.optionLabel}
+            fontSize={answerSize}
+            onPick={pick}
+          />
+        {/if}
+      {/key}
+    </div>
+  {/if}
+
   <div class="story__nav" style={navStyle}>
     <NavBar
       disabled={busy || !active}
       back={{ label: $t.story.back, onPress: back }}
-      forward={node.kind === 'scene' || node.kind === 'moment'
+      forward={node.kind === 'scene'
         ? { label: $t.story.continue, onPress: forward }
         : node.kind === 'ending'
           ? { label: $t.story.startOver, onPress: onHome }
@@ -381,15 +492,17 @@
 
 <!-- A sibling of the section, not inside it: the answers' text anchors to the
      engine's rows, and an anchored element cannot sit in another one. -->
-{#if node.kind === 'choice'}
-  {#key run.currentId}
+{#if node.kind === 'choice' && !presentation}
+  {#key `${run.history.length}-${run.currentId}`}
     <ChoiceStage
       {engine}
       {region}
       box={layout.answers}
       fontSize={answerSize}
       minHeight={tapHeight(TILE_SIZE, region.cssPxInWorld)}
-      options={node.options}
+      options={run.options}
+      done={run.doneOptions}
+      doneLabel={$t.story.optionDone}
       {picked}
       disabled={busy || !active}
       ariaLabel={$t.story.optionLabel}
@@ -448,6 +561,18 @@
     pointer-events: auto
     scrollbar-width: none
 
+  // People and folders, in the box the layout gives the answers, centered in it.
+  .story__stage
+    position: absolute
+    inset-inline-start: var(--answers-x)
+    inset-block-start: var(--answers-y)
+    width: var(--answers-width)
+    height: var(--answers-height)
+    display: flex
+    align-items: center
+    justify-content: center
+    will-change: opacity, transform
+
   .story__side
     position: absolute
     inset-inline-start: var(--media-x)
@@ -465,17 +590,84 @@
   .story__paragraph + .story__paragraph
     margin-block-start: calc(2.4em - 1cap - 1.2em)
 
+  // A heading over the text, in the display type, with room beneath it.
   .story__title
     @include type.letter
     font-size: 2.2em
     margin: 0
 
-  // Holds the star's place in the column. The engine draws the star.
-  .story__moment-slot
-    display: block
-    flex: none
-    width: 72px
-    height: 72px
+  // Points set side by side, each in an outlined card of the same height. On a
+  // portrait screen they stack. The text above is kept to a readable width.
+  .story__cards
+    @include type.body
+    list-style: none
+    margin: 0
+    padding: 0
+    display: grid
+    grid-template-columns: repeat(var(--card-count), minmax(0, 1fr))
+    gap: 0.8em
+    margin-block-start: 0.4em
+
+  .story__cards--stacked
+    grid-template-columns: minmax(0, 1fr)
+
+  // Each folder in a row has the same height, so its page fills the cell.
+  .story__card
+    display: flex
+    flex-direction: column
+
+    :global(.folder)
+      flex: 1
+
+  .story__card-text
+    @include type.body
+    font-size: 0.72em
+    font-weight: 500
+    margin: 0
+
+  .story__card strong
+    font-weight: 700
+
+  .story__text--cards .story__paragraph
+    max-width: 30em
+
+  // A list sits close under the sentence that leads into it, each item with a
+  // small square for a bullet, as in the brand's pixel shapes.
+  .story__list
+    @include type.body
+    font-size: 1em
+    margin: 0
+    padding: 0
+    list-style: none
+    display: flex
+    flex-direction: column
+    gap: 0.5em
+
+  .story__list li
+    position: relative
+    padding-inline-start: 1.1em
+
+  .story__list li::before
+    content: ''
+    position: absolute
+    inset-inline-start: 0
+    inset-block-start: 0.38em
+    width: 0.4em
+    height: 0.4em
+    background: var(--color-accent)
+
+  .story__paragraph + .story__list
+    margin-block-start: calc(1.2em - 1cap - 1.2em)
+
+  .story__list + .story__paragraph
+    margin-block-start: calc(2.4em - 1cap - 1.2em)
+
+  // A little heavier and in the accent color, to guide the eye through a
+  // paragraph without shouting.
+  .story__paragraph strong,
+  .story__list strong
+    font-weight: 700
+    color: var(--color-accent)
 
   .story__illustration
     width: 100%

@@ -1,6 +1,7 @@
 /**
  * Geometry for the row of progress marks: one per screen shown, joined by short
- * lines, scaled down to fit once the row outgrows its width.
+ * lines, the last five in view, scaled down to fit if even those outgrow the
+ * width.
  */
 import type { ProgressMark } from '../story/run'
 
@@ -8,9 +9,16 @@ import type { ProgressMark } from '../story/run'
 export const MARK_SIZE = 36
 /** Length of the line between two marks. */
 export const LINK_LENGTH = 16
+/** The most marks the row shows. The oldest slide off as new ones arrive. */
+export const MAX_MARKS = 5
+
+/** How many of the oldest marks of a row of `count` are off the left end. */
+export function hiddenMarks(count: number): number {
+  return Math.max(0, count - MAX_MARKS)
+}
 
 export interface TrailGeometry {
-  /** The row's natural width, the SVG's viewBox width. */
+  /** The natural width of the marks in view. */
   naturalWidth: number
   /** The width it's drawn at, at most `maxWidth`. */
   width: number
@@ -26,9 +34,8 @@ export function trailGeometry(
   maxWidth: number,
 ): TrailGeometry {
   const step = MARK_SIZE + LINK_LENGTH
-  const naturalWidth = marks.length
-    ? marks.length * MARK_SIZE + (marks.length - 1) * LINK_LENGTH
-    : 0
+  const shown = Math.min(marks.length, MAX_MARKS)
+  const naturalWidth = shown ? shown * MARK_SIZE + (shown - 1) * LINK_LENGTH : 0
   const scale = naturalWidth > maxWidth ? maxWidth / naturalWidth : 1
   return {
     naturalWidth,
@@ -47,19 +54,20 @@ export const MARK_STEP = MARK_SIZE + LINK_LENGTH
 
 /**
  * Where the mark at `index` of a row of `count` sits, as its center and its
- * size, measured from the row's top left corner. The row scales down to fit
- * `maxWidth`, so the slot does too. A flying mark aims for the slot of a mark
- * that does not exist yet.
+ * size, measured from the row's top left corner, once the row has scrolled to
+ * show the last five. The row scales down to fit `maxWidth`, so the slot does
+ * too. A flying mark aims for the slot of a mark that does not exist yet.
  */
 export function markSlot(
   count: number,
   index: number,
   maxWidth: number,
 ): { x: number; y: number; size: number } {
-  const natural = count > 0 ? count * MARK_SIZE + (count - 1) * LINK_LENGTH : 0
+  const shown = Math.min(count, MAX_MARKS)
+  const natural = shown > 0 ? shown * MARK_SIZE + (shown - 1) * LINK_LENGTH : 0
   const scale = natural > maxWidth && natural > 0 ? maxWidth / natural : 1
   return {
-    x: (index * MARK_STEP + MARK_SIZE / 2) * scale,
+    x: ((index - hiddenMarks(count)) * MARK_STEP + MARK_SIZE / 2) * scale,
     y: (MARK_SIZE / 2) * scale,
     size: MARK_SIZE * scale,
   }

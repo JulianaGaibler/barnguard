@@ -1,4 +1,12 @@
-import { Node2D, ShapeNode, TextNode, fontMetrics, mixColor } from 'stargazer'
+import {
+  GfxPath,
+  Node2D,
+  ShapeNode,
+  TextNode,
+  fontMetrics,
+  mixColor,
+  type Canvas,
+} from 'stargazer'
 import { FAMILIES, fontWith } from '@src/core/theme/fonts'
 import { PALETTE } from '../theme'
 import { TILE_SIZE } from './rowLayout'
@@ -7,6 +15,28 @@ const HALF = TILE_SIZE / 2
 /** The letter fills three quarters of the square. */
 const LETTER_SIZE = TILE_SIZE * 0.75
 const LETTER_WEIGHT = 600
+/** The square of an answer already taken, a grey instead of black. */
+const DONE_COLOR = mixColor(PALETTE.black, PALETTE.white, 0.62)
+
+/** A tick in the square, measured from the square's center as its nodes are. */
+const TICK = new GfxPath()
+  .moveTo(TILE_SIZE * -0.23, TILE_SIZE * 0.02)
+  .lineTo(TILE_SIZE * -0.06, TILE_SIZE * 0.19)
+  .lineTo(TILE_SIZE * 0.25, TILE_SIZE * -0.16)
+
+class TickNode extends Node2D {
+  constructor() {
+    super('answer-tick')
+  }
+
+  override paint(gfx: Canvas): void {
+    gfx.strokePath(TICK, {
+      color: PALETTE.white,
+      width: 6,
+      join: 'miter',
+    })
+  }
+}
 
 /**
  * How an answer looks at one moment. The director tweens these numbers and
@@ -55,11 +85,15 @@ export class AnswerRow {
   readonly square: ShapeNode
   readonly letter: TextNode
   readonly pose: RowPose = { ...RESTING_POSE }
+  /** The square's color at rest, which the pose's red mixes toward. */
+  readonly #base: string
   #x = 0
   #y = 0
   #drawnRadius = -1
 
-  constructor(letter: string) {
+  /** With `done`, the square is grey and holds a tick in place of the letter. */
+  constructor(letter: string, done = false) {
+    this.#base = done ? DONE_COLOR : PALETTE.black
     this.square = new ShapeNode({
       id: 'answer-square',
       geometry: {
@@ -68,7 +102,7 @@ export class AnswerRow {
         height: TILE_SIZE,
         radii: 0,
       },
-      fill: PALETTE.black,
+      fill: this.#base,
     })
     const font = fontWith(
       FAMILIES.mozillaHeadlineCondensed,
@@ -92,7 +126,9 @@ export class AnswerRow {
       // The cap height, not the em box, is what looks centered in the square.
       y: fontMetrics(font).capHeight / 2,
     })
-    this.tile.add(this.square, this.letter)
+    this.tile.add(this.square)
+    if (done) this.tile.add(new TickNode())
+    else this.tile.add(this.letter)
     this.apply()
   }
 
@@ -129,7 +165,7 @@ export class AnswerRow {
         radii: Math.min(Math.max(p.radius, 0), HALF),
       }
     }
-    this.square.fill = mixColor(PALETTE.black, PALETTE.red, p.red)
+    this.square.fill = mixColor(this.#base, PALETTE.red, p.red)
   }
 
   /** Adds the row's nodes to `parent`. */

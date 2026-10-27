@@ -209,7 +209,9 @@
       use:mountEngine={{
         backend,
         onBackendLost,
-        options: { clearColor: PALETTE.white },
+        // No multisampling: every layer's surface costs five times as much with
+        // it, and the layers are dithered into dots, so edges gain nothing.
+        options: { clearColor: PALETTE.white, msaaSamples: 1 },
         onReady: onEngineReady,
         onDestroy: onEngineDestroy,
       }}

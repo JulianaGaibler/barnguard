@@ -7,6 +7,11 @@ export const PALETTE = {
   red: '#FF453F',
   orange: '#FF9456',
   linen: '#FAF0E6',
+  // The brand's other colors, for the folders and badges.
+  pink: '#FF99E1',
+  mint: '#D9FFCC',
+  green: '#00D32F',
+  purple: '#AE4BEB',
   white: '#FFFFFF',
 } as const
 

@@ -3,9 +3,12 @@
  *
  * A run keeps only the path: which screens were shown and which answer was
  * picked on each. Flags are derived from that path, so stepping back undoes an
- * answer's flags with nothing else to unwind.
+ * answer's flags with nothing else to unwind. The path can pass through a
+ * screen more than once, as flags let a loop end.
  */
 import type {
+  ChoiceNode,
+  ChoiceOption,
   Condition,
   Flag,
   Next,
@@ -21,9 +24,9 @@ export interface Step {
   option?: string
 }
 
-/** One mark in the progress row. */
+/** One mark in the progress row, drawn to match the kind of its screen. */
 export interface ProgressMark {
-  kind: 'step' | 'moment'
+  kind: StoryNode['kind']
   current: boolean
 }
 
@@ -45,6 +48,30 @@ export function resolveNext(
     if (!route.when || holds(route.when, flags)) return route.to
   }
   return null
+}
+
+/** The answers of `node` that show for `flags`, in their order. */
+export function visibleOptions(
+  node: ChoiceNode,
+  flags: ReadonlySet<Flag>,
+): ChoiceOption[] {
+  return node.options.filter((o) => !o.when || holds(o.when, flags))
+}
+
+/** Whether the answer is taken for `flags`, and so can't be picked. */
+export function isDone(
+  option: ChoiceOption,
+  flags: ReadonlySet<Flag>,
+): boolean {
+  return !!option.done && holds(option.done, flags)
+}
+
+/** The answers of `node` that show and can be picked for `flags`. */
+export function pickableOptions(
+  node: ChoiceNode,
+  flags: ReadonlySet<Flag>,
+): ChoiceOption[] {
+  return visibleOptions(node, flags).filter((o) => !isDone(o, flags))
 }
 
 /** The paragraphs of `body` that show for `flags`. */
@@ -88,6 +115,20 @@ export class Run {
     return flagsOf(this.story, this.history)
   }
 
+  /** The answers showing on the current choice, none on any other screen. */
+  get options(): readonly ChoiceOption[] {
+    const node = this.current
+    return node.kind === 'choice' ? visibleOptions(node, this.flags) : []
+  }
+
+  /** The ids of the showing answers that are taken, so can't be picked. */
+  get doneOptions(): ReadonlySet<string> {
+    const flags = this.flags
+    return new Set(
+      this.options.filter((o) => isDone(o, flags)).map((o) => o.id),
+    )
+  }
+
   /** True on the first screen, where Back leaves the story. */
   get atStart(): boolean {
     return this.history.length === 1
@@ -104,7 +145,9 @@ export class Run {
     if (node.kind !== 'choice') {
       throw new Error(`"${this.currentId}" is not a choice`)
     }
-    const option = node.options.find((o) => o.id === optionId)
+    const option = pickableOptions(node, this.flags).find(
+      (o) => o.id === optionId,
+    )
     if (!option) {
       throw new Error(`"${this.currentId}" has no option "${optionId}"`)
     }
@@ -115,10 +158,10 @@ export class Run {
     return this.#advance(answered, option.next)
   }
 
-  /** Move on from a scene or moment. */
+  /** Move on from a scene. */
   continue(): Run {
     const node = this.current
-    if (node.kind !== 'scene' && node.kind !== 'moment') {
+    if (node.kind !== 'scene') {
       throw new Error(`"${this.currentId}" has no Continue`)
     }
     return this.#advance(this.history, node.next)
@@ -143,7 +186,7 @@ export class Run {
    */
   progress(): ProgressMark[] {
     return this.history.slice(1).map((step, i) => ({
-      kind: this.#node(step.node).kind === 'moment' ? 'moment' : 'step',
+      kind: this.#node(step.node).kind,
       current: i === this.history.length - 2,
     }))
   }

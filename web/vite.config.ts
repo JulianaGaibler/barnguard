@@ -35,7 +35,16 @@ export default defineConfig({
     // Which displays this build carries: all of them, or the one named by
     // `BARNGUARD_DISPLAY` (see `npm run build:display`).
     displays(src, publicDir),
-    svelte(),
+    svelte({
+      // The engine's debug UI is Svelte components with their own styles. Served
+      // from `node_modules`, the dev server cannot find their separate CSS and
+      // answers with the component's whole source, which drops the first rule of
+      // each. Having the components inject their own styles avoids the lookup.
+      dynamicCompileOptions: ({ filename }) =>
+        filename.includes('/node_modules/stargazer/')
+          ? { css: 'injected' }
+          : undefined,
+    }),
     // The service worker keeps the installed app working offline. The pages
     // register it themselves, in `core/pwa/register.ts`, and the manifests are
     // plain files in `public/`.

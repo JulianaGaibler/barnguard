@@ -5,10 +5,13 @@ const art = { src: '/a.svg', alt: 'A picture' }
 
 describe('illustrationOf', () => {
   it('is the picture of a screen that has one', () => {
-    for (const kind of ['scene', 'moment'] as const) {
-      const node: StoryNode = { kind, body: [], illustration: art, next: 'x' }
-      expect(illustrationOf(node)).toBe(art)
+    const node: StoryNode = {
+      kind: 'scene',
+      body: [],
+      illustration: art,
+      next: 'x',
     }
+    expect(illustrationOf(node)).toBe(art)
     expect(
       illustrationOf({ kind: 'ending', body: [], illustration: art }),
     ).toBe(art)

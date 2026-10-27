@@ -1,6 +1,5 @@
 import {
   AbortScope,
-  GfxPath,
   Node2D,
   ShapeNode,
   definePaintProps,
@@ -17,6 +16,7 @@ import {
   LINK_LENGTH,
   MARK_SIZE,
   MARK_STEP,
+  hiddenMarks,
   trailGeometry,
 } from './progressTrail'
 import { planTrail } from './trailPlan'
@@ -26,25 +26,17 @@ const STROKE = 3
 /** The link between two marks is faint. */
 const LINK_ALPHA = 0.1
 
-/** A four-point star filling a `MARK_SIZE` box. */
-const STAR = new GfxPath()
-  .moveTo(18, 0)
-  .lineTo(24.364, 11.636)
-  .lineTo(36, 18)
-  .lineTo(24.364, 24.364)
-  .lineTo(18, 36)
-  .lineTo(11.636, 24.364)
-  .lineTo(0, 18)
-  .lineTo(11.636, 11.636)
-  .close()
+/** The dot inside an ending's ring, as a share of the mark. */
+const END_DOT = 0.38
 
 /**
- * One mark in the progress row: a ring for a screen and a star for a moment,
- * with a solid fill that fades in for the current one. The node pivots on its
- * center, so scaling it pops it from the middle.
+ * One mark in the progress row, shaped by the kind of its screen: a ring for
+ * text, a square for a choice and a ring with a dot for an ending. A solid fill
+ * fades in for the current one. The node pivots on its center, so scaling it
+ * pops it from the middle.
  */
 export class MarkNode extends Node2D {
-  /** `'step'` draws a ring, `'moment'` a star. */
+  /** Which of the three shapes to draw. */
   declare shape: ProgressMark['kind']
   /** How much of the solid fill shows, from 0 (a ring) to 1 (filled). */
   declare filled: number
@@ -58,17 +50,20 @@ export class MarkNode extends Node2D {
 
   override paint(gfx: Canvas): void {
     const fill = withAlpha(PALETTE.red, this.filled)
-    if (this.shape === 'moment') {
-      if (this.filled > 0.001) gfx.fillPath(STAR, fill)
-      gfx.strokePath(STAR, {
+    const inner = MARK_SIZE - STROKE
+    if (this.shape === 'choice') {
+      if (this.filled > 0.001) gfx.fillRect(0, 0, MARK_SIZE, MARK_SIZE, fill)
+      gfx.strokeRoundRect(STROKE / 2, STROKE / 2, inner, inner, 0, {
         color: PALETTE.red,
         width: STROKE,
-        align: 'inside',
-        join: 'miter',
       })
       return
     }
-    const inner = MARK_SIZE - STROKE
+    if (this.shape === 'ending') {
+      const dot = MARK_SIZE * END_DOT
+      const at = (MARK_SIZE - dot) / 2
+      gfx.fillRoundRect(at, at, dot, dot, dot / 2, PALETTE.red)
+    }
     if (this.filled > 0.001) {
       gfx.fillRoundRect(0, 0, MARK_SIZE, MARK_SIZE, MARK_SIZE / 2, fill)
     }
@@ -84,8 +79,9 @@ export type Tweener = Pick<Engine, 'tween'>
 
 /**
  * The row of progress marks, drawn by the engine and animated as the visitor
- * moves. It shows one mark per screen shown so far and never how many are
- * left.
+ * moves. It shows one mark per screen shown so far and never how many are left,
+ * and at most five at a time: the marks sit on a strip that slides left as the
+ * row grows, and the oldest fade out toward the left end as they go.
  *
  * The node sits at the row's top left. It scales as a whole when the row
  * outgrows its width, which tweens, so a long path shrinks smoothly.
@@ -97,10 +93,15 @@ export class TrailView extends Node2D {
   #marks: MarkNode[] = []
   /** `#links[i]` joins mark `i` to mark `i + 1`. */
   #links: ShapeNode[] = []
+  /** Holds the marks and links, and slides so the last five are in view. */
+  readonly #strip = new Node2D('strip')
+  /** How many marks the strip has slid past. It tweens, so it is not whole. */
+  readonly #scroll = { v: 0 }
 
   constructor(engine: Tweener) {
     super('trail')
     this.#engine = engine
+    this.add(this.#strip)
   }
 
   /** How many marks the row shows. */
@@ -144,6 +145,7 @@ export class TrailView extends Node2D {
       this.#fillTo(marks.length - 1, true, animate)
     }
     this.#shown = marks.map((mark) => ({ ...mark }))
+    this.#scrollTo(hiddenMarks(marks.length), animate && change !== 'reset')
     this.#fitTo(marks, maxWidth, animate && change !== 'reset')
     return opts.holdLast ? held : null
   }
@@ -172,7 +174,7 @@ export class TrailView extends Node2D {
     const node = new MarkNode(mark.kind, mark.current ? 1 : 0)
     node.transform.x = index * MARK_STEP + MARK_SIZE / 2
     node.transform.y = MARK_SIZE / 2
-    this.add(node)
+    this.#strip.add(node)
     this.#marks[index] = node
     if (index > 0) {
       const link = new ShapeNode({
@@ -186,7 +188,7 @@ export class TrailView extends Node2D {
       })
       link.transform.x = (index - 1) * MARK_STEP + MARK_SIZE
       link.transform.y = (MARK_SIZE - STROKE) / 2
-      this.add(link)
+      this.#strip.add(link)
       this.#links[index - 1] = link
       if (animate) {
         link.transform.scaleX = 0
@@ -266,6 +268,43 @@ export class TrailView extends Node2D {
     }
   }
 
+  /**
+   * Slides the strip so `hidden` marks are past the left end. A mark fades out
+   * as it nears that end, so the row's edge is a gradient, not a cut.
+   */
+  #scrollTo(hidden: number, animate: boolean): void {
+    if (!animate) {
+      this.#scroll.v = hidden
+      this.#place()
+      return
+    }
+    void this.#play(
+      this.#scroll,
+      { v: hidden },
+      {
+        duration: MOTION.trailScroll,
+        easing: easings.outCubic,
+        key: 'scroll',
+        onUpdate: () => this.#place(),
+      },
+    ).then(() => this.#place())
+  }
+
+  /** Puts the strip and the fade of every mark where the scroll says. */
+  #place(): void {
+    const scroll = this.#scroll.v
+    this.#strip.transform.x = -scroll * MARK_STEP
+    const fade = (index: number): number =>
+      Math.min(1, Math.max(0, index - scroll + 1))
+    this.#marks.forEach((mark, i) => {
+      mark.transform.alpha = fade(i)
+    })
+    // A link goes with the older mark it leaves.
+    this.#links.forEach((link, i) => {
+      link.transform.alpha = fade(i)
+    })
+  }
+
   /** Scales the whole row so it fits `maxWidth`. */
   #fitTo(
     marks: readonly ProgressMark[],
@@ -303,6 +342,7 @@ export class TrailView extends Node2D {
       delay?: number
       easing?: (t: number) => number
       key?: string
+      onUpdate?: () => void
     },
   ): Promise<void> {
     return this.#engine

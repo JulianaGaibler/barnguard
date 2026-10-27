@@ -9,7 +9,7 @@ import { enumeratePaths } from './validate'
 
 /**
  * A run standing on `node` with at least `flags` set, by the shortest path that
- * gets there. Null when no path does.
+ * gets there, on any visit to it. Null when no path does.
  */
 export function runAt(
   story: Story,
@@ -18,13 +18,16 @@ export function runAt(
 ): Run | null {
   let best: Run | null = null
   for (const path of enumeratePaths(story)) {
-    const at = path.findIndex((step) => step.node === node)
-    if (at === -1) continue
-    const history = [...path.slice(0, at), { node }]
-    const set = flagsOf(story, history)
-    if (!flags.every((flag) => set.has(flag))) continue
-    if (!best || history.length < best.history.length) {
-      best = new Run(story, history)
+    // A screen the path comes back to counts each time, as it may offer
+    // something different with more flags set.
+    for (const [at, step] of path.entries()) {
+      if (step.node !== node) continue
+      const history = [...path.slice(0, at), { node }]
+      const set = flagsOf(story, history)
+      if (!flags.every((flag) => set.has(flag))) continue
+      if (!best || history.length < best.history.length) {
+        best = new Run(story, history)
+      }
     }
   }
   return best

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { ProgressMark } from '../story/run'
 import { planTrail } from './trailPlan'
 
-const step = (current = false): ProgressMark => ({ kind: 'step', current })
-const moment = (current = false): ProgressMark => ({ kind: 'moment', current })
+const step = (current = false): ProgressMark => ({ kind: 'scene', current })
+const choice = (current = false): ProgressMark => ({ kind: 'choice', current })
 
 describe('planTrail', () => {
   it('rebuilds a row that was empty', () => {
@@ -13,7 +13,7 @@ describe('planTrail', () => {
   it('adds one mark when the visitor moves on', () => {
     expect(planTrail([step(true)], [step(), step(true)])).toBe('add')
     expect(
-      planTrail([step(), step(true)], [step(), step(), moment(true)]),
+      planTrail([step(), step(true)], [step(), step(), choice(true)]),
     ).toBe('add')
   })
 
@@ -27,7 +27,7 @@ describe('planTrail', () => {
 
   it('rebuilds when the marks before the end are not the same kind', () => {
     expect(
-      planTrail([step(), step(true)], [moment(), step(), step(true)]),
+      planTrail([step(), step(true)], [choice(), step(), step(true)]),
     ).toBe('reset')
   })
 

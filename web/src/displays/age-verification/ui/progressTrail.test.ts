@@ -9,7 +9,7 @@ import type { ProgressMark } from '../story/run'
 
 function marks(n: number): ProgressMark[] {
   return Array.from({ length: n }, (_, i) => ({
-    kind: i % 3 === 2 ? 'moment' : 'step',
+    kind: i % 3 === 2 ? 'choice' : 'scene',
     current: i === n - 1,
   }))
 }
@@ -27,18 +27,19 @@ describe('trailGeometry', () => {
     expect(g.height).toBe(MARK_SIZE)
   })
 
-  it('matches the mockup row of six', () => {
-    expect(trailGeometry(marks(6), 1664).width).toBe(296)
+  it('is as wide as five marks at most', () => {
+    expect(trailGeometry(marks(5), 1664).width).toBe(244)
+    expect(trailGeometry(marks(6), 1664).width).toBe(244)
+    expect(trailGeometry(marks(40), 1664).width).toBe(244)
   })
 
-  it('scales a long run down to the row', () => {
-    const g = trailGeometry(marks(40), 1664)
-    expect(g.naturalWidth).toBeGreaterThan(1664)
-    expect(g.width).toBeCloseTo(1664)
+  it('scales the five in view down to a narrow row', () => {
+    const g = trailGeometry(marks(40), 122)
+    expect(g.width).toBeCloseTo(122)
     expect(g.height).toBeLessThan(MARK_SIZE)
   })
 
-  it('keeps thirty marks at full size', () => {
+  it('keeps a long run at full size', () => {
     expect(trailGeometry(marks(30), 1664).height).toBe(MARK_SIZE)
   })
 
@@ -59,17 +60,20 @@ describe('markSlot', () => {
   })
 
   it('scales with the row when it outgrows its width', () => {
-    const count = 60
-    const natural = count * 36 + (count - 1) * 16
-    const slot = markSlot(count, count - 1, 1664)
-    expect(slot.size).toBeCloseTo(36 * (1664 / natural))
+    const slot = markSlot(60, 59, 122)
+    expect(slot.size).toBeCloseTo(36 * (122 / 244))
     // The last mark's far edge is at the row's width.
-    expect(slot.x + slot.size / 2).toBeCloseTo(1664)
+    expect(slot.x + slot.size / 2).toBeCloseTo(122)
+  })
+
+  it('puts the newest mark at the fifth place once the row scrolls', () => {
+    expect(markSlot(6, 5, 1664).x).toBe(markSlot(5, 4, 1664).x)
+    expect(markSlot(40, 39, 1664).x).toBe(4 * 52 + 18)
   })
 
   it('agrees with the geometry the row is drawn from', () => {
     const marks = Array.from({ length: 5 }, (_, i) => ({
-      kind: 'step' as const,
+      kind: 'scene' as const,
       current: i === 4,
     }))
     const geometry = trailGeometry(marks, 1664)

@@ -7,7 +7,8 @@
   transform and size that `domAnchor` writes whenever it changed.
 -->
 <script lang="ts">
-  import { onDestroy, onMount, tick } from 'svelte'
+  import { onDestroy, onMount, tick, untrack } from 'svelte'
+  import { get } from 'svelte/store'
   import {
     domAnchor,
     GfxPath,
@@ -28,6 +29,7 @@
   import { inWorld, MIN_TAP_CSS_PX } from './layout'
   import { MOTION, slideOffset } from './motion'
   import { splashLayoutIn } from './splashLayout'
+  import { splashPlayback } from './splashPlayback'
 
   interface Props {
     engine: Engine
@@ -77,6 +79,9 @@
           fit: 'cover',
           autoplay: false,
         })
+        // Held still, it comes up at the frame it was left at.
+        const held = get(splashPlayback)
+        if (held.paused) node.seek(held.frame)
         panel.add(node)
         animation = node
       })
@@ -170,8 +175,22 @@
     panel.transform.alpha = v
     panel.visible = v > 0
     if (!animation) return
-    if (v > 0) animation.play()
+    if (v > 0 && !$splashPlayback.paused) animation.play()
     else animation.pause()
+  })
+
+  // Pausing remembers the frame, so a reload or a restart holds the same one.
+  // Playing on from it needs nothing stored.
+  $effect(() => {
+    const node = animation
+    const paused = $splashPlayback.paused
+    if (!node || !paused) return
+    const frame = node.currentFrame
+    untrack(() => {
+      if ($splashPlayback.frame !== frame) {
+        splashPlayback.set({ paused: true, frame })
+      }
+    })
   })
 
   onDestroy(() => {

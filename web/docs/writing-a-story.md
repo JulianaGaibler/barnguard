@@ -64,18 +64,16 @@ Each string in `body` is one paragraph.
 
 ### Kinds of screens
 
-There are four kinds of node:
+There are three kinds of node:
 
-- **`scene`:** text with a Continue button. The opening scenario is a scene.
+- **`scene`:** text with a Continue button. The opening scenario is a scene, and
+  so is a consequence of the last choice or an event in the world.
 - **`choice`:** text on the left and two to four answers on the right, lettered
   A to D. Tapping an answer moves on.
-- **`moment`:** text with a Continue button, marked with a star. Use a moment
-  for a consequence of the last choice, or for an event in the world. The
-  progress row shows a moment as a star.
 - **`ending`:** an optional title and text, with a Start over button. The run
   stops here.
 
-A scene, a moment, or an ending can have an illustration. Import the image and
+A scene or an ending can have an illustration. Import the image and
 give it alternative text:
 
 ```ts
@@ -105,6 +103,103 @@ The splash screen isn't part of the story. Its title is in `i18n/en.ts`, one
 line per entry so it breaks where the design does, and its animation is set in
 `assets.ts`.
 
+### Headings, emphasis and lists
+
+Any screen can have a `title`, a heading over its text. Not every screen needs
+one. Use it where a screen introduces a speaker or a topic, and leave it out of
+the first sentence:
+
+```ts
+{
+  kind: 'scene',
+  title: 'Digital rights advocates',
+  body: ['The experts you are talking to ask a fundamental question…'],
+  next: 'next-screen',
+},
+```
+
+Put `**double stars**` around a word or a short phrase to stress it. It is set
+heavier and in the accent color. Use it for a few words a screen, so it keeps
+guiding the eye:
+
+```ts
+body: ['Experts disagree on the **best solutions**.'],
+```
+
+A paragraph that starts with `- ` is a list item. Following items make one list,
+each with a small square for a bullet:
+
+```ts
+body: [
+  'The act requires platforms to:',
+  '- moderate content',
+  '- offer users a way to appeal',
+],
+```
+
+The screen's parts come in one after another, the heading first, so a short
+paragraph or two reads better than a long one.
+
+### Screen patterns
+
+A few kinds of content have a look of their own, so a story is not one wall of
+text after another. Each is a field on the screen, and each comes in with its own
+motion.
+
+**Folders for information.** A scene can set two to four short
+points side by side as folders, under its text, and on a portrait screen they
+stack. Each folder has a `title` on its tab. Keep each to a sentence or two,
+since they share the width. A screen with an illustration shows none:
+
+```ts
+{
+  kind: 'scene',
+  body: ['Your law has entered into force.'],
+  cards: [
+    { title: 'Enforcement', text: 'Authorities are stronger and **rules** are enforced.' },
+    { title: 'Platforms', text: 'Platforms assess the risks to children.' },
+    { title: 'Young people', text: 'The government funds spaces for them.' },
+  ],
+  next: 'ending',
+},
+```
+
+**Folders to pick from.** A choice with `presentation: 'folders'` is a stack of
+folders, each answer's `label` on the tab and its `description` on the page. Use
+it where the answers are topics to read about:
+
+```ts
+{
+  kind: 'choice',
+  presentation: 'folders',
+  body: ['Which one do you choose?'],
+  options: [
+    { id: 'estimation', label: 'Age estimation', description: 'Software guesses a user’s age from a selfie.', next: 'estimation' },
+    // …
+  ],
+},
+```
+
+**People to talk to.** A choice with `presentation: 'people'` is a row of
+figures, each answer's `label` under one. Use it where the answers are who to
+meet. It shows the label only, and an answer with a `done` condition shows grey
+with a tick:
+
+```ts
+{
+  kind: 'choice',
+  presentation: 'people',
+  body: ['Who do you want to meet?'],
+  options: [
+    { id: 'parents', label: 'Parents associations', next: 'parents' },
+    // …
+  ],
+},
+```
+
+Without a `presentation`, the answers are a lettered list, and a `description`
+on one shows as a line under its label.
+
 ### Answer ids
 
 Each answer has an `id` that's unique within its choice. The display records
@@ -122,15 +217,21 @@ npx vitest run src/displays/age-verification
 They fail if:
 
 - a `next` or `to` names a node that doesn't exist
-- the story loops back on itself
+- a path comes back to a screen with the same flags it had before, so it would
+  go round forever
 - a node can't be reached from the start
 - a choice has fewer than two or more than four answers, or two answers share an
   id
 - a list of routes can end without a match
+- a choice can end up with no answer showing
 - a flag is read but never set
 
 A flag that's set but never read fails the test too, since it usually means a
 typo.
+
+The progress row marks each screen by its kind: a ring for a scene, a square for
+a choice and a ring with a dot for an ending. The row shows the last five, and
+the oldest slides off to the left as a new one arrives.
 
 A link to a missing node also fails to compile. The message names the missing
 node as a missing property:
@@ -154,7 +255,8 @@ work as they would for a visitor. This works only in development builds.
 
 The story is a graph, not a tree. Two answers can lead to the same node, and so
 can two whole branches. Paths can split and join as often as the story needs, as
-long as none of them loops back to a node it already passed.
+long as none of them loops back to a node it already passed. A loop is allowed
+only when flags end it, see [Loops that flags end](#loops-that-flags-end).
 
 When paths join, the node they join at can't tell which way the visitor came.
 Use flags for anything later screens need to remember.
@@ -205,6 +307,59 @@ next: [
 
 This is the usual way to pick an ending: every path reaches the last choice, and
 the flags decide which conclusion follows.
+
+### Answers that show only sometimes
+
+An answer can carry a `when`, a condition like those above. The answer shows
+only while it holds:
+
+```ts
+{ id: 'young', label: 'Young people', when: { not: { flag: 'heard-yp' } }, sets: ['heard-yp'], next: 'young' },
+```
+
+The listed number of answers, two to four, counts all of them. At least one has
+to show whatever the flags are, and the tests fail if some path can show none.
+
+### Loops that flags end
+
+Answers with a `when` let a screen come back. A hub can offer several meetings,
+hide each once heard, and offer Continue when none is left:
+
+```ts
+{
+  id: 'children',
+  label: 'Children’s rights experts',
+  when: { not: { flag: 'heard-cr' } },
+  sets: ['heard-cr'],
+  next: 'cr-a',
+},
+{ id: 'continue', label: 'Continue', when: allHeard, next: 'next-part' },
+```
+
+Each trip round has to set a flag it didn't have before, so the loop ends. A
+path that reaches a screen again with exactly the same flags can never end, and
+the tests report it. Each pass adds a mark to the progress row.
+
+### Answers that are taken
+
+An answer with a `done` condition shows as taken, with a tick in place of its
+letter, and can't be picked. It is still on the screen, so the visitor sees what
+they have already done. This is how a hub of answers shows which meetings have
+been heard. Unlike `when`, it never removes the answer:
+
+```ts
+{
+  id: 'children',
+  label: 'Children’s rights experts',
+  description: 'Rights to information, participation, education and play.',
+  done: { flag: 'heard-cr' },
+  sets: ['heard-cr'],
+  next: 'cr-a',
+},
+```
+
+At least one answer has to be left to pick on every path, so a hub's meetings
+lead on to the next part, through a route, once the last one is heard.
 
 ### Text length
 
@@ -260,7 +415,7 @@ election.` It shows on its own for a moment before the text.
   with `button` for its words.
 - `prompt` on a choice is an instruction under the text, such as `Choose who you
 meet first.`
-- `button` names the single button of a scene or a moment, and `sets` on it sets
+- `button` names the single button of a scene, and `sets` on it sets
   flags when it is pressed. `buttonStyle` is `plain`, `small` or `thought`, which
   is italic.
 - A flag written `key=value`, such as `name=June`, is a remembered choice with a

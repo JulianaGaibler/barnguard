@@ -153,21 +153,19 @@ describe('the edge loop', () => {
 describe('stepPose', () => {
   it('is the same for the same step, so going back reproduces it', () => {
     for (let step = 0; step < 12; step++) {
-      expect(stepPose(step, false)).toEqual(stepPose(step, false))
+      expect(stepPose(step)).toEqual(stepPose(step))
     }
   })
 
   it('differs from one step to the next', () => {
     for (let step = 0; step < 12; step++) {
-      expect(stepPose(step, false).spots[0].u).not.toBe(
-        stepPose(step + 1, false).spots[0].u,
-      )
+      expect(stepPose(step).spots[0].u).not.toBe(stepPose(step + 1).spots[0].u)
     }
   })
 
   it('keeps the spots on the loop and at a sensible size', () => {
     for (let step = 0; step < 60; step++) {
-      for (const spot of stepPose(step, true).spots) {
+      for (const spot of stepPose(step).spots) {
         expect(spot.u).toBeGreaterThanOrEqual(0)
         expect(spot.u).toBeLessThan(EDGE_LOOP)
         expect(spot.radius).toBeGreaterThan(250)
@@ -176,16 +174,9 @@ describe('stepPose', () => {
     }
   })
 
-  it('lights the accent spot for a moment only', () => {
-    expect(stepPose(3, true).accent.strength).toBe(1)
-    expect(stepPose(3, false).accent.strength).toBe(0)
-    // A moment changes nothing else, so Back from it lands on the same spots.
-    expect(stepPose(3, true).spots).toEqual(stepPose(3, false).spots)
-  })
-
   it('keeps its two dark spots apart', () => {
     for (let step = 0; step < 30; step++) {
-      const [a, b] = stepPose(step, false).spots
+      const [a, b] = stepPose(step).spots
       expect(Math.abs(loopDelta(a.u, b.u))).toBeGreaterThan(1)
     }
   })
@@ -193,7 +184,7 @@ describe('stepPose', () => {
 
 describe('reachable', () => {
   it('moves each spot the short way, even across the wrap', () => {
-    const from = stepPose(0, false)
+    const from = stepPose(0)
     const to = {
       ...from,
       spots: [
@@ -293,7 +284,7 @@ describe('edgeSize', () => {
 describe('stepPose settles near the corners', () => {
   it('puts every spot within the jitter of a corner', () => {
     for (let step = 0; step < 40; step++) {
-      const pose = stepPose(step, true)
+      const pose = stepPose(step)
       for (const spot of [...pose.spots, pose.accent]) {
         const away = Math.abs(spot.u - Math.round(spot.u))
         expect(Math.min(away, EDGE_LOOP - away)).toBeLessThanOrEqual(0.111)
@@ -304,13 +295,13 @@ describe('stepPose settles near the corners', () => {
   it('sways to the other side on each step without travelling far', () => {
     for (let step = 0; step < 10; step++) {
       for (const spot of [0, 1] as const) {
-        const a = stepPose(step, false).spots[spot].u
-        const b = stepPose(step + 1, false).spots[spot].u
+        const a = stepPose(step).spots[spot].u
+        const b = stepPose(step + 1).spots[spot].u
         const moved = loopDelta(a, b)
         expect(Math.abs(moved)).toBeGreaterThan(0.05)
         expect(Math.abs(moved)).toBeLessThan(0.25)
-        expect(stepPose(step + 1, false).spots[spot].radius).not.toBeCloseTo(
-          stepPose(step, false).spots[spot].radius,
+        expect(stepPose(step + 1).spots[spot].radius).not.toBeCloseTo(
+          stepPose(step).spots[spot].radius,
           -1,
         )
       }
@@ -340,7 +331,7 @@ describe('spotSize', () => {
     // The nearest control is about 250 px from the top left and bottom right
     // corner, and a spot's dots reach about two thirds of its radius.
     for (let step = 0; step < 40; step++) {
-      for (const spot of stepPose(step, true).spots) {
+      for (const spot of stepPose(step).spots) {
         const corner = Math.round(spot.u) % 4
         if (corner === 0 || corner === 2) {
           const reach = spot.radius * spotSize(spot.u) * (2 / 3)
