@@ -42,14 +42,16 @@ enum Command {
     /// reads get answered. Stop the server first; it holds the device.
     #[command(after_help = "Examples:
   barnguard-server usb-probe
-  barnguard-server usb-probe --print label.jpg
-  barnguard-server usb-probe --print label.jpg --cut-trigger zlp
+  barnguard-server usb-probe --print
+  barnguard-server usb-probe --print --cut-trigger zlp
+  barnguard-server usb-probe --print my-label.jpg
 
 See the [usb] section of config.example.toml for the full setup steps.")]
     UsbProbe {
-        /// Also print this JPEG and log the printer's state afterwards.
-        #[arg(long, value_name = "JPEG")]
-        print: Option<PathBuf>,
+        /// Also print a label and log the printer's state afterwards. Without
+        /// a path, prints a built-in test label with a border to check the cut.
+        #[arg(long, value_name = "JPEG", num_args = 0..=1)]
+        print: Option<Option<PathBuf>>,
         /// Override usb.read_mode for the test print.
         #[arg(long, value_name = "MODE")]
         read_mode: Option<String>,

@@ -68,11 +68,16 @@ pub fn show_where() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Run the USB probe against the configured printer. `read_mode` and
-/// `cut_trigger` override the config for the test print, so each cut trigger
-/// can be tried without editing `config.toml`.
+/// Test label for `usb-probe --print` without a path: a heavy border on all
+/// four sides, so a clean cut is easy to see.
+const USB_TEST_LABEL: &[u8] = include_bytes!("../assets/usb-test-label.jpg");
+
+/// Run the USB probe against the configured printer. `print` is `None` for no
+/// test print, `Some(None)` for the built-in label, or a JPEG path.
+/// `read_mode` and `cut_trigger` override the config for the test print, so
+/// each cut trigger can be tried without editing `config.toml`.
 pub async fn usb_probe(
-    print: Option<PathBuf>,
+    print: Option<Option<PathBuf>>,
     read_mode: Option<String>,
     cut_trigger: Option<String>,
 ) -> Result<(), Box<dyn Error>> {
@@ -90,7 +95,13 @@ pub async fn usb_probe(
     cfg.usb.read_mode()?;
     cfg.usb.cut_trigger()?;
     let opts = usb_opts(&cfg);
-    let jpeg = print.map(std::fs::read).transpose()?;
+    let jpeg = match print {
+        None => None,
+        Some(None) => Some(USB_TEST_LABEL.to_vec()),
+        Some(Some(path)) => {
+            Some(std::fs::read(&path).map_err(|e| format!("can't read {}: {e}", path.display()))?)
+        }
+    };
     let test_print = jpeg.as_deref().map(|j| (j, cfg.print.opts()));
     printer_driver::backend::usb::probe(&opts, test_print, &mut std::io::stdout()).await?;
     Ok(())

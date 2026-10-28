@@ -56,12 +56,15 @@ network. The XML protocol is the same, but how the printer behaves over USB
 check it on the actual machine before an event. Stop the server, then run:
 
 ```bash
-barnguard-server usb-probe                             # interfaces, port status, read test
-barnguard-server usb-probe --print label.jpg           # also print one label
-barnguard-server usb-probe --print label.jpg --cut-trigger zlp
+barnguard-server usb-probe                         # interfaces, port status, read test
+barnguard-server usb-probe --print                 # also print the built-in test label
+barnguard-server usb-probe --print --cut-trigger zlp
+barnguard-server usb-probe --print my-label.jpg    # or your own JPEG
 ```
 
-The probe suggests a `usb.read_mode`. Keep `bidirectional` if status reads are
+The test label has a border on all four sides: if it comes out as a separate
+label with the border intact, the cut worked. The probe suggests a
+`usb.read_mode`. Keep `bidirectional` if status reads are
 answered. `write_only` only estimates the printer's state, so a label left in
 the slot goes unseen and the next one is lost. The comments in
 `config.example.toml` describe every `[usb]` key.
@@ -73,13 +76,17 @@ Host setup:
 
 - **NixOS:** the flake's module installs a udev rule, adds the service to a
   `barnguard` group, and blacklists the `usblp` kernel driver.
-- **Other Linux:** add the same udev rule
-  (`/etc/udev/rules.d/70-barnguard.rules`) and run the server as a member of
-  the group it names:
+- **Other Linux:** by default only root can access USB devices. Give the
+  account that runs the server permission, once (replace `YOUR_USER`):
 
+  ```bash
+  sudo groupadd barnguard
+  sudo usermod -aG barnguard YOUR_USER
+  echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04f9", ATTR{idProduct}=="20b0", MODE="0660", GROUP="barnguard"' | sudo tee /etc/udev/rules.d/70-barnguard.rules
+  sudo udevadm control --reload-rules
   ```
-  SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04f9", ATTR{idProduct}=="20b0", MODE="0660", GROUP="barnguard"
-  ```
+
+  Then log out and back in, and unplug and replug the printer.
 
 - **macOS:** no setup needed. If the probe reports the interface as busy,
   remove the printer from System Settings > Printers & Scanners and quit

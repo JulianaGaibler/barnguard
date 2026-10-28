@@ -56,21 +56,31 @@ print_timeout_ms = 120000
 # Setting up a USB printer, step by step:
 #   1. Plug the printer into this machine and switch it on. Press its power
 #      button if it's asleep: a sleeping printer disappears from USB.
-#   2. Linux (non-NixOS) only: let the server open the printer. Put this line
-#      in /etc/udev/rules.d/70-barnguard.rules, add the server's user to the
-#      `barnguard` group, then unplug the printer and plug it back in:
-#        SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04f9", ATTR{idProduct}=="20b0", MODE="0660", GROUP="barnguard"
-#      (On NixOS the flake's module does this for you.)
-#   3. Stop the server if it's running, then run:
+#   2. Linux only (skip on macOS, and on NixOS, where the flake's module does
+#      this): give your user permission to use the printer. By default only
+#      root can access USB devices, so without this step every command below
+#      fails with "permission denied". Run these once, replacing YOUR_USER
+#      with the account that runs barnguard-server:
+#        sudo groupadd barnguard
+#        sudo usermod -aG barnguard YOUR_USER
+#        echo 'SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04f9", ATTR{idProduct}=="20b0", MODE="0660", GROUP="barnguard"' | sudo tee /etc/udev/rules.d/70-barnguard.rules
+#        sudo udevadm control --reload-rules
+#      Then log out and back in (so the new group applies), and unplug the
+#      printer and plug it back in (so the rule applies).
+#   3. Stop barnguard-server if it's running. Only one program can use the
+#      printer at a time. Then run:
 #        ./barnguard-server usb-probe
-#      It should list the printer and end with a suggested read_mode. Set
-#      read_mode below to match.
-#   4. Find out what makes the printer cut. Print a test label with each
-#      trigger and note which one cuts:
-#        ./barnguard-server usb-probe --print label.jpg --cut-trigger none
-#        ./barnguard-server usb-probe --print label.jpg --cut-trigger zlp
-#        ./barnguard-server usb-probe --print label.jpg --cut-trigger soft_reset
-#      Set cut_trigger below to the first one that worked.
+#      It should list the printer, then test whether the printer answers over
+#      USB, and end with a line like:
+#        5/5 replies. Suggested usb.read_mode = "bidirectional".
+#      Set read_mode below to the suggested value.
+#   4. Find out what makes the printer cut. Print the built-in test label
+#      with each trigger:
+#        ./barnguard-server usb-probe --print --cut-trigger none
+#        ./barnguard-server usb-probe --print --cut-trigger zlp
+#        ./barnguard-server usb-probe --print --cut-trigger soft_reset
+#      A good cut gives a separate label with its border intact on all four
+#      sides. Set cut_trigger below to the first trigger that does that.
 #   5. Set `backend = "usb"` at the top of this file and start the server.
 #      Print a label from the game, and check the printer panel shows a real
 #      state (not "estimated").
@@ -90,7 +100,7 @@ serial = ""
 read_mode = "bidirectional"
 # What ends a job so the printer cuts. Over TCP, closing the socket does it;
 # USB has no equivalent. "none" | "zlp" (zero-length packet) | "soft_reset".
-# Try each with `usb-probe --print label.jpg --cut-trigger <x>`.
+# Try each with `usb-probe --print --cut-trigger <x>` (step 4 above).
 cut_trigger = "none"
 # Keep the USB interface claimed between jobs. Set false to release and
 # reclaim it around every label.
