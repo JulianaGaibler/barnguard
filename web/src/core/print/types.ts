@@ -61,6 +61,11 @@ export interface PrinterStatus {
   unreachableSinceMs?: number
   /** Consecutive failed status polls since the last success. */
   failedAttempts?: number
+  /**
+   * `state` is a guess, not a reading (USB write-only mode). Faults such as a
+   * held label go unseen.
+   */
+  estimated?: boolean
 }
 
 export interface QueueSnapshot {

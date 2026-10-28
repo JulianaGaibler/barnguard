@@ -103,6 +103,16 @@
           };
 
           config = lib.mkIf cfg.enable {
+            # USB printing (backend = "usb"). The service user is dynamic, so
+            # device access goes through a static group udev can resolve at
+            # plug time. usblp is blacklisted so nothing grabs the printer
+            # between jobs.
+            users.groups.barnguard = { };
+            services.udev.extraRules = ''
+              SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="04f9", ATTR{idProduct}=="20b0", MODE="0660", GROUP="barnguard"
+            '';
+            boot.blacklistedKernelModules = [ "usblp" ];
+
             systemd.services.barnguard = {
               description = "barnguard printer daemon and web server";
               wantedBy = [ "multi-user.target" ];
@@ -111,6 +121,9 @@
               serviceConfig = {
                 ExecStart = "${lib.getExe cfg.package} --config ${configFile} --data-dir ${cfg.dataDir}";
                 DynamicUser = true;
+                # Opens the printer's /dev/bus/usb node. Don't add PrivateDevices
+                # without DeviceAllow = "char-usb_device rw".
+                SupplementaryGroups = [ "barnguard" ];
                 StateDirectory = "barnguard";
                 Restart = "on-failure";
               };

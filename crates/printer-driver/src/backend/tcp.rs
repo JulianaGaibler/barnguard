@@ -5,7 +5,7 @@
 //! `close_for_cut` drops it to trigger the cut.
 
 use super::protocol::{self, Framed, ParseOutcome};
-use super::PrinterBackend;
+use super::{ConfigCache, PrinterBackend};
 use crate::error::PrinterError;
 use crate::types::{PrintOpts, PrinterConfigInfo, PrinterHealth, PrinterState};
 use async_trait::async_trait;
@@ -37,11 +37,7 @@ pub struct TcpBackend {
     port: u16,
     timeouts: TcpTimeouts,
     stream: Option<TcpStream>,
-    // Cached from the last successful /config.xml read (status reads don't
-    // carry tape width / model / serial).
-    cache_width_mm: Option<f32>,
-    cache_model: Option<String>,
-    cache_serial: Option<String>,
+    cache: ConfigCache,
 }
 
 impl TcpBackend {
@@ -51,9 +47,7 @@ impl TcpBackend {
             port,
             timeouts,
             stream: None,
-            cache_width_mm: None,
-            cache_model: None,
-            cache_serial: None,
+            cache: ConfigCache::default(),
         }
     }
 
@@ -105,19 +99,8 @@ impl PrinterBackend for TcpBackend {
         self.connect().await?;
         self.write_cmd(protocol::read_config().as_bytes()).await?;
         let framed = self.read_frame(self.timeouts.response).await?;
-        let info = match framed.payload() {
-            Some(p) => protocol::parse_config_payload(&String::from_utf8_lossy(p)),
-            None => PrinterConfigInfo::default(),
-        };
-        if info.tape_width_mm.is_some() {
-            self.cache_width_mm = info.tape_width_mm;
-        }
-        if info.model.is_some() {
-            self.cache_model = info.model.clone();
-        }
-        if info.serial.is_some() {
-            self.cache_serial = info.serial.clone();
-        }
+        let info = protocol::config_from_frame(&framed);
+        self.cache.update(&info);
         Ok(info)
     }
 
@@ -125,31 +108,8 @@ impl PrinterBackend for TcpBackend {
         self.connect().await?;
         self.write_cmd(protocol::read_status().as_bytes()).await?;
         let framed = self.read_frame(self.timeouts.response).await?;
-        let mut health = PrinterHealth {
-            state: PrinterState::Unknown,
-            print_job_error: None,
-            tape_remaining_mm: None,
-            tape_width_mm: self.cache_width_mm,
-            model: self.cache_model.clone(),
-            serial: self.cache_serial.clone(),
-        };
-        match framed.payload() {
-            Some(p) => {
-                let sp = protocol::parse_status_payload(&String::from_utf8_lossy(p));
-                if let Some(st) = sp.state {
-                    health.state = st;
-                }
-                health.print_job_error = sp.print_job_error;
-                health.tape_remaining_mm = sp.tape_remaining_mm;
-            }
-            None => {
-                let h = framed.header();
-                if h.code == 3 {
-                    health.state = PrinterState::NoMedia;
-                    health.print_job_error = Some("no_media".into());
-                }
-            }
-        }
+        let mut health = self.cache.health(PrinterState::Unknown);
+        protocol::apply_status_frame(&mut health, &framed);
         Ok(health)
     }
 
@@ -176,7 +136,12 @@ impl PrinterBackend for TcpBackend {
             s.write_all(jpeg).await?;
             s.flush().await?;
         }
-        let done = self.read_frame(self.timeouts.print).await?;
+        // The printer has the whole image now, so a lost ack most likely means
+        // the label printed anyway. Report that instead of a retryable error.
+        let done = self
+            .read_frame(self.timeouts.print)
+            .await
+            .map_err(|e| PrinterError::SentUnconfirmed(e.tag()))?;
         let h2 = done.header();
         if h2.code != 0 {
             return Err(PrinterError::NotReady(

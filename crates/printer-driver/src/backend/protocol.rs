@@ -10,7 +10,7 @@
 //! - Headers may include a `<path>` echo and a `<comment>`. Always parse by
 //!   tag, never by fixed offset.
 
-use crate::types::{PrintOpts, PrinterConfigInfo, PrinterState};
+use crate::types::{PrintOpts, PrinterConfigInfo, PrinterHealth, PrinterState};
 
 pub const XML_PREFIX: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
 
@@ -203,5 +203,35 @@ pub fn parse_config_payload(payload: &str) -> PrinterConfigInfo {
         serial: tag_value_ci(payload, "serial_number").map(str::to_string),
         cassette_type: tag_value_ci(payload, "cassette_type").map(str::to_string),
         tape_length_mm: tag_f32(payload, "media_length_initial"),
+    }
+}
+
+/// Map a `/config.xml` read response to config info. A response without a
+/// payload yields an empty [`PrinterConfigInfo`].
+pub fn config_from_frame(framed: &Framed) -> PrinterConfigInfo {
+    match framed.payload() {
+        Some(p) => parse_config_payload(&String::from_utf8_lossy(p)),
+        None => PrinterConfigInfo::default(),
+    }
+}
+
+/// Fold a `/status.xml` read response into `health`. A payload carries the
+/// real state. A bare header with code 3 means no media.
+pub fn apply_status_frame(health: &mut PrinterHealth, framed: &Framed) {
+    match framed.payload() {
+        Some(p) => {
+            let sp = parse_status_payload(&String::from_utf8_lossy(p));
+            if let Some(st) = sp.state {
+                health.state = st;
+            }
+            health.print_job_error = sp.print_job_error;
+            health.tape_remaining_mm = sp.tape_remaining_mm;
+        }
+        None => {
+            if framed.header().code == 3 {
+                health.state = PrinterState::NoMedia;
+                health.print_job_error = Some("no_media".into());
+            }
+        }
     }
 }

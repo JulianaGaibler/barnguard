@@ -53,10 +53,14 @@ export function summarizePrintStatus(
   const { printer, active, pending } = input
   if (!printer) return { tone: 'busy', label: 'Connecting' }
   if (!printer.reachable) {
+    // Over USB, a sleeping printer drops off the bus and only its button
+    // wakes it.
+    const hint = printer.backend === 'usb' ? 'press power button' : undefined
+    const queued = queuedDetail(pending.length + (active ? 1 : 0))
     return {
       tone: 'error',
       label: 'Printer offline',
-      detail: queuedDetail(pending.length + (active ? 1 : 0)),
+      detail: [hint, queued].filter(Boolean).join(' · ') || undefined,
     }
   }
   if (printer.state === 'no_media') {

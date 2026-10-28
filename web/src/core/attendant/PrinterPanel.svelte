@@ -248,8 +248,19 @@
       {#if tapeInfo(printer)}
         <div class="meta">{tapeInfo(printer)}</div>
       {/if}
+      {#if printer.estimated}
+        <div class="meta warn-text">
+          State is estimated: hardware errors can't be detected
+        </div>
+      {/if}
       {#if !printer.reachable}
         <div class="meta warn-text">{unreachableInfo(printer)}</div>
+        {#if printer.backend === 'usb'}
+          <!-- A sleeping printer drops off USB, and only its button wakes it. -->
+          <div class="banner">
+            ⚠ Asleep or unplugged: press the power button
+          </div>
+        {/if}
       {/if}
     {:else}
       <div class="status-line">

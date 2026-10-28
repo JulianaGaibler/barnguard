@@ -110,6 +110,9 @@ pub struct PrinterStatus {
     pub unreachable_since_ms: Option<u64>,
     /// Consecutive failed status polls since the last success (0 when reachable).
     pub failed_attempts: u32,
+    /// `state` is a guess, not a reading (USB write-only mode). The printer
+    /// can't report faults such as a held label while this is set.
+    pub estimated: bool,
 }
 
 impl PrinterStatus {
@@ -127,6 +130,7 @@ impl PrinterStatus {
             last_seen_ms: now_ms(),
             unreachable_since_ms: None,
             failed_attempts: 0,
+            estimated: false,
         }
     }
 
@@ -147,6 +151,7 @@ impl PrinterStatus {
             last_seen_ms: now_ms(),
             unreachable_since_ms: None,
             failed_attempts: 0,
+            estimated: health.estimated,
         }
     }
 }

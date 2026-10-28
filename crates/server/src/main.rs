@@ -36,6 +36,27 @@ enum Command {
     },
     /// Print the resolved data-dir and config-file paths.
     Where,
+    /// Check the printer over USB and suggest [usb] settings.
+    ///
+    /// Lists the printer's interfaces and port status, and tests whether status
+    /// reads get answered. Stop the server first; it holds the device.
+    #[command(after_help = "Examples:
+  barnguard-server usb-probe
+  barnguard-server usb-probe --print label.jpg
+  barnguard-server usb-probe --print label.jpg --cut-trigger zlp
+
+See the [usb] section of config.example.toml for the full setup steps.")]
+    UsbProbe {
+        /// Also print this JPEG and log the printer's state afterwards.
+        #[arg(long, value_name = "JPEG")]
+        print: Option<PathBuf>,
+        /// Override usb.read_mode for the test print.
+        #[arg(long, value_name = "MODE")]
+        read_mode: Option<String>,
+        /// Override usb.cut_trigger for the test print (none, zlp, soft_reset).
+        #[arg(long, value_name = "TRIGGER")]
+        cut_trigger: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -79,6 +100,11 @@ async fn main() {
         Command::Serve => printer_daemon::run().await,
         Command::Config => printer_daemon::cli::show_config(),
         Command::Where => printer_daemon::cli::show_where(),
+        Command::UsbProbe {
+            print,
+            read_mode,
+            cut_trigger,
+        } => printer_daemon::cli::usb_probe(print, read_mode, cut_trigger).await,
         Command::Games { action } => match action {
             GamesAction::List {
                 limit,

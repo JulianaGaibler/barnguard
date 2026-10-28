@@ -1,7 +1,7 @@
 # printer-driver
 
 Rust driver for the Brother VC-500W label printer. No queues, no HTTP, no job
-metadata: an async trait, two implementations (TCP + mock), and the wire
+metadata: an async trait, three implementations (TCP, USB, mock), and the wire
 protocol.
 
 ## What's here
@@ -10,6 +10,12 @@ protocol.
   Connection lifecycle is explicit because the VC-500W's cut is triggered by
   closing the socket; the trait can't hide connect/close behind each call.
 - [`TcpBackend`](src/backend/tcp.rs). Real backend over XML-over-TCP (port 9100).
+- [`UsbBackend`](src/backend/usb.rs). Real backend over the USB printer class,
+  via [`nusb`](https://docs.rs/nusb) (pure Rust, Linux and macOS). Drains stale
+  replies before every command and cancels transfers that run past their
+  deadline. An opt-in write-only mode, for hosts where the printer never
+  answers, sends blind and reports an *estimated* state.
+  [`usb::probe`](src/backend/usb.rs) reports what the host sees of the printer.
 - [`MockBackend`](src/backend/mock.rs) + [`MockControls`](src/backend/mock.rs).
   Simulates the state machine and writes each received JPEG to disk. Faults
   (no-media, awaiting-removal, unreachable) can be flipped at runtime through
@@ -21,7 +27,9 @@ protocol.
   `PrinterConfigInfo`, and `PrinterHealth` (the status snapshot the trait
   returns).
 - [`PrinterError`](src/error.rs). `NoMedia`, `NotReady`, `Timeout`,
-  `Disconnected`, `Protocol`, `Io`, with `is_retryable()` + `tag()`.
+  `Disconnected`, `SentUnconfirmed`, `Protocol`, `Io`, with `is_retryable()` +
+  `tag()`. `SentUnconfirmed` means the image was delivered but never
+  acknowledged. It is not retryable, because a retry risks a duplicate label.
 
 ## Minimal use
 

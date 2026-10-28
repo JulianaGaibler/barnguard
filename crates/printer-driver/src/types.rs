@@ -49,6 +49,10 @@ pub struct PrinterHealth {
     pub tape_width_mm: Option<f32>,
     pub model: Option<String>,
     pub serial: Option<String>,
+    /// True when `state` is a guess rather than a reading from the printer
+    /// (the USB backend's write-only mode). Hardware faults such as a held
+    /// label go unseen while this is set.
+    pub estimated: bool,
 }
 
 /// Print quality mode. Maps to the `<mode>/<speed>/<lpi>` triple in the

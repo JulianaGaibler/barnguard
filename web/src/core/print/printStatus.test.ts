@@ -88,6 +88,17 @@ describe('summarizePrintStatus', () => {
     )
   })
 
+  it('tells the attendant to wake a printer that dropped off USB', () => {
+    const asleep = { ...PRINTER, backend: 'usb', reachable: false }
+    expect(summarizePrintStatus(input({ printer: asleep })).detail).toBe(
+      'press power button',
+    )
+    expect(
+      summarizePrintStatus(input({ printer: asleep, pending: [job('queued')] }))
+        .detail,
+    ).toBe('press power button · 1 queued')
+  })
+
   it('keeps a failed last print up until the next job', () => {
     const failed = input({ recent: [job('done'), job('failed', 'no_media')] })
     expect(summarizePrintStatus(failed)).toEqual({

@@ -5,7 +5,8 @@
 
 use crate::config::Config;
 use printer_driver::{
-    MockBackend, MockControls, MockOpts, PrinterBackend, TcpBackend, TcpTimeouts,
+    MockBackend, MockControls, MockOpts, PrinterBackend, TcpBackend, TcpTimeouts, UsbBackend,
+    UsbOpts,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,7 +20,8 @@ pub fn make_backend(cfg: &Config) -> (Box<dyn PrinterBackend>, Option<Arc<MockCo
 
 /// Like [`make_backend`], but reuses an existing mock-controls handle when one
 /// is provided. The worker supervisor uses this so `/debug/mock` stays valid
-/// after it recreates the backend on a restart. Ignored for the TCP backend.
+/// after it recreates the backend on a restart. Ignored for the TCP and USB
+/// backends.
 pub fn make_backend_with(
     cfg: &Config,
     existing: Option<Arc<MockControls>>,
@@ -40,6 +42,7 @@ pub fn make_backend_with(
                 None,
             )
         }
+        "usb" => (Box::new(UsbBackend::new(usb_opts(cfg))), None),
         _ => {
             let controls = existing.unwrap_or_else(|| {
                 MockControls::new(cfg.mock.force_no_media, cfg.mock.force_awaiting_removal)
@@ -53,5 +56,24 @@ pub fn make_backend_with(
             let backend = MockBackend::new(opts, controls.clone());
             (Box::new(backend), Some(controls))
         }
+    }
+}
+
+/// Driver options for the USB backend. The `[usb]` strings are checked by
+/// `Config::validate` at load, so the fallbacks here only cover a config that
+/// skipped validation.
+pub fn usb_opts(cfg: &Config) -> UsbOpts {
+    let defaults = UsbOpts::default();
+    UsbOpts {
+        vendor_id: cfg.usb.vendor_id().unwrap_or(defaults.vendor_id),
+        product_id: cfg.usb.product_id().unwrap_or(defaults.product_id),
+        serial: cfg.usb.serial(),
+        read_mode: cfg.usb.read_mode().unwrap_or(defaults.read_mode),
+        cut_trigger: cfg.usb.cut_trigger().unwrap_or(defaults.cut_trigger),
+        hold_interface: cfg.usb.hold_interface,
+        connect_timeout: Duration::from_millis(cfg.printer.connect_timeout_ms),
+        response_timeout: Duration::from_millis(cfg.printer.response_timeout_ms),
+        print_timeout: Duration::from_millis(cfg.printer.print_timeout_ms),
+        write_only_print: Duration::from_millis(cfg.usb.write_only_print_ms),
     }
 }

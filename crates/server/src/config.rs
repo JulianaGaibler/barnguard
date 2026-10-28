@@ -1,7 +1,7 @@
 //! Daemon configuration: a TOML file (path from `--config`-less
 //! `PRINTER_DAEMON_CONFIG`, default `./config.toml`) with per-key env overrides.
 
-use printer_driver::{CutMode, PrintMode, PrintOpts};
+use printer_driver::{CutMode, PrintMode, PrintOpts, UsbCutTrigger, UsbReadMode};
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -12,6 +12,7 @@ pub struct Config {
     pub bind: String,
     pub allowed_origins: Vec<String>,
     pub printer: PrinterCfg,
+    pub usb: UsbCfg,
     pub print: PrintCfg,
     pub timing: TimingCfg,
     pub mock: MockCfg,
@@ -31,6 +32,7 @@ impl Default for Config {
             bind: "127.0.0.1:9110".into(),
             allowed_origins: vec!["http://localhost:5173".into()],
             printer: PrinterCfg::default(),
+            usb: UsbCfg::default(),
             print: PrintCfg::default(),
             timing: TimingCfg::default(),
             mock: MockCfg::default(),
@@ -59,6 +61,81 @@ impl Default for PrinterCfg {
             connect_timeout_ms: 3000,
             response_timeout_ms: 10000,
             print_timeout_ms: 120000,
+        }
+    }
+}
+
+/// USB backend settings (TOML `[usb]`). Strings on disk so the TOML stays
+/// readable (hex IDs, named modes); parsed and validated in [`Config::validate`].
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct UsbCfg {
+    /// Hex, with or without a `0x` prefix.
+    pub vendor_id: String,
+    pub product_id: String,
+    /// Pick this printer when several are plugged in. Empty means any.
+    pub serial: String,
+    pub read_mode: String,
+    pub cut_trigger: String,
+    pub hold_interface: bool,
+    pub write_only_print_ms: u64,
+}
+
+impl Default for UsbCfg {
+    fn default() -> Self {
+        Self {
+            vendor_id: "04f9".into(),
+            product_id: "20b0".into(),
+            serial: String::new(),
+            read_mode: "bidirectional".into(),
+            cut_trigger: "none".into(),
+            hold_interface: true,
+            write_only_print_ms: 15000,
+        }
+    }
+}
+
+fn parse_hex_id(field: &str, value: &str) -> Result<u16, String> {
+    let digits = value
+        .trim()
+        .trim_start_matches("0x")
+        .trim_start_matches("0X");
+    u16::from_str_radix(digits, 16)
+        .map_err(|_| format!("usb.{field} {value:?} is not a 16-bit hex ID"))
+}
+
+impl UsbCfg {
+    pub fn vendor_id(&self) -> Result<u16, String> {
+        parse_hex_id("vendor_id", &self.vendor_id)
+    }
+
+    pub fn product_id(&self) -> Result<u16, String> {
+        parse_hex_id("product_id", &self.product_id)
+    }
+
+    pub fn serial(&self) -> Option<String> {
+        let s = self.serial.trim();
+        (!s.is_empty()).then(|| s.to_string())
+    }
+
+    pub fn read_mode(&self) -> Result<UsbReadMode, String> {
+        match self.read_mode.to_ascii_lowercase().as_str() {
+            "bidirectional" => Ok(UsbReadMode::Bidirectional),
+            "write_only" => Ok(UsbReadMode::WriteOnly),
+            other => Err(format!(
+                "unknown usb.read_mode {other:?} (expected \"bidirectional\" or \"write_only\")"
+            )),
+        }
+    }
+
+    pub fn cut_trigger(&self) -> Result<UsbCutTrigger, String> {
+        match self.cut_trigger.to_ascii_lowercase().as_str() {
+            "none" => Ok(UsbCutTrigger::None),
+            "zlp" => Ok(UsbCutTrigger::ZeroLengthPacket),
+            "soft_reset" => Ok(UsbCutTrigger::SoftReset),
+            other => Err(format!(
+                "unknown usb.cut_trigger {other:?} (expected \"none\", \"zlp\" or \"soft_reset\")"
+            )),
         }
     }
 }
@@ -217,6 +294,24 @@ impl Config {
         if let Ok(v) = std::env::var("PRINTER_DAEMON_PRINTER_HOST") {
             self.printer.host = v;
         }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_USB_SERIAL") {
+            self.usb.serial = v;
+        }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_USB_READ_MODE") {
+            if !v.is_empty() {
+                self.usb.read_mode = v;
+            }
+        }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_USB_CUT_TRIGGER") {
+            if !v.is_empty() {
+                self.usb.cut_trigger = v;
+            }
+        }
+        if let Ok(v) = std::env::var("PRINTER_DAEMON_USB_WRITE_ONLY_PRINT_MS") {
+            if let Ok(n) = v.parse() {
+                self.usb.write_only_print_ms = n;
+            }
+        }
         if let Ok(v) = std::env::var("PRINTER_DAEMON_MOCK_OUT_DIR") {
             self.mock.out_dir = v;
         }
@@ -265,11 +360,30 @@ impl Config {
         if self.backend == "tcp" && self.printer.host.trim().is_empty() {
             return Err("printer.host is required when backend = \"tcp\"".into());
         }
-        if self.backend != "tcp" && self.backend != "mock" {
+        if !matches!(self.backend.as_str(), "mock" | "tcp" | "usb") {
             return Err(format!(
-                "unknown backend {:?} (expected \"mock\" or \"tcp\")",
+                "unknown backend {:?} (expected \"mock\", \"tcp\" or \"usb\")",
                 self.backend
             ));
+        }
+        if self.backend == "usb" {
+            self.usb.vendor_id()?;
+            self.usb.product_id()?;
+            self.usb.cut_trigger()?;
+            // Otherwise every write-only job ends with an idle_timeout warning
+            // before the estimated print time is up.
+            if self.usb.read_mode()? == UsbReadMode::WriteOnly
+                && self.usb.write_only_print_ms + self.timing.cut_wait_ms
+                    >= self.timing.idle_timeout_ms
+            {
+                return Err(format!(
+                    "usb.write_only_print_ms ({}) + timing.cut_wait_ms ({}) must be less than \
+                     timing.idle_timeout_ms ({})",
+                    self.usb.write_only_print_ms,
+                    self.timing.cut_wait_ms,
+                    self.timing.idle_timeout_ms
+                ));
+            }
         }
         if !(-90.0..=90.0).contains(&self.client.latitude) {
             return Err(format!(
@@ -328,6 +442,51 @@ mod tests {
         assert_eq!(cfg.client.latitude, 64.15);
         assert_eq!(cfg.client.longitude, 13.405);
         assert_eq!(cfg.client.label_url, "mzl.la/enterprise");
+    }
+
+    #[test]
+    fn usb_section_parses_with_defaults() {
+        let cfg: Config = toml::from_str(
+            r#"
+            backend = "usb"
+            [usb]
+            vendor_id = "0x04F9"
+            read_mode = "write_only"
+            "#,
+        )
+        .unwrap();
+        assert!(cfg.validate().is_ok());
+        assert_eq!(cfg.usb.vendor_id(), Ok(0x04f9));
+        assert_eq!(cfg.usb.product_id(), Ok(0x20b0));
+        assert_eq!(cfg.usb.read_mode(), Ok(UsbReadMode::WriteOnly));
+        assert_eq!(cfg.usb.cut_trigger(), Ok(UsbCutTrigger::None));
+        assert_eq!(cfg.usb.serial(), None);
+    }
+
+    #[test]
+    fn bad_usb_settings_are_rejected() {
+        let mut cfg = Config {
+            backend: "usb".into(),
+            ..Config::default()
+        };
+        assert!(cfg.validate().is_ok());
+
+        cfg.usb.read_mode = "sometimes".into();
+        assert!(cfg.validate().is_err());
+        cfg.usb.read_mode = "bidirectional".into();
+
+        cfg.usb.vendor_id = "brother".into();
+        assert!(cfg.validate().is_err());
+        cfg.usb.vendor_id = "04f9".into();
+
+        cfg.usb.cut_trigger = "scissors".into();
+        assert!(cfg.validate().is_err());
+        cfg.usb.cut_trigger = "zlp".into();
+
+        // The estimated print time must fit inside the idle timeout.
+        cfg.usb.read_mode = "write_only".into();
+        cfg.usb.write_only_print_ms = 28000;
+        assert!(cfg.validate().is_err());
     }
 
     #[test]

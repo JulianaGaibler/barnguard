@@ -165,6 +165,7 @@ impl PrinterBackend for MockBackend {
             tape_width_mm: (state != PrinterState::NoMedia).then_some(self.tape_width_mm),
             model: Some("MockVC-500W".into()),
             serial: Some("MOCK00000000".into()),
+            estimated: false,
         })
     }
 

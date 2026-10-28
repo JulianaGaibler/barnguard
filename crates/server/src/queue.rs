@@ -543,6 +543,12 @@ async fn attempt_job(
                 controller.finish_active(JobState::Done, None, warning);
                 return;
             }
+            // The printer got the whole image. It most likely printed, and a
+            // retry would risk a duplicate label.
+            Err(e @ PrinterError::SentUnconfirmed(_)) => {
+                controller.finish_active(JobState::Done, None, Some(e.tag()));
+                return;
+            }
             Err(e) => {
                 if e.is_retryable() && attempt < max_attempts {
                     controller.log().warn(
@@ -624,6 +630,8 @@ async fn poll_until_done(
     loop {
         let st = controller.note_status(&cfg.backend_name, backend.get_status().await)?;
         match st.state {
+            // An estimated idle only means the expected print time is up.
+            PrinterState::Idle if st.estimated => return Ok(Some("unverified_usb".into())),
             PrinterState::Idle => return Ok(None),
             PrinterState::AwaitingRemoval => {
                 controller.set_active_state(JobState::AwaitingRemoval);

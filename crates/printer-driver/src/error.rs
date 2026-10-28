@@ -14,6 +14,11 @@ pub enum PrinterError {
     Timeout,
     #[error("printer disconnected")]
     Disconnected,
+    /// The JPEG was fully delivered but the completion ack never came. The
+    /// label has most likely printed, so this is not retryable: a retry would
+    /// print a duplicate.
+    #[error("print data sent but not confirmed: {0}")]
+    SentUnconfirmed(String),
     #[error("protocol error: {0}")]
     Protocol(String),
     #[error("io error: {0}")]
@@ -37,6 +42,7 @@ impl PrinterError {
             PrinterError::NoMedia => "no_media".into(),
             PrinterError::NotReady(code, msg) => format!("printer_error({code}): {msg}"),
             PrinterError::Timeout => "timeout".into(),
+            PrinterError::SentUnconfirmed(_) => "sent_unconfirmed".into(),
             PrinterError::Disconnected => "disconnected".into(),
             PrinterError::Protocol(m) => format!("protocol: {m}"),
             PrinterError::Io(e) => format!("io: {e}"),

@@ -8,7 +8,10 @@ use printer_daemon::queue::{
     run_worker, CancelOutcome, QueueController, QueueStore, ReprintError, WorkerConfig,
 };
 use printer_daemon::types::{JobMeta, JobState, PrintJob, PrinterStatus, ServerEvent};
-use printer_driver::{MockControls, PrinterBackend};
+use printer_driver::{
+    MockControls, PrintOpts, PrinterBackend, PrinterConfigInfo, PrinterError, PrinterHealth,
+    PrinterState,
+};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -286,4 +289,75 @@ async fn worker_reports_unreachable_and_recovers() {
     })
     .await
     .expect("expected recovery to reachable");
+}
+
+/// Backend that always reports idle and lets a test choose how a print ends,
+/// for queue behavior the mock can't produce.
+struct ScriptedBackend {
+    estimated: bool,
+    unconfirmed: bool,
+    prints: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[async_trait::async_trait]
+impl PrinterBackend for ScriptedBackend {
+    async fn connect(&mut self) -> Result<(), PrinterError> {
+        Ok(())
+    }
+    async fn get_config(&mut self) -> Result<PrinterConfigInfo, PrinterError> {
+        Ok(PrinterConfigInfo::default())
+    }
+    async fn get_status(&mut self) -> Result<PrinterHealth, PrinterError> {
+        Ok(PrinterHealth {
+            state: PrinterState::Idle,
+            estimated: self.estimated,
+            ..PrinterHealth::default()
+        })
+    }
+    async fn send_print(&mut self, _jpeg: &[u8], _opts: &PrintOpts) -> Result<(), PrinterError> {
+        self.prints
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.unconfirmed {
+            return Err(PrinterError::SentUnconfirmed("timeout".into()));
+        }
+        Ok(())
+    }
+    async fn close_for_cut(&mut self) -> Result<(), PrinterError> {
+        Ok(())
+    }
+}
+
+async fn run_scripted(estimated: bool, unconfirmed: bool) -> (PrintJob, usize) {
+    let dir = tempfile::tempdir().unwrap();
+    let cfg = fast_cfg(dir.path());
+    let (_, controller, events, _controls) = build(&cfg);
+    let prints = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let backend = ScriptedBackend {
+        estimated,
+        unconfirmed,
+        prints: prints.clone(),
+    };
+    let mut rx = events.subscribe();
+    tokio::spawn(run_worker(
+        Box::new(backend),
+        controller.clone(),
+        WorkerConfig::from_config(&cfg),
+    ));
+    controller.enqueue(meta(), b"FAKEJPEG".to_vec());
+    let job = wait_job(&mut rx, JobState::Done, 5).await;
+    (job, prints.load(std::sync::atomic::Ordering::SeqCst))
+}
+
+#[tokio::test]
+async fn unconfirmed_print_is_done_with_a_warning_and_never_retried() {
+    let (job, prints) = run_scripted(false, true).await;
+    assert_eq!(job.warning.as_deref(), Some("sent_unconfirmed"));
+    assert_eq!(prints, 1);
+}
+
+#[tokio::test]
+async fn estimated_idle_marks_the_job_unverified() {
+    let (job, prints) = run_scripted(true, false).await;
+    assert_eq!(job.warning.as_deref(), Some("unverified_usb"));
+    assert_eq!(prints, 1);
 }

@@ -1,12 +1,14 @@
 //! CLI subcommands invoked by `main.rs`. Each function reads config + the
-//! relevant JSON store, prints to stdout, and returns. No HTTP server, no
-//! tokio runtime required. Kept synchronous because these are one-shot
-//! inspections.
+//! relevant JSON store, prints to stdout, and returns. No HTTP server. All are
+//! synchronous one-shot inspections except [`usb_probe`], which talks to the
+//! printer.
 
+use crate::backend_factory::usb_opts;
 use crate::config::Config;
 use crate::store::load_games;
 use crate::types::{DisplayHighScores, GameDetails, DISPLAY_ARCADE, DISPLAY_ENTERPRISE};
 use std::error::Error;
+use std::path::PathBuf;
 
 pub fn show_config() -> Result<(), Box<dyn Error>> {
     let cfg = Config::load()?;
@@ -24,6 +26,16 @@ pub fn show_config() -> Result<(), Box<dyn Error>> {
         cfg.printer.connect_timeout_ms,
         cfg.printer.response_timeout_ms,
         cfg.printer.print_timeout_ms,
+    );
+    println!();
+    println!("[usb]");
+    println!(
+        "  id = {}:{} serial = {:?}",
+        cfg.usb.vendor_id, cfg.usb.product_id, cfg.usb.serial
+    );
+    println!(
+        "  read_mode = {:?} cut_trigger = {:?} hold_interface = {} write_only_print_ms = {}",
+        cfg.usb.read_mode, cfg.usb.cut_trigger, cfg.usb.hold_interface, cfg.usb.write_only_print_ms
     );
     println!();
     println!("[print]");
@@ -53,6 +65,34 @@ pub fn show_where() -> Result<(), Box<dyn Error>> {
         }
     );
     println!("data-dir: {}", cfg.data_dir.display());
+    Ok(())
+}
+
+/// Run the USB probe against the configured printer. `read_mode` and
+/// `cut_trigger` override the config for the test print, so each cut trigger
+/// can be tried without editing `config.toml`.
+pub async fn usb_probe(
+    print: Option<PathBuf>,
+    read_mode: Option<String>,
+    cut_trigger: Option<String>,
+) -> Result<(), Box<dyn Error>> {
+    let mut cfg = Config::load()?;
+    if let Some(m) = read_mode {
+        cfg.usb.read_mode = m;
+    }
+    if let Some(t) = cut_trigger {
+        cfg.usb.cut_trigger = t;
+    }
+    // Surface a bad override as an error instead of the silent fallback in
+    // usb_opts.
+    cfg.usb.vendor_id()?;
+    cfg.usb.product_id()?;
+    cfg.usb.read_mode()?;
+    cfg.usb.cut_trigger()?;
+    let opts = usb_opts(&cfg);
+    let jpeg = print.map(std::fs::read).transpose()?;
+    let test_print = jpeg.as_deref().map(|j| (j, cfg.print.opts()));
+    printer_driver::backend::usb::probe(&opts, test_print, &mut std::io::stdout()).await?;
     Ok(())
 }
 
