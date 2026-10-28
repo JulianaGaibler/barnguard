@@ -57,8 +57,11 @@
   }: Props = $props()
 
   function setOpen(next: boolean): void {
-    open = next
-    onOpenChange?.(next)
+    // A caller that owns the state through `onOpenChange` passes `open`
+    // without binding it. Writing it here would shadow that value locally,
+    // and the sheet would stop following the caller after its first close.
+    if (onOpenChange) onOpenChange(next)
+    else open = next
   }
 
   function submit(): void {
