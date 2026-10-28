@@ -3,12 +3,13 @@
  *
  * A visitor can walk off mid-story, leaving the next one to land in the middle
  * of someone else's path. After {@link IDLE_RESET_MS} without input on a story
- * screen the display returns to the splash and forgets the run. The last
- * {@link IDLE_WARN_MS} of that show a notice, so someone still reading can
- * cancel it with a touch. The splash itself never times out.
+ * screen or the sign-up form the display returns to the splash and forgets the
+ * run and anything typed into the form. The last {@link IDLE_WARN_MS} of that
+ * show a notice, so someone still reading can cancel it with a touch. The
+ * splash itself never times out.
  */
 
-/** No input for this long on a story screen returns to the splash. */
+/** No input for this long past the splash returns to it. */
 export const IDLE_RESET_MS = 90_000
 
 /** How long the notice counts down before the reset. */

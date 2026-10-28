@@ -33,4 +33,33 @@ export interface AgeVerificationMessages extends CoreMessages {
     /** The countdown notice shown before an idle booth resets itself. */
     idleReturning: string
   }
+  signup: {
+    /** Sends the form. */
+    submit: string
+    /** Leaves the form unsent for the splash screen. */
+    skip: string
+    /** Said under an email field holding something that isn't an address. */
+    invalidEmail: string
+    /** The heading once the form is sent. */
+    thanksTitle: string
+    /** The line under it. */
+    thanksBody: string
+    /** Said when the device could not keep the entry. */
+    saveFailed: string
+  }
+  signupPanel: {
+    /** The booth menu section's heading. */
+    title: string
+    /** How many sign-ups the device holds. */
+    count: (n: number) => string
+    download: string
+    copy: string
+    /** Said for a moment once the CSV is on the clipboard. */
+    copied: string
+    copyFailed: string
+    /** Forgets every sign-up, once they have been exported. */
+    clear: string
+    /** Under the buttons, on where the sign-ups live. */
+    note: string
+  }
 }

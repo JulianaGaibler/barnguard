@@ -1,15 +1,18 @@
 <!--
   The row along the bottom: Back on the left, and on the right the way
-  forward from a screen with no choice, then Home.
+  forward from a screen with no choice, then Home. A screen with no way back
+  leaves the left empty.
 -->
 <script lang="ts">
   interface Action {
     label: string
     onPress: () => void
+    /** Off on its own, as for a form that isn't filled in yet. */
+    disabled?: boolean
   }
 
   interface Props {
-    back: Action
+    back?: Action
     /** Continue or Start over, on a screen with no choice. */
     forward?: Action
     /** Left out where `forward` already goes home. */
@@ -20,25 +23,36 @@
 </script>
 
 <nav class="nav">
-  <button
-    class="nav__button nav__button--filled"
-    {disabled}
-    onclick={back.onPress}
-  >
-    {back.label}
-  </button>
+  {#if back}
+    <button
+      class="nav__button nav__button--filled"
+      disabled={disabled || back.disabled}
+      class:nav__button--off={back.disabled}
+      onclick={back.onPress}
+    >
+      {back.label}
+    </button>
+  {:else}
+    <span></span>
+  {/if}
   <div class="nav__end">
     {#if forward}
       <button
         class="nav__button nav__button--filled"
-        {disabled}
+        disabled={disabled || forward.disabled}
+        class:nav__button--off={forward.disabled}
         onclick={forward.onPress}
       >
         {forward.label}
       </button>
     {/if}
     {#if home}
-      <button class="nav__button" {disabled} onclick={home.onPress}>
+      <button
+        class="nav__button"
+        disabled={disabled || home.disabled}
+        class:nav__button--off={home.disabled}
+        onclick={home.onPress}
+      >
         {home.label}
       </button>
     {/if}
@@ -80,4 +94,10 @@
 
     &:active
       background: var(--color-action-primary-active)
+
+  // Only an action switched off on its own looks it. The whole row goes off
+  // during every screen change, too briefly to show.
+  .nav__button--off
+    opacity: 0.4
+    cursor: default
 </style>

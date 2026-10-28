@@ -63,6 +63,8 @@
     active: boolean
     /** Leave the story for the splash screen. */
     onHome: () => void
+    /** Move on from an ending, with the run that reached it. */
+    onFinish: (run: Run) => void
     /** Called with the run each time it reaches a new screen. */
     onProgress?: (run: Run) => void
   }
@@ -74,6 +76,7 @@
     start,
     active,
     onHome,
+    onFinish,
     onProgress,
   }: Props = $props()
 
@@ -481,11 +484,9 @@
       forward={node.kind === 'scene'
         ? { label: $t.story.continue, onPress: forward }
         : node.kind === 'ending'
-          ? { label: $t.story.startOver, onPress: onHome }
+          ? { label: $t.story.continue, onPress: () => onFinish(run) }
           : undefined}
-      home={node.kind === 'ending'
-        ? undefined
-        : { label: $t.story.home, onPress: onHome }}
+      home={{ label: $t.story.home, onPress: onHome }}
     />
   </div>
 </section>

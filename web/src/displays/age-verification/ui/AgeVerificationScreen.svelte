@@ -4,9 +4,10 @@
    * splash animation, with the screens' HTML over it. The screens are laid out
    * in design pixels against the visible area, which is the 1920 by 1080 design
    * on a 16:9 window and larger on one axis on any other. Switches between the
-   * splash and the story, and returns to the splash when a visitor walks off.
-   * The attendant can also stop the story from the booth menu, which starts the
-   * screens over even when one is stuck.
+   * splash, the story and the sign-up form that follows every ending, and
+   * returns to the splash when a visitor walks off. The attendant can also stop
+   * the story from the booth menu, which starts the screens over even when one
+   * is stuck.
    */
   import { onDestroy, onMount, untrack } from 'svelte'
   import { CameraNode2D, Layer, mountEngine, type EngineHost } from 'stargazer'
@@ -35,6 +36,7 @@
   import { pickFrame } from './frame'
   import SplashScreen from './SplashScreen.svelte'
   import StoryScreen from './StoryScreen.svelte'
+  import SignupScreen from './SignupScreen.svelte'
 
   type Gfx = 'webgpu' | 'webgl2' | 'auto'
 
@@ -69,7 +71,9 @@
   // Otherwise the story carries on from the place the last visit reached.
   const saved = jump ? null : loadRun(story)
   let start = $state.raw<Run>(jump ?? saved ?? new Run(story))
-  let view = $state<'splash' | 'story'>(jump || saved ? 'story' : 'splash')
+  let view = $state<'splash' | 'story' | 'signup'>(
+    jump || saved ? 'story' : 'splash',
+  )
   /** True when the story opened partway, which offers the way to start over. */
   let resumed = $state(!!saved)
 
@@ -77,6 +81,15 @@
   function onProgress(run: Run): void {
     saveRun(run)
     if (run.currentId !== start.currentId) resumed = false
+  }
+
+  /**
+   * From an ending to the form. The ending becomes where the story starts, so
+   * Back on the form returns to it.
+   */
+  function finish(run: Run): void {
+    start = run
+    view = 'signup'
   }
 
   function goHome(): void {
@@ -190,8 +203,9 @@
   onMount(() => {
     const timer = setInterval(() => {
       const idleMs = msSinceInput()
-      idleWarning = view === 'story' && isWarning(idleMs)
-      if (view === 'story' && isExpired(idleMs)) {
+      const away = view !== 'splash'
+      idleWarning = away && isWarning(idleMs)
+      if (away && isExpired(idleMs)) {
         pokeActivity()
         goHome()
       }
@@ -241,7 +255,15 @@
               {start}
               active={view === 'story'}
               onHome={goHome}
+              onFinish={finish}
               {onProgress}
+            />
+            <SignupScreen
+              engine={host!.engine}
+              {region}
+              active={view === 'signup'}
+              onBack={() => (view = 'story')}
+              onDone={goHome}
             />
           {/key}
         {/snippet}
