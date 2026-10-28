@@ -10,7 +10,7 @@ export const en: AgeVerificationMessages = {
   splash: {
     title: ['Configuring', 'age assurance'],
     intro:
-      'Governments around the world are deciding whether apps and websites need to know your age.',
+      'In the name of protecting children, governments around the world are rushing to ban social media based on age. What does it take to implement a ban like this? Here, you get to make that call and get a glimpse into the complex and challenging world of age assurance.',
     start: 'Start',
   },
   story: {

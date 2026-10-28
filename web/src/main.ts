@@ -6,7 +6,10 @@ import { preloadFonts } from '@src/core/fonts'
 import { startUiScale } from '@src/core/ui/uiScale'
 import { isInstalledApp, keepAwake, lockGestures } from '@src/core/pwa/appMode'
 import { linkInstallMetadata } from '@src/core/pwa/installable'
-import { registerServiceWorker } from '@src/core/pwa/register'
+import {
+  registerServiceWorker,
+  removeServiceWorker,
+} from '@src/core/pwa/register'
 import { setActiveDisplay } from '@src/core/display'
 import { registerDisplayLocales } from '@src/i18n'
 import { displayRegistry } from 'virtual:displays'
@@ -68,8 +71,11 @@ async function boot(): Promise<void> {
   if (isInstalledApp()) keepAwake()
   if (manifest.install) {
     linkInstallMetadata(id, manifest.name, manifest.install)
-    registerServiceWorker()
+    if (isInstalledApp()) registerServiceWorker()
   }
+  // Only the installed app works offline. A browser tab drops the worker an
+  // earlier visit set up, so it always loads the latest version.
+  if (!isInstalledApp()) void removeServiceWorker().catch(() => {})
   // Hold the mount until the webfonts have settled. The engine bakes canvas
   // text into a texture atlas on first draw and caches it by font string, so a
   // label drawn before its face arrives keeps the fallback glyphs. The fetch

@@ -31,4 +31,10 @@ describe('the story', () => {
       'young-people',
     ])
   })
+
+  it('opens the age gating picker with a meeting already heard', () => {
+    const run = runAt(story, 'responsible', ['heard-pa'])!
+    expect(run.currentId).toBe('responsible')
+    expect([...run.doneOptions]).toEqual(['parents'])
+  })
 })
