@@ -110,10 +110,14 @@ function cell(value: string): string {
   return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
 }
 
-function text(value: string | boolean | undefined): string {
-  if (value === undefined) return ''
+/**
+ * A kept value as text. An entry from an older form may hold something other
+ * than a string, such as a box it had to tick, so this doesn't trust the type.
+ */
+function text(value: unknown): string {
+  if (value === undefined || value === null) return ''
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  return value
+  return String(value)
 }
 
 /**

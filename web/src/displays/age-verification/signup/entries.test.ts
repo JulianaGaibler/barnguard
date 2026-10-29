@@ -20,9 +20,9 @@ function memory() {
 }
 
 const fields: SignupField[] = [
-  { kind: 'text', id: 'email', label: 'Email', input: 'email', maxLength: 80 },
-  { kind: 'text', id: 'name', label: 'Name', input: 'name', maxLength: 40 },
-  { kind: 'checkbox', id: 'consent', label: 'OK' },
+  { id: 'email', label: 'Email', input: 'email', maxLength: 80 },
+  { id: 'name', label: 'Name', input: 'text', maxLength: 40 },
+  { id: 'region', label: 'Region', input: 'text', maxLength: 40 },
 ]
 
 const entry = (at: string, values: SignupEntry['values']): SignupEntry => ({
@@ -68,11 +68,11 @@ describe('kept sign-ups', () => {
 describe('the CSV export', () => {
   it('has a heading row and a row per entry, in the form’s order', () => {
     const csv = toCsv(
-      [entry('t1', { name: 'Ada', email: 'ada@x.org', consent: true })],
+      [entry('t1', { region: 'Berlin', name: 'Ada', email: 'ada@x.org' })],
       fields,
     )
     expect(csv).toBe(
-      'submitted_at,email,name,consent\r\nt1,ada@x.org,Ada,yes\r\n',
+      'submitted_at,email,name,region\r\nt1,ada@x.org,Ada,Berlin\r\n',
     )
   })
 
@@ -81,7 +81,7 @@ describe('the CSV export', () => {
       [entry('t1', { email: 'a@b.co', company: 'Acme' })],
       fields,
     )
-    expect(csv.split('\r\n')[0]).toBe('submitted_at,email,name,consent,company')
+    expect(csv.split('\r\n')[0]).toBe('submitted_at,email,name,region,company')
     expect(csv.split('\r\n')[1]).toBe('t1,a@b.co,,,Acme')
   })
 

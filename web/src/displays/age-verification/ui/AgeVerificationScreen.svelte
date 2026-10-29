@@ -83,12 +83,22 @@
     if (run.currentId !== start.currentId) resumed = false
   }
 
+  /** Where Back on the form goes: the ending, or the splash it was opened on. */
+  let signupFrom = $state<'story' | 'splash'>('story')
+
   /**
    * From an ending to the form. The ending becomes where the story starts, so
    * Back on the form returns to it.
    */
   function finish(run: Run): void {
     start = run
+    signupFrom = 'story'
+    view = 'signup'
+  }
+
+  /** From the splash's logos to the form, without playing. */
+  function openSignup(): void {
+    signupFrom = 'splash'
     view = 'signup'
   }
 
@@ -246,6 +256,7 @@
               layer={mediaLayer!}
               active={view === 'splash'}
               onStart={() => (view = 'story')}
+              onLogos={openSignup}
             />
             <StoryScreen
               engine={host!.engine}
@@ -262,7 +273,7 @@
               engine={host!.engine}
               {region}
               active={view === 'signup'}
-              onBack={() => (view = 'story')}
+              onBack={() => (view = signupFrom)}
               onDone={goHome}
             />
           {/key}

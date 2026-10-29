@@ -40,8 +40,10 @@
     /** Whether the screen is showing. Flipping it plays the entrance or exit. */
     active: boolean
     onStart: () => void
+    /** Opens the sign-up form and reading list, from a tap on the logos. */
+    onLogos: () => void
   }
-  const { engine, region, layer, active, onStart }: Props = $props()
+  const { engine, region, layer, active, onStart, onLogos }: Props = $props()
 
   const layout = $derived(splashLayoutIn(region))
   const panelBox = $derived(inWorld(layout.panel, region.rect))
@@ -245,12 +247,15 @@
       {$t.splash.start}
     </button>
   </div>
-  <img
+  <button
+    type="button"
     class="splash__logos"
-    src={LOGOS_URL}
-    alt="OSPR and Mozilla"
     style:opacity={reveal.items[3]!.v}
-  />
+    disabled={!active}
+    onclick={onLogos}
+  >
+    <img src={LOGOS_URL} alt="OSPR and Mozilla" draggable="false" />
+  </button>
 </section>
 
 <style lang="sass">
@@ -313,14 +318,24 @@
     font-size: 1.25em
     margin: 0
 
-  // Over the panel's top right corner, which is under the HTML.
+  // Over the panel's top right corner, which is under the HTML. A tap opens
+  // the sign-up form, for anyone who wants it without playing.
   .splash__logos
     position: absolute
     inset-block-start: calc(var(--panel-top) + 64px)
     inset-inline-end: calc(var(--panel-right) + 64px)
     width: 280px
-    height: auto
-    pointer-events: none
+    padding: 0
+    border: 0
+    background: transparent
+    cursor: pointer
+    pointer-events: auto
+    -webkit-tap-highlight-color: transparent
+
+    img
+      display: block
+      width: 100%
+      height: auto
 
   .splash__start
     @include type.button

@@ -36,8 +36,12 @@ export interface AgeVerificationMessages extends CoreMessages {
   signup: {
     /** Sends the form. */
     submit: string
-    /** Leaves the form unsent for the splash screen. */
-    skip: string
+    /** Leaves the screen for the splash, sent or not. */
+    done: string
+    /** Accessible name for the QR code, which moves on to the next one. */
+    nextCode: string
+    /** Accessible name for the dot that shows link `n`, from `source`. */
+    showCode: (n: number, source: string) => string
     /** Said under an email field holding something that isn't an address. */
     invalidEmail: string
     /** The heading once the form is sent. */

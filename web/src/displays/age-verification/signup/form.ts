@@ -8,11 +8,16 @@
  * id, and a renamed one splits a column in two.
  */
 
-/** What the on-screen keyboard offers and what the value must look like. */
-export type TextInput = 'email' | 'name'
+import { QR_MOZILLA_BLOG, QR_PROJECT_SYNDICATE } from '../assets'
 
-export interface TextField {
-  kind: 'text'
+/**
+ * What the device's keyboard offers and what the value must look like. Plain
+ * text starts each word with a capital, as names and places do.
+ */
+export type TextInput = 'email' | 'text'
+
+/** One text field. Every field is text, so a value is always a string. */
+export interface SignupField {
   /** Stable, since saved entries refer to it. The CSV column's heading. */
   id: string
   label: string
@@ -21,66 +26,87 @@ export interface TextField {
   required?: boolean
   /** Characters the value may hold. */
   maxLength: number
+  /**
+   * The id of a field that has to be filled in well before this one shows, so
+   * the form starts short and grows only for a visitor who is signing up.
+   */
+  after?: string
 }
 
-export interface CheckboxField {
-  kind: 'checkbox'
-  /** Stable, since saved entries refer to it. The CSV column's heading. */
-  id: string
-  label: string
-  /** The box has to be ticked to submit, as for consent. */
-  required?: boolean
+/** A link to read on, offered as a QR code to scan with a phone. */
+export interface ReadingLink {
+  /** The QR code, an imported asset URL. */
+  qr: string
+  /** Where the code leads, for anyone who can't scan it. */
+  url: string
+  /** Who published it. */
+  source: string
+  title: string
 }
-
-export type SignupField = TextField | CheckboxField
 
 export interface SignupForm {
   title: string
   body: readonly string[]
   fields: readonly SignupField[]
+  /** The heading over the links. */
+  readingTitle: string
+  /** Shown beside the form one at a time, so a visitor can take one away. */
+  reading: readonly ReadingLink[]
 }
 
-// TODO: The form is not final. The copy and the fields are placeholders until
-// the wording and what is collected are settled.
 export const signupForm: SignupForm = {
-  title: 'Stay in the loop',
+  title: 'Configuring age assurance – let’s stay in touch!',
   body: [
-    'Want to hear more about age verification and what Mozilla is doing about it? Leave your email and we will keep you posted.',
+    'The global proliferation of age assurance mandates is an urgent policy priority that is rapidly unfolding. Stay in touch with us to find out what you can do to shape age assurance policies in your region.',
   ],
   fields: [
     {
-      kind: 'text',
       id: 'email',
-      label: 'Email',
+      label: 'E-Mail',
       placeholder: 'you@example.com',
       input: 'email',
       required: true,
       maxLength: 80,
     },
     {
-      kind: 'text',
       id: 'name',
       label: 'Name (optional)',
-      input: 'name',
-      maxLength: 40,
+      input: 'text',
+      maxLength: 60,
+      after: 'email',
     },
     {
-      kind: 'checkbox',
-      id: 'consent',
-      label: 'I agree to receive emails from Mozilla.',
-      required: true,
+      id: 'region',
+      label: 'Region (optional)',
+      input: 'text',
+      maxLength: 60,
+      after: 'email',
+    },
+  ],
+  readingTitle: 'Learn more about age assurance',
+  reading: [
+    {
+      qr: QR_MOZILLA_BLOG,
+      url: 'https://blog.mozilla.org/netpolicy/2026/07/17/beyond-technical-fixes-protecting-kids-online-without-breaking-the-internet/',
+      source: 'Mozilla',
+      title:
+        'Beyond technical fixes: Protecting kids online without breaking the internet',
+    },
+    {
+      qr: QR_PROJECT_SYNDICATE,
+      url: 'https://www.project-syndicate.org/magazine/online-age-gating-ineffective-and-introduces-new-hazards-by-julia-powles-and-kate-sim-2026-03',
+      source: 'Project Syndicate',
+      title: 'Online age-gating is ineffective and introduces new hazards',
     },
   ],
 }
 
 /** What a visitor has filled in so far, by field id. */
-export type SignupValues = Record<string, string | boolean>
+export type SignupValues = Record<string, string>
 
-/** Every field empty and every box unticked. */
+/** Every field empty. */
 export function emptyValues(fields: readonly SignupField[]): SignupValues {
-  return Object.fromEntries(
-    fields.map((f) => [f.id, f.kind === 'checkbox' ? false : '']),
-  )
+  return Object.fromEntries(fields.map((f) => [f.id, '']))
 }
 
 /**
@@ -91,17 +117,30 @@ export function emptyValues(fields: readonly SignupField[]): SignupValues {
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /** Whether `value` passes the field's own check, ignoring `required`. */
-function wellFormed(field: TextField, value: string): boolean {
+function wellFormed(field: SignupField, value: string): boolean {
   return field.input !== 'email' || EMAIL.test(value)
 }
 
 /** Whether the field's value is acceptable to submit. */
 export function fieldValid(field: SignupField, values: SignupValues): boolean {
-  const value = values[field.id]
-  if (field.kind === 'checkbox') return !field.required || value === true
-  const text = typeof value === 'string' ? value.trim() : ''
+  const text = (values[field.id] ?? '').trim()
   if (!text) return !field.required
   return wellFormed(field, text)
+}
+
+/**
+ * Whether the field shows yet: it has no `after`, or the field it waits for
+ * holds an acceptable value.
+ */
+export function fieldReady(
+  field: SignupField,
+  fields: readonly SignupField[],
+  values: SignupValues,
+): boolean {
+  if (!field.after) return true
+  const before = fields.find((f) => f.id === field.after)
+  const filled = !!(values[field.after] ?? '').trim()
+  return !!before && filled && fieldValid(before, values)
 }
 
 /** Whether every field is acceptable, so the form can be sent. */
@@ -118,10 +157,6 @@ export function cleanValues(
   values: SignupValues,
 ): SignupValues {
   return Object.fromEntries(
-    fields.map((f) => {
-      const value = values[f.id]
-      if (f.kind === 'checkbox') return [f.id, value === true]
-      return [f.id, typeof value === 'string' ? value.trim() : '']
-    }),
+    fields.map((f) => [f.id, (values[f.id] ?? '').trim()]),
   )
 }

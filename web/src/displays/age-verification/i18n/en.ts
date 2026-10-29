@@ -26,10 +26,13 @@ export const en: AgeVerificationMessages = {
   },
   signup: {
     submit: 'Sign up',
-    skip: 'No thanks',
+    done: 'Done',
+    nextCode: 'Show the next link',
+    showCode: (n, source) => `Show link ${n}, from ${source}`,
     invalidEmail: 'That doesn’t look like an email address.',
     thanksTitle: 'Thank you!',
-    thanksBody: 'You’re on the list. Thanks for playing.',
+    thanksBody:
+      'You’re on the list. Scan a code to read more, or tap Done when you’re finished.',
     saveFailed: 'Something went wrong. Please ask someone at the booth.',
   },
   signupPanel: {
