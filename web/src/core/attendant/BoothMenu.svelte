@@ -5,6 +5,13 @@
   import { activeDisplay, displayPrints } from '@src/core/display'
   import ConfirmButton from '@src/core/ui/ConfirmButton.svelte'
   import DisplaySettings from '@src/core/attendant/DisplaySettings.svelte'
+  import { APP_BUILD } from '@src/core/pwa/build'
+  import {
+    appUpdate,
+    applyUpdate,
+    checkForUpdate,
+    type UpdateStatus,
+  } from '@src/core/pwa/register'
   import {
     DebugSection,
     DraggableWindow,
@@ -46,6 +53,17 @@
     reloadConfig().catch((err: unknown) =>
       console.error('[booth-menu] config reload', err),
     )
+  }
+
+  /** How the App row names each update state. */
+  const UPDATE_LABEL: Record<UpdateStatus, string> = {
+    off: 'not installed',
+    checking: 'checking…',
+    current: 'up to date',
+    offline: 'offline',
+    downloading: 'downloading…',
+    ready: 'update ready',
+    applying: 'updating…',
   }
 
   function fmtTime(ms: number): string {
@@ -124,6 +142,55 @@
       </div>
     {/if}
   </DebugSection>
+
+  <!-- Only the installed app has a stored copy to update. A browser tab always
+       loads the latest version. -->
+  {#if $appUpdate.status !== 'off'}
+    <DebugSection title="App" open>
+      <div class="debug-row">
+        <span class="label">Version</span>
+        <span class="dim">{APP_BUILD}</span>
+      </div>
+      <div class="debug-row">
+        <span class="label">Update</span>
+        <span
+          class="status-pill"
+          class:status-pill--ok={$appUpdate.status === 'current'}
+          class:status-pill--busy={$appUpdate.status === 'checking' ||
+            $appUpdate.status === 'downloading' ||
+            $appUpdate.status === 'ready' ||
+            $appUpdate.status === 'applying'}
+        >
+          <span class="status-dot" aria-hidden="true"></span>
+          {UPDATE_LABEL[$appUpdate.status]}
+        </span>
+      </div>
+      {#if $appUpdate.checkedAt !== null}
+        <div class="debug-row">
+          <span class="label">Checked</span>
+          <span class="dim">{fmtTime($appUpdate.checkedAt)}</span>
+        </div>
+      {/if}
+      <div class="debug-controls">
+        {#if $appUpdate.status === 'ready'}
+          <button type="button" class="debug-btn" onclick={applyUpdate}>
+            Update now
+          </button>
+        {:else}
+          <button
+            type="button"
+            class="debug-btn"
+            disabled={$appUpdate.status === 'checking' ||
+              $appUpdate.status === 'downloading' ||
+              $appUpdate.status === 'applying'}
+            onclick={checkForUpdate}
+          >
+            Check for update
+          </button>
+        {/if}
+      </div>
+    </DebugSection>
+  {/if}
 
   <DebugSection title="Panels" open>
     <div class="debug-controls">

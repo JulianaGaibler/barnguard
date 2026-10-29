@@ -14,6 +14,7 @@
   import LeaderboardPanel from '@src/core/attendant/LeaderboardPanel.svelte'
   import BackgroundLayer from '@src/core/ui/BackgroundLayer.svelte'
   import TopBar from '@src/core/attendant/TopBar.svelte'
+  import UpdateNotice from '@src/core/pwa/UpdateNotice.svelte'
   import { displayPrints, type DisplayManifest } from '@src/core/display'
 
   interface Props {
@@ -58,6 +59,8 @@
 {#if display.renderPreviewLabel && $printStatusPillVisible}
   <PrintStatusPill />
 {/if}
+
+<UpdateNotice />
 
 <BoothMenu />
 {#if displayPrints(display)}

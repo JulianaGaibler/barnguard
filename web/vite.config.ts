@@ -1,6 +1,7 @@
 import { defineConfig, searchForWorkspaceRoot } from 'vite'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { VitePWA } from 'vite-plugin-pwa'
+import { execSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,6 +14,22 @@ const publicDir = fileURLToPath(new URL('./public', import.meta.url))
 const stargazerDir = dirname(
   createRequire(import.meta.url).resolve('stargazer/package.json'),
 )
+
+/**
+ * Which build this is, for the booth menu to show: the commit and when it was
+ * built, so staff can tell whether a device has taken an update. A commit with
+ * uncommitted changes on top is marked with `+`.
+ */
+function buildStamp(): string {
+  const built = new Date().toISOString().slice(0, 16).replace('T', ' ')
+  try {
+    const commit = execSync('git rev-parse --short HEAD').toString().trim()
+    const dirty = execSync('git status --porcelain').toString().trim() !== ''
+    return `${commit}${dirty ? '+' : ''} · ${built} UTC`
+  } catch {
+    return `${built} UTC`
+  }
+}
 
 /**
  * Prepend the shared SASS utilities to every SASS block so components can use
@@ -31,6 +48,9 @@ const prependStyleUtils = (source: string): string => {
 }
 
 export default defineConfig({
+  define: {
+    __APP_BUILD__: JSON.stringify(buildStamp()),
+  },
   plugins: [
     // Which displays this build carries: all of them, or the one named by
     // `BARNGUARD_DISPLAY` (see `npm run build:display`).

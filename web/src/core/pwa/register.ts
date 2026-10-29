@@ -1,3 +1,4 @@
+import { writable, type Readable } from 'svelte/store'
 import { msSinceInput } from '@src/core/activity'
 
 /** How long nobody touches the screen before a waiting update takes over. */
@@ -6,6 +7,77 @@ export const UPDATE_IDLE_MS = 60_000
 const CHECK_INTERVAL_MS = 30 * 60_000
 /** How often the page asks whether a found update can take over. */
 const APPLY_POLL_MS = 15_000
+
+/**
+ * Where the installed app is with its updates, for the screen to show.
+ *
+ * - `off`: no service worker, as in a browser tab or in development.
+ * - `checking`: asking the server for a newer version.
+ * - `current`: the last check found nothing newer.
+ * - `offline`: the last check could not reach the server.
+ * - `downloading`: a newer version is being stored for offline use.
+ * - `ready`: it is stored, and takes over once nobody is using the screen.
+ * - `applying`: it is taking over, and the page is about to reload.
+ */
+export type UpdateStatus =
+  | 'off'
+  | 'checking'
+  | 'current'
+  | 'offline'
+  | 'downloading'
+  | 'ready'
+  | 'applying'
+
+export interface UpdateState {
+  status: UpdateStatus
+  /** When the server last answered a check, in epoch ms. */
+  checkedAt: number | null
+}
+
+const state = writable<UpdateState>({ status: 'off', checkedAt: null })
+
+/** The installed app's update state. */
+export const appUpdate: Readable<UpdateState> = { subscribe: state.subscribe }
+
+function setStatus(status: UpdateStatus, checked = false): void {
+  state.update((now) => ({
+    status,
+    checkedAt: checked ? Date.now() : now.checkedAt,
+  }))
+}
+
+let registered: ServiceWorkerRegistration | null = null
+
+/**
+ * Asks the server for a newer version now, rather than at the next launch or
+ * half hour. Does nothing without a service worker.
+ */
+export function checkForUpdate(): void {
+  const registration = registered
+  if (!registration) return
+  // A version already downloading or waiting is newer than any check finds.
+  if (registration.installing || registration.waiting) return
+  setStatus('checking')
+  registration
+    .update()
+    .then(() => {
+      if (!registration.installing && !registration.waiting) {
+        setStatus('current', true)
+      }
+    })
+    .catch(() => setStatus('offline'))
+}
+
+/**
+ * Lets a downloaded version take over at once, whoever is using the screen. The
+ * page reloads into it.
+ */
+export function applyUpdate(): void {
+  const waiting = registered?.waiting
+  if (!waiting) return
+  setStatus('applying')
+  waiting.postMessage({ type: 'SKIP_WAITING' })
+}
 
 /** Input that means someone has started using the page, unlike a hover. */
 const ENGAGE_EVENTS = ['pointerdown', 'keydown'] as const
@@ -35,6 +107,7 @@ export function shouldApplyUpdate(
 export function registerServiceWorker(): void {
   if (!import.meta.env.PROD) return
   if (!('serviceWorker' in navigator) || !window.isSecureContext) return
+  setStatus('checking')
 
   let engaged = false
   const engage = (): void => {
@@ -57,24 +130,41 @@ export function registerServiceWorker(): void {
   container
     .register('./sw.js')
     .then((registration) => {
+      registered = registration
       const apply = (): void => {
         if (
           shouldApplyUpdate(!!registration.waiting, msSinceInput(), engaged)
         ) {
-          registration.waiting?.postMessage({ type: 'SKIP_WAITING' })
+          applyUpdate()
         }
       }
       // Apply as soon as a new version finishes installing, so a visitor who
       // just opened the page gets it before they start, not on a later visit.
-      registration.addEventListener('updatefound', () => {
-        const worker = registration.installing
-        worker?.addEventListener('statechange', () => {
-          if (worker.state === 'installed') apply()
+      const follow = (worker: ServiceWorker): void => {
+        setStatus('downloading', true)
+        worker.addEventListener('statechange', () => {
+          if (worker.state === 'installed') {
+            // The first install has nothing to wait for, and takes over alone.
+            setStatus(registration.waiting ? 'ready' : 'current')
+            apply()
+          } else if (worker.state === 'redundant' && !registration.waiting) {
+            // The download failed, as on a connection that dropped. The old
+            // version carries on, and the next check tries again.
+            setStatus('offline')
+          }
         })
+      }
+      registration.addEventListener('updatefound', () => {
+        if (registration.installing) follow(registration.installing)
       })
+      if (registration.installing) follow(registration.installing)
+      if (registration.waiting) setStatus('ready')
+      // Registering may still be checking in the background, so a check of
+      // its own is what says whether this version is the latest.
+      else if (!registration.installing) checkForUpdate()
       apply()
 
-      const check = (): void => void registration.update().catch(() => {})
+      const check = (): void => checkForUpdate()
       setInterval(check, CHECK_INTERVAL_MS)
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') check()
@@ -83,6 +173,7 @@ export function registerServiceWorker(): void {
     })
     .catch((error: unknown) => {
       console.warn('[pwa] the service worker did not register', error)
+      setStatus('off')
     })
 }
 
