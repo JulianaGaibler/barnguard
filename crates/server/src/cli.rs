@@ -9,6 +9,7 @@ use crate::store::load_games;
 use crate::types::{DisplayHighScores, GameDetails, DISPLAY_ARCADE, DISPLAY_ENTERPRISE};
 use std::error::Error;
 use std::path::PathBuf;
+use tracing_subscriber::EnvFilter;
 
 pub fn show_config() -> Result<(), Box<dyn Error>> {
     let cfg = Config::load()?;
@@ -81,6 +82,14 @@ pub async fn usb_probe(
     read_mode: Option<String>,
     cut_trigger: Option<String>,
 ) -> Result<(), Box<dyn Error>> {
+    // Show warnings from the USB library on stderr (it skips devices it can't
+    // read with only a warning). RUST_LOG=debug shows more.
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn")),
+        )
+        .init();
     let mut cfg = Config::load()?;
     if let Some(m) = read_mode {
         cfg.usb.read_mode = m;

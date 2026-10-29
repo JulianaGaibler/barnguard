@@ -859,36 +859,77 @@ pub async fn probe(
         let _ = writeln!(out, "{s}");
     }
 
-    let devices: Vec<DeviceInfo> = nusb::list_devices()
-        .await
-        .map_err(map_nusb_err)?
+    let all: Vec<DeviceInfo> = nusb::list_devices().await.map_err(map_nusb_err)?.collect();
+    let describe = |d: &DeviceInfo| {
+        format!(
+            "  {:04x}:{:04x}  bus {} device {:03}  product={:?} serial={:?}",
+            d.vendor_id(),
+            d.product_id(),
+            d.bus_id(),
+            d.device_address(),
+            d.product_string().unwrap_or("?"),
+            d.serial_number().unwrap_or("?"),
+        )
+    };
+    let brother: Vec<&DeviceInfo> = all
+        .iter()
         .filter(|d| d.vendor_id() == opts.vendor_id)
         .collect();
     w(
         out,
         format!("Devices with vendor ID {:04x}:", opts.vendor_id),
     );
-    if devices.is_empty() {
+    if brother.is_empty() {
+        // Print everything this program can see, so it can be compared with
+        // `lsusb` run at the same moment.
+        w(out, "  none.".into());
+        w(out, String::new());
         w(
             out,
-            "  none. Is the printer on, awake, and plugged in?".into(),
+            format!("All USB devices this program can see ({}):", all.len()),
+        );
+        for d in &all {
+            w(out, describe(d));
+        }
+        w(out, String::new());
+        w(
+            out,
+            "If the printer is missing here, it may have gone to sleep: press its power \
+             button, then run `lsusb` and this probe again straight away. If `lsusb` lists it \
+             but this list doesn't, look for \"ignoring device\" warnings above."
+                .into(),
         );
         return Err(PrinterError::Disconnected);
     }
-    for d in &devices {
+    for d in &brother {
+        w(out, describe(d));
+    }
+
+    let wanted = |d: &&DeviceInfo| {
+        d.product_id() == opts.product_id
+            && opts
+                .serial
+                .as_deref()
+                .is_none_or(|s| d.serial_number() == Some(s))
+    };
+    let Some(info) = brother.iter().copied().find(wanted) else {
+        let serial = match &opts.serial {
+            Some(s) => format!(" with serial {s:?}"),
+            None => String::new(),
+        };
+        w(out, String::new());
         w(
             out,
             format!(
-                "  {:04x}:{:04x}  product={:?} serial={:?}",
-                d.vendor_id(),
-                d.product_id(),
-                d.product_string().unwrap_or("?"),
-                d.serial_number().unwrap_or("?"),
+                "None of these is {:04x}:{:04x}{serial}, which [usb] in the config asks for. \
+                 If one of them is the printer, set usb.product_id (and usb.serial) to match it.",
+                opts.vendor_id, opts.product_id
             ),
         );
-    }
-
-    let info = find_device(opts.vendor_id, opts.product_id, opts.serial.as_deref()).await?;
+        return Err(PrinterError::Protocol(
+            "configured product ID / serial not found".into(),
+        ));
+    };
     let device = info.open().await.map_err(map_nusb_err)?;
     let alts = configured_alt_settings(&device).await?;
     let pick = pick_printer_interface(&alts);
